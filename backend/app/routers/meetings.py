@@ -47,6 +47,29 @@ async def create_meeting(payload: MeetingCreate, session: AsyncSession = Depends
     return _to_meeting_out(m, list(payload.attendee_user_ids))
 
 
+@router.get("", response_model=list[MeetingOut])
+async def list_meetings(session: AsyncSession = Depends(get_session)):
+    rows = (
+        await session.execute(
+            select(Meeting).order_by(Meeting.created_at.desc()).limit(200)
+        )
+    ).scalars().all()
+    if not rows:
+        return []
+    # Pull attendee user_ids for each meeting in one shot
+    ids = [m.id for m in rows]
+    rels = (
+        await session.execute(
+            select(MeetingAttendee).where(MeetingAttendee.meeting_id.in_(ids))
+        )
+    ).scalars().all()
+    by_meeting: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for r in rels:
+        if r.user_id is not None:
+            by_meeting.setdefault(r.meeting_id, []).append(r.user_id)
+    return [_to_meeting_out(m, by_meeting.get(m.id, [])) for m in rows]
+
+
 @router.get("/{meeting_id}", response_model=MeetingOut)
 async def get_meeting(meeting_id: str, session: AsyncSession = Depends(get_session)):
     m = (await session.execute(select(Meeting).where(Meeting.id == meeting_id))).scalar_one_or_none()

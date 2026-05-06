@@ -162,6 +162,7 @@ export const api = {
     fd.append("audio", pcmBlob, "voice.pcm");
     return jpostForm<Voiceprint>("/api/voiceprints", fd);
   },
+  listMeetings: () => jget<Meeting[]>("/api/meetings"),
   createMeeting: (title: string, attendeeUserIds: string[]) =>
     jpost<Meeting>("/api/meetings", { title, attendee_user_ids: attendeeUserIds }),
   getMeeting: (id: string) => jget<Meeting>(`/api/meetings/${id}`),
