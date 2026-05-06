@@ -1,10 +1,23 @@
+from __future__ import annotations
+
 import json
 import logging
+import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select, update
 
 from .config import get_settings
+from .db import SessionLocal
+from .init_db import init_db
+from .models import Meeting, MeetingTranscript
+from .routers import meetings as meetings_router
+from .routers import users as users_router
+from .routers import voiceprints as voiceprints_router
+from . import session_state
 from .stt_client import FunASRClient
 
 logger = logging.getLogger(__name__)
@@ -15,7 +28,14 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s :: %(message)s",
 )
 
-app = FastAPI(title="Aimeeting Backend", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await init_db()
+    yield
+
+
+app = FastAPI(title="Aimeeting Backend", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,6 +44,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(users_router.router)
+app.include_router(voiceprints_router.router)
+app.include_router(meetings_router.router)
 
 
 @app.get("/healthz")
@@ -34,31 +58,71 @@ async def healthz():
 @app.websocket("/ws/stt")
 async def ws_stt(ws: WebSocket):
     """
-    Front-end sends 16kHz mono Int16 PCM as binary frames.
-    Server pipes them to DashScope and pushes back JSON results:
-        {"type": "transcript", "text": "...", "is_final": true,
-         "start_ts": 1234, "end_ts": 1500}
-        {"type": "system", "msg": "..."}
-    Client may send {"action": "stop"} to close.
+    Realtime STT pipe. Now also:
+    - persists each finalized ASR sentence to meeting_transcript
+    - buffers raw PCM into the per-meeting in-memory session for post-meeting
+      voiceprint identification
+
+    Query: meeting_id=<uuid>  (required to persist; if absent we run in
+    legacy "demo" mode without DB writes — handy for /meeting/demo).
     """
     await ws.accept()
+
+    meeting_id_raw = ws.query_params.get("meeting_id")
+    meeting_uuid: uuid.UUID | None = None
+    if meeting_id_raw and meeting_id_raw not in {"demo", "test"}:
+        try:
+            meeting_uuid = uuid.UUID(meeting_id_raw)
+        except ValueError:
+            await ws.send_text(json.dumps({"type": "system", "msg": "invalid meeting_id"}))
+            await ws.close()
+            return
+
+    sess = session_state.get_or_create(meeting_uuid) if meeting_uuid else None
+
+    if meeting_uuid is not None:
+        async with SessionLocal() as db:
+            m = (
+                await db.execute(select(Meeting).where(Meeting.id == meeting_uuid))
+            ).scalar_one_or_none()
+            if not m:
+                await ws.send_text(json.dumps({"type": "system", "msg": "meeting not found"}))
+                await ws.close()
+                return
+            if m.status in {"scheduled"}:
+                await db.execute(
+                    update(Meeting)
+                    .where(Meeting.id == meeting_uuid)
+                    .values(status="ongoing", started_at=datetime.now(timezone.utc))
+                )
+                await db.commit()
 
     async def emit(text: str, is_final: bool, start_ts, end_ts) -> None:
         try:
             await ws.send_text(
                 json.dumps(
-                    {
-                        "type": "transcript",
-                        "text": text,
-                        "is_final": is_final,
-                        "start_ts": start_ts,
-                        "end_ts": end_ts,
-                    },
+                    {"type": "transcript", "text": text, "is_final": is_final,
+                     "start_ts": start_ts, "end_ts": end_ts},
                     ensure_ascii=False,
                 )
             )
         except Exception:
             logger.exception("ws send failed")
+        if is_final and meeting_uuid is not None:
+            try:
+                async with SessionLocal() as db:
+                    db.add(
+                        MeetingTranscript(
+                            meeting_id=meeting_uuid,
+                            text=text,
+                            start_ms=int(start_ts) if start_ts is not None else None,
+                            end_ms=int(end_ts) if end_ts is not None else None,
+                            is_final=True,
+                        )
+                    )
+                    await db.commit()
+            except Exception:
+                logger.exception("persist transcript failed")
 
     client = FunASRClient(emit)
     try:
@@ -70,7 +134,10 @@ async def ws_stt(ws: WebSocket):
             if msg.get("type") == "websocket.disconnect":
                 break
             if "bytes" in msg and msg["bytes"] is not None:
-                await client.feed(msg["bytes"])
+                pcm = msg["bytes"]
+                await client.feed(pcm)
+                if sess is not None:
+                    sess.pcm_buffer.extend(pcm)
             elif "text" in msg and msg["text"] is not None:
                 try:
                     payload = json.loads(msg["text"])
@@ -83,9 +150,7 @@ async def ws_stt(ws: WebSocket):
     except Exception:
         logger.exception("ws_stt error")
         try:
-            await ws.send_text(
-                json.dumps({"type": "system", "msg": "internal_error"})
-            )
+            await ws.send_text(json.dumps({"type": "system", "msg": "internal_error"}))
         except Exception:
             pass
     finally:
