@@ -181,12 +181,13 @@ async def run_identify(meeting_id: uuid.UUID, *, final: bool = True) -> bool:
 
     # 3) submit + wait
     try:
+        # Note: minSpeakers/maxSpeakers are precision-2 only on pyannote.
+        # We always pass numSpeakers (the count of attendees with voiceprints),
+        # which works for any model.
         job_id = await pyannote.submit_identify(
             signed,
             voiceprints_payload,
-            num_speakers=len(vp_rows) if final else None,
-            min_speakers=1 if not final else None,
-            max_speakers=len(vp_rows) if not final else None,
+            num_speakers=len(voiceprints_payload),
             threshold=0.4,
             exclusive=True,
         )
