@@ -1,12 +1,35 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { api, type User } from "@/lib/api";
 import { startAudioCapture, type AudioCaptureHandle } from "@/lib/audioCapture";
 
 const TARGET_SECONDS = 30;
 const MAX_SECONDS = 60;
+
+// Reading prompts for enrollment. Picked for:
+// 1) natural conversational tone (not stiff, not literary)
+// 2) phonetic variety — covers most Mandarin initials/finals/tones
+// 3) ~30–60s at normal reading pace
+const SCRIPTS: { title: string; text: string }[] = [
+  {
+    title: "一段关于午后阅读的小文",
+    text: "我喜欢在安静的午后捧一本书，坐在阳台上慢慢翻看。窗外的阳光斜斜地洒在书页上，远处偶尔传来几声鸟鸣。读书最让人愉快的，不是读完一本厚厚的著作那种成就感，而是在某一页突然遇到一句让自己心里一动的话。那一刻，你会感觉作者像是在跟你说话，而你也终于明白了什么。",
+  },
+  {
+    title: "一段关于早晨的小文",
+    text: "清晨的城市还没有完全醒过来。地铁站门口排着稀疏的队，便利店刚把热饮的招牌摆出来。我点了一杯热豆浆和一个茶叶蛋，靠在落地窗边吃完。这样一份普通的早餐，却让我觉得新的一天有了盼头。我想，所谓生活，大概就是由这样一个个不起眼的瞬间慢慢拼起来的。",
+  },
+  {
+    title: "一段关于学习的小文",
+    text: "学一件新东西的开头总是最难的。你会反复怀疑自己，会觉得别人都比你聪明，会想干脆放弃算了。但只要你能撑过最难受的那两三周，事情就会突然变得清晰。原本看不懂的概念开始有了意义，原本笨拙的动作也慢慢顺手起来。后来你回头看，会觉得当时的自己只是缺一点点耐心而已。",
+  },
+  {
+    title: "一段关于旅行的小文",
+    text: "真正喜欢上一个地方，往往不是因为景点有多出名，而是因为你在那里度过了一个普通的下午。可能是在小巷里偶遇一家旧书店，可能是在码头边等了一场迟来的雨，也可能只是和当地人聊了几句不咸不淡的话。旅行最珍贵的部分，常常就藏在这些计划之外的间隙里。",
+  },
+];
 
 export default function EnrollPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -18,6 +41,15 @@ export default function EnrollPage() {
   const captureRef = useRef<AudioCaptureHandle | null>(null);
   const bufRef = useRef<Uint8Array[]>([]);
   const tickRef = useRef<number | null>(null);
+
+  const [scriptIdx, setScriptIdx] = useState<number>(() =>
+    Math.floor(Math.random() * SCRIPTS.length),
+  );
+  const script = SCRIPTS[scriptIdx];
+  const nextScript = useMemo(
+    () => () => setScriptIdx((i) => (i + 1) % SCRIPTS.length),
+    [],
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -126,6 +158,39 @@ export default function EnrollPage() {
           className="mt-2 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
         />
 
+        <div
+          className={`mt-6 rounded-lg border p-5 transition ${
+            recording
+              ? "border-accent-500/60 bg-accent-500/5"
+              : "border-ink-700 bg-ink-950"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-zinc-500">
+              <span className="rounded bg-ink-800 px-1.5 py-0.5 font-mono">朗读这段</span>
+              <span>{script.title}</span>
+            </div>
+            <button
+              type="button"
+              onClick={nextScript}
+              disabled={recording || submitting}
+              className="text-xs text-zinc-500 hover:text-accent-400 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              换一段 ↻
+            </button>
+          </div>
+          <p
+            className={`mt-3 text-lg leading-loose tracking-wide ${
+              recording ? "text-white" : "text-zinc-200"
+            }`}
+          >
+            {script.text}
+          </p>
+          <p className="mt-3 text-xs text-zinc-600">
+            正常语速朗读完一遍约 30–45 秒。读到结尾不够 30s 就接着读第二遍。
+          </p>
+        </div>
+
         <div className="mt-6">
           <div className="flex items-center justify-between text-xs text-zinc-500">
             <span>录制时长 {seconds.toFixed(1)}s · 目标 30-60s</span>
@@ -162,7 +227,7 @@ export default function EnrollPage() {
           <p className="mt-4 text-sm text-zinc-400">{status}</p>
         ) : (
           <p className="mt-4 text-xs text-zinc-600">
-            提示：找一个安静的环境，自然朗读或说话 30 秒以上。说什么内容不重要，重点是「你的声音」要清晰、有起伏。
+            提示：找一个安静的环境，按上面的小文自然朗读。读完不够 30s 接着读第二遍即可。
           </p>
         )}
       </section>
