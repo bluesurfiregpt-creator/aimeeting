@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import { startAudioCapture, type AudioCaptureHandle } from "@/lib/audioCapture";
 import { openSttSocket, type SttEvent, type SttSocket } from "@/lib/sttSocket";
 
@@ -16,7 +16,8 @@ function backendWsUrl(meetingId: string): string {
   return `${proto}//${host}/ws/stt?meeting_id=${encodeURIComponent(meetingId)}`;
 }
 
-export default function MeetingPage({ params }: { params: { id: string } }) {
+export default function MeetingPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id: meetingId } = use(params);
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState<string>("待开始");
   const [lines, setLines] = useState<Line[]>([]);
@@ -68,7 +69,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     setStatus("请求麦克风权限...");
     try {
       const sock = openSttSocket({
-        url: backendWsUrl(params.id),
+        url: backendWsUrl(meetingId),
         onEvent: handleEvent,
         onClose: () => setStatus("连接已断开"),
       });
@@ -86,7 +87,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
         socketRef.current?.close();
       } catch {}
     }
-  }, [running, params.id, handleEvent]);
+  }, [running, meetingId, handleEvent]);
 
   const stop = useCallback(async () => {
     setRunning(false);
@@ -113,7 +114,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
       <header className="flex items-center justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.3em] text-zinc-500">
-            会议室 / {params.id}
+            会议室 / {meetingId}
           </div>
           <h1 className="mt-1 text-2xl font-semibold text-white">
             实时字幕（Phase 1 演示）
