@@ -11,7 +11,11 @@ export type SystemEvent = {
   msg: string;
 };
 
-export type SttEvent = TranscriptEvent | SystemEvent;
+export type SpeakersUpdatedEvent = {
+  type: "speakers_updated";
+};
+
+export type SttEvent = TranscriptEvent | SystemEvent | SpeakersUpdatedEvent;
 
 export interface SttSocket {
   send: (frame: ArrayBuffer) => void;

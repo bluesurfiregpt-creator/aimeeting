@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -12,6 +13,7 @@ from sqlalchemy import select, update
 
 from .config import get_settings
 from .db import SessionLocal
+from .identify_pipeline import identify_worker
 from .init_db import init_db
 from .models import Meeting, MeetingTranscript
 from .routers import meetings as meetings_router
@@ -79,6 +81,9 @@ async def ws_stt(ws: WebSocket):
             return
 
     sess = session_state.get_or_create(meeting_uuid) if meeting_uuid else None
+    # Reset stop_event in case this session was reused after a previous WS run.
+    if sess is not None:
+        sess.stop_event.clear()
 
     if meeting_uuid is not None:
         async with SessionLocal() as db:
@@ -124,6 +129,18 @@ async def ws_stt(ws: WebSocket):
             except Exception:
                 logger.exception("persist transcript failed")
 
+    async def notify_speakers_updated() -> None:
+        try:
+            await ws.send_text(json.dumps({"type": "speakers_updated"}))
+        except Exception:
+            pass
+
+    worker_task: asyncio.Task | None = None
+    if meeting_uuid is not None:
+        worker_task = asyncio.create_task(
+            identify_worker(meeting_uuid, on_change=notify_speakers_updated)
+        )
+
     client = FunASRClient(emit)
     try:
         await client.start()
@@ -155,6 +172,22 @@ async def ws_stt(ws: WebSocket):
             pass
     finally:
         await client.stop()
+        # Tell the periodic identify worker to do one final pass and exit.
+        # This also marks the meeting as `processed` and frees the buffer.
+        if sess is not None:
+            sess.stop_event.set()
+            if worker_task is not None:
+                # Mark meeting finished while the worker wraps up.
+                try:
+                    async with SessionLocal() as db:
+                        await db.execute(
+                            update(Meeting)
+                            .where(Meeting.id == meeting_uuid)
+                            .values(status="finished", ended_at=datetime.now(timezone.utc))
+                        )
+                        await db.commit()
+                except Exception:
+                    logger.exception("failed to mark meeting finished")
         try:
             await ws.close()
         except Exception:

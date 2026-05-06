@@ -17,7 +17,12 @@ from dataclasses import dataclass, field
 class MeetingSession:
     meeting_id: uuid.UUID
     pcm_buffer: bytearray = field(default_factory=bytearray)
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Held while an identify pass is in flight, so periodic + final calls
+    # don't stack up on top of each other.
+    identify_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Set when the WebSocket has closed and we want the worker to do one
+    # last pass and exit.
+    stop_event: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 _sessions: dict[uuid.UUID, MeetingSession] = {}

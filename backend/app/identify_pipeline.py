@@ -15,16 +15,25 @@ want to revisit only the low-confidence ones for human correction.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
+from typing import Awaitable, Callable
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .audio_utils import pcm_to_wav
 from .db import SessionLocal
-from .models import Meeting, MeetingAttendee, MeetingSpeakerSegment, MeetingTranscript, Voiceprint
+from .models import (
+    Meeting,
+    MeetingAttendee,
+    MeetingSpeakerSegment,
+    MeetingTranscript,
+    User,
+    Voiceprint,
+)
 from .oss_client import OSSClient
 from .pyannote_client import IdentifySegment, PyannoteClient
 from . import session_state
@@ -32,25 +41,81 @@ from . import session_state
 logger = logging.getLogger(__name__)
 
 CONF_THRESHOLD = 0.5  # below this we mark UNKNOWN (manual fixup later)
+PERIODIC_INTERVAL_S = 45  # how often the live worker triggers an identify pass
+MIN_BUFFER_SECONDS = 20   # don't bother identifying buffers shorter than this
 
 
-async def run_identify(meeting_id: uuid.UUID) -> None:
+async def identify_worker(
+    meeting_id: uuid.UUID,
+    *,
+    on_change: Callable[[], Awaitable[None]] | None = None,
+) -> None:
     """
-    Background task. Pure idempotent: leaves status markers on the meeting row
-    so we can retry safely if it fails partway.
+    Long-running per-meeting task. Runs an identify pass every
+    PERIODIC_INTERVAL_S seconds; on stop_event, runs one final pass and exits.
+    """
+    sess = session_state.get_or_create(meeting_id)
+    while True:
+        try:
+            await asyncio.wait_for(sess.stop_event.wait(), timeout=PERIODIC_INTERVAL_S)
+            stopping = True
+        except asyncio.TimeoutError:
+            stopping = False
+
+        # Don't bother on small buffers (avoids cheap mistakes + saves cost).
+        from .audio_utils import pcm_seconds  # local import to avoid cycle
+        if pcm_seconds(bytes(sess.pcm_buffer)) < MIN_BUFFER_SECONDS:
+            if stopping:
+                # nothing useful to identify; mark the meeting skipped on exit
+                await _mark_meeting_status(meeting_id, "skipped", "audio too short")
+                session_state.discard(meeting_id)
+                return
+            continue
+
+        try:
+            async with sess.identify_lock:
+                changed = await run_identify(meeting_id, final=stopping)
+        except Exception:
+            logger.exception("identify pass failed for meeting %s", meeting_id)
+            changed = False
+
+        if changed and on_change is not None:
+            try:
+                await on_change()
+            except Exception:
+                logger.exception("on_change callback failed")
+
+        if stopping:
+            return
+
+
+async def run_identify(meeting_id: uuid.UUID, *, final: bool = True) -> bool:
+    """
+    Run /identify on the current PCM buffer for this meeting and propagate
+    the speaker labels back into meeting_transcript rows.
+
+    Idempotent: each call re-snapshots the buffer, replaces stale speaker
+    segments, and re-aligns transcript lines. Safe to invoke periodically
+    during a meeting; the LAST call should pass final=True to mark the
+    meeting as `processed` and free the in-memory PCM buffer.
+
+    Returns True if names were updated for at least one transcript line,
+    so callers can decide whether to push a `speakers_updated` event.
     """
     sess = session_state.get(meeting_id)
     if sess is None or len(sess.pcm_buffer) == 0:
-        await _mark_meeting_status(meeting_id, "skipped", "no audio captured")
-        return
+        if final:
+            await _mark_meeting_status(meeting_id, "skipped", "no audio captured")
+        return False
 
     pcm = bytes(sess.pcm_buffer)
 
     oss = OSSClient()
     pyannote = PyannoteClient()
     if not oss.configured or not pyannote.configured:
-        await _mark_meeting_status(meeting_id, "skipped", "OSS or pyannoteAI not configured")
-        return
+        if final:
+            await _mark_meeting_status(meeting_id, "skipped", "OSS or pyannoteAI not configured")
+        return False
 
     # 1) upload recording
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -72,8 +137,9 @@ async def run_identify(meeting_id: uuid.UUID) -> None:
         ).scalars().all()
         user_ids = [a.user_id for a in attendees if a.user_id]
         if not user_ids:
-            await _mark_meeting_status(meeting_id, "skipped", "no human attendees", db=db)
-            return
+            if final:
+                await _mark_meeting_status(meeting_id, "skipped", "no human attendees", db=db)
+            return False
 
         vp_rows = (
             await db.execute(
@@ -83,35 +149,52 @@ async def run_identify(meeting_id: uuid.UUID) -> None:
             )
         ).scalars().all()
         if not vp_rows:
-            await _mark_meeting_status(meeting_id, "skipped", "no voiceprints for attendees", db=db)
-            return
+            if final:
+                await _mark_meeting_status(meeting_id, "skipped", "no voiceprints for attendees", db=db)
+            return False
+
+        # Resolve user names so we can build readable, stable labels.
+        users = (
+            await db.execute(select(User).where(User.id.in_(user_ids)))
+        ).scalars().all()
+        name_by_user: dict[uuid.UUID, str] = {u.id: u.name for u in users}
 
         voiceprints_payload: list[dict] = []
         label_to_user: dict[str, uuid.UUID] = {}
         for vp in vp_rows:
-            label = str(vp.pyannote_id)
-            label_to_user[label] = vp.user_id
-            entry: dict = {"id": label}
             payload = vp.pyannote_payload or {}
-            for k in ("voiceprint", "embedding", "vector", "data"):
-                if k in payload:
-                    entry[k] = payload[k]
-                    break
-            voiceprints_payload.append(entry)
+            embedding = payload.get("voiceprint")
+            if not embedding:
+                logger.warning("voiceprint %s missing embedding payload", vp.id)
+                continue
+            # pyannote rules: label must be string, non-empty, ≤100 chars,
+            # must NOT start with "SPEAKER_". We use uXXXXXXXX-Name (slug).
+            base = name_by_user.get(vp.user_id, "user")
+            label = f"u{str(vp.user_id)[:8]}-{base}"[:100]
+            label_to_user[label] = vp.user_id
+            voiceprints_payload.append({"label": label, "voiceprint": embedding})
+
+        if not voiceprints_payload:
+            if final:
+                await _mark_meeting_status(meeting_id, "skipped", "no usable voiceprints", db=db)
+            return False
 
     # 3) submit + wait
     try:
         job_id = await pyannote.submit_identify(
             signed,
             voiceprints_payload,
-            num_speakers=len(vp_rows),
+            num_speakers=len(vp_rows) if final else None,
+            min_speakers=1 if not final else None,
+            max_speakers=len(vp_rows) if not final else None,
             threshold=0.4,
             exclusive=True,
         )
     except Exception as e:
         logger.exception("submit_identify failed")
-        await _mark_meeting_status(meeting_id, "failed", f"submit: {e}")
-        return
+        if final:
+            await _mark_meeting_status(meeting_id, "failed", f"submit: {e}")
+        return False
 
     async with SessionLocal() as db:
         await db.execute(
@@ -123,14 +206,21 @@ async def run_identify(meeting_id: uuid.UUID) -> None:
         result = await pyannote.wait_for_job(job_id, max_wait_s=600, poll_every_s=4.0)
     except Exception as e:
         logger.exception("wait_for_job failed")
-        await _mark_meeting_status(meeting_id, "failed", f"wait: {e}")
-        return
+        if final:
+            await _mark_meeting_status(meeting_id, "failed", f"wait: {e}")
+        return False
 
     segments = pyannote.parse_identify_segments(result)
     logger.info("meeting %s: %d speaker segments", meeting_id, len(segments))
 
+    changed = False
     async with SessionLocal() as db:
-        # persist raw segments
+        # Replace stale segments — each call is the new authoritative view.
+        await db.execute(
+            delete(MeetingSpeakerSegment).where(
+                MeetingSpeakerSegment.meeting_id == meeting_id
+            )
+        )
         for s in segments:
             uid = label_to_user.get(s.label)
             db.add(
@@ -156,20 +246,34 @@ async def run_identify(meeting_id: uuid.UUID) -> None:
 
         for line in lines:
             uid, conf = _align_line_to_segments(line, segments, label_to_user)
+            new_label = "auto_recognized" if uid else "UNKNOWN"
+            new_status = "auto_recognized" if uid else "low_confidence"
+            if (
+                line.speaker_user_id != uid
+                or line.speaker_label != new_label
+                or line.confidence != conf
+            ):
+                changed = True
             line.speaker_user_id = uid
-            line.speaker_label = "auto_recognized" if uid else "UNKNOWN"
-            line.speaker_status = "auto_recognized" if uid else "low_confidence"
+            line.speaker_label = new_label
+            line.speaker_status = new_status
             line.confidence = conf
 
-        await db.execute(
-            update(Meeting)
-            .where(Meeting.id == meeting_id)
-            .values(status="processed")
-        )
+        if final:
+            await db.execute(
+                update(Meeting)
+                .where(Meeting.id == meeting_id)
+                .values(status="processed")
+            )
         await db.commit()
 
-    session_state.discard(meeting_id)
-    logger.info("identify pipeline complete for meeting %s", meeting_id)
+    if final:
+        session_state.discard(meeting_id)
+    logger.info(
+        "identify pass for meeting %s: %d segments, %d lines, changed=%s, final=%s",
+        meeting_id, len(segments), len(lines), changed, final,
+    )
+    return changed
 
 
 def _align_line_to_segments(
