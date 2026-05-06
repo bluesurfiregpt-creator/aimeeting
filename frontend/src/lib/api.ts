@@ -163,6 +163,16 @@ export const api = {
   updateAgent: (id: string, a: Partial<AgentInput>) => jpatch<Agent>(`/api/agents/${id}`, a),
   deleteAgent: (id: string) => jdelete(`/api/agents/${id}`),
 
+  getMeetingSummary: (id: string) =>
+    jget<{ summary_md: string | null; status: "pending" | "ready" | "failed" | "unconfigured" }>(
+      `/api/meetings/${id}/summary`,
+    ),
+  regenerateMeetingSummary: (id: string) =>
+    jpost<{ summary_md: string | null; status: string }>(
+      `/api/meetings/${id}/summary/regenerate`,
+      {},
+    ),
+
   correctSpeaker: (
     meetingId: string,
     lineId: number,

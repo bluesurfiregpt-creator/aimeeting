@@ -5,6 +5,7 @@ import Link from "next/link";
 import { startAudioCapture, type AudioCaptureHandle } from "@/lib/audioCapture";
 import { openSttSocket, type SttEvent, type SttSocket } from "@/lib/sttSocket";
 import { api, type Agent, type TranscriptLine } from "@/lib/api";
+import SummaryCard from "./SummaryCard";
 
 type LiveLine =
   | {
@@ -380,6 +381,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           结束会议
         </button>
       </div>
+
+      {phase === "ended" ? <SummaryCard meetingId={meetingId} /> : null}
 
       {agents.length > 0 ? (
         <div className="mt-6 rounded-xl border border-ink-700 bg-ink-900 px-4 py-3">

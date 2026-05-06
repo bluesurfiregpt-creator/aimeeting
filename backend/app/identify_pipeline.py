@@ -274,6 +274,9 @@ async def run_identify(meeting_id: uuid.UUID, *, final: bool = True) -> bool:
 
     if final:
         session_state.discard(meeting_id)
+        # Kick off summary generation in the background (don't block worker)
+        from .summary_generator import generate_summary  # local import to avoid cycle
+        asyncio.create_task(generate_summary(meeting_id))
     logger.info(
         "identify pass for meeting %s: %d segments, %d lines, changed=%s, final=%s",
         meeting_id, len(segments), len(lines), changed, final,

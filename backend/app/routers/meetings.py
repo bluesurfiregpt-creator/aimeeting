@@ -15,6 +15,7 @@ from ..db import get_session
 from ..identify_pipeline import run_identify
 from ..models import Meeting, MeetingAttendee, MeetingTranscript, User
 from ..schemas import MeetingCreate, MeetingOut, MeetingResultOut, TranscriptLine
+from ..summary_generator import generate_summary
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/meetings", tags=["meetings"])
@@ -91,6 +92,50 @@ async def finalize_meeting(
 
 
 _STATUS_RE = re.compile(r"<!-- identify:(\w+): (.*?) -->")
+
+
+class SummaryOut(BaseModel):
+    """summary_md is None when not yet generated; status tells the front-end
+    whether to keep polling."""
+    summary_md: str | None
+    status: str  # 'pending' | 'ready' | 'failed' | 'unconfigured'
+
+
+@router.get("/{meeting_id}/summary", response_model=SummaryOut)
+async def get_meeting_summary(
+    meeting_id: str, session: AsyncSession = Depends(get_session)
+):
+    m = (
+        await session.execute(select(Meeting).where(Meeting.id == meeting_id))
+    ).scalar_one_or_none()
+    if not m:
+        raise HTTPException(404, "meeting not found")
+    if m.summary_md and not m.summary_md.startswith("<!--"):
+        return SummaryOut(summary_md=m.summary_md, status="ready")
+    # Status markers from identify pipeline (e.g. <!-- identify:skipped: ... -->)
+    # are written to summary_md before a real summary exists. Treat them as
+    # pending so the front-end keeps polling for the actual summary content.
+    return SummaryOut(summary_md=None, status="pending")
+
+
+@router.post("/{meeting_id}/summary/regenerate", response_model=SummaryOut)
+async def regenerate_meeting_summary(
+    meeting_id: str,
+    bg: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+):
+    m = (
+        await session.execute(select(Meeting).where(Meeting.id == meeting_id))
+    ).scalar_one_or_none()
+    if not m:
+        raise HTTPException(404, "meeting not found")
+    # Clear any prior content so the front-end's polling sees the regen state.
+    await session.execute(
+        update(Meeting).where(Meeting.id == m.id).values(summary_md=None)
+    )
+    await session.commit()
+    bg.add_task(generate_summary, m.id, force=True)
+    return SummaryOut(summary_md=None, status="pending")
 
 
 class CorrectSpeakerIn(BaseModel):
