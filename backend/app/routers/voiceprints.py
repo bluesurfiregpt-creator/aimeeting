@@ -66,18 +66,17 @@ async def enroll_voiceprint(
         logger.exception("pyannote /voiceprint failed")
         raise HTTPException(502, f"pyannoteAI error: {e}") from e
 
-    # The voiceprint id comes through under several possible names depending
-    # on api version: sometimes the embedding itself IS the identifier (a long
-    # base64/hex blob). We accept any of them and stash the full payload.
-    vp_payload = resp.get("voiceprint")  # the actual embedding/representation
+    # pyannote responds with `{jobId, voiceprint}` where `voiceprint` is a
+    # ~2KB embedding string — not a short id. We use the jobId (UUID) as our
+    # stable handle and keep the embedding in pyannote_payload for later
+    # /identify calls.
     pyannote_id = (
         resp.get("voiceprintId")
-        or resp.get("id")
-        or (vp_payload if isinstance(vp_payload, str) else None)
         or resp.get("jobId")
+        or resp.get("id")
     )
-    if not pyannote_id:
-        raise HTTPException(502, f"pyannote response missing id: {resp}")
+    if not pyannote_id or not resp.get("voiceprint"):
+        raise HTTPException(502, f"pyannote response unusable: {list(resp.keys())}")
 
     await session.execute(
         update(Voiceprint)
