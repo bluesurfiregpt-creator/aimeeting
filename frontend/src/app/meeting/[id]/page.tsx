@@ -4,7 +4,7 @@ import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { startAudioCapture, type AudioCaptureHandle } from "@/lib/audioCapture";
 import { openSttSocket, type SttEvent, type SttSocket } from "@/lib/sttSocket";
-import { api, type TranscriptLine } from "@/lib/api";
+import { api, type Agent, type TranscriptLine } from "@/lib/api";
 
 type LiveLine =
   | {
@@ -71,6 +71,10 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   const [phase, setPhase] = useState<Phase>("idle");
   const [statusText, setStatusText] = useState("待开始");
   const [lines, setLines] = useState<LiveLine[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  // Agents currently producing a streamed reply (between agent_message_start
+  // and agent_message_end). Used to disable / dim their avatar.
+  const [busyAgents, setBusyAgents] = useState<Set<string>>(new Set());
 
   const captureRef = useRef<AudioCaptureHandle | null>(null);
   const socketRef = useRef<SttSocket | null>(null);
@@ -107,6 +111,12 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       return;
     }
     if (e.type === "agent_message_start") {
+      setBusyAgents((prev) => {
+        if (prev.has(e.agent_id)) return prev;
+        const next = new Set(prev);
+        next.add(e.agent_id);
+        return next;
+      });
       setLines((prev) => [
         ...prev,
         {
@@ -136,6 +146,12 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       return;
     }
     if (e.type === "agent_message_end") {
+      setBusyAgents((prev) => {
+        if (!prev.has(e.agent_id)) return prev;
+        const next = new Set(prev);
+        next.delete(e.agent_id);
+        return next;
+      });
       setLines((prev) => {
         const draft = prev.slice();
         for (let i = draft.length - 1; i >= 0; i--) {
@@ -273,6 +289,23 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     socketRef.current?.close();
   }, []);
 
+  // Pull agents on mount so the avatar bar populates even before "开始会议".
+  useEffect(() => {
+    api.listAgents().then(
+      (rows) => setAgents(rows.filter((a) => a.is_active && a.has_dify_key)),
+      (err) => console.warn("listAgents failed", err),
+    );
+  }, []);
+
+  const invokeAgent = useCallback((agent: Agent) => {
+    if (phase !== "live" || !socketRef.current) return;
+    if (busyAgents.has(agent.id)) return;
+    socketRef.current.sendJson({
+      action: "invoke_agent",
+      agent_id: agent.id,
+    });
+  }, [phase, busyAgents]);
+
   return (
     <main className="mx-auto flex min-h-screen max-w-4xl flex-col px-6 py-10">
       <header className="flex items-center justify-between">
@@ -313,9 +346,61 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         </button>
       </div>
 
+      {agents.length > 0 ? (
+        <div className="mt-6 rounded-xl border border-ink-700 bg-ink-900 px-4 py-3">
+          <div className="flex items-center gap-3 overflow-x-auto">
+            <span className="shrink-0 text-xs uppercase tracking-wider text-zinc-500">AI 专家</span>
+            {agents.map((a) => {
+              const busy = busyAgents.has(a.id);
+              const enabled = phase === "live" && !busy;
+              const color = tailwindColor(a.color ?? "violet");
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => invokeAgent(a)}
+                  disabled={!enabled}
+                  title={
+                    phase !== "live"
+                      ? `开始会议后,点头像让「${a.name}」基于讨论发言`
+                      : busy
+                      ? `${a.name} 正在发言…`
+                      : `点击让「${a.name}」基于刚才讨论发言`
+                  }
+                  className={`group relative flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 transition ${
+                    enabled
+                      ? "border-ink-700 bg-ink-950 hover:border-white/30"
+                      : "border-ink-800 bg-ink-950 opacity-60 cursor-not-allowed"
+                  }`}
+                >
+                  <span
+                    className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold text-white"
+                    style={{ backgroundColor: color }}
+                  >
+                    {a.name.slice(0, 1)}
+                  </span>
+                  <span className="text-sm text-zinc-200">{a.name}</span>
+                  {busy && (
+                    <span
+                      className="ml-1 inline-block h-2 w-2 animate-pulse rounded-full"
+                      style={{ backgroundColor: color }}
+                    />
+                  )}
+                </button>
+              );
+            })}
+            <Link
+              href="/admin/agents"
+              className="ml-auto shrink-0 text-xs text-zinc-500 hover:text-accent-400"
+            >
+              + 管理 AI 专家
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
       <section
         ref={scrollRef}
-        className="mt-6 h-[60vh] overflow-y-auto rounded-xl border border-ink-700 bg-ink-900 p-6"
+        className="mt-4 h-[55vh] overflow-y-auto rounded-xl border border-ink-700 bg-ink-900 p-6"
       >
         {lines.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-zinc-600">
@@ -365,7 +450,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       </section>
 
       <footer className="mt-3 text-xs text-zinc-600">
-        STT：DashScope Paraformer · 声纹：pyannoteAI（每 ~45 秒在后台跑一次，名字会逐步贴上）
+        STT：DashScope · 声纹：pyannoteAI（约 45s 后台识别）· AI 专家：@关键词召唤 或点头像
       </footer>
     </main>
   );

@@ -44,6 +44,7 @@ export type SttEvent =
 
 export interface SttSocket {
   send: (frame: ArrayBuffer) => void;
+  sendJson: (payload: unknown) => void;
   close: () => void;
 }
 
@@ -56,10 +57,13 @@ export function openSttSocket(opts: {
   ws.binaryType = "arraybuffer";
 
   let buffered: ArrayBuffer[] = [];
+  let bufferedJson: string[] = [];
 
   ws.onopen = () => {
     for (const f of buffered) ws.send(f);
     buffered = [];
+    for (const j of bufferedJson) ws.send(j);
+    bufferedJson = [];
   };
 
   ws.onmessage = (ev) => {
@@ -79,6 +83,11 @@ export function openSttSocket(opts: {
     send: (frame) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(frame);
       else if (ws.readyState === WebSocket.CONNECTING) buffered.push(frame);
+    },
+    sendJson: (payload) => {
+      const text = JSON.stringify(payload);
+      if (ws.readyState === WebSocket.OPEN) ws.send(text);
+      else if (ws.readyState === WebSocket.CONNECTING) bufferedJson.push(text);
     },
     close: () => {
       try {

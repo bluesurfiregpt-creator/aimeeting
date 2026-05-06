@@ -16,7 +16,7 @@ from .db import SessionLocal
 from .identify_pipeline import identify_worker
 from .init_db import init_db
 from .models import Meeting, MeetingTranscript
-from .agent_router import maybe_invoke_agents
+from .agent_router import invoke_agent_directly, maybe_invoke_agents
 from .routers import agents as agents_router
 from .routers import meetings as meetings_router
 from .routers import model_providers as model_providers_router
@@ -177,8 +177,25 @@ async def ws_stt(ws: WebSocket):
                     payload = json.loads(msg["text"])
                 except json.JSONDecodeError:
                     continue
-                if payload.get("action") == "stop":
+                action = payload.get("action")
+                if action == "stop":
                     break
+                if action == "invoke_agent" and meeting_uuid is not None:
+                    aid_raw = payload.get("agent_id")
+                    try:
+                        aid = uuid.UUID(aid_raw) if aid_raw else None
+                    except ValueError:
+                        aid = None
+                    if aid is not None:
+                        # Fire-and-forget; streamed events come back over WS.
+                        asyncio.create_task(
+                            invoke_agent_directly(
+                                meeting_uuid,
+                                aid,
+                                on_message=push_agent_event,
+                                query=payload.get("query"),
+                            )
+                        )
     except WebSocketDisconnect:
         pass
     except Exception:
