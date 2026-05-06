@@ -18,6 +18,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..audio_utils import pcm_quality_metrics, pcm_seconds, pcm_to_wav
+from ..auth import AuthContext, get_current_auth
 from ..db import get_session
 from ..models import User, Voiceprint
 from ..oss_client import OSSClient
@@ -33,9 +34,14 @@ async def enroll_voiceprint(
     user_id: str = Form(...),
     audio: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
 ):
     user = (
-        await session.execute(select(User).where(User.id == user_id))
+        await session.execute(
+            select(User).where(
+                User.id == user_id, User.workspace_id == auth.workspace.id
+            )
+        )
     ).scalar_one_or_none()
     if not user:
         raise HTTPException(404, "user not found")

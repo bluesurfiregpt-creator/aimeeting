@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth import AuthContext, get_current_auth
 from ..db import get_session
 from ..llm_providers import SUPPORTED_PROVIDERS, get_spec
 from ..models import ModelProviderConfig
@@ -78,10 +79,15 @@ async def catalog():
 
 
 @router.get("", response_model=list[ProviderConfigOut])
-async def list_configs(session: AsyncSession = Depends(get_session)):
+async def list_configs(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
     rows = (
         await session.execute(
-            select(ModelProviderConfig).order_by(ModelProviderConfig.provider)
+            select(ModelProviderConfig)
+            .where(ModelProviderConfig.workspace_id == auth.workspace.id)
+            .order_by(ModelProviderConfig.provider)
         )
     ).scalars().all()
     return [_to_out(r) for r in rows]
@@ -92,6 +98,7 @@ async def upsert_config(
     provider: str,
     payload: ProviderConfigIn,
     session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
 ):
     if get_spec(provider) is None:
         raise HTTPException(400, f"unknown provider {provider}")
@@ -100,12 +107,19 @@ async def upsert_config(
 
     existing = (
         await session.execute(
-            select(ModelProviderConfig).where(ModelProviderConfig.provider == provider)
+            select(ModelProviderConfig).where(
+                ModelProviderConfig.provider == provider,
+                ModelProviderConfig.workspace_id == auth.workspace.id,
+            )
         )
     ).scalar_one_or_none()
 
     if existing is None:
-        existing = ModelProviderConfig(provider=provider, api_key=payload.api_key)
+        existing = ModelProviderConfig(
+            provider=provider,
+            api_key=payload.api_key,
+            workspace_id=auth.workspace.id,
+        )
         session.add(existing)
 
     spec = get_spec(provider)
@@ -115,13 +129,14 @@ async def upsert_config(
     existing.is_active = payload.is_active
     existing.note = payload.note
 
-    # Enforce: at most one active.
+    # Enforce: at most one active per workspace.
     if payload.is_active:
         await session.flush()
         await session.execute(
             update(ModelProviderConfig)
             .where(
                 ModelProviderConfig.id != existing.id,
+                ModelProviderConfig.workspace_id == auth.workspace.id,
                 ModelProviderConfig.is_active.is_(True),
             )
             .values(is_active=False)
@@ -133,17 +148,27 @@ async def upsert_config(
 
 
 @router.post("/{provider}/activate", response_model=ProviderConfigOut)
-async def activate(provider: str, session: AsyncSession = Depends(get_session)):
+async def activate(
+    provider: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
     row = (
         await session.execute(
-            select(ModelProviderConfig).where(ModelProviderConfig.provider == provider)
+            select(ModelProviderConfig).where(
+                ModelProviderConfig.provider == provider,
+                ModelProviderConfig.workspace_id == auth.workspace.id,
+            )
         )
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(404, "config not found")
     await session.execute(
         update(ModelProviderConfig)
-        .where(ModelProviderConfig.id != row.id)
+        .where(
+            ModelProviderConfig.id != row.id,
+            ModelProviderConfig.workspace_id == auth.workspace.id,
+        )
         .values(is_active=False)
     )
     row.is_active = True
@@ -153,10 +178,17 @@ async def activate(provider: str, session: AsyncSession = Depends(get_session)):
 
 
 @router.delete("/{provider}", status_code=204)
-async def delete_config(provider: str, session: AsyncSession = Depends(get_session)):
+async def delete_config(
+    provider: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
     row = (
         await session.execute(
-            select(ModelProviderConfig).where(ModelProviderConfig.provider == provider)
+            select(ModelProviderConfig).where(
+                ModelProviderConfig.provider == provider,
+                ModelProviderConfig.workspace_id == auth.workspace.id,
+            )
         )
     ).scalar_one_or_none()
     if row is None:

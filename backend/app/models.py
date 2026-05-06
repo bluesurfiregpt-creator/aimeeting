@@ -44,6 +44,42 @@ def _new_uuid() -> uuid.UUID:
     return uuid.uuid4()
 
 
+# --- Workspace (multi-tenant root) -------------------------------------------
+
+class Workspace(Base):
+    """
+    One workspace = one organization / tenant. Every business row carries
+    workspace_id, and queries are filtered by the requesting user's
+    membership. The "默认工作空间" row is auto-created on first migration
+    so pre-Sprint-F data has a home.
+    """
+    __tablename__ = "workspace"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    name: Mapped[str] = mapped_column(String(128))
+    slug: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WorkspaceMembership(Base):
+    """A user's role in a workspace. For Sprint F we keep it 1:1 in practice
+    (one workspace per user) but the schema is N:M-ready for future invites."""
+    __tablename__ = "workspace_membership"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "user_id", name="uq_workspace_user"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[str] = mapped_column(String(16), default="member")  # owner|admin|member
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 # --- People & identity --------------------------------------------------------
 
 class User(Base):
@@ -53,6 +89,17 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(128))
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
     role: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Auth (Sprint F): password_hash null means this is a "speaker-only"
+    # user — created during voiceprint enrollment, can't log in. Real
+    # accounts get a hash.
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Convenience pointer to the user's primary workspace (the one they see
+    # by default after login). Real authorization is via workspace_membership.
+    workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     voiceprints: Mapped[list["Voiceprint"]] = relationship(back_populates="user", cascade="all, delete-orphan")
@@ -92,6 +139,9 @@ class Agent(Base):
     __tablename__ = "agent"
 
     id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(128))
     avatar_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     domain: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
@@ -121,6 +171,9 @@ class Meeting(Base):
     __tablename__ = "meeting"
 
     id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     title: Mapped[str] = mapped_column(String(255), default="未命名会议")
     status: Mapped[str] = mapped_column(String(16), default="scheduled")  # scheduled|ongoing|finished|processed
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -218,9 +271,15 @@ class ModelProviderConfig(Base):
     memory extraction) use until Dify is in front of everything.
     """
     __tablename__ = "model_provider_config"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "provider", name="uq_workspace_provider"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
-    provider: Mapped[str] = mapped_column(String(32), unique=True)  # 'qwen' | 'openai' | ...
+    workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(32))  # 'qwen' | 'openai' | ...
     api_key: Mapped[str] = mapped_column(Text)
     base_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     model_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
@@ -230,6 +289,27 @@ class ModelProviderConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+# --- Audit log (Sprint F) -----------------------------------------------------
+
+class AuditLog(Base):
+    """Append-only log of state-changing actions. Populated by route helpers
+    (Sprint F adds the table + a helper; deeper integration comes later)."""
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    action: Mapped[str] = mapped_column(String(64))  # 'meeting.create' | 'agent.update' | ...
+    target_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    target_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 # --- Long-term memory (Phase 2) ----------------------------------------------
@@ -242,6 +322,9 @@ class LongTermMemory(Base):
     __tablename__ = "long_term_memory"
 
     id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     scope: Mapped[str] = mapped_column(String(16))  # user|project|org
     scope_ref: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     content: Mapped[str] = mapped_column(Text)

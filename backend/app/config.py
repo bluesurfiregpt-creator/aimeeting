@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     dify_api_key: str = ""
     dify_base_url: str = "https://api.dify.ai"
 
+    # Auth (Sprint F)
+    jwt_secret: str = "dev-not-for-prod-replace-me"
+    jwt_ttl_days: int = 14
+    cookie_secure: bool = True
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]

@@ -1,4 +1,4 @@
-"""Agent CRUD: persona + Dify connection per agent."""
+"""Agent CRUD: persona + Dify connection per agent. Workspace-scoped."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth import AuthContext, get_current_auth
 from ..db import get_session
 from ..models import Agent
 
@@ -58,35 +59,65 @@ def _to_out(a: Agent) -> AgentOut:
 
 
 @router.get("", response_model=list[AgentOut])
-async def list_agents(session: AsyncSession = Depends(get_session)):
-    rows = (await session.execute(select(Agent).order_by(Agent.created_at.desc()))).scalars().all()
+async def list_agents(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    rows = (
+        await session.execute(
+            select(Agent)
+            .where(Agent.workspace_id == auth.workspace.id)
+            .order_by(Agent.created_at.desc())
+        )
+    ).scalars().all()
     return [_to_out(a) for a in rows]
 
 
 @router.post("", response_model=AgentOut)
-async def create_agent(payload: AgentIn, session: AsyncSession = Depends(get_session)):
-    a = Agent(**payload.model_dump())
+async def create_agent(
+    payload: AgentIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    a = Agent(**payload.model_dump(), workspace_id=auth.workspace.id)
     session.add(a)
     await session.commit()
     await session.refresh(a)
     return _to_out(a)
 
 
-@router.get("/{agent_id}", response_model=AgentOut)
-async def get_agent(agent_id: str, session: AsyncSession = Depends(get_session)):
-    a = (await session.execute(select(Agent).where(Agent.id == agent_id))).scalar_one_or_none()
+async def _load_owned_agent(
+    agent_id: str, session: AsyncSession, auth: AuthContext
+) -> Agent:
+    a = (
+        await session.execute(
+            select(Agent).where(
+                Agent.id == agent_id, Agent.workspace_id == auth.workspace.id
+            )
+        )
+    ).scalar_one_or_none()
     if not a:
         raise HTTPException(404, "agent not found")
-    return _to_out(a)
+    return a
+
+
+@router.get("/{agent_id}", response_model=AgentOut)
+async def get_agent(
+    agent_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    return _to_out(await _load_owned_agent(agent_id, session, auth))
 
 
 @router.patch("/{agent_id}", response_model=AgentOut)
 async def update_agent(
-    agent_id: str, payload: AgentIn, session: AsyncSession = Depends(get_session)
+    agent_id: str,
+    payload: AgentIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
 ):
-    a = (await session.execute(select(Agent).where(Agent.id == agent_id))).scalar_one_or_none()
-    if not a:
-        raise HTTPException(404, "agent not found")
+    a = await _load_owned_agent(agent_id, session, auth)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(a, k, v)
     await session.commit()
@@ -95,9 +126,11 @@ async def update_agent(
 
 
 @router.delete("/{agent_id}", status_code=204)
-async def delete_agent(agent_id: str, session: AsyncSession = Depends(get_session)):
-    a = (await session.execute(select(Agent).where(Agent.id == agent_id))).scalar_one_or_none()
-    if not a:
-        raise HTTPException(404, "agent not found")
+async def delete_agent(
+    agent_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    a = await _load_owned_agent(agent_id, session, auth)
     await session.delete(a)
     await session.commit()

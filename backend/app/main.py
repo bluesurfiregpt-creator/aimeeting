@@ -17,7 +17,9 @@ from .identify_pipeline import identify_worker
 from .init_db import init_db
 from .models import Meeting, MeetingTranscript
 from .agent_router import invoke_agent_directly, maybe_invoke_agents
+from .auth import COOKIE_NAME, decode_token
 from .routers import agents as agents_router
+from .routers import auth as auth_router
 from .routers import meetings as meetings_router
 from .routers import memory as memory_router
 from .routers import model_providers as model_providers_router
@@ -51,6 +53,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router.router)
 app.include_router(users_router.router)
 app.include_router(voiceprints_router.router)
 app.include_router(meetings_router.router)
@@ -75,7 +78,25 @@ async def ws_stt(ws: WebSocket):
     Query: meeting_id=<uuid>  (required to persist; if absent we run in
     legacy "demo" mode without DB writes — handy for /meeting/demo).
     """
+    # Auth check: require a valid cookie. We accept the connection first so
+    # we can send a JSON error before closing (browsers don't expose 4xx
+    # codes during the handshake to JS reliably).
     await ws.accept()
+
+    auth_workspace_id: uuid.UUID | None = None
+    token = ws.cookies.get(COOKIE_NAME)
+    if token:
+        try:
+            payload = decode_token(token)
+            wsid = payload.get("wsid")
+            if wsid:
+                auth_workspace_id = uuid.UUID(wsid)
+        except Exception:
+            auth_workspace_id = None
+    if auth_workspace_id is None:
+        await ws.send_text(json.dumps({"type": "system", "msg": "auth required"}))
+        await ws.close()
+        return
 
     meeting_id_raw = ws.query_params.get("meeting_id")
     meeting_uuid: uuid.UUID | None = None
@@ -95,7 +116,12 @@ async def ws_stt(ws: WebSocket):
     if meeting_uuid is not None:
         async with SessionLocal() as db:
             m = (
-                await db.execute(select(Meeting).where(Meeting.id == meeting_uuid))
+                await db.execute(
+                    select(Meeting).where(
+                        Meeting.id == meeting_uuid,
+                        Meeting.workspace_id == auth_workspace_id,
+                    )
+                )
             ).scalar_one_or_none()
             if not m:
                 await ws.send_text(json.dumps({"type": "system", "msg": "meeting not found"}))

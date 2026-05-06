@@ -11,6 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import session_state
+from ..auth import AuthContext, get_current_auth
 from ..db import get_session
 from ..identify_pipeline import run_identify
 from ..models import Meeting, MeetingAttendee, MeetingTranscript, User
@@ -20,6 +21,21 @@ from ..summary_generator import generate_summary
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/meetings", tags=["meetings"])
+
+
+async def _load_owned_meeting(
+    meeting_id: str, session: AsyncSession, auth: AuthContext
+) -> Meeting:
+    m = (
+        await session.execute(
+            select(Meeting).where(
+                Meeting.id == meeting_id, Meeting.workspace_id == auth.workspace.id
+            )
+        )
+    ).scalar_one_or_none()
+    if not m:
+        raise HTTPException(404, "meeting not found")
+    return m
 
 
 def _to_meeting_out(m: Meeting, attendee_user_ids: list[uuid.UUID]) -> MeetingOut:
@@ -36,22 +52,45 @@ def _to_meeting_out(m: Meeting, attendee_user_ids: list[uuid.UUID]) -> MeetingOu
 
 
 @router.post("", response_model=MeetingOut)
-async def create_meeting(payload: MeetingCreate, session: AsyncSession = Depends(get_session)):
-    m = Meeting(title=payload.title or "未命名会议", status="scheduled")
+async def create_meeting(
+    payload: MeetingCreate,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    m = Meeting(
+        title=payload.title or "未命名会议",
+        status="scheduled",
+        workspace_id=auth.workspace.id,
+    )
     session.add(m)
     await session.flush()
     for uid in payload.attendee_user_ids:
-        session.add(MeetingAttendee(meeting_id=m.id, user_id=uid))
+        # Verify each user belongs to the same workspace before binding
+        u = (
+            await session.execute(
+                select(User).where(
+                    User.id == uid, User.workspace_id == auth.workspace.id
+                )
+            )
+        ).scalar_one_or_none()
+        if u is not None:
+            session.add(MeetingAttendee(meeting_id=m.id, user_id=uid))
     await session.commit()
     await session.refresh(m)
     return _to_meeting_out(m, list(payload.attendee_user_ids))
 
 
 @router.get("", response_model=list[MeetingOut])
-async def list_meetings(session: AsyncSession = Depends(get_session)):
+async def list_meetings(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
     rows = (
         await session.execute(
-            select(Meeting).order_by(Meeting.created_at.desc()).limit(200)
+            select(Meeting)
+            .where(Meeting.workspace_id == auth.workspace.id)
+            .order_by(Meeting.created_at.desc())
+            .limit(200)
         )
     ).scalars().all()
     if not rows:
@@ -71,10 +110,12 @@ async def list_meetings(session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/{meeting_id}", response_model=MeetingOut)
-async def get_meeting(meeting_id: str, session: AsyncSession = Depends(get_session)):
-    m = (await session.execute(select(Meeting).where(Meeting.id == meeting_id))).scalar_one_or_none()
-    if not m:
-        raise HTTPException(404, "meeting not found")
+async def get_meeting(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    m = await _load_owned_meeting(meeting_id, session, auth)
     rows = (
         await session.execute(
             select(MeetingAttendee.user_id).where(
@@ -90,10 +131,9 @@ async def finalize_meeting(
     meeting_id: str,
     bg: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
 ):
-    m = (await session.execute(select(Meeting).where(Meeting.id == meeting_id))).scalar_one_or_none()
-    if not m:
-        raise HTTPException(404, "meeting not found")
+    m = await _load_owned_meeting(meeting_id, session, auth)
     if m.status != "finished":
         await session.execute(
             update(Meeting)
@@ -125,13 +165,11 @@ class BriefingOut(BaseModel):
 
 @router.get("/{meeting_id}/briefing", response_model=BriefingOut)
 async def get_meeting_briefing(
-    meeting_id: str, session: AsyncSession = Depends(get_session)
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
 ):
-    m = (
-        await session.execute(select(Meeting).where(Meeting.id == meeting_id))
-    ).scalar_one_or_none()
-    if not m:
-        raise HTTPException(404, "meeting not found")
+    m = await _load_owned_meeting(meeting_id, session, auth)
     md = await generate_briefing(m.id)
     return BriefingOut(briefing_md=md, status="ready" if md else "empty")
 
@@ -145,13 +183,11 @@ class SummaryOut(BaseModel):
 
 @router.get("/{meeting_id}/summary", response_model=SummaryOut)
 async def get_meeting_summary(
-    meeting_id: str, session: AsyncSession = Depends(get_session)
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
 ):
-    m = (
-        await session.execute(select(Meeting).where(Meeting.id == meeting_id))
-    ).scalar_one_or_none()
-    if not m:
-        raise HTTPException(404, "meeting not found")
+    m = await _load_owned_meeting(meeting_id, session, auth)
     if m.summary_md and not m.summary_md.startswith("<!--"):
         return SummaryOut(summary_md=m.summary_md, status="ready")
     # Status markers from identify pipeline (e.g. <!-- identify:skipped: ... -->)
@@ -165,12 +201,9 @@ async def regenerate_meeting_summary(
     meeting_id: str,
     bg: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
 ):
-    m = (
-        await session.execute(select(Meeting).where(Meeting.id == meeting_id))
-    ).scalar_one_or_none()
-    if not m:
-        raise HTTPException(404, "meeting not found")
+    m = await _load_owned_meeting(meeting_id, session, auth)
     # Clear any prior content so the front-end's polling sees the regen state.
     await session.execute(
         update(Meeting).where(Meeting.id == m.id).values(summary_md=None)
@@ -200,6 +233,7 @@ async def correct_speaker(
     line_id: int,
     payload: CorrectSpeakerIn,
     session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
 ):
     """
     Manually re-attribute a transcript line to a specific user (or unset).
@@ -208,6 +242,7 @@ async def correct_speaker(
     rows via the `speaker_status` column ('manually_corrected') so we can
     later regress identification quality on the corrected vs. auto split.
     """
+    await _load_owned_meeting(meeting_id, session, auth)  # access check
     line = (
         await session.execute(
             select(MeetingTranscript).where(
@@ -222,7 +257,12 @@ async def correct_speaker(
     name: str | None = None
     if payload.speaker_user_id is not None:
         u = (
-            await session.execute(select(User).where(User.id == payload.speaker_user_id))
+            await session.execute(
+                select(User).where(
+                    User.id == payload.speaker_user_id,
+                    User.workspace_id == auth.workspace.id,
+                )
+            )
         ).scalar_one_or_none()
         if not u:
             raise HTTPException(404, "user not found")
@@ -243,10 +283,12 @@ async def correct_speaker(
 
 
 @router.get("/{meeting_id}/result", response_model=MeetingResultOut)
-async def get_result(meeting_id: str, session: AsyncSession = Depends(get_session)):
-    m = (await session.execute(select(Meeting).where(Meeting.id == meeting_id))).scalar_one_or_none()
-    if not m:
-        raise HTTPException(404, "meeting not found")
+async def get_result(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    m = await _load_owned_meeting(meeting_id, session, auth)
 
     lines_raw = (
         await session.execute(

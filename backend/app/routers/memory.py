@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth import AuthContext, get_current_auth
 from ..db import get_session
 from ..embeddings import EmbeddingError, compute_embedding
 from ..models import LongTermMemory
@@ -47,8 +48,14 @@ async def list_memories(
     scope_ref: Optional[str] = None,
     limit: int = 200,
     session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
 ):
-    stmt = select(LongTermMemory).order_by(LongTermMemory.created_at.desc()).limit(limit)
+    stmt = (
+        select(LongTermMemory)
+        .where(LongTermMemory.workspace_id == auth.workspace.id)
+        .order_by(LongTermMemory.created_at.desc())
+        .limit(limit)
+    )
     if scope:
         stmt = stmt.where(LongTermMemory.scope == scope)
     if scope_ref:
@@ -59,7 +66,9 @@ async def list_memories(
 
 @router.post("", response_model=MemoryOut)
 async def create_memory(
-    payload: MemoryIn, session: AsyncSession = Depends(get_session)
+    payload: MemoryIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
 ):
     if payload.scope not in ("user", "project", "org"):
         raise HTTPException(400, "scope must be user|project|org")
@@ -75,6 +84,7 @@ async def create_memory(
         importance=payload.importance,
         embedding=vec,
         source_type="manual",
+        workspace_id=auth.workspace.id,
     )
     session.add(m)
     await session.commit()
@@ -84,10 +94,17 @@ async def create_memory(
 
 @router.delete("/{memory_id}", status_code=204)
 async def delete_memory(
-    memory_id: str, session: AsyncSession = Depends(get_session)
+    memory_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
 ):
     m = (
-        await session.execute(select(LongTermMemory).where(LongTermMemory.id == memory_id))
+        await session.execute(
+            select(LongTermMemory).where(
+                LongTermMemory.id == memory_id,
+                LongTermMemory.workspace_id == auth.workspace.id,
+            )
+        )
     ).scalar_one_or_none()
     if not m:
         raise HTTPException(404, "memory not found")

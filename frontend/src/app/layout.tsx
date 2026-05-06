@@ -1,5 +1,6 @@
 import "./globals.css";
 import type { Metadata } from "next";
+import AuthHeader from "@/components/AuthHeader";
 
 export const metadata: Metadata = {
   title: "Aimeeting · AI 会议",
@@ -13,7 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body className="font-sans antialiased">{children}</body>
+      <body className="font-sans antialiased">
+        <AuthHeader />
+        {children}
+      </body>
     </html>
   );
 }

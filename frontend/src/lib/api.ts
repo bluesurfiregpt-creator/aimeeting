@@ -7,23 +7,51 @@ function backendBase(): string {
   return ""; // same-origin via nginx
 }
 
+// Centralised handler so a 401 anywhere kicks the user back to /login
+// without forcing every caller to remember.
+function handleAuthError(status: number) {
+  if (typeof window === "undefined") return;
+  if (status !== 401) return;
+  // Don't bounce while we're already on a public auth page
+  const path = window.location.pathname;
+  if (path === "/login" || path === "/register") return;
+  window.location.assign(`/login?next=${encodeURIComponent(path)}`);
+}
+
 async function jget<T>(path: string): Promise<T> {
-  const r = await fetch(backendBase() + path, { cache: "no-store" });
-  if (!r.ok) throw new Error(`${path}: ${r.status}`);
+  const r = await fetch(backendBase() + path, {
+    cache: "no-store",
+    credentials: "include",
+  });
+  if (!r.ok) {
+    handleAuthError(r.status);
+    throw new Error(`${path}: ${r.status}`);
+  }
   return r.json();
 }
 async function jpost<T>(path: string, body: unknown): Promise<T> {
   const r = await fetch(backendBase() + path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+  if (!r.ok) {
+    handleAuthError(r.status);
+    throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+  }
   return r.json();
 }
 async function jpostForm<T>(path: string, form: FormData): Promise<T> {
-  const r = await fetch(backendBase() + path, { method: "POST", body: form });
-  if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+  const r = await fetch(backendBase() + path, {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
+  if (!r.ok) {
+    handleAuthError(r.status);
+    throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+  }
   return r.json();
 }
 
@@ -132,27 +160,58 @@ async function jput<T>(path: string, body: unknown): Promise<T> {
   const r = await fetch(backendBase() + path, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+  if (!r.ok) {
+    handleAuthError(r.status);
+    throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+  }
   return r.json();
 }
 async function jpatch<T>(path: string, body: unknown): Promise<T> {
   const r = await fetch(backendBase() + path, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+  if (!r.ok) {
+    handleAuthError(r.status);
+    throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+  }
   return r.json();
 }
 async function jdelete(path: string): Promise<void> {
-  const r = await fetch(backendBase() + path, { method: "DELETE" });
-  if (!r.ok && r.status !== 204)
+  const r = await fetch(backendBase() + path, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!r.ok && r.status !== 204) {
+    handleAuthError(r.status);
     throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+  }
 }
 
+export type Me = {
+  user_id: string;
+  name: string;
+  email: string | null;
+  workspace_id: string;
+  workspace_name: string;
+  workspace_slug: string;
+  role: string;
+};
+
 export const api = {
+  // Auth
+  register: (body: { email: string; password: string; name: string; workspace_name?: string }) =>
+    jpost<Me>("/api/auth/register", body),
+  login: (body: { email: string; password: string }) =>
+    jpost<Me>("/api/auth/login", body),
+  logout: () => jpost<{ ok: boolean }>("/api/auth/logout", {}),
+  me: () => jget<Me>("/api/auth/me"),
+
   listUsers: () => jget<User[]>("/api/users"),
   createUser: (name: string, email?: string) =>
     jpost<User>("/api/users", { name, email }),
