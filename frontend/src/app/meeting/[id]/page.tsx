@@ -30,6 +30,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   const nextIdRef = useRef(1);
   const liveScrollRef = useRef<HTMLDivElement | null>(null);
   const pollRef = useRef<number | null>(null);
+  const phaseRef = useRef(phase);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   const handleEvent = useCallback((e: SttEvent) => {
     if (e.type === "system") {
@@ -77,7 +79,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         url: backendWsUrl(meetingId),
         onEvent: handleEvent,
         onClose: () => {
-          if (phase === "live") setStatusText("连接已断开");
+          if (phaseRef.current === "live") setStatusText("连接已断开");
         },
       });
       socketRef.current = sock;
