@@ -66,16 +66,30 @@ class PyannoteClient:
 
     # ---- Voiceprint enrollment ----------------------------------------------
 
-    async def create_voiceprint(self, audio_url: str, label: Optional[str] = None) -> dict[str, Any]:
+    async def create_voiceprint(self, audio_url: str) -> dict[str, Any]:
         """
         Create a persistent voiceprint from a single-speaker recording (≥ 30s).
-        Returns the raw API response (we keep `pyannote_payload` as JSON).
-        Caller is responsible for extracting the id and the vector representation.
+
+        pyannoteAI is async here: POST returns {"jobId": ...}; the actual
+        voiceprint payload arrives in GET /v1/jobs/{jobId} once status flips
+        to succeeded. We poll inline so callers see the final shape.
+
+        We also handle the (less common) sync response shape, in case the
+        API ever returns voiceprint data directly — the call site reads
+        `voiceprint`/`voiceprintId`/`id` from whatever we hand back.
         """
-        body: dict[str, Any] = {"url": audio_url}
-        if label:
-            body["label"] = label
-        return await self._post("/v1/voiceprint", body)
+        submit = await self._post("/v1/voiceprint", {"url": audio_url})
+
+        job_id = submit.get("jobId")
+        if not job_id:
+            # Sync response (rare but possible) — pass through as-is.
+            return submit
+
+        job = await self.wait_for_job(str(job_id), max_wait_s=120, poll_every_s=3.0)
+        output = job.get("output") or {}
+        # Normalize: surface the voiceprint payload at the top level so the
+        # caller's extraction logic stays the same as for a sync response.
+        return {"jobId": str(job_id), **output}
 
     # ---- Diarize + identify (post-meeting) ----------------------------------
 
