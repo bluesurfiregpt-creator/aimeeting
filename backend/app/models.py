@@ -99,8 +99,16 @@ class Agent(Base):
     tone: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     boundary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Dify integration: each agent in our DB maps to a Dify app or workflow.
+    # We store the full base url + the app api-key so a single backend can
+    # talk to several Dify workspaces / cloud + self-hosted in parallel.
+    dify_app_type: Mapped[str] = mapped_column(String(16), default="chatflow")  # chatflow|workflow|agent
+    dify_base_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    dify_api_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     dify_workflow_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     keywords: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), nullable=True)
+    color: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)  # accent for UI bubbles
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     version: Mapped[int] = mapped_column(Integer, default=1)
     stage: Mapped[str] = mapped_column(String(16), default="prod")  # test|prod
@@ -169,6 +177,21 @@ class MeetingTranscript(Base):
     meeting: Mapped[Meeting] = relationship(back_populates="transcripts")
 
 
+class MeetingAgentMessage(Base):
+    """An AI-expert utterance inside a meeting (in response to @ or keyword)."""
+    __tablename__ = "meeting_agent_message"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    meeting_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("meeting.id", ondelete="CASCADE"), index=True
+    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), ForeignKey("agent.id"))
+    text: Mapped[str] = mapped_column(Text)
+    trigger: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # at_mention|keyword|manual
+    trigger_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class MeetingSpeakerSegment(Base):
     """One pyannoteAI speaker segment (0.5–N s)."""
     __tablename__ = "meeting_speaker_segment"
@@ -183,6 +206,30 @@ class MeetingSpeakerSegment(Base):
     status: Mapped[str] = mapped_column(String(32), default="auto_recognized")  # auto_recognized|manually_corrected
 
     meeting: Mapped[Meeting] = relationship(back_populates="speaker_segments")
+
+
+# --- Model provider configuration --------------------------------------------
+
+class ModelProviderConfig(Base):
+    """
+    User-editable LLM provider config. Holds API keys, base URLs, and the
+    chosen default model id per provider. Exactly zero or one row should have
+    `is_active=True` — that's the provider direct LLM calls (summary, briefing,
+    memory extraction) use until Dify is in front of everything.
+    """
+    __tablename__ = "model_provider_config"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    provider: Mapped[str] = mapped_column(String(32), unique=True)  # 'qwen' | 'openai' | ...
+    api_key: Mapped[str] = mapped_column(Text)
+    base_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    model_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 # --- Long-term memory (Phase 2) ----------------------------------------------

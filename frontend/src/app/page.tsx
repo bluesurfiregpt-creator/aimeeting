@@ -51,6 +51,19 @@ export default function Home() {
         <p className="mx-auto mt-4 max-w-xl text-sm text-zinc-400">
           实时字幕 · 声纹识别 · AI 专家参会 · 长期记忆
         </p>
+        <div className="mt-4 flex justify-center gap-4 text-xs">
+          <Link href="/enroll" className="text-zinc-500 hover:text-accent-400">
+            录入声纹
+          </Link>
+          <span className="text-zinc-700">·</span>
+          <Link href="/admin/agents" className="text-zinc-500 hover:text-accent-400">
+            AI 专家配置
+          </Link>
+          <span className="text-zinc-700">·</span>
+          <Link href="/admin/models" className="text-zinc-500 hover:text-accent-400">
+            LLM 模型
+          </Link>
+        </div>
       </header>
 
       <section className="mt-12 rounded-xl border border-ink-700 bg-ink-900 p-6">

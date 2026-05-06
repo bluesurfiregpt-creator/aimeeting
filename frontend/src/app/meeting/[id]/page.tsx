@@ -6,17 +6,28 @@ import { startAudioCapture, type AudioCaptureHandle } from "@/lib/audioCapture";
 import { openSttSocket, type SttEvent, type SttSocket } from "@/lib/sttSocket";
 import { api, type TranscriptLine } from "@/lib/api";
 
-type LiveLine = {
-  id: string;
-  text: string;
-  final: boolean;
-  startMs: number | null;
-  endMs: number | null;
-  // Filled in by speaker identification, asynchronously, possibly multiple
-  // times during the meeting as more audio is processed.
-  speakerName: string | null;
-  speakerUserId: string | null;
-};
+type LiveLine =
+  | {
+      kind: "user";
+      id: string;
+      text: string;
+      final: boolean;
+      startMs: number | null;
+      endMs: number | null;
+      // Filled in by speaker identification, asynchronously, possibly
+      // multiple times during the meeting as more audio is processed.
+      speakerName: string | null;
+      speakerUserId: string | null;
+    }
+  | {
+      kind: "agent";
+      id: string;
+      agentId: string;
+      agentName: string;
+      agentColor: string;
+      text: string;
+      done: boolean;
+    };
 
 type Phase = "idle" | "live" | "ended";
 
@@ -41,6 +52,17 @@ function colorOf(uid: string | null): string {
   let h = 0;
   for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) >>> 0;
   return PALETTE[h % PALETTE.length];
+}
+
+function tailwindColor(name: string): string {
+  return ({
+    violet: "#8b5cf6",
+    sky: "#38bdf8",
+    emerald: "#34d399",
+    amber: "#fbbf24",
+    rose: "#fb7185",
+    teal: "#2dd4bf",
+  } as Record<string, string>)[name] ?? "#8b5cf6";
 }
 
 export default function MeetingPage({ params }: { params: Promise<{ id: string }> }) {
@@ -84,24 +106,69 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       void refreshSpeakers();
       return;
     }
+    if (e.type === "agent_message_start") {
+      setLines((prev) => [
+        ...prev,
+        {
+          kind: "agent",
+          id: `a${nextIdRef.current++}`,
+          agentId: e.agent_id,
+          agentName: e.agent_name,
+          agentColor: e.agent_color,
+          text: "",
+          done: false,
+        },
+      ]);
+      return;
+    }
+    if (e.type === "agent_message_chunk") {
+      setLines((prev) => {
+        const draft = prev.slice();
+        for (let i = draft.length - 1; i >= 0; i--) {
+          const l = draft[i];
+          if (l.kind === "agent" && l.agentId === e.agent_id && !l.done) {
+            draft[i] = { ...l, text: l.text + e.chunk };
+            return draft;
+          }
+        }
+        return prev;
+      });
+      return;
+    }
+    if (e.type === "agent_message_end") {
+      setLines((prev) => {
+        const draft = prev.slice();
+        for (let i = draft.length - 1; i >= 0; i--) {
+          const l = draft[i];
+          if (l.kind === "agent" && l.agentId === e.agent_id && !l.done) {
+            draft[i] = { ...l, text: e.text || l.text, done: true };
+            return draft;
+          }
+        }
+        return prev;
+      });
+      return;
+    }
     if (e.type === "transcript") {
       setLines((prev) => {
         const draft = prev.slice();
         if (e.is_final) {
           if (interimRef.current) {
             const idx = draft.findIndex((l) => l.id === interimRef.current);
-            if (idx >= 0) {
+            if (idx >= 0 && draft[idx].kind === "user") {
+              const cur = draft[idx] as Extract<LiveLine, { kind: "user" }>;
               draft[idx] = {
-                ...draft[idx],
+                ...cur,
                 text: e.text,
                 final: true,
-                startMs: e.start_ts ?? draft[idx].startMs,
-                endMs: e.end_ts ?? draft[idx].endMs,
+                startMs: e.start_ts ?? cur.startMs,
+                endMs: e.end_ts ?? cur.endMs,
               };
             }
             interimRef.current = null;
           } else {
             draft.push({
+              kind: "user",
               id: `f${nextIdRef.current++}`,
               text: e.text,
               final: true,
@@ -114,11 +181,15 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         } else {
           if (interimRef.current) {
             const idx = draft.findIndex((l) => l.id === interimRef.current);
-            if (idx >= 0) draft[idx] = { ...draft[idx], text: e.text };
+            if (idx >= 0 && draft[idx].kind === "user") {
+              const cur = draft[idx] as Extract<LiveLine, { kind: "user" }>;
+              draft[idx] = { ...cur, text: e.text };
+            }
           } else {
             const id = `i${nextIdRef.current++}`;
             interimRef.current = id;
             draft.push({
+              kind: "user",
               id,
               text: e.text,
               final: false,
@@ -252,26 +323,43 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           </div>
         ) : (
           <ul className="space-y-3">
-            {lines.map((l) => (
-              <li
-                key={l.id}
-                className={
-                  l.final
-                    ? "text-base leading-relaxed text-zinc-100"
-                    : "text-base leading-relaxed text-zinc-400"
-                }
-              >
-                {l.speakerName ? (
-                  <span className={`mr-3 font-medium ${colorOf(l.speakerUserId)}`}>
-                    {l.speakerName}
+            {lines.map((l) =>
+              l.kind === "user" ? (
+                <li
+                  key={l.id}
+                  className={
+                    l.final
+                      ? "text-base leading-relaxed text-zinc-100"
+                      : "text-base leading-relaxed text-zinc-400"
+                  }
+                >
+                  {l.speakerName ? (
+                    <span className={`mr-3 font-medium ${colorOf(l.speakerUserId)}`}>
+                      {l.speakerName}
+                    </span>
+                  ) : l.final ? (
+                    <span className="mr-3 text-xs text-zinc-600">…</span>
+                  ) : null}
+                  <span>{l.text}</span>
+                  {!l.final ? <span className="ml-1 animate-pulse">▌</span> : null}
+                </li>
+              ) : (
+                <li
+                  key={l.id}
+                  className="rounded-lg border border-ink-700 bg-ink-950 p-3 text-base leading-relaxed"
+                  style={{ borderLeft: `3px solid ${tailwindColor(l.agentColor)}` }}
+                >
+                  <span
+                    className="mr-2 text-xs font-medium uppercase tracking-wider"
+                    style={{ color: tailwindColor(l.agentColor) }}
+                  >
+                    🤖 {l.agentName}
                   </span>
-                ) : l.final ? (
-                  <span className="mr-3 text-xs text-zinc-600">…</span>
-                ) : null}
-                <span>{l.text}</span>
-                {!l.final ? <span className="ml-1 animate-pulse">▌</span> : null}
-              </li>
-            ))}
+                  <span className="text-zinc-100 whitespace-pre-wrap">{l.text}</span>
+                  {!l.done ? <span className="ml-1 animate-pulse">▌</span> : null}
+                </li>
+              ),
+            )}
           </ul>
         )}
       </section>
@@ -297,7 +385,7 @@ function mergeSpeakers(local: LiveLine[], serverLines: TranscriptLine[]): LiveLi
   }
   let mutated = false;
   const out = local.map((l) => {
-    if (l.startMs == null) return l;
+    if (l.kind !== "user" || l.startMs == null) return l;
     const s = byStartMs.get(l.startMs);
     if (!s) return l;
     if (s.speaker_name === l.speakerName && s.speaker_user_id === l.speakerUserId) {

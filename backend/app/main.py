@@ -16,7 +16,10 @@ from .db import SessionLocal
 from .identify_pipeline import identify_worker
 from .init_db import init_db
 from .models import Meeting, MeetingTranscript
+from .agent_router import maybe_invoke_agents
+from .routers import agents as agents_router
 from .routers import meetings as meetings_router
+from .routers import model_providers as model_providers_router
 from .routers import users as users_router
 from .routers import voiceprints as voiceprints_router
 from . import session_state
@@ -50,6 +53,8 @@ app.add_middleware(
 app.include_router(users_router.router)
 app.include_router(voiceprints_router.router)
 app.include_router(meetings_router.router)
+app.include_router(agents_router.router)
+app.include_router(model_providers_router.router)
 
 
 @app.get("/healthz")
@@ -102,6 +107,12 @@ async def ws_stt(ws: WebSocket):
                 )
                 await db.commit()
 
+    async def push_agent_event(payload: dict) -> None:
+        try:
+            await ws.send_text(json.dumps(payload, ensure_ascii=False))
+        except Exception:
+            logger.exception("ws agent event send failed")
+
     async def emit(text: str, is_final: bool, start_ts, end_ts) -> None:
         try:
             await ws.send_text(
@@ -128,6 +139,12 @@ async def ws_stt(ws: WebSocket):
                     await db.commit()
             except Exception:
                 logger.exception("persist transcript failed")
+            # Fire-and-forget agent invocation. Errors inside are already
+            # logged + relayed as a chunk message; we don't want to block
+            # the next ASR sentence on Dify latency.
+            asyncio.create_task(
+                maybe_invoke_agents(meeting_uuid, text, on_message=push_agent_event)
+            )
 
     async def notify_speakers_updated() -> None:
         try:

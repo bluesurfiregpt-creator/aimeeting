@@ -15,7 +15,32 @@ export type SpeakersUpdatedEvent = {
   type: "speakers_updated";
 };
 
-export type SttEvent = TranscriptEvent | SystemEvent | SpeakersUpdatedEvent;
+export type AgentMessageStartEvent = {
+  type: "agent_message_start";
+  agent_id: string;
+  agent_name: string;
+  agent_color: string;
+};
+
+export type AgentMessageChunkEvent = {
+  type: "agent_message_chunk";
+  agent_id: string;
+  chunk: string;
+};
+
+export type AgentMessageEndEvent = {
+  type: "agent_message_end";
+  agent_id: string;
+  text: string;
+};
+
+export type SttEvent =
+  | TranscriptEvent
+  | SystemEvent
+  | SpeakersUpdatedEvent
+  | AgentMessageStartEvent
+  | AgentMessageChunkEvent
+  | AgentMessageEndEvent;
 
 export interface SttSocket {
   send: (frame: ArrayBuffer) => void;

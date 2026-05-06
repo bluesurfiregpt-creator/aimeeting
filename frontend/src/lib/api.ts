@@ -73,6 +73,74 @@ export type MeetingResult = {
   identification_message: string | null;
 };
 
+export type Agent = {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+  domain: string | null;
+  persona: string | null;
+  tone: string | null;
+  boundary: string | null;
+  keywords: string[] | null;
+  color: string | null;
+  dify_app_type: string;
+  dify_base_url: string | null;
+  dify_workflow_id: string | null;
+  is_active: boolean;
+  has_dify_key: boolean;
+  created_at: string;
+};
+
+export type AgentInput = Partial<Omit<Agent, "id" | "has_dify_key" | "created_at">> & {
+  name: string;
+  dify_api_key?: string | null;
+};
+
+export type ProviderCatalogEntry = {
+  name: string;
+  label: string;
+  default_base_url: string;
+  default_model: string;
+  api_key_help: string;
+  docs_url: string;
+};
+
+export type ProviderConfig = {
+  id: string;
+  provider: string;
+  base_url: string | null;
+  model_id: string | null;
+  is_active: boolean;
+  note: string | null;
+  masked_key: string;
+  created_at: string;
+  updated_at: string;
+};
+
+async function jput<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(backendBase() + path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+  return r.json();
+}
+async function jpatch<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(backendBase() + path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+  return r.json();
+}
+async function jdelete(path: string): Promise<void> {
+  const r = await fetch(backendBase() + path, { method: "DELETE" });
+  if (!r.ok && r.status !== 204)
+    throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+}
+
 export const api = {
   listUsers: () => jget<User[]>("/api/users"),
   createUser: (name: string, email?: string) =>
@@ -88,4 +156,21 @@ export const api = {
   getMeeting: (id: string) => jget<Meeting>(`/api/meetings/${id}`),
   finalizeMeeting: (id: string) => jpost<Meeting>(`/api/meetings/${id}/finalize`, {}),
   meetingResult: (id: string) => jget<MeetingResult>(`/api/meetings/${id}/result`),
+
+  // Agents
+  listAgents: () => jget<Agent[]>("/api/agents"),
+  createAgent: (a: AgentInput) => jpost<Agent>("/api/agents", a),
+  updateAgent: (id: string, a: Partial<AgentInput>) => jpatch<Agent>(`/api/agents/${id}`, a),
+  deleteAgent: (id: string) => jdelete(`/api/agents/${id}`),
+
+  // Model providers
+  providerCatalog: () => jget<ProviderCatalogEntry[]>("/api/model-providers/catalog"),
+  listProviderConfigs: () => jget<ProviderConfig[]>("/api/model-providers"),
+  saveProviderConfig: (
+    provider: string,
+    body: { provider: string; api_key: string; base_url?: string; model_id?: string; is_active?: boolean; note?: string },
+  ) => jput<ProviderConfig>(`/api/model-providers/${provider}`, body),
+  activateProvider: (provider: string) =>
+    jpost<ProviderConfig>(`/api/model-providers/${provider}/activate`, {}),
+  deleteProviderConfig: (provider: string) => jdelete(`/api/model-providers/${provider}`),
 };
