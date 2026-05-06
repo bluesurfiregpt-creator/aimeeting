@@ -19,6 +19,7 @@ from .models import Meeting, MeetingTranscript
 from .agent_router import invoke_agent_directly, maybe_invoke_agents
 from .routers import agents as agents_router
 from .routers import meetings as meetings_router
+from .routers import memory as memory_router
 from .routers import model_providers as model_providers_router
 from .routers import users as users_router
 from .routers import voiceprints as voiceprints_router
@@ -55,6 +56,7 @@ app.include_router(voiceprints_router.router)
 app.include_router(meetings_router.router)
 app.include_router(agents_router.router)
 app.include_router(model_providers_router.router)
+app.include_router(memory_router.router)
 
 
 @app.get("/healthz")

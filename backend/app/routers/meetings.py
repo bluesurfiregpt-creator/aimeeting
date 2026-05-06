@@ -15,6 +15,7 @@ from ..db import get_session
 from ..identify_pipeline import run_identify
 from ..models import Meeting, MeetingAttendee, MeetingTranscript, User
 from ..schemas import MeetingCreate, MeetingOut, MeetingResultOut, TranscriptLine
+from ..briefing_generator import generate_briefing
 from ..summary_generator import generate_summary
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,24 @@ async def finalize_meeting(
 
 
 _STATUS_RE = re.compile(r"<!-- identify:(\w+): (.*?) -->")
+
+
+class BriefingOut(BaseModel):
+    briefing_md: str | None
+    status: str  # 'ready' | 'empty'
+
+
+@router.get("/{meeting_id}/briefing", response_model=BriefingOut)
+async def get_meeting_briefing(
+    meeting_id: str, session: AsyncSession = Depends(get_session)
+):
+    m = (
+        await session.execute(select(Meeting).where(Meeting.id == meeting_id))
+    ).scalar_one_or_none()
+    if not m:
+        raise HTTPException(404, "meeting not found")
+    md = await generate_briefing(m.id)
+    return BriefingOut(briefing_md=md, status="ready" if md else "empty")
 
 
 class SummaryOut(BaseModel):

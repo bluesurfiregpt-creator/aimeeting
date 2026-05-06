@@ -209,4 +209,15 @@ async def generate_summary(
         await db.commit()
 
     logger.info("generated summary for meeting %s (%d chars)", meeting_id, len(summary))
+
+    # Chain: extract long-term memories from this fresh summary in the
+    # background. Imported lazily to avoid cycle (memory_extractor imports
+    # llm_direct, which doesn't depend on us — the cycle is just code-level).
+    try:
+        import asyncio
+        from .memory_extractor import extract_and_store_memories
+        asyncio.create_task(extract_and_store_memories(meeting_id, summary_md=summary))
+    except Exception:
+        logger.exception("failed to schedule memory extraction")
+
     return summary

@@ -15,6 +15,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <nav className="mt-6 flex gap-1 border-b border-ink-700">
         <AdminTab href="/admin/agents" label="AI 专家" />
         <AdminTab href="/admin/models" label="LLM 模型" />
+        <AdminTab href="/admin/memory" label="长期记忆" />
       </nav>
       <div className="mt-8">{children}</div>
     </div>

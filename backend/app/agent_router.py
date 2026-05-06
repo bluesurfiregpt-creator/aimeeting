@@ -34,7 +34,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .db import SessionLocal
 from .dify_client import DifyClient, DifyError
 from .llm_direct import LlmError, get_active_provider, stream_chat
-from .models import Agent, MeetingAgentMessage, MeetingAttendee, MeetingTranscript, User
+from .memory_retrieval import retrieve_relevant
+from .models import Agent, MeetingAgentMessage, MeetingAttendee, Meeting, MeetingTranscript, User
 
 logger = logging.getLogger(__name__)
 
@@ -121,10 +122,12 @@ DEFAULT_MEETING_EXPERT_PROMPT = (
 )
 
 
-def _compose_system_prompt(agent: Agent) -> str:
+def _compose_system_prompt(agent: Agent, memory_lines: list[str] | None = None) -> str:
     """Combine agent persona with the meeting-expert template. The agent's
     own persona/domain/tone are layered on top of the generic template so
-    each agent specialises while keeping the meeting-aware behaviours."""
+    each agent specialises while keeping the meeting-aware behaviours.
+    If memory_lines is provided, they're appended as a "你过去知道的相关
+    事实" section so the agent can reference prior decisions."""
     parts = [DEFAULT_MEETING_EXPERT_PROMPT, ""]
     parts.append(f"你的角色: {agent.name}")
     if agent.domain:
@@ -135,6 +138,11 @@ def _compose_system_prompt(agent: Agent) -> str:
         parts.append(f"语气: {agent.tone}")
     if agent.boundary:
         parts.append(f"边界(不要做的事):\n{agent.boundary}")
+    if memory_lines:
+        parts.append("")
+        parts.append("你过去在相关会议中已经知道的事实(优先用这些, 不要凭空编造):")
+        for line in memory_lines:
+            parts.append(f"- {line}")
     return "\n".join(parts).strip()
 
 
@@ -206,15 +214,57 @@ async def _call_dify_and_stream(
                          "chunk": f"[Dify 错误: {ev.get('message')}]"}
                     )
         else:
+            memory_lines: list[str] = []
             async with SessionLocal() as db:
                 provider = await get_active_provider(db)
+                if provider is not None:
+                    # Retrieve project + attendee-scoped memories that match
+                    # the recent context. We scope to:
+                    #   - project: this meeting's title
+                    #   - users: attendees by name
+                    meeting = (
+                        await db.execute(
+                            select(Meeting).where(Meeting.id == meeting_id)
+                        )
+                    ).scalar_one_or_none()
+                    project_refs = [meeting.title] if meeting and meeting.title else []
+                    attendee_ids = (
+                        await db.execute(
+                            select(MeetingAttendee.user_id).where(
+                                MeetingAttendee.meeting_id == meeting_id,
+                                MeetingAttendee.user_id.is_not(None),
+                            )
+                        )
+                    ).all()
+                    user_refs: list[str] = []
+                    if attendee_ids:
+                        users = (
+                            await db.execute(
+                                select(User).where(User.id.in_([r[0] for r in attendee_ids]))
+                            )
+                        ).scalars().all()
+                        user_refs = [u.name for u in users]
+                    try:
+                        mems = await retrieve_relevant(
+                            db,
+                            query_text=(context + "\n" + query).strip(),
+                            project_refs=project_refs or None,
+                            user_refs=user_refs or None,
+                            k=4,
+                        )
+                        # Filter out very-far matches; cosine distance > 0.6 is
+                        # usually irrelevant noise.
+                        memory_lines = [m.content for m in mems if m.distance < 0.6]
+                    except Exception:
+                        logger.exception("memory retrieval failed; continuing without")
+
             if provider is None:
                 await on_message(
                     {"type": "agent_message_chunk", "agent_id": str(agent.id),
                      "chunk": "[未配置可用的 LLM 模型,请去「LLM 模型」页面设置一个并设为默认]"}
                 )
             else:
-                system_prompt = _compose_system_prompt(agent)
+                system_prompt = _compose_system_prompt(agent, memory_lines or None)
                 user_prompt = _compose_user_prompt(query, context)
                 async for chunk in stream_chat(
                     provider=provider,

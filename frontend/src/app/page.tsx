@@ -63,6 +63,10 @@ export default function Home() {
           <Link href="/admin/models" className="text-zinc-500 hover:text-accent-400">
             LLM 模型
           </Link>
+          <span className="text-zinc-700">·</span>
+          <Link href="/admin/memory" className="text-zinc-500 hover:text-accent-400">
+            长期记忆
+          </Link>
         </div>
       </header>
 

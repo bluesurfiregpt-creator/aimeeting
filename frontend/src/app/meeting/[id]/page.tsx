@@ -5,6 +5,7 @@ import Link from "next/link";
 import { startAudioCapture, type AudioCaptureHandle } from "@/lib/audioCapture";
 import { openSttSocket, type SttEvent, type SttSocket } from "@/lib/sttSocket";
 import { api, type Agent, type TranscriptLine } from "@/lib/api";
+import BriefingCard from "./BriefingCard";
 import SummaryCard from "./SummaryCard";
 
 type LiveLine =
@@ -382,6 +383,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         </button>
       </div>
 
+      {phase === "idle" ? <BriefingCard meetingId={meetingId} /> : null}
       {phase === "ended" ? <SummaryCard meetingId={meetingId} /> : null}
 
       {agents.length > 0 ? (

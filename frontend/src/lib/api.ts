@@ -105,6 +105,17 @@ export type ProviderCatalogEntry = {
   docs_url: string;
 };
 
+export type Memory = {
+  id: string;
+  scope: "user" | "project" | "org";
+  scope_ref: string | null;
+  content: string;
+  importance: number;
+  source_type: string | null;
+  source_id: string | null;
+  created_at: string;
+};
+
 export type ProviderConfig = {
   id: string;
   provider: string;
@@ -162,6 +173,23 @@ export const api = {
   createAgent: (a: AgentInput) => jpost<Agent>("/api/agents", a),
   updateAgent: (id: string, a: Partial<AgentInput>) => jpatch<Agent>(`/api/agents/${id}`, a),
   deleteAgent: (id: string) => jdelete(`/api/agents/${id}`),
+
+  getMeetingBriefing: (id: string) =>
+    jget<{ briefing_md: string | null; status: "ready" | "empty" }>(
+      `/api/meetings/${id}/briefing`,
+    ),
+
+  // Long-term memory
+  listMemories: (scope?: string, scopeRef?: string) => {
+    const q = new URLSearchParams();
+    if (scope) q.set("scope", scope);
+    if (scopeRef) q.set("scope_ref", scopeRef);
+    const s = q.toString();
+    return jget<Memory[]>(`/api/memory${s ? `?${s}` : ""}`);
+  },
+  createMemory: (m: { scope: string; scope_ref?: string | null; content: string; importance?: number }) =>
+    jpost<Memory>("/api/memory", m),
+  deleteMemory: (id: string) => jdelete(`/api/memory/${id}`),
 
   getMeetingSummary: (id: string) =>
     jget<{ summary_md: string | null; status: "pending" | "ready" | "failed" | "unconfigured" }>(
