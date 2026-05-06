@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..audio_utils import pcm_seconds, pcm_to_wav
+from ..audio_utils import pcm_quality_metrics, pcm_seconds, pcm_to_wav
 from ..db import get_session
 from ..models import User, Voiceprint
 from ..oss_client import OSSClient
@@ -45,8 +45,30 @@ async def enroll_voiceprint(
         raise HTTPException(400, "empty audio")
 
     seconds = pcm_seconds(raw)
-    if seconds < 5:
-        raise HTTPException(400, f"recording too short ({seconds:.1f}s); need 30s+ for usable voiceprint")
+    metrics = pcm_quality_metrics(raw)
+
+    # Quality gate — picked so a clean 30s reading clears every check
+    # while a 30s noisy/silence-heavy upload is rejected with a useful
+    # error the frontend can show.
+    if metrics["speech_seconds"] < 20:
+        raise HTTPException(
+            400,
+            f"effective speech only {metrics['speech_seconds']:.1f}s "
+            f"(need ≥20s of actual talking). Re-record in a quieter spot "
+            f"and read straight through without long pauses.",
+        )
+    if metrics["speech_ratio"] < 0.55:
+        raise HTTPException(
+            400,
+            f"too much silence ({(1-metrics['speech_ratio'])*100:.0f}%). "
+            f"Re-record reading the prompt continuously without big gaps.",
+        )
+    if metrics["mean_speech_rms"] < 0.02:
+        raise HTTPException(
+            400,
+            f"recording is too quiet (mean loudness {metrics['mean_speech_rms']*100:.1f}%). "
+            f"Move closer to the mic or speak up.",
+        )
 
     oss = OSSClient()
     pyannote = PyannoteClient()

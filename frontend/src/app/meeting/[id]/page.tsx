@@ -18,6 +18,10 @@ type LiveLine =
       // multiple times during the meeting as more audio is processed.
       speakerName: string | null;
       speakerUserId: string | null;
+      // Stable id from the server's meeting_transcript row — only known
+      // after we've fetched /result at least once. Needed to call the
+      // correct-speaker endpoint.
+      serverLineId: number | null;
     }
   | {
       kind: "agent";
@@ -75,6 +79,11 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   // Agents currently producing a streamed reply (between agent_message_start
   // and agent_message_end). Used to disable / dim their avatar.
   const [busyAgents, setBusyAgents] = useState<Set<string>>(new Set());
+  // Pool of attendees we let users pick from when manually correcting a
+  // line's speaker after the meeting. Loaded after stop() because it's
+  // only relevant once identification is done.
+  const [attendees, setAttendees] = useState<Array<{ id: string; name: string }>>([]);
+  const [correctingLineId, setCorrectingLineId] = useState<number | null>(null);
 
   const captureRef = useRef<AudioCaptureHandle | null>(null);
   const socketRef = useRef<SttSocket | null>(null);
@@ -192,6 +201,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
               endMs: e.end_ts ?? null,
               speakerName: null,
               speakerUserId: null,
+              serverLineId: null,
             });
           }
         } else {
@@ -213,6 +223,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
               endMs: e.end_ts ?? null,
               speakerName: null,
               speakerUserId: null,
+              serverLineId: null,
             });
           }
         }
@@ -257,6 +268,10 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     try { socketRef.current?.close(); } catch {}
     socketRef.current = null;
     interimRef.current = null;
+    // Load the pool of users so manual correction can offer real names.
+    api.listUsers()
+      .then((rs) => setAttendees(rs.map((r) => ({ id: r.id, name: r.name }))))
+      .catch(() => {});
     // Server runs one final identify pass on WS close. Poll until status=ready.
     const poll = async (attemptsLeft: number) => {
       try {
@@ -305,6 +320,26 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       agent_id: agent.id,
     });
   }, [phase, busyAgents]);
+
+  const correctSpeaker = useCallback(
+    async (lineId: number, speakerUserId: string | null, displayName: string | null) => {
+      try {
+        await api.correctSpeaker(meetingId, lineId, speakerUserId);
+        setLines((prev) =>
+          prev.map((l) =>
+            l.kind === "user" && l.serverLineId === lineId
+              ? { ...l, speakerUserId, speakerName: displayName }
+              : l,
+          ),
+        );
+      } catch (e) {
+        console.error("correctSpeaker failed", e);
+      } finally {
+        setCorrectingLineId(null);
+      }
+    },
+    [meetingId],
+  );
 
   return (
     <main className="mx-auto flex min-h-screen max-w-4xl flex-col px-6 py-10">
@@ -414,17 +449,51 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                   key={l.id}
                   className={
                     l.final
-                      ? "text-base leading-relaxed text-zinc-100"
+                      ? "group text-base leading-relaxed text-zinc-100"
                       : "text-base leading-relaxed text-zinc-400"
                   }
                 >
-                  {l.speakerName ? (
-                    <span className={`mr-3 font-medium ${colorOf(l.speakerUserId)}`}>
-                      {l.speakerName}
-                    </span>
-                  ) : l.final ? (
-                    <span className="mr-3 text-xs text-zinc-600">…</span>
-                  ) : null}
+                  <span className="relative inline-block">
+                    {l.speakerName ? (
+                      <span className={`mr-3 font-medium ${colorOf(l.speakerUserId)}`}>
+                        {l.speakerName}
+                      </span>
+                    ) : l.final ? (
+                      <span className="mr-3 text-xs text-zinc-600">未识别</span>
+                    ) : null}
+                    {phase === "ended" && l.serverLineId !== null && (
+                      <button
+                        onClick={() =>
+                          setCorrectingLineId(
+                            correctingLineId === l.serverLineId ? null : l.serverLineId,
+                          )
+                        }
+                        title="纠正说话人"
+                        className="absolute -left-5 top-0.5 hidden text-xs text-zinc-600 hover:text-accent-400 group-hover:inline"
+                      >
+                        ✏️
+                      </button>
+                    )}
+                    {correctingLineId === l.serverLineId && (
+                      <span className="absolute left-0 top-full z-20 mt-1 inline-flex flex-col rounded-lg border border-ink-700 bg-ink-950 p-1 shadow-lg">
+                        {attendees.map((a) => (
+                          <button
+                            key={a.id}
+                            onClick={() => correctSpeaker(l.serverLineId!, a.id, a.name)}
+                            className="rounded px-2 py-1 text-left text-xs text-zinc-200 hover:bg-ink-800"
+                          >
+                            {a.name}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => correctSpeaker(l.serverLineId!, null, null)}
+                          className="rounded border-t border-ink-800 px-2 py-1 text-left text-xs text-zinc-500 hover:bg-ink-800"
+                        >
+                          标记为未识别
+                        </button>
+                      </span>
+                    )}
+                  </span>
                   <span>{l.text}</span>
                   {!l.final ? <span className="ml-1 animate-pulse">▌</span> : null}
                 </li>
@@ -473,14 +542,17 @@ function mergeSpeakers(local: LiveLine[], serverLines: TranscriptLine[]): LiveLi
     if (l.kind !== "user" || l.startMs == null) return l;
     const s = byStartMs.get(l.startMs);
     if (!s) return l;
-    if (s.speaker_name === l.speakerName && s.speaker_user_id === l.speakerUserId) {
-      return l;
-    }
+    const sameInfo =
+      s.speaker_name === l.speakerName &&
+      s.speaker_user_id === l.speakerUserId &&
+      s.id === l.serverLineId;
+    if (sameInfo) return l;
     mutated = true;
     return {
       ...l,
       speakerName: s.speaker_name,
       speakerUserId: s.speaker_user_id,
+      serverLineId: s.id,
     };
   });
   return mutated ? out : local;

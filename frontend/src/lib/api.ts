@@ -163,6 +163,16 @@ export const api = {
   updateAgent: (id: string, a: Partial<AgentInput>) => jpatch<Agent>(`/api/agents/${id}`, a),
   deleteAgent: (id: string) => jdelete(`/api/agents/${id}`),
 
+  correctSpeaker: (
+    meetingId: string,
+    lineId: number,
+    speakerUserId: string | null,
+  ) =>
+    jpost<{ line_id: number; speaker_user_id: string | null; speaker_name: string | null; status: string }>(
+      `/api/meetings/${meetingId}/transcripts/${lineId}/correct-speaker`,
+      { speaker_user_id: speakerUserId },
+    ),
+
   // Model providers
   providerCatalog: () => jget<ProviderCatalogEntry[]>("/api/model-providers/catalog"),
   listProviderConfigs: () => jget<ProviderConfig[]>("/api/model-providers"),

@@ -34,6 +34,9 @@ const SCRIPTS: { title: string; text: string }[] = [
 export default function EnrollPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [name, setName] = useState("");
+  // When re-enrolling an existing user, we reuse that user_id and deactivate
+  // their old voiceprint server-side.
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [status, setStatus] = useState("");
@@ -114,13 +117,20 @@ export default function EnrollPage() {
     }
     const blob = new Blob([merged], { type: "application/octet-stream" });
 
-    setStatus("正在创建用户档案 + 上传声纹（pyannoteAI 处理约 5-15s）...");
+    setStatus(
+      editingUserId
+        ? `正在重新录入「${name}」的声纹（pyannoteAI 处理约 5-15s）...`
+        : "正在创建用户档案 + 上传声纹（pyannoteAI 处理约 5-15s）...",
+    );
     setSubmitting(true);
     try {
-      const u = await api.createUser(name.trim());
-      await api.enrollVoiceprint(u.id, blob);
-      setStatus(`✅ ${u.name} 录入成功`);
+      const userId = editingUserId
+        ? editingUserId
+        : (await api.createUser(name.trim())).id;
+      await api.enrollVoiceprint(userId, blob);
+      setStatus(`✅ ${name} ${editingUserId ? "重新" : ""}录入成功`);
       setName("");
+      setEditingUserId(null);
       await refresh();
     } catch (e) {
       console.error(e);
@@ -233,23 +243,51 @@ export default function EnrollPage() {
       </section>
 
       <section className="mt-10">
-        <h2 className="text-sm font-medium text-zinc-300">已录入的人</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-zinc-300">已录入的人</h2>
+          {editingUserId && (
+            <button
+              onClick={() => { setEditingUserId(null); setName(""); }}
+              className="text-xs text-zinc-500 hover:text-accent-400"
+            >
+              + 改为新建
+            </button>
+          )}
+        </div>
         {users.length === 0 ? (
           <p className="mt-2 text-sm text-zinc-600">还没有人录入。</p>
         ) : (
           <ul className="mt-3 divide-y divide-ink-800 rounded-xl border border-ink-700 bg-ink-900">
             {users.map((u) => (
-              <li key={u.id} className="flex items-center justify-between px-4 py-3 text-sm">
+              <li
+                key={u.id}
+                className={`flex items-center justify-between px-4 py-3 text-sm ${
+                  editingUserId === u.id ? "bg-accent-500/10" : ""
+                }`}
+              >
                 <span className="text-white">{u.name}</span>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs ${
-                    u.has_voiceprint
-                      ? "bg-emerald-500/15 text-emerald-300"
-                      : "bg-zinc-700/40 text-zinc-400"
-                  }`}
-                >
-                  {u.has_voiceprint ? "✓ 声纹已录入" : "未录入"}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs ${
+                      u.has_voiceprint
+                        ? "bg-emerald-500/15 text-emerald-300"
+                        : "bg-zinc-700/40 text-zinc-400"
+                    }`}
+                  >
+                    {u.has_voiceprint ? "✓ 声纹已录入" : "未录入"}
+                  </span>
+                  <button
+                    onClick={() => {
+                      setEditingUserId(u.id);
+                      setName(u.name);
+                      setStatus(`已选择「${u.name}」, 点「开始录音」覆盖现有声纹`);
+                    }}
+                    disabled={recording || submitting}
+                    className="rounded border border-ink-700 px-2 py-0.5 text-xs text-zinc-300 hover:border-accent-500 hover:text-accent-400 disabled:cursor-not-allowed disabled:opacity-40 transition"
+                  >
+                    {u.has_voiceprint ? "重新录入" : "录入"}
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

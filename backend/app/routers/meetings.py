@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -90,6 +91,68 @@ async def finalize_meeting(
 
 
 _STATUS_RE = re.compile(r"<!-- identify:(\w+): (.*?) -->")
+
+
+class CorrectSpeakerIn(BaseModel):
+    speaker_user_id: uuid.UUID | None  # null = 标记为未识别
+
+
+class CorrectSpeakerOut(BaseModel):
+    line_id: int
+    speaker_user_id: uuid.UUID | None
+    speaker_name: str | None
+    status: str
+
+
+@router.post(
+    "/{meeting_id}/transcripts/{line_id}/correct-speaker",
+    response_model=CorrectSpeakerOut,
+)
+async def correct_speaker(
+    meeting_id: str,
+    line_id: int,
+    payload: CorrectSpeakerIn,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Manually re-attribute a transcript line to a specific user (or unset).
+
+    Per blueprint §5.3: corrections are kept distinct from auto-recognized
+    rows via the `speaker_status` column ('manually_corrected') so we can
+    later regress identification quality on the corrected vs. auto split.
+    """
+    line = (
+        await session.execute(
+            select(MeetingTranscript).where(
+                MeetingTranscript.meeting_id == meeting_id,
+                MeetingTranscript.id == line_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not line:
+        raise HTTPException(404, "transcript line not found")
+
+    name: str | None = None
+    if payload.speaker_user_id is not None:
+        u = (
+            await session.execute(select(User).where(User.id == payload.speaker_user_id))
+        ).scalar_one_or_none()
+        if not u:
+            raise HTTPException(404, "user not found")
+        name = u.name
+
+    line.speaker_user_id = payload.speaker_user_id
+    line.speaker_label = "manually_corrected" if payload.speaker_user_id else "UNKNOWN"
+    line.speaker_status = "manually_corrected" if payload.speaker_user_id else "manually_unset"
+    line.confidence = 1.0 if payload.speaker_user_id else None
+    await session.commit()
+
+    return CorrectSpeakerOut(
+        line_id=line.id,
+        speaker_user_id=line.speaker_user_id,
+        speaker_name=name,
+        status=line.speaker_status or "",
+    )
 
 
 @router.get("/{meeting_id}/result", response_model=MeetingResultOut)

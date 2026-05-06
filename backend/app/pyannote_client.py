@@ -101,28 +101,36 @@ class PyannoteClient:
         num_speakers: Optional[int] = None,
         min_speakers: Optional[int] = None,
         max_speakers: Optional[int] = None,
-        threshold: float = 0.4,
+        threshold: float = 0.5,
         exclusive: bool = True,
+        model: str = "precision-2",
     ) -> str:
         """
         Submit a long-running identify job. Returns jobId.
-        `voiceprints` shape follows pyannote's spec: [{id, voiceprint}, ...] or
-        equivalent — we pass through whatever payload the create_voiceprint call
-        returned and let pyannote figure it out.
+
+        Defaults to `precision-2` which is markedly more accurate than the
+        baseline model (paid tier on pyannoteAI). minSpeakers / maxSpeakers
+        are precision-2-only — we pass them when the caller provided either,
+        falling back to numSpeakers for the legacy model.
         """
         body: dict[str, Any] = {
             "url": audio_url,
             "voiceprints": voiceprints,
             "matching": {"threshold": threshold},
             "exclusive": exclusive,
+            "model": model,
         }
-        if num_speakers is not None:
-            body["numSpeakers"] = num_speakers
-        elif min_speakers is not None or max_speakers is not None:
-            if min_speakers is not None:
-                body["minSpeakers"] = min_speakers
-            if max_speakers is not None:
-                body["maxSpeakers"] = max_speakers
+        if model == "precision-2":
+            if num_speakers is not None:
+                body["numSpeakers"] = num_speakers
+            else:
+                if min_speakers is not None:
+                    body["minSpeakers"] = min_speakers
+                if max_speakers is not None:
+                    body["maxSpeakers"] = max_speakers
+        else:
+            if num_speakers is not None:
+                body["numSpeakers"] = num_speakers
 
         resp = await self._post("/v1/identify", body)
         job_id = resp.get("jobId") or resp.get("id")
