@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import SessionLocal
 from .dify_client import DifyClient, DifyError
+from .llm_direct import LlmError, get_active_provider, stream_chat
 from .models import Agent, MeetingAgentMessage, MeetingAttendee, MeetingTranscript, User
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,47 @@ async def _build_context(meeting_id: uuid.UUID, db: AsyncSession) -> str:
     return "\n".join(lines)
 
 
+DEFAULT_MEETING_EXPERT_PROMPT = (
+    "你是一位资深参会专家,在一场会议中作为受邀的 AI 顾问发言。\n\n"
+    "输入:\n"
+    "- meeting_context: 会议中已发生的对话片段,带说话人姓名,按时间顺序。\n"
+    "- query: 你被请发言的当前句子。\n\n"
+    "要求:\n"
+    "1. 先在 meeting_context 中识别核心议题,再针对 query 给出判断与建议。\n"
+    "2. 视角是这场会议的专家,关注关键决策、风险、可行性,不要泛泛鼓励。\n"
+    "3. 精炼可执行: 直接说结论 + 1-3 条理由,总长 2-5 句话。会议是抢时间的场合。\n"
+    "4. 有立场: 明确说\"我建议先做 X 因为...\",不要\"两个都可以、看情况\"。\n"
+    "5. 直接称呼会议中真实的发言人,像真在参会,不要\"用户您好\"。\n"
+    "6. 不重复 query 已说过的内容,不引用知识库。\n"
+    "7. meeting_context 为空时,基于 query 常识做最小判断,保持精炼+有立场。"
+)
+
+
+def _compose_system_prompt(agent: Agent) -> str:
+    """Combine agent persona with the meeting-expert template. The agent's
+    own persona/domain/tone are layered on top of the generic template so
+    each agent specialises while keeping the meeting-aware behaviours."""
+    parts = [DEFAULT_MEETING_EXPERT_PROMPT, ""]
+    parts.append(f"你的角色: {agent.name}")
+    if agent.domain:
+        parts.append(f"领域: {agent.domain}")
+    if agent.persona:
+        parts.append(f"人格与风格:\n{agent.persona}")
+    if agent.tone:
+        parts.append(f"语气: {agent.tone}")
+    if agent.boundary:
+        parts.append(f"边界(不要做的事):\n{agent.boundary}")
+    return "\n".join(parts).strip()
+
+
+def _compose_user_prompt(query: str, context: str) -> str:
+    parts = []
+    if context:
+        parts.append("【会议上下文】\n" + context)
+    parts.append("【当前需要你回应的内容】\n" + query)
+    return "\n\n".join(parts)
+
+
 async def _call_dify_and_stream(
     *,
     meeting_id: uuid.UUID,
@@ -114,7 +156,15 @@ async def _call_dify_and_stream(
     trigger_payload: dict,
     on_message: Callable[[dict], Awaitable[None]],
 ) -> None:
-    """Stream a single Dify call back over WS and persist the message at end."""
+    """
+    Stream a single agent call back over WS and persist the message at end.
+
+    Path selection:
+      - if the agent has a Dify api_key configured, route through Dify
+        (gives the user access to KB / branching / Dify-managed memory)
+      - otherwise call the active model_provider_config row directly with
+        the agent's persona as system prompt — much simpler, no Dify needed
+    """
     await on_message(
         {
             "type": "agent_message_start",
@@ -124,41 +174,67 @@ async def _call_dify_and_stream(
         }
     )
 
-    client = DifyClient(
-        api_key=agent.dify_api_key,
-        base_url=agent.dify_base_url or "https://api.dify.ai",
-    )
     text_buf: list[str] = []
+    use_dify = bool(agent.dify_api_key)
+
     try:
-        async for ev in client.chat_stream(
-            query=query,
-            inputs={"meeting_context": context},
-            user=f"meeting:{meeting_id}",
-            app_type=agent.dify_app_type or "chatflow",
-        ):
-            evt = ev.get("event")
-            if evt in ("message", "agent_message"):
-                chunk = ev.get("answer") or ""
-                if chunk:
-                    text_buf.append(chunk)
+        if use_dify:
+            client = DifyClient(
+                api_key=agent.dify_api_key,
+                base_url=agent.dify_base_url or "https://api.dify.ai",
+            )
+            async for ev in client.chat_stream(
+                query=query,
+                inputs={"meeting_context": context},
+                user=f"meeting:{meeting_id}",
+                app_type=agent.dify_app_type or "chatflow",
+            ):
+                evt = ev.get("event")
+                if evt in ("message", "agent_message"):
+                    chunk = ev.get("answer") or ""
+                    if chunk:
+                        text_buf.append(chunk)
+                        await on_message(
+                            {"type": "agent_message_chunk", "agent_id": str(agent.id), "chunk": chunk}
+                        )
+                elif evt in ("message_end", "workflow_finished"):
+                    break
+                elif evt == "error":
+                    logger.warning("dify error event: %s", ev)
                     await on_message(
-                        {"type": "agent_message_chunk", "agent_id": str(agent.id), "chunk": chunk}
+                        {"type": "agent_message_chunk", "agent_id": str(agent.id),
+                         "chunk": f"[Dify 错误: {ev.get('message')}]"}
                     )
-            elif evt in ("message_end", "workflow_finished"):
-                break
-            elif evt == "error":
-                logger.warning("dify error event: %s", ev)
+        else:
+            async with SessionLocal() as db:
+                provider = await get_active_provider(db)
+            if provider is None:
                 await on_message(
-                    {
-                        "type": "agent_message_chunk",
-                        "agent_id": str(agent.id),
-                        "chunk": f"[Dify 错误: {ev.get('message')}]",
-                    }
+                    {"type": "agent_message_chunk", "agent_id": str(agent.id),
+                     "chunk": "[未配置可用的 LLM 模型,请去「LLM 模型」页面设置一个并设为默认]"}
                 )
-    except DifyError as e:
-        logger.exception("dify call failed")
+            else:
+                system_prompt = _compose_system_prompt(agent)
+                user_prompt = _compose_user_prompt(query, context)
+                async for chunk in stream_chat(
+                    provider=provider,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                ):
+                    if chunk:
+                        text_buf.append(chunk)
+                        await on_message(
+                            {"type": "agent_message_chunk", "agent_id": str(agent.id), "chunk": chunk}
+                        )
+    except (DifyError, LlmError) as e:
+        logger.exception("agent call failed")
         await on_message(
             {"type": "agent_message_chunk", "agent_id": str(agent.id), "chunk": f"[调用失败: {e}]"}
+        )
+    except Exception:
+        logger.exception("agent call unexpected error")
+        await on_message(
+            {"type": "agent_message_chunk", "agent_id": str(agent.id), "chunk": "[调用失败: internal_error]"}
         )
     finally:
         full = ("".join(text_buf))[:MAX_TEXT_LEN]
@@ -246,7 +322,7 @@ async def invoke_agent_directly(
                 select(Agent).where(Agent.id == agent_id, Agent.is_active.is_(True))
             )
         ).scalar_one_or_none()
-        if not agent or not agent.dify_api_key:
+        if not agent:
             await on_message({"type": "system", "msg": "agent_unconfigured"})
             return
         context = await _build_context(meeting_id, db)
@@ -284,9 +360,7 @@ async def _agents_for_meeting(db: AsyncSession, meeting_id: uuid.UUID) -> list[A
         return list(
             (
                 await db.execute(
-                    select(Agent).where(
-                        Agent.is_active.is_(True), Agent.dify_api_key.is_not(None)
-                    )
+                    select(Agent).where(Agent.is_active.is_(True))
                 )
             ).scalars()
         )
@@ -296,7 +370,6 @@ async def _agents_for_meeting(db: AsyncSession, meeting_id: uuid.UUID) -> list[A
                 select(Agent).where(
                     Agent.id.in_(agent_ids),
                     Agent.is_active.is_(True),
-                    Agent.dify_api_key.is_not(None),
                 )
             )
         ).scalars()

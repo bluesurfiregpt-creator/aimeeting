@@ -62,10 +62,6 @@ export default function AgentsAdmin() {
 
   const save = async () => {
     if (!form.name.trim()) { setMsg("请填写 Agent 名称"); return; }
-    if (!editing && !form.dify_api_key.trim()) {
-      setMsg("新建时必须填 Dify App API Key（创建 Dify app 后获取）");
-      return;
-    }
     setBusy(true);
     setMsg("");
     const body = {
@@ -132,7 +128,7 @@ export default function AgentsAdmin() {
           </div>
 
           <div className="mt-4 rounded-lg border border-ink-700 bg-ink-950 p-3">
-            <div className="text-xs uppercase tracking-wider text-zinc-500">Dify 连接</div>
+            <div className="text-xs uppercase tracking-wider text-zinc-500">Dify 连接（可选 · 留空则用「LLM 模型」页面配置的默认模型）</div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <label className="block text-sm">
                 <span className="text-xs text-zinc-500">App 类型</span>

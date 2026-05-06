@@ -292,7 +292,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   // Pull agents on mount so the avatar bar populates even before "开始会议".
   useEffect(() => {
     api.listAgents().then(
-      (rows) => setAgents(rows.filter((a) => a.is_active && a.has_dify_key)),
+      (rows) => setAgents(rows.filter((a) => a.is_active)),
       (err) => console.warn("listAgents failed", err),
     );
   }, []);
