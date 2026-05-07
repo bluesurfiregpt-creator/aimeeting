@@ -18,6 +18,7 @@ from ..identify_pipeline import run_identify
 from ..models import Meeting, MeetingAttendee, MeetingTranscript, User
 from ..schemas import MeetingCreate, MeetingOut, MeetingResultOut, TranscriptLine
 from ..briefing_generator import generate_briefing
+from ..meeting_export import export_docx, export_markdown
 from ..summary_generator import generate_summary
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,51 @@ async def list_meetings(
         if r.user_id is not None:
             by_meeting.setdefault(r.meeting_id, []).append(r.user_id)
     return [_to_meeting_out(m, by_meeting.get(m.id, [])) for m in rows]
+
+
+@router.get("/{meeting_id}/export")
+async def export_meeting(
+    meeting_id: str,
+    format: str = "md",
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    Export the meeting (summary + named transcript + agent messages) as a
+    downloadable file. Supports `md` and `docx`. Streamed as attachment with
+    a Chinese-safe filename.
+    """
+    from urllib.parse import quote
+    from fastapi.responses import Response
+
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    safe_title = (m.title or "meeting").replace("/", "_")[:80]
+
+    if format == "md":
+        content = await export_markdown(m.id, session)
+        if not content:
+            raise HTTPException(404, "nothing to export")
+        body = content.encode("utf-8")
+        media = "text/markdown; charset=utf-8"
+        ext = "md"
+    elif format == "docx":
+        body = await export_docx(m.id, session)
+        if not body:
+            raise HTTPException(404, "nothing to export")
+        media = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ext = "docx"
+    else:
+        raise HTTPException(400, "format must be md or docx")
+
+    filename = f"{safe_title}.{ext}"
+    # Quote for cross-browser Chinese filename support per RFC 5987
+    headers = {
+        "Content-Disposition": (
+            f"attachment; filename=\"meeting.{ext}\"; "
+            f"filename*=UTF-8''{quote(filename)}"
+        )
+    }
+    return Response(content=body, media_type=media, headers=headers)
 
 
 @router.delete("/{meeting_id}", status_code=204)

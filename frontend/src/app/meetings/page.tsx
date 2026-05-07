@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, type Meeting, type User } from "@/lib/api";
+import { SkeletonList } from "@/components/Skeleton";
 
 const STATUS_TONE: Record<string, string> = {
   scheduled: "bg-zinc-700/40 text-zinc-400",
@@ -58,7 +59,9 @@ export default function MeetingsListPage() {
       </header>
 
       {loading ? (
-        <p className="mt-8 text-sm text-zinc-600">加载中...</p>
+        <div className="mt-6">
+          <SkeletonList rows={5} />
+        </div>
       ) : meetings.length === 0 ? (
         <p className="mt-8 text-sm text-zinc-600">还没开过会。</p>
       ) : (

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, type Memory } from "@/lib/api";
+import { SkeletonList } from "@/components/Skeleton";
 
 const SCOPE_LABEL: Record<string, { label: string; tone: string }> = {
   user: { label: "用户", tone: "bg-sky-500/15 text-sky-300" },
@@ -167,7 +168,9 @@ export default function MemoryAdmin() {
           已记忆 {memories.length} 条
         </h2>
         {loading ? (
-          <p className="mt-3 text-sm text-zinc-600">加载中...</p>
+          <div className="mt-3">
+            <SkeletonList rows={5} />
+          </div>
         ) : memories.length === 0 ? (
           <p className="mt-3 text-sm text-zinc-600">
             还没有记忆。开几场会、生成纪要,或手工添加几条试试。

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, type KnowledgeBase } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { SkeletonGrid } from "@/components/Skeleton";
 
 export default function KnowledgeAdmin() {
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
@@ -87,7 +88,9 @@ export default function KnowledgeAdmin() {
       <section className="mt-6">
         <h2 className="text-sm font-medium text-zinc-300">已有知识库 ({kbs.length})</h2>
         {loading ? (
-          <p className="mt-3 text-sm text-zinc-600">加载中...</p>
+          <div className="mt-3">
+            <SkeletonGrid items={4} />
+          </div>
         ) : kbs.length === 0 ? (
           <p className="mt-3 text-sm text-zinc-600">还没有知识库,新建一个开始上传文档。</p>
         ) : (

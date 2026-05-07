@@ -354,6 +354,34 @@ export const api = {
     jget<{ briefing_md: string | null; status: "ready" | "empty" }>(
       `/api/meetings/${id}/briefing`,
     ),
+  /**
+   * Download a meeting export. Returns the blob and a server-supplied
+   * filename (parsed from Content-Disposition). Caller triggers the
+   * actual save via an anchor click.
+   */
+  downloadMeetingExport: async (id: string, format: "md" | "docx") => {
+    const r = await fetch(
+      backendBase() + `/api/meetings/${id}/export?format=${format}`,
+      { credentials: "include" },
+    );
+    if (!r.ok) {
+      handleAuthError(r.status);
+      throw new Error(`export: ${r.status} ${await r.text().catch(() => "")}`);
+    }
+    const cd = r.headers.get("Content-Disposition") ?? "";
+    let filename = `meeting.${format}`;
+    // RFC 5987: filename*=UTF-8''<percent-encoded>
+    const star = cd.match(/filename\*=UTF-8''([^;]+)/i);
+    if (star) {
+      try {
+        filename = decodeURIComponent(star[1]);
+      } catch {}
+    } else {
+      const plain = cd.match(/filename="?([^";]+)"?/i);
+      if (plain) filename = plain[1];
+    }
+    return { blob: await r.blob(), filename };
+  },
 
   listAudit: (action?: string, limit = 200) => {
     const q = new URLSearchParams({ limit: String(limit) });

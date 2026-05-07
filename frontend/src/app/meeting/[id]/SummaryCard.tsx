@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 
 type Status = "pending" | "ready" | "failed" | "unconfigured" | "skipped";
 
@@ -46,6 +47,23 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
       if (pollRef.current) window.clearTimeout(pollRef.current);
     };
   }, [fetchOnce]);
+
+  const download = useCallback(async (format: "md" | "docx") => {
+    try {
+      const { blob, filename } = await api.downloadMeetingExport(meetingId, format);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`已导出 ${filename}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "导出失败");
+    }
+  }, [meetingId]);
 
   const regen = useCallback(async () => {
     setBusy(true);
@@ -103,13 +121,30 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
             </span>
           )}
         </div>
-        <button
-          onClick={regen}
-          disabled={busy}
-          className="text-xs text-zinc-500 hover:text-accent-400 disabled:opacity-50"
-        >
-          {busy ? "生成中..." : "重新生成"}
-        </button>
+        <div className="flex items-center gap-3 text-xs">
+          <button
+            onClick={() => download("md")}
+            className="text-zinc-500 hover:text-accent-400"
+            title="导出为 Markdown 文件"
+          >
+            导出 .md
+          </button>
+          <button
+            onClick={() => download("docx")}
+            className="text-zinc-500 hover:text-accent-400"
+            title="导出为 Word 文档"
+          >
+            导出 .docx
+          </button>
+          <span className="text-zinc-700">|</span>
+          <button
+            onClick={regen}
+            disabled={busy}
+            className="text-zinc-500 hover:text-accent-400 disabled:opacity-50"
+          >
+            {busy ? "生成中..." : "重新生成"}
+          </button>
+        </div>
       </header>
 
       {summary ? (

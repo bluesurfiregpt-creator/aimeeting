@@ -2,7 +2,12 @@
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { MicPermissionError, startAudioCapture, type AudioCaptureHandle } from "@/lib/audioCapture";
+import {
+  MicPermissionError,
+  probeAudioCapabilities,
+  startAudioCapture,
+  type AudioCaptureHandle,
+} from "@/lib/audioCapture";
 import { toast } from "@/lib/toast";
 import { openSttSocket, type SttEvent, type SttSocket } from "@/lib/sttSocket";
 import { api, type Agent, type TranscriptLine } from "@/lib/api";
@@ -152,6 +157,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [statusText, setStatusText] = useState("待开始");
+  const [audioCaps] = useState(() => probeAudioCapabilities());
   const [lines, setLines] = useState<LiveLine[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   // Agents currently producing a streamed reply (between agent_message_start
@@ -191,6 +197,25 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     if (e.type === "system") {
       if (e.msg === "ready") setStatusText("已连接，开始说话");
       else setStatusText(`系统：${e.msg}`);
+      return;
+    }
+    if (e.type === "reconnect_state") {
+      // Only update status when we're meant to be live; don't override
+      // "会议已结束" once the user pressed stop.
+      if (phaseRef.current !== "live") return;
+      if (e.state === "connecting") {
+        setStatusText(
+          e.attempt && e.attempt > 0
+            ? `网络中断,正在重连… (第 ${e.attempt} 次)`
+            : "正在连接…",
+        );
+      } else if (e.state === "connected") {
+        setStatusText(e.attempt && e.attempt > 0 ? "✓ 已重连,继续说话" : "已连接,开始说话");
+      } else if (e.state === "lost") {
+        setStatusText("连接已断开,准备重连…");
+      } else if (e.state === "giving_up") {
+        setStatusText("多次重连失败,请检查网络后刷新页面");
+      }
       return;
     }
     if (e.type === "speakers_updated") {
@@ -490,6 +515,16 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         </button>
       </div>
 
+      {phase === "idle" && audioCaps.isIOSSafari ? (
+        <div className="mt-4 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-xs text-sky-200">
+          📱 检测到 iOS Safari。开会前请确保:1) 浏览器允许麦克风权限(设置 → Safari → 麦克风);2) 屏幕保持点亮且 Safari 处于前台;3) 点击「开始会议」时直接对着麦克风说话,不要离设备太远。
+        </div>
+      ) : null}
+      {phase === "idle" && !audioCaps.secureContext ? (
+        <div className="mt-4 rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-xs text-rose-200">
+          ⚠️ 当前页面不在安全上下文中(需要 HTTPS)。浏览器禁止访问麦克风,无法开会。
+        </div>
+      ) : null}
       {phase === "idle" ? <BriefingCard meetingId={meetingId} /> : null}
       {phase === "ended" ? <SummaryCard meetingId={meetingId} /> : null}
 

@@ -55,6 +55,66 @@ export class MicPermissionError extends Error {
   }
 }
 
+export type AudioCapabilities = {
+  secureContext: boolean;
+  hasGetUserMedia: boolean;
+  hasAudioContext: boolean;
+  hasScriptProcessor: boolean;
+  hasAudioWorklet: boolean;
+  /** Best-guess sample rate the AudioContext will use. iOS Safari often
+   *  ignores the requested 16000 and pins to the device hardware rate
+   *  (44100 / 48000). We resample either way; this is purely diagnostic. */
+  defaultSampleRate: number | null;
+  isIOSSafari: boolean;
+};
+
+/**
+ * Probe the browser's audio stack without grabbing the mic. Useful as a
+ * pre-flight check on the meeting page so we can warn iOS Safari users
+ * about known caveats *before* they hit "开始会议".
+ */
+export function probeAudioCapabilities(): AudioCapabilities {
+  if (typeof window === "undefined") {
+    return {
+      secureContext: false,
+      hasGetUserMedia: false,
+      hasAudioContext: false,
+      hasScriptProcessor: false,
+      hasAudioWorklet: false,
+      defaultSampleRate: null,
+      isIOSSafari: false,
+    };
+  }
+  const ua = navigator.userAgent || "";
+  const isIOS = /iPad|iPhone|iPod/.test(ua);
+  const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
+  const ACtor = (window as unknown as {
+    AudioContext?: typeof AudioContext;
+    webkitAudioContext?: typeof AudioContext;
+  }).AudioContext ?? (window as unknown as {
+    webkitAudioContext?: typeof AudioContext;
+  }).webkitAudioContext;
+
+  let defaultRate: number | null = null;
+  if (ACtor) {
+    try {
+      const probe = new ACtor();
+      defaultRate = probe.sampleRate;
+      void probe.close();
+    } catch { /* ignore */ }
+  }
+
+  return {
+    secureContext: window.isSecureContext === true,
+    hasGetUserMedia: !!navigator.mediaDevices?.getUserMedia,
+    hasAudioContext: !!ACtor,
+    hasScriptProcessor: !!(ACtor && ACtor.prototype.createScriptProcessor),
+    hasAudioWorklet: !!(ACtor && ACtor.prototype.audioWorklet),
+    defaultSampleRate: defaultRate,
+    isIOSSafari: isIOS && isSafari,
+  };
+}
+
 export async function startAudioCapture(sink: PcmSink): Promise<AudioCaptureHandle> {
   // Browsers gate getUserMedia on a secure context (HTTPS or localhost).
   // Fail fast with a clear message instead of a confusing TypeError.
