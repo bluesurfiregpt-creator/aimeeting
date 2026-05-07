@@ -24,6 +24,7 @@ from .routers import auth as auth_router
 from .routers import meetings as meetings_router
 from .routers import memory as memory_router
 from .routers import model_providers as model_providers_router
+from .routers import team as team_router
 from .routers import users as users_router
 from .routers import voiceprints as voiceprints_router
 from . import session_state
@@ -62,6 +63,7 @@ app.include_router(agents_router.router)
 app.include_router(model_providers_router.router)
 app.include_router(memory_router.router)
 app.include_router(audit_router.router)
+app.include_router(team_router.router)
 
 
 @app.get("/healthz")

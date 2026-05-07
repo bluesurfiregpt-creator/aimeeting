@@ -62,8 +62,8 @@ class Workspace(Base):
 
 
 class WorkspaceMembership(Base):
-    """A user's role in a workspace. For Sprint F we keep it 1:1 in practice
-    (one workspace per user) but the schema is N:M-ready for future invites."""
+    """A user's role in a workspace. Sprint F.1 makes this truly N:M —
+    multiple users can join the same workspace via invitations."""
     __tablename__ = "workspace_membership"
     __table_args__ = (
         UniqueConstraint("workspace_id", "user_id", name="uq_workspace_user"),
@@ -77,6 +77,51 @@ class WorkspaceMembership(Base):
         PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
     )
     role: Mapped[str] = mapped_column(String(16), default="member")  # owner|admin|member
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WorkspaceInvitation(Base):
+    """
+    A pending invite for someone to join a workspace. The opaque `token` is
+    handed to the invitee out-of-band (email link, shared via IM, etc.) and
+    they redeem it via /register?invite=<token>. Single-use: `accepted_at`
+    is set on first redemption.
+    """
+    __tablename__ = "workspace_invitation"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    role: Mapped[str] = mapped_column(String(16), default="member")
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    accepted_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PasswordResetToken(Base):
+    """
+    Single-use password reset token. Issued via /api/auth/forgot-password,
+    redeemed via /api/auth/reset-password. We don't have SMTP wired yet
+    so the link is logged server-side; ops copies it manually until then.
+    """
+    __tablename__ = "password_reset_token"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

@@ -100,4 +100,37 @@ async def init_db() -> None:
             {"ws": existing_ws},
         )
 
+        # Sprint F.1: backfill workspace_membership for users that already
+        # had a workspace_id but no explicit membership row (e.g. master
+        # account created via raw SQL during Sprint F bootstrap). Without
+        # this row our get_current_auth membership check would deny them.
+        # Skip users whose workspace_id no longer exists (cleaned-up test
+        # workspaces); also reset their stale workspace_id to default.
+        await conn.execute(
+            text(
+                """
+                UPDATE "user" SET workspace_id = :ws
+                WHERE workspace_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM workspace w WHERE w.id = "user".workspace_id)
+                """
+            ),
+            {"ws": existing_ws},
+        )
+        await conn.execute(
+            text(
+                """
+                INSERT INTO workspace_membership (id, workspace_id, user_id, role)
+                SELECT gen_random_uuid(), u.workspace_id, u.id, 'owner'
+                FROM "user" u
+                WHERE u.workspace_id IS NOT NULL
+                  AND u.password_hash IS NOT NULL
+                  AND EXISTS (SELECT 1 FROM workspace w WHERE w.id = u.workspace_id)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM workspace_membership wm
+                    WHERE wm.workspace_id = u.workspace_id AND wm.user_id = u.id
+                  )
+                """
+            )
+        )
+
     logger.info("DB schema ensured")

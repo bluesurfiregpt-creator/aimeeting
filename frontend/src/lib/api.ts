@@ -248,14 +248,60 @@ export type Me = {
   role: string;
 };
 
+export type TeamMember = {
+  user_id: string;
+  name: string;
+  email: string | null;
+  role: "owner" | "admin" | "member";
+  joined_at: string;
+};
+
+export type Invitation = {
+  id: string;
+  email: string | null;
+  role: "admin" | "member";
+  token: string;
+  invite_url: string;
+  created_by_user_id: string | null;
+  expires_at: string;
+  accepted_at: string | null;
+  created_at: string;
+};
+
+export type InvitePreview = {
+  workspace_name: string;
+  role: string;
+  email: string | null;
+  expires_at: string;
+};
+
 export const api = {
   // Auth
-  register: (body: { email: string; password: string; name: string; workspace_name?: string }) =>
-    jpost<Me>("/api/auth/register", body),
+  register: (body: {
+    email: string;
+    password: string;
+    name: string;
+    workspace_name?: string;
+    invite_token?: string;
+  }) => jpost<Me>("/api/auth/register", body),
   login: (body: { email: string; password: string }) =>
     jpost<Me>("/api/auth/login", body),
   logout: () => jpost<{ ok: boolean }>("/api/auth/logout", {}),
   me: () => jget<Me>("/api/auth/me"),
+  invitePreview: (token: string) =>
+    jget<InvitePreview>(`/api/auth/invite/${token}`),
+  forgotPassword: (email: string) =>
+    jpost<{ ok: boolean }>("/api/auth/forgot-password", { email }),
+  resetPassword: (token: string, new_password: string) =>
+    jpost<Me>("/api/auth/reset-password", { token, new_password }),
+
+  // Team
+  listMembers: () => jget<TeamMember[]>("/api/team/members"),
+  removeMember: (userId: string) => jdelete(`/api/team/members/${userId}`),
+  listInvitations: () => jget<Invitation[]>("/api/team/invitations"),
+  createInvitation: (body: { email?: string; role: "admin" | "member" }) =>
+    jpost<Invitation>("/api/team/invitations", body),
+  revokeInvitation: (id: string) => jdelete(`/api/team/invitations/${id}`),
 
   listUsers: () => jget<User[]>("/api/users"),
   createUser: (name: string, email?: string) =>
