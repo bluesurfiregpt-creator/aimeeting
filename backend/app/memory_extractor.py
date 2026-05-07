@@ -81,6 +81,7 @@ async def extract_and_store_memories(
         ).scalar_one_or_none()
         if not meeting:
             return 0
+        meeting_workspace_id = meeting.workspace_id
         if summary_md is None:
             summary_md = meeting.summary_md
         if not summary_md or summary_md.startswith("<!--"):
@@ -150,6 +151,7 @@ async def extract_and_store_memories(
         for f, vec in zip(cleaned, vectors):
             db.add(
                 LongTermMemory(
+                    workspace_id=meeting_workspace_id,
                     scope=f["scope"],
                     scope_ref=f["scope_ref"],
                     content=f["content"],

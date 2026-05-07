@@ -245,16 +245,18 @@ async def _call_dify_and_stream(
                         ).scalars().all()
                         user_refs = [u.name for u in users]
                     try:
-                        mems = await retrieve_relevant(
-                            db,
-                            query_text=(context + "\n" + query).strip(),
-                            project_refs=project_refs or None,
-                            user_refs=user_refs or None,
-                            k=4,
-                        )
-                        # Filter out very-far matches; cosine distance > 0.6 is
-                        # usually irrelevant noise.
-                        memory_lines = [m.content for m in mems if m.distance < 0.6]
+                        if meeting and meeting.workspace_id:
+                            mems = await retrieve_relevant(
+                                db,
+                                workspace_id=meeting.workspace_id,
+                                query_text=(context + "\n" + query).strip(),
+                                project_refs=project_refs or None,
+                                user_refs=user_refs or None,
+                                k=4,
+                            )
+                            # Filter out very-far matches; cosine distance > 0.6 is
+                            # usually irrelevant noise.
+                            memory_lines = [m.content for m in mems if m.distance < 0.6]
                     except Exception:
                         logger.exception("memory retrieval failed; continuing without")
 

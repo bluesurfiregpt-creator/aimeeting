@@ -83,14 +83,18 @@ async def generate_briefing(meeting_id: uuid.UUID) -> Optional[str]:
         project_refs = [meeting.title] if meeting.title else []
         query = meeting.title or "项目讨论"
 
-        memories = await retrieve_relevant(
-            db,
-            query_text=query,
-            project_refs=project_refs or None,
-            user_refs=user_refs or None,
-            k=8,
-            min_importance=0.4,
-        )
+        if meeting.workspace_id:
+            memories = await retrieve_relevant(
+                db,
+                workspace_id=meeting.workspace_id,
+                query_text=query,
+                project_refs=project_refs or None,
+                user_refs=user_refs or None,
+                k=8,
+                min_importance=0.4,
+            )
+        else:
+            memories = []
         provider = await get_active_provider(db)
 
     # Filter out very-distant matches; cosine distance > 0.7 is generally noise.

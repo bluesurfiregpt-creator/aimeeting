@@ -148,6 +148,10 @@ def _fmt_ms(ms: Optional[int]) -> str:
     return f"{int(s // 60):02d}:{int(s % 60):02d}"
 
 
+MIN_TRANSCRIPT_LINES = 3
+MIN_TRANSCRIPT_CHARS = 60
+
+
 async def generate_summary(
     meeting_id: uuid.UUID,
     *,
@@ -157,8 +161,14 @@ async def generate_summary(
     Generate a markdown summary and persist to meeting.summary_md.
 
     Returns the markdown on success, None when skipped (no transcripts /
-    no LLM configured / etc.). If force=False and a summary already exists,
-    returns the existing one instead of regenerating.
+    no LLM configured / content too thin). If force=False and a summary
+    already exists, returns the existing one instead of regenerating.
+
+    'Too thin' detection: testers reported the LLM was happily filling
+    out the 8-section template even for one-word meetings. We now require
+    >=MIN_TRANSCRIPT_LINES final ASR sentences AND >=MIN_TRANSCRIPT_CHARS
+    of total text; below that we write a marker the front-end shows as
+    'skipped' instead of producing a hallucinated summary.
     """
     async with SessionLocal() as db:
         meeting = (
@@ -168,6 +178,32 @@ async def generate_summary(
             return None
         if not force and meeting.summary_md and not meeting.summary_md.startswith("<!--"):
             return meeting.summary_md
+
+        # Count meaningful content before paying for an LLM call
+        rows = (
+            await db.execute(
+                select(MeetingTranscript)
+                .where(
+                    MeetingTranscript.meeting_id == meeting_id,
+                    MeetingTranscript.is_final.is_(True),
+                )
+            )
+        ).scalars().all()
+        n_lines = len(rows)
+        total_chars = sum(len((r.text or "").strip()) for r in rows)
+        if n_lines < MIN_TRANSCRIPT_LINES or total_chars < MIN_TRANSCRIPT_CHARS:
+            note = (
+                f"实录过短(共 {n_lines} 句, {total_chars} 字),"
+                "未生成纪要。请讨论时间更长一些再试。"
+            )
+            await db.execute(
+                update(Meeting)
+                .where(Meeting.id == meeting_id)
+                .values(summary_md=f"<!-- summary:skipped: {note} -->")
+            )
+            await db.commit()
+            logger.info("summary skipped for %s: %s", meeting_id, note)
+            return None
 
         named = await _build_named_transcript(db, meeting_id)
         if not named.strip():

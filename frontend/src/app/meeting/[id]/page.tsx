@@ -60,6 +60,81 @@ function colorOf(uid: string | null): string {
   return PALETTE[h % PALETTE.length];
 }
 
+/**
+ * Always-visible, click-to-edit speaker label. After the meeting ends, it's
+ * a button with a small ✏️ inline so the user knows they can change the
+ * attribution — applies to both named lines AND 未识别 lines.
+ */
+function SpeakerLabel({
+  line,
+  canEdit,
+  isOpen,
+  onToggle,
+  attendees,
+  onPick,
+}: {
+  line: Extract<LiveLine, { kind: "user" }>;
+  canEdit: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
+  attendees: Array<{ id: string; name: string }>;
+  onPick: (userId: string | null, name: string | null) => void;
+}) {
+  const labelText = line.speakerName ?? "未识别";
+  const colorClass = colorOf(line.speakerUserId);
+
+  if (!canEdit) {
+    if (line.speakerName) {
+      return <span className={`mr-3 font-medium ${colorClass}`}>{line.speakerName}</span>;
+    }
+    if (line.final) {
+      return <span className="mr-3 text-xs text-zinc-600">未识别</span>;
+    }
+    return null;
+  }
+
+  return (
+    <span className="relative mr-3 inline-block">
+      <button
+        type="button"
+        onClick={onToggle}
+        title="点击纠正说话人"
+        className={`inline-flex items-center gap-1 rounded border border-transparent px-1 py-0.5 text-sm font-medium transition hover:border-ink-700 hover:bg-ink-800/60 ${
+          line.speakerName ? colorClass : "text-zinc-500"
+        }`}
+      >
+        <span>{labelText}</span>
+        <span className="text-[10px] opacity-60">✏️</span>
+      </button>
+      {isOpen && (
+        <span className="absolute left-0 top-full z-20 mt-1 inline-flex min-w-[140px] flex-col rounded-lg border border-ink-700 bg-ink-950 p-1 shadow-lg">
+          {attendees.length === 0 ? (
+            <span className="px-2 py-1 text-xs text-zinc-600">无可选参会人</span>
+          ) : (
+            attendees.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => onPick(a.id, a.name)}
+                className="rounded px-2 py-1 text-left text-xs text-zinc-200 hover:bg-ink-800"
+              >
+                {a.name}
+              </button>
+            ))
+          )}
+          <button
+            type="button"
+            onClick={() => onPick(null, null)}
+            className="rounded border-t border-ink-800 px-2 py-1 text-left text-xs text-zinc-500 hover:bg-ink-800"
+          >
+            标记为未识别
+          </button>
+        </span>
+      )}
+    </span>
+  );
+}
+
 function tailwindColor(name: string): string {
   return ({
     violet: "#8b5cf6",
@@ -454,51 +529,22 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                   key={l.id}
                   className={
                     l.final
-                      ? "group text-base leading-relaxed text-zinc-100"
+                      ? "text-base leading-relaxed text-zinc-100"
                       : "text-base leading-relaxed text-zinc-400"
                   }
                 >
-                  <span className="relative inline-block">
-                    {l.speakerName ? (
-                      <span className={`mr-3 font-medium ${colorOf(l.speakerUserId)}`}>
-                        {l.speakerName}
-                      </span>
-                    ) : l.final ? (
-                      <span className="mr-3 text-xs text-zinc-600">未识别</span>
-                    ) : null}
-                    {phase === "ended" && l.serverLineId !== null && (
-                      <button
-                        onClick={() =>
-                          setCorrectingLineId(
-                            correctingLineId === l.serverLineId ? null : l.serverLineId,
-                          )
-                        }
-                        title="纠正说话人"
-                        className="absolute -left-5 top-0.5 hidden text-xs text-zinc-600 hover:text-accent-400 group-hover:inline"
-                      >
-                        ✏️
-                      </button>
-                    )}
-                    {correctingLineId === l.serverLineId && (
-                      <span className="absolute left-0 top-full z-20 mt-1 inline-flex flex-col rounded-lg border border-ink-700 bg-ink-950 p-1 shadow-lg">
-                        {attendees.map((a) => (
-                          <button
-                            key={a.id}
-                            onClick={() => correctSpeaker(l.serverLineId!, a.id, a.name)}
-                            className="rounded px-2 py-1 text-left text-xs text-zinc-200 hover:bg-ink-800"
-                          >
-                            {a.name}
-                          </button>
-                        ))}
-                        <button
-                          onClick={() => correctSpeaker(l.serverLineId!, null, null)}
-                          className="rounded border-t border-ink-800 px-2 py-1 text-left text-xs text-zinc-500 hover:bg-ink-800"
-                        >
-                          标记为未识别
-                        </button>
-                      </span>
-                    )}
-                  </span>
+                  <SpeakerLabel
+                    line={l}
+                    canEdit={phase === "ended" && l.serverLineId !== null}
+                    isOpen={correctingLineId === l.serverLineId}
+                    onToggle={() =>
+                      setCorrectingLineId(
+                        correctingLineId === l.serverLineId ? null : l.serverLineId,
+                      )
+                    }
+                    attendees={attendees}
+                    onPick={(uid, name) => correctSpeaker(l.serverLineId!, uid, name)}
+                  />
                   <span>{l.text}</span>
                   {!l.final ? <span className="ml-1 animate-pulse">▌</span> : null}
                 </li>

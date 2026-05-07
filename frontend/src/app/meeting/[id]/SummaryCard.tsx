@@ -5,11 +5,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "@/lib/api";
 
-type Status = "pending" | "ready" | "failed" | "unconfigured";
+type Status = "pending" | "ready" | "failed" | "unconfigured" | "skipped";
 
 export default function SummaryCard({ meetingId }: { meetingId: string }) {
   const [summary, setSummary] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("pending");
+  const [skipMessage, setSkipMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const pollRef = useRef<number | null>(null);
 
@@ -18,6 +19,7 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
       const r = await api.getMeetingSummary(meetingId);
       setSummary(r.summary_md);
       setStatus(r.status as Status);
+      setSkipMessage(r.message ?? null);
       return r.status as Status;
     } catch (e) {
       console.warn("getMeetingSummary failed", e);
@@ -34,7 +36,7 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
       attempts++;
       const s = await fetchOnce();
       if (!alive) return;
-      if (s === "ready" || s === "failed" || s === "unconfigured") return;
+      if (s === "ready" || s === "failed" || s === "unconfigured" || s === "skipped") return;
       if (attempts > 75) return; // ~5 min cap
       pollRef.current = window.setTimeout(tick, 4000);
     };
@@ -56,7 +58,12 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
       const tick = async () => {
         attempts++;
         const s = await fetchOnce();
-        if (s === "ready" || s === "failed" || s === "unconfigured") {
+        if (
+          s === "ready" ||
+          s === "failed" ||
+          s === "unconfigured" ||
+          s === "skipped"
+        ) {
           setBusy(false);
           return;
         }
@@ -90,6 +97,11 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
               ✓ 已生成
             </span>
           )}
+          {status === "skipped" && (
+            <span className="ml-2 rounded-full bg-zinc-700/40 px-2 py-0.5 text-xs text-zinc-400">
+              已跳过
+            </span>
+          )}
         </div>
         <button
           onClick={regen}
@@ -108,6 +120,8 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
         <p className="mt-4 text-sm text-zinc-500">
           {status === "unconfigured"
             ? "未配置 LLM 模型,无法生成纪要。请先去「LLM 模型」页面配置。"
+            : status === "skipped"
+            ? skipMessage ?? "实录过短,未生成纪要。"
             : status === "failed"
             ? "生成失败。点「重新生成」重试,或检查后端日志。"
             : "纪要生成中。LLM 通常需要 5-30 秒读完整场会议、按结构整理。"}

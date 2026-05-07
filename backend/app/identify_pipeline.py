@@ -43,6 +43,16 @@ logger = logging.getLogger(__name__)
 CONF_THRESHOLD = 0.5  # below this we mark UNKNOWN (manual fixup later)
 PERIODIC_INTERVAL_S = 45  # how often the live worker triggers an identify pass
 MIN_BUFFER_SECONDS = 20   # don't bother identifying buffers shorter than this
+# pyannote matching threshold (sent to /identify). Higher = stricter:
+# pyannote refuses to claim a match unless the voiceprint similarity is
+# very high. Tuned up from 0.5 → 0.7 after testers reported environment
+# audio + non-attendee voices being attributed to enrolled speakers.
+PYANNOTE_MATCH_THRESHOLD = 0.7
+# When aligning ASR sentences to pyannote segments, we additionally require
+# at least this fraction of the sentence's duration to overlap with the
+# matched segment. Otherwise we leave the line UNKNOWN. This blocks the
+# 'short word inside long noise window' false-positive.
+MIN_LINE_OVERLAP_RATIO = 0.5
 
 
 async def identify_worker(
@@ -191,7 +201,7 @@ async def run_identify(meeting_id: uuid.UUID, *, final: bool = True) -> bool:
             voiceprints_payload,
             min_speakers=1,
             max_speakers=attendee_count,
-            threshold=0.5,
+            threshold=PYANNOTE_MATCH_THRESHOLD,
             exclusive=True,
             model="precision-2",
         )
@@ -291,10 +301,15 @@ def _align_line_to_segments(
 ) -> tuple[uuid.UUID | None, float | None]:
     """
     Pick the segment with the largest overlap with the ASR sentence's time
-    window. Below CONF_THRESHOLD → leave unassigned.
+    window, AND require the overlap to cover at least MIN_LINE_OVERLAP_RATIO
+    of the sentence's duration. The ratio guard blocks the false-positive
+    where a short sentence is attributed to a nearby segment that mostly
+    contains different audio (e.g. a TV character voice or environment
+    noise). Below CONF_THRESHOLD or below ratio → UNKNOWN.
     """
     if line.start_ms is None or line.end_ms is None:
         return None, None
+    line_duration = max(1, line.end_ms - line.start_ms)
     best_overlap = 0
     best_seg: IdentifySegment | None = None
     for seg in segments:
@@ -304,6 +319,9 @@ def _align_line_to_segments(
             best_seg = seg
     if best_seg is None or best_seg.confidence < CONF_THRESHOLD:
         return None, best_seg.confidence if best_seg else None
+    # New: require the matched segment to actually cover most of this line.
+    if best_overlap / line_duration < MIN_LINE_OVERLAP_RATIO:
+        return None, best_seg.confidence
     return label_to_user.get(best_seg.label), best_seg.confidence
 
 

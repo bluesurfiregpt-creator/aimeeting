@@ -252,9 +252,11 @@ export const api = {
   deleteMemory: (id: string) => jdelete(`/api/memory/${id}`),
 
   getMeetingSummary: (id: string) =>
-    jget<{ summary_md: string | null; status: "pending" | "ready" | "failed" | "unconfigured" }>(
-      `/api/meetings/${id}/summary`,
-    ),
+    jget<{
+      summary_md: string | null;
+      status: "pending" | "ready" | "failed" | "unconfigured" | "skipped";
+      message?: string | null;
+    }>(`/api/meetings/${id}/summary`),
   regenerateMeetingSummary: (id: string) =>
     jpost<{ summary_md: string | null; status: string }>(
       `/api/meetings/${id}/summary/regenerate`,

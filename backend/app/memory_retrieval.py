@@ -9,6 +9,7 @@ Used by:
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass
 from typing import Optional
 
@@ -34,6 +35,7 @@ class RetrievedMemory:
 async def retrieve_relevant(
     db: AsyncSession,
     *,
+    workspace_id: uuid.UUID,
     query_text: str,
     project_refs: Optional[list[str]] = None,
     user_refs: Optional[list[str]] = None,
@@ -43,7 +45,10 @@ async def retrieve_relevant(
     """
     Find up to `k` memories closest to `query_text` in embedding space.
 
-    Filters:
+    Always filters by workspace_id — without this, agents in workspace A
+    would see memories from workspace B (cross-tenant leak).
+
+    Other filters:
       - project_refs: when set, only include scope=='project' rows whose
         scope_ref ∈ project_refs (typically the meeting title)
       - user_refs: when set, only include scope=='user' rows whose
@@ -62,7 +67,10 @@ async def retrieve_relevant(
         return []
 
     distance_expr = LongTermMemory.embedding.cosine_distance(qvec).label("distance")
-    stmt = select(LongTermMemory, distance_expr)
+    stmt = (
+        select(LongTermMemory, distance_expr)
+        .where(LongTermMemory.workspace_id == workspace_id)
+    )
 
     scope_filters = [LongTermMemory.scope == "org"]
     if project_refs:
