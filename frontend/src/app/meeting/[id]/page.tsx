@@ -163,6 +163,15 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   // Agents currently producing a streamed reply (between agent_message_start
   // and agent_message_end). Used to disable / dim their avatar.
   const [busyAgents, setBusyAgents] = useState<Set<string>>(new Set());
+  // Sprint J: recommendation from the orchestrator after each agent
+  // utterance. null when nothing's recommended right now.
+  const [recommendation, setRecommendation] = useState<{
+    agent_id: string;
+    agent_name: string;
+    agent_color: string;
+    reason: string;
+  } | null>(null);
+  const recommendTimerRef = useRef<number | null>(null);
   // Pool of attendees we let users pick from when manually correcting a
   // line's speaker after the meeting. Loaded after stop() because it's
   // only relevant once identification is done.
@@ -234,7 +243,26 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       );
       return;
     }
+    if (e.type === "agent_recommendation") {
+      // Clear any prior recommendation timer
+      if (recommendTimerRef.current) {
+        window.clearTimeout(recommendTimerRef.current);
+      }
+      setRecommendation({
+        agent_id: e.agent_id,
+        agent_name: e.agent_name,
+        agent_color: e.agent_color,
+        reason: e.reason,
+      });
+      // Auto-dismiss after 90s — user shouldn't be nagged forever
+      recommendTimerRef.current = window.setTimeout(() => {
+        setRecommendation(null);
+      }, 90_000);
+      return;
+    }
     if (e.type === "agent_message_start") {
+      // A new agent is speaking — dismiss any stale recommendation
+      setRecommendation(null);
       setBusyAgents((prev) => {
         if (prev.has(e.agent_id)) return prev;
         const next = new Set(prev);
@@ -430,6 +458,9 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   useEffect(() => () => {
     captureRef.current?.stop().catch(() => {});
     socketRef.current?.close();
+    if (recommendTimerRef.current) {
+      window.clearTimeout(recommendTimerRef.current);
+    }
   }, []);
 
   // Pull agents on mount so the avatar bar populates even before "开始会议".
@@ -454,6 +485,20 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       agent_id: agent.id,
     });
   }, [phase, busyAgents]);
+
+  const acceptRecommendation = useCallback(() => {
+    if (!recommendation || !socketRef.current || phase !== "live") return;
+    if (busyAgents.has(recommendation.agent_id)) return;
+    socketRef.current.sendJson({
+      action: "invoke_agent",
+      agent_id: recommendation.agent_id,
+    });
+    setRecommendation(null);
+  }, [recommendation, phase, busyAgents]);
+
+  const dismissRecommendation = useCallback(() => {
+    setRecommendation(null);
+  }, []);
 
   const correctSpeaker = useCallback(
     async (lineId: number, speakerUserId: string | null, displayName: string | null) => {
@@ -576,6 +621,43 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
             >
               + 管理 AI 专家
             </Link>
+          </div>
+        </div>
+      ) : null}
+
+      {recommendation && phase === "live" ? (
+        <div
+          className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-accent-500/40 bg-accent-500/10 px-3 py-2"
+          style={{ borderLeftColor: tailwindColor(recommendation.agent_color), borderLeftWidth: 3 }}
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-2 text-sm text-zinc-200">
+            <span className="text-base">💡</span>
+            <span>
+              建议接下来由
+              <span
+                className="mx-1 font-medium"
+                style={{ color: tailwindColor(recommendation.agent_color) }}
+              >
+                {recommendation.agent_name}
+              </span>
+              发言 — <span className="text-zinc-400">{recommendation.reason}</span>
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={acceptRecommendation}
+              disabled={busyAgents.has(recommendation.agent_id)}
+              className="rounded-lg bg-accent-500 px-3 py-1 text-xs font-medium text-white shadow disabled:opacity-50 hover:bg-accent-400 transition"
+            >
+              请{recommendation.agent_name}发言
+            </button>
+            <button
+              onClick={dismissRecommendation}
+              className="text-xs text-zinc-500 hover:text-zinc-300"
+              title="忽略"
+            >
+              ✕
+            </button>
           </div>
         </div>
       ) : null}

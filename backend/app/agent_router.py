@@ -21,6 +21,7 @@ A few guard-rails:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -37,6 +38,7 @@ from .knowledge_retrieval import retrieve_chunks
 from .llm_direct import LlmError, get_active_provider, stream_chat
 from .memory_retrieval import retrieve_relevant
 from .models import Agent, MeetingAgentMessage, MeetingAttendee, Meeting, MeetingTranscript, User
+from .orchestrator import recommend_next_speaker
 
 logger = logging.getLogger(__name__)
 
@@ -344,6 +346,52 @@ async def _call_dify_and_stream(
             except Exception:
                 logger.exception("persist agent message failed")
         await on_message({"type": "agent_message_end", "agent_id": str(agent.id), "text": full})
+
+        # Sprint J: orchestrate next speaker. We run this async — the
+        # current agent's bubble is already done from the user's POV;
+        # the recommendation banner appears whenever the LLM returns
+        # (typically 1-3s later).
+        if full:
+            asyncio.create_task(
+                _suggest_next_speaker(
+                    meeting_id=meeting_id,
+                    just_finished_agent_id=agent.id,
+                    just_finished_agent_text=full,
+                    on_message=on_message,
+                )
+            )
+
+
+async def _suggest_next_speaker(
+    *,
+    meeting_id: uuid.UUID,
+    just_finished_agent_id: uuid.UUID,
+    just_finished_agent_text: str,
+    on_message: Callable[[dict], Awaitable[None]],
+) -> None:
+    try:
+        rec = await recommend_next_speaker(
+            meeting_id,
+            just_finished_agent_id=just_finished_agent_id,
+            just_finished_agent_text=just_finished_agent_text,
+        )
+    except Exception:
+        logger.exception("orchestrator failed; suppressing recommendation")
+        return
+    if rec is None:
+        return
+    try:
+        await on_message(
+            {
+                "type": "agent_recommendation",
+                "agent_id": str(rec.agent_id),
+                "agent_name": rec.agent_name,
+                "agent_color": rec.agent_color,
+                "reason": rec.reason,
+            }
+        )
+    except Exception:
+        logger.exception("ws push agent_recommendation failed")
 
 
 async def maybe_invoke_agents(
