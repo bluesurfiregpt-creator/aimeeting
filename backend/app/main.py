@@ -21,6 +21,7 @@ from .auth import COOKIE_NAME, decode_token
 from .routers import agents as agents_router
 from .routers import audit as audit_router
 from .routers import auth as auth_router
+from .routers import knowledge as knowledge_router
 from .routers import meetings as meetings_router
 from .routers import memory as memory_router
 from .routers import model_providers as model_providers_router
@@ -64,6 +65,7 @@ app.include_router(model_providers_router.router)
 app.include_router(memory_router.router)
 app.include_router(audit_router.router)
 app.include_router(team_router.router)
+app.include_router(knowledge_router.router)
 
 
 @app.get("/healthz")

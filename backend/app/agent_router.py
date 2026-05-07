@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import SessionLocal
 from .dify_client import DifyClient, DifyError
+from .knowledge_retrieval import retrieve_chunks
 from .llm_direct import LlmError, get_active_provider, stream_chat
 from .memory_retrieval import retrieve_relevant
 from .models import Agent, MeetingAgentMessage, MeetingAttendee, Meeting, MeetingTranscript, User
@@ -122,12 +123,18 @@ DEFAULT_MEETING_EXPERT_PROMPT = (
 )
 
 
-def _compose_system_prompt(agent: Agent, memory_lines: list[str] | None = None) -> str:
+def _compose_system_prompt(
+    agent: Agent,
+    memory_lines: list[str] | None = None,
+    kb_snippets: list[tuple[str, str]] | None = None,  # (filename, content)
+) -> str:
     """Combine agent persona with the meeting-expert template. The agent's
     own persona/domain/tone are layered on top of the generic template so
     each agent specialises while keeping the meeting-aware behaviours.
     If memory_lines is provided, they're appended as a "你过去知道的相关
-    事实" section so the agent can reference prior decisions."""
+    事实" section so the agent can reference prior decisions. If
+    kb_snippets is provided, they're appended as a "你的知识库" section
+    that the agent must prefer over its own prior."""
     parts = [DEFAULT_MEETING_EXPERT_PROMPT, ""]
     parts.append(f"你的角色: {agent.name}")
     if agent.domain:
@@ -138,6 +145,16 @@ def _compose_system_prompt(agent: Agent, memory_lines: list[str] | None = None) 
         parts.append(f"语气: {agent.tone}")
     if agent.boundary:
         parts.append(f"边界(不要做的事):\n{agent.boundary}")
+    if kb_snippets:
+        parts.append("")
+        parts.append(
+            "下面是你绑定的知识库中与当前讨论相关的片段。"
+            "回答时**优先**参考这里的内容,如果这里没有相关信息,再用你的一般知识。"
+            "引用具体内容时简短标明来自哪个文档(如「《XXX》指出...」)。"
+        )
+        for fname, content in kb_snippets:
+            short = content[:600]
+            parts.append(f"\n【{fname}】\n{short}")
     if memory_lines:
         parts.append("")
         parts.append("你过去在相关会议中已经知道的事实(优先用这些, 不要凭空编造):")
@@ -215,9 +232,26 @@ async def _call_dify_and_stream(
                     )
         else:
             memory_lines: list[str] = []
+            kb_snippets: list[tuple[str, str]] = []
             async with SessionLocal() as db:
                 provider = await get_active_provider(db)
                 if provider is not None:
+                    # KB retrieval first — agents grounded in uploaded docs
+                    # outperform agents grounded only in past meeting facts
+                    # for technical questions.
+                    if agent.knowledge_base_ids:
+                        try:
+                            kb_results = await retrieve_chunks(
+                                db,
+                                query_text=(context + "\n" + query).strip(),
+                                kb_ids=list(agent.knowledge_base_ids),
+                                k=4,
+                            )
+                            kb_snippets = [
+                                (r.document_filename, r.content) for r in kb_results
+                            ]
+                        except Exception:
+                            logger.exception("kb retrieval failed; continuing without")
                     # Retrieve project + attendee-scoped memories that match
                     # the recent context. We scope to:
                     #   - project: this meeting's title
@@ -266,7 +300,11 @@ async def _call_dify_and_stream(
                      "chunk": "[未配置可用的 LLM 模型,请去「LLM 模型」页面设置一个并设为默认]"}
                 )
             else:
-                system_prompt = _compose_system_prompt(agent, memory_lines or None)
+                system_prompt = _compose_system_prompt(
+                    agent,
+                    memory_lines or None,
+                    kb_snippets or None,
+                )
                 user_prompt = _compose_user_prompt(query, context)
                 async for chunk in stream_chat(
                     provider=provider,

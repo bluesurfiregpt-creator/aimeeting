@@ -38,6 +38,8 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("meeting", "workspace_id", "UUID"),
     ("model_provider_config", "workspace_id", "UUID"),
     ("long_term_memory", "workspace_id", "UUID"),
+    # Sprint I: knowledge base bindings on agent
+    ("agent", "knowledge_base_ids", "UUID[]"),
 ]
 
 # Drop the legacy unique-on-provider constraint so the new

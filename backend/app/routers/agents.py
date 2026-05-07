@@ -31,6 +31,7 @@ class AgentIn(BaseModel):
     dify_base_url: Optional[str] = "https://api.dify.ai"
     dify_api_key: Optional[str] = None
     dify_workflow_id: Optional[str] = None
+    knowledge_base_ids: Optional[list[uuid.UUID]] = None
     is_active: bool = True
 
 
@@ -48,6 +49,7 @@ class AgentOut(BaseModel):
     dify_app_type: str
     dify_base_url: Optional[str] = None
     dify_workflow_id: Optional[str] = None
+    knowledge_base_ids: Optional[list[uuid.UUID]] = None
     is_active: bool
     has_dify_key: bool = False  # don't echo the key itself
     created_at: datetime

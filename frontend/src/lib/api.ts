@@ -144,6 +144,7 @@ export type Agent = {
   dify_app_type: string;
   dify_base_url: string | null;
   dify_workflow_id: string | null;
+  knowledge_base_ids: string[] | null;
   is_active: boolean;
   has_dify_key: boolean;
   created_at: string;
@@ -172,6 +173,29 @@ export type AuditEntry = {
   target_id: string | null;
   payload: Record<string, unknown> | null;
   ts: string;
+};
+
+export type KnowledgeBase = {
+  id: string;
+  name: string;
+  description: string | null;
+  document_count: number;
+  chunk_count: number;
+  created_at: string;
+};
+
+export type KnowledgeDocument = {
+  id: string;
+  kb_id: string;
+  filename: string;
+  mime_type: string | null;
+  byte_size: number | null;
+  status: "uploading" | "parsing" | "embedding" | "ready" | "failed";
+  char_count: number | null;
+  chunk_count: number | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type Memory = {
@@ -336,6 +360,29 @@ export const api = {
     if (action) q.set("action", action);
     return jget<AuditEntry[]>(`/api/audit?${q.toString()}`);
   },
+
+  // Knowledge base
+  listKnowledgeBases: () => jget<KnowledgeBase[]>("/api/knowledge-bases"),
+  createKnowledgeBase: (body: { name: string; description?: string }) =>
+    jpost<KnowledgeBase>("/api/knowledge-bases", body),
+  deleteKnowledgeBase: (id: string) => jdelete(`/api/knowledge-bases/${id}`),
+  listKnowledgeDocuments: (kbId: string) =>
+    jget<KnowledgeDocument[]>(`/api/knowledge-bases/${kbId}/documents`),
+  uploadKnowledgeDocument: async (kbId: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    return jpostForm<KnowledgeDocument>(
+      `/api/knowledge-bases/${kbId}/documents`,
+      fd,
+    );
+  },
+  deleteKnowledgeDocument: (kbId: string, docId: string) =>
+    jdelete(`/api/knowledge-bases/${kbId}/documents/${docId}`),
+  reprocessKnowledgeDocument: (kbId: string, docId: string) =>
+    jpost<KnowledgeDocument>(
+      `/api/knowledge-bases/${kbId}/documents/${docId}/reprocess`,
+      {},
+    ),
 
   // Long-term memory
   listMemories: (scope?: string, scopeRef?: string) => {

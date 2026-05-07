@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type Agent } from "@/lib/api";
+import { api, type Agent, type KnowledgeBase } from "@/lib/api";
 
 type Form = {
   name: string;
@@ -12,6 +12,7 @@ type Form = {
   dify_app_type: string;
   dify_base_url: string;
   dify_api_key: string;
+  knowledge_base_ids: Set<string>;
   is_active: boolean;
 };
 
@@ -24,6 +25,7 @@ const EMPTY: Form = {
   dify_app_type: "chatflow",
   dify_base_url: "https://api.dify.ai",
   dify_api_key: "",
+  knowledge_base_ids: new Set<string>(),
   is_active: true,
 };
 
@@ -31,18 +33,24 @@ const COLORS = ["violet", "sky", "emerald", "amber", "rose", "teal"];
 
 export default function AgentsAdmin() {
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
   const [form, setForm] = useState<Form>(EMPTY);
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
   const refresh = useCallback(async () => {
-    setAgents(await api.listAgents());
+    const [as_, ks] = await Promise.all([
+      api.listAgents(),
+      api.listKnowledgeBases().catch(() => [] as KnowledgeBase[]),
+    ]);
+    setAgents(as_);
+    setKbs(ks);
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const reset = () => { setForm(EMPTY); setEditing(null); setMsg(""); };
+  const reset = () => { setForm({ ...EMPTY, knowledge_base_ids: new Set() }); setEditing(null); setMsg(""); };
 
   const startEdit = (a: Agent) => {
     setEditing(a.id);
@@ -55,9 +63,16 @@ export default function AgentsAdmin() {
       dify_app_type: a.dify_app_type,
       dify_base_url: a.dify_base_url ?? "https://api.dify.ai",
       dify_api_key: "",  // never echoed
+      knowledge_base_ids: new Set<string>(a.knowledge_base_ids ?? []),
       is_active: a.is_active,
     });
     setMsg(a.has_dify_key ? "Dify Key 已配置；想换的话填新的覆盖。" : "");
+  };
+
+  const toggleKb = (kbId: string) => {
+    const next = new Set(form.knowledge_base_ids);
+    next.has(kbId) ? next.delete(kbId) : next.add(kbId);
+    setForm({ ...form, knowledge_base_ids: next });
   };
 
   const save = async () => {
@@ -73,6 +88,7 @@ export default function AgentsAdmin() {
       dify_app_type: form.dify_app_type,
       dify_base_url: form.dify_base_url,
       ...(form.dify_api_key ? { dify_api_key: form.dify_api_key } : {}),
+      knowledge_base_ids: Array.from(form.knowledge_base_ids),
       is_active: form.is_active,
     };
     try {
@@ -159,6 +175,51 @@ export default function AgentsAdmin() {
             </div>
           </div>
 
+          <div className="rounded-lg border border-ink-700 bg-ink-950 p-3">
+            <div className="text-xs uppercase tracking-wider text-zinc-500">
+              知识库（可选 · Agent 回答时优先引用）
+            </div>
+            {kbs.length === 0 ? (
+              <p className="mt-2 text-xs text-zinc-600">
+                还没有知识库。先去{" "}
+                <a href="/admin/knowledge" className="text-accent-400 hover:text-accent-500">
+                  「知识库」
+                </a>{" "}
+                创建并上传文档。
+              </p>
+            ) : (
+              <ul className="mt-2 space-y-1">
+                {kbs.map((kb) => {
+                  const checked = form.knowledge_base_ids.has(kb.id);
+                  return (
+                    <li key={kb.id}>
+                      <label
+                        className={`flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-sm transition ${
+                          checked
+                            ? "border-accent-500 bg-accent-500/10"
+                            : "border-ink-700 bg-ink-950 hover:border-ink-700"
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 text-white">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleKb(kb.id)}
+                            className="h-4 w-4 accent-accent-500"
+                          />
+                          {kb.name}
+                        </span>
+                        <span className="text-xs text-zinc-500">
+                          {kb.document_count} 文档 · {kb.chunk_count} 分块
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
           <label className="inline-flex items-center gap-2 text-sm text-zinc-300">
             <input
               type="checkbox"
@@ -227,6 +288,11 @@ export default function AgentsAdmin() {
                       </span>
                     ))}
                   </div>
+                )}
+                {a.knowledge_base_ids && a.knowledge_base_ids.length > 0 && (
+                  <p className="mt-2 text-xs text-zinc-500">
+                    📚 已绑定 {a.knowledge_base_ids.length} 个知识库
+                  </p>
                 )}
               </li>
             ))}

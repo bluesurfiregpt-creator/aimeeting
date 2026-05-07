@@ -204,6 +204,12 @@ class Agent(Base):
     keywords: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), nullable=True)
     color: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)  # accent for UI bubbles
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Sprint I: knowledge bases this agent is allowed to cite. Stored as a
+    # native pg UUID[] so we can do ANY/contains queries without a join
+    # table (multiplicity is small — typically 0-5 KBs per agent).
+    knowledge_base_ids: Mapped[Optional[list[uuid.UUID]]] = mapped_column(
+        ARRAY(PgUUID(as_uuid=True)), nullable=True
+    )
 
     version: Mapped[int] = mapped_column(Integer, default=1)
     stage: Mapped[str] = mapped_column(String(16), default="prod")  # test|prod
@@ -355,6 +361,72 @@ class AuditLog(Base):
     target_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+# --- Knowledge base (Sprint I) -----------------------------------------------
+
+class KnowledgeBase(Base):
+    """
+    A workspace-scoped collection of uploaded documents that AI experts can
+    cite. Each KB belongs to exactly one workspace; an Agent can be bound
+    to N KBs via Agent.knowledge_base_ids.
+    """
+    __tablename__ = "knowledge_base"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class KnowledgeDocument(Base):
+    """
+    One uploaded file (PDF/DOCX/TXT/MD). The raw bytes live in OSS;
+    extracted plain text + chunks live here.
+
+    status lifecycle: uploading → parsing → embedding → ready (or failed)
+    """
+    __tablename__ = "knowledge_document"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    kb_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("knowledge_base.id", ondelete="CASCADE"), index=True
+    )
+    filename: Mapped[str] = mapped_column(String(255))
+    mime_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    oss_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    byte_size: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="uploading")
+    char_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    chunk_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class KnowledgeChunk(Base):
+    """
+    One chunk of text extracted from a KnowledgeDocument, with its 1536-d
+    embedding. We denormalize kb_id so the cosine-distance query can filter
+    cheaply by which KBs the calling Agent is bound to without a join.
+    """
+    __tablename__ = "knowledge_chunk"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("knowledge_document.id", ondelete="CASCADE"), index=True
+    )
+    kb_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("knowledge_base.id", ondelete="CASCADE"), index=True
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(1536), nullable=True)
 
 
 # --- Long-term memory (Phase 2) ----------------------------------------------
