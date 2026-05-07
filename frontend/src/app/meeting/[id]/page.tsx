@@ -172,6 +172,17 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     reason: string;
   } | null>(null);
   const recommendTimerRef = useRef<number | null>(null);
+  // Sprint M2.3: dissent banner from dissent_detector after a finalized
+  // ASR sentence triggers the LLM-based scan.
+  const [dissent, setDissent] = useState<{
+    topic: string;
+    parties: string[];
+    agent_id: string;
+    agent_name: string;
+    agent_color: string;
+    reason: string;
+  } | null>(null);
+  const dissentTimerRef = useRef<number | null>(null);
   // Pool of attendees we let users pick from when manually correcting a
   // line's speaker after the meeting. Loaded after stop() because it's
   // only relevant once identification is done.
@@ -257,6 +268,23 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       // Auto-dismiss after 90s — user shouldn't be nagged forever
       recommendTimerRef.current = window.setTimeout(() => {
         setRecommendation(null);
+      }, 90_000);
+      return;
+    }
+    if (e.type === "dissent_detected") {
+      if (dissentTimerRef.current) {
+        window.clearTimeout(dissentTimerRef.current);
+      }
+      setDissent({
+        topic: e.topic,
+        parties: e.parties,
+        agent_id: e.suggested_agent_id,
+        agent_name: e.suggested_agent_name,
+        agent_color: e.suggested_agent_color,
+        reason: e.reason,
+      });
+      dissentTimerRef.current = window.setTimeout(() => {
+        setDissent(null);
       }, 90_000);
       return;
     }
@@ -461,6 +489,9 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     if (recommendTimerRef.current) {
       window.clearTimeout(recommendTimerRef.current);
     }
+    if (dissentTimerRef.current) {
+      window.clearTimeout(dissentTimerRef.current);
+    }
   }, []);
 
   // Pull agents on mount so the avatar bar populates even before "开始会议".
@@ -498,6 +529,21 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
 
   const dismissRecommendation = useCallback(() => {
     setRecommendation(null);
+  }, []);
+
+  const acceptDissent = useCallback(() => {
+    if (!dissent || !socketRef.current || phase !== "live") return;
+    if (busyAgents.has(dissent.agent_id)) return;
+    socketRef.current.sendJson({
+      action: "invoke_agent",
+      agent_id: dissent.agent_id,
+      query: `参会人就「${dissent.topic}」存在分歧,请你基于自己的领域给出立场鲜明的判断`,
+    });
+    setDissent(null);
+  }, [dissent, phase, busyAgents]);
+
+  const dismissDissent = useCallback(() => {
+    setDissent(null);
   }, []);
 
   const correctSpeaker = useCallback(
@@ -653,6 +699,42 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
             </button>
             <button
               onClick={dismissRecommendation}
+              className="text-xs text-zinc-500 hover:text-zinc-300"
+              title="忽略"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {dissent && phase === "live" ? (
+        <div
+          className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-rose-500/40 bg-rose-500/5 px-3 py-2"
+          style={{ borderLeftColor: tailwindColor(dissent.agent_color), borderLeftWidth: 3 }}
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-2 text-sm text-zinc-200">
+            <span className="text-base">⚖️</span>
+            <span className="min-w-0">
+              <span className="text-rose-200">检测到分歧</span>
+              {dissent.topic ? (
+                <span className="ml-1 text-zinc-400">「{dissent.topic}」</span>
+              ) : null}
+              <span className="mx-1 text-zinc-500">·</span>
+              <span className="text-zinc-400">{dissent.reason}</span>
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={acceptDissent}
+              disabled={busyAgents.has(dissent.agent_id)}
+              className="rounded-lg px-3 py-1 text-xs font-medium text-white shadow transition disabled:opacity-50"
+              style={{ backgroundColor: tailwindColor(dissent.agent_color) }}
+            >
+              召唤{dissent.agent_name}
+            </button>
+            <button
+              onClick={dismissDissent}
               className="text-xs text-zinc-500 hover:text-zinc-300"
               title="忽略"
             >

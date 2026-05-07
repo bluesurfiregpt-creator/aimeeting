@@ -49,6 +49,16 @@ export type AgentRecommendationEvent = {
   reason: string;
 };
 
+export type DissentDetectedEvent = {
+  type: "dissent_detected";
+  topic: string;
+  parties: string[];
+  suggested_agent_id: string;
+  suggested_agent_name: string;
+  suggested_agent_color: string;
+  reason: string;
+};
+
 /** Synthetic event the wrapper emits on its own (not from the wire) so
  *  the UI can show "重连中…" / "已重连" without snooping at WS state. */
 export type ReconnectEvent = {
@@ -66,6 +76,7 @@ export type SttEvent =
   | AgentMessageChunkEvent
   | AgentMessageEndEvent
   | AgentRecommendationEvent
+  | DissentDetectedEvent
   | ReconnectEvent;
 
 export interface SttSocket {

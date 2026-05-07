@@ -17,6 +17,7 @@ from .identify_pipeline import identify_worker
 from .init_db import init_db
 from .models import Meeting, MeetingTranscript
 from .agent_router import invoke_agent_directly, maybe_invoke_agents
+from .dissent_detector import maybe_detect_dissent
 from .auth import COOKIE_NAME, decode_token
 from .routers import agents as agents_router
 from .routers import audit as audit_router
@@ -197,6 +198,10 @@ async def ws_stt(ws: WebSocket):
             # the next ASR sentence on Dify latency.
             asyncio.create_task(
                 maybe_invoke_agents(meeting_uuid, text, on_message=push_agent_event)
+            )
+            # Sprint M2.3: also run dissent detection (rate-limited inside).
+            asyncio.create_task(
+                maybe_detect_dissent(meeting_uuid, on_message=push_agent_event)
             )
 
     async def notify_speakers_updated() -> None:
