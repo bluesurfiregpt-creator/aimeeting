@@ -7,6 +7,8 @@ function backendBase(): string {
   return ""; // same-origin via nginx
 }
 
+import { toast } from "./toast";
+
 // Centralised handler so a 401 anywhere kicks the user back to /login
 // without forcing every caller to remember.
 function handleAuthError(status: number) {
@@ -18,6 +20,29 @@ function handleAuthError(status: number) {
   window.location.assign(`/login?next=${encodeURIComponent(path)}`);
 }
 
+/** Surface non-401 network errors as a toast so users get visible feedback
+ *  even when individual call sites silently swallow the throw. */
+function handleNetworkError(path: string, status: number, body: string) {
+  if (typeof window === "undefined") return;
+  if (status === 401) return; // handled by handleAuthError
+  // Try to extract a useful message from FastAPI's {"detail": "..."} shape
+  let detail = body.slice(0, 200);
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed?.detail) detail = String(parsed.detail);
+  } catch {}
+  if (status >= 500) {
+    toast.error("服务器错误", { detail: `${status} ${path} :: ${detail}` });
+  } else if (status === 404) {
+    // 404s are often expected (e.g. polling for a resource) — only toast on
+    // explicit user actions. We default to silent here; callers can toast
+    // themselves where it matters.
+    return;
+  } else if (status >= 400) {
+    toast.warn(`请求失败 (${status})`, { detail: `${path} :: ${detail}` });
+  }
+}
+
 async function jget<T>(path: string): Promise<T> {
   const r = await fetch(backendBase() + path, {
     cache: "no-store",
@@ -25,6 +50,7 @@ async function jget<T>(path: string): Promise<T> {
   });
   if (!r.ok) {
     handleAuthError(r.status);
+    handleNetworkError(path, r.status, "");
     throw new Error(`${path}: ${r.status}`);
   }
   return r.json();
@@ -38,7 +64,9 @@ async function jpost<T>(path: string, body: unknown): Promise<T> {
   });
   if (!r.ok) {
     handleAuthError(r.status);
-    throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+    const body = await r.text().catch(() => "");
+    handleNetworkError(path, r.status, body);
+    throw new Error(`${path}: ${r.status} ${body}`);
   }
   return r.json();
 }
@@ -50,7 +78,9 @@ async function jpostForm<T>(path: string, form: FormData): Promise<T> {
   });
   if (!r.ok) {
     handleAuthError(r.status);
-    throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+    const body = await r.text().catch(() => "");
+    handleNetworkError(path, r.status, body);
+    throw new Error(`${path}: ${r.status} ${body}`);
   }
   return r.json();
 }
@@ -133,6 +163,17 @@ export type ProviderCatalogEntry = {
   docs_url: string;
 };
 
+export type AuditEntry = {
+  id: number;
+  user_id: string | null;
+  user_name: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  payload: Record<string, unknown> | null;
+  ts: string;
+};
+
 export type Memory = {
   id: string;
   scope: "user" | "project" | "org";
@@ -165,7 +206,9 @@ async function jput<T>(path: string, body: unknown): Promise<T> {
   });
   if (!r.ok) {
     handleAuthError(r.status);
-    throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+    const body = await r.text().catch(() => "");
+    handleNetworkError(path, r.status, body);
+    throw new Error(`${path}: ${r.status} ${body}`);
   }
   return r.json();
 }
@@ -178,7 +221,9 @@ async function jpatch<T>(path: string, body: unknown): Promise<T> {
   });
   if (!r.ok) {
     handleAuthError(r.status);
-    throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+    const body = await r.text().catch(() => "");
+    handleNetworkError(path, r.status, body);
+    throw new Error(`${path}: ${r.status} ${body}`);
   }
   return r.json();
 }
@@ -222,6 +267,7 @@ export const api = {
     return jpostForm<Voiceprint>("/api/voiceprints", fd);
   },
   listMeetings: () => jget<Meeting[]>("/api/meetings"),
+  deleteMeeting: (id: string) => jdelete(`/api/meetings/${id}`),
   createMeeting: (title: string, attendeeUserIds: string[]) =>
     jpost<Meeting>("/api/meetings", { title, attendee_user_ids: attendeeUserIds }),
   getMeeting: (id: string) => jget<Meeting>(`/api/meetings/${id}`),
@@ -238,6 +284,12 @@ export const api = {
     jget<{ briefing_md: string | null; status: "ready" | "empty" }>(
       `/api/meetings/${id}/briefing`,
     ),
+
+  listAudit: (action?: string, limit = 200) => {
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (action) q.set("action", action);
+    return jget<AuditEntry[]>(`/api/audit?${q.toString()}`);
+  },
 
   // Long-term memory
   listMemories: (scope?: string, scopeRef?: string) => {

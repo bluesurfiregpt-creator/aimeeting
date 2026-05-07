@@ -36,6 +36,17 @@ export default function MeetingsListPage() {
     return () => { alive = false; };
   }, []);
 
+  const remove = async (id: string, title: string) => {
+    if (!confirm(`确认删除会议「${title}」？\n\n该会议的字幕、纪要、音频片段都会一起删除。\n从中抽取的长期记忆会**保留**(可在 /admin/memory 单独清理)。`))
+      return;
+    try {
+      await api.deleteMeeting(id);
+      setMeetings((prev) => prev.filter((m) => m.id !== id));
+    } catch (e) {
+      alert(e instanceof Error ? `删除失败：${e.message}` : "删除失败");
+    }
+  };
+
   return (
     <main className="mx-auto max-w-4xl px-6 py-10">
       <header className="flex items-center justify-between">
@@ -57,10 +68,10 @@ export default function MeetingsListPage() {
             const label = STATUS_LABEL[m.status] ?? m.status;
             const date = m.started_at ? new Date(m.started_at) : null;
             return (
-              <li key={m.id}>
+              <li key={m.id} className="group flex items-stretch">
                 <Link
                   href={`/meeting/${m.id}`}
-                  className="flex items-start justify-between px-4 py-4 transition hover:bg-ink-800/50"
+                  className="flex flex-1 items-start justify-between px-4 py-4 transition hover:bg-ink-800/50"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -80,8 +91,14 @@ export default function MeetingsListPage() {
                       </span>
                     </div>
                   </div>
-                  <span className="ml-4 text-zinc-500">→</span>
                 </Link>
+                <button
+                  onClick={() => remove(m.id, m.title)}
+                  title="删除会议"
+                  className="px-4 text-xs text-zinc-600 opacity-0 transition group-hover:opacity-100 hover:text-rose-400"
+                >
+                  删除
+                </button>
               </li>
             );
           })}

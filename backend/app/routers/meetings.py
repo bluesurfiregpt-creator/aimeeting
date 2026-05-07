@@ -11,6 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import session_state
+from ..audit import audit_log
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
 from ..identify_pipeline import run_identify
@@ -77,6 +78,11 @@ async def create_meeting(
             session.add(MeetingAttendee(meeting_id=m.id, user_id=uid))
     await session.commit()
     await session.refresh(m)
+    await audit_log(
+        session, auth, "meeting.create",
+        target_type="meeting", target_id=str(m.id),
+        payload={"title": m.title, "attendee_count": len(payload.attendee_user_ids)},
+    )
     return _to_meeting_out(m, list(payload.attendee_user_ids))
 
 
@@ -107,6 +113,34 @@ async def list_meetings(
         if r.user_id is not None:
             by_meeting.setdefault(r.meeting_id, []).append(r.user_id)
     return [_to_meeting_out(m, by_meeting.get(m.id, [])) for m in rows]
+
+
+@router.delete("/{meeting_id}", status_code=204)
+async def delete_meeting(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    Delete a meeting and ALL its dependent rows. Cascade is configured on
+    the FK columns (ondelete='CASCADE') for transcripts, attendees, agent
+    messages and speaker segments, so we just remove the parent.
+
+    Long-term memories that were extracted from this meeting are LEFT in
+    place — testers explicitly want to clean up trash meetings without
+    losing the knowledge harvested from them. Memories are referenced by
+    source_id so they remain queryable from /admin/memory.
+    """
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    # Discard any in-memory session state still buffering audio
+    session_state.discard(m.id)
+    title = m.title
+    await session.delete(m)
+    await session.commit()
+    await audit_log(
+        session, auth, "meeting.delete",
+        target_type="meeting", target_id=meeting_id, payload={"title": title},
+    )
 
 
 @router.get("/{meeting_id}", response_model=MeetingOut)

@@ -19,6 +19,7 @@ from .models import Meeting, MeetingTranscript
 from .agent_router import invoke_agent_directly, maybe_invoke_agents
 from .auth import COOKIE_NAME, decode_token
 from .routers import agents as agents_router
+from .routers import audit as audit_router
 from .routers import auth as auth_router
 from .routers import meetings as meetings_router
 from .routers import memory as memory_router
@@ -60,6 +61,7 @@ app.include_router(meetings_router.router)
 app.include_router(agents_router.router)
 app.include_router(model_providers_router.router)
 app.include_router(memory_router.router)
+app.include_router(audit_router.router)
 
 
 @app.get("/healthz")

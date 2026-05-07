@@ -43,16 +43,70 @@ function resampleMono(input: Float32Array, sourceRate: number): Float32Array {
   return out;
 }
 
+/**
+ * Wrap getUserMedia errors so the calling UI can show a precise message
+ * instead of the generic DOMException name.
+ */
+export class MicPermissionError extends Error {
+  reason: "denied" | "unavailable" | "insecure" | "unsupported" | "other";
+  constructor(reason: MicPermissionError["reason"], message: string) {
+    super(message);
+    this.reason = reason;
+  }
+}
+
 export async function startAudioCapture(sink: PcmSink): Promise<AudioCaptureHandle> {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      channelCount: 1,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    },
-    video: false,
-  });
+  // Browsers gate getUserMedia on a secure context (HTTPS or localhost).
+  // Fail fast with a clear message instead of a confusing TypeError.
+  if (typeof window !== "undefined" && !window.isSecureContext) {
+    throw new MicPermissionError(
+      "insecure",
+      "页面不在安全上下文中(需要 HTTPS),浏览器禁止访问麦克风。",
+    );
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new MicPermissionError(
+      "unsupported",
+      "当前浏览器不支持 getUserMedia API,请用最新版 Chrome / Edge / Safari。",
+    );
+  }
+
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
+  } catch (err) {
+    const e = err as DOMException;
+    if (e.name === "NotAllowedError" || e.name === "PermissionDeniedError") {
+      throw new MicPermissionError(
+        "denied",
+        "麦克风权限被拒绝。点击地址栏左侧锁/相机图标 → 允许麦克风,然后刷新页面。",
+      );
+    }
+    if (e.name === "NotFoundError" || e.name === "DevicesNotFoundError") {
+      throw new MicPermissionError(
+        "unavailable",
+        "未检测到可用麦克风。请插上耳麦/麦克风后再试。",
+      );
+    }
+    if (e.name === "NotReadableError" || e.name === "TrackStartError") {
+      throw new MicPermissionError(
+        "unavailable",
+        "麦克风被其他应用占用(如腾讯会议、Zoom),请先关闭它们。",
+      );
+    }
+    throw new MicPermissionError(
+      "other",
+      `麦克风启动失败:${e.message || e.name || "未知错误"}`,
+    );
+  }
 
   // Try to get the AudioContext at exactly 16kHz; fall back and resample if the
   // browser refuses (Safari historically pinned to hardware rate).

@@ -2,7 +2,8 @@
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { startAudioCapture, type AudioCaptureHandle } from "@/lib/audioCapture";
+import { MicPermissionError, startAudioCapture, type AudioCaptureHandle } from "@/lib/audioCapture";
+import { toast } from "@/lib/toast";
 import { openSttSocket, type SttEvent, type SttSocket } from "@/lib/sttSocket";
 import { api, type Agent, type TranscriptLine } from "@/lib/api";
 import BriefingCard from "./BriefingCard";
@@ -332,7 +333,20 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       setPhase("live");
     } catch (err) {
       console.error(err);
-      setStatusText(err instanceof Error ? `启动失败：${err.message}` : "启动失败");
+      const message =
+        err instanceof MicPermissionError
+          ? err.message
+          : err instanceof Error
+          ? `启动失败：${err.message}`
+          : "启动失败";
+      setStatusText(message);
+      // Surface to a sticky toast so the user sees it even after navigating
+      // their attention elsewhere on the page.
+      if (err instanceof MicPermissionError) {
+        toast.error("麦克风启动失败", { detail: err.message, sticky: true });
+      } else {
+        toast.error("启动失败", { detail: message });
+      }
       try { socketRef.current?.close(); } catch {}
     }
   }, [phase, meetingId, handleEvent]);
