@@ -155,20 +155,39 @@ async def ws_stt(ws: WebSocket):
         except Exception:
             logger.exception("ws send failed")
         if is_final and meeting_uuid is not None:
+            line_id: int | None = None
             try:
                 async with SessionLocal() as db:
-                    db.add(
-                        MeetingTranscript(
-                            meeting_id=meeting_uuid,
-                            text=text,
-                            start_ms=int(start_ts) if start_ts is not None else None,
-                            end_ms=int(end_ts) if end_ts is not None else None,
-                            is_final=True,
-                        )
+                    line = MeetingTranscript(
+                        meeting_id=meeting_uuid,
+                        text=text,
+                        start_ms=int(start_ts) if start_ts is not None else None,
+                        end_ms=int(end_ts) if end_ts is not None else None,
+                        is_final=True,
                     )
+                    db.add(line)
                     await db.commit()
+                    await db.refresh(line)
+                    line_id = line.id
             except Exception:
                 logger.exception("persist transcript failed")
+            # Tell the frontend which DB row this finalized sentence ended up
+            # at, so the meeting page can attach the correction UI to it
+            # without having to wait for /result polling at meeting end.
+            if line_id is not None:
+                try:
+                    await ws.send_text(
+                        json.dumps(
+                            {
+                                "type": "transcript_persisted",
+                                "line_id": line_id,
+                                "start_ms": int(start_ts) if start_ts is not None else None,
+                                "end_ms": int(end_ts) if end_ts is not None else None,
+                            }
+                        )
+                    )
+                except Exception:
+                    logger.exception("ws transcript_persisted send failed")
             # Fire-and-forget agent invocation. Errors inside are already
             # logged + relayed as a chunk message; we don't want to block
             # the next ASR sentence on Dify latency.

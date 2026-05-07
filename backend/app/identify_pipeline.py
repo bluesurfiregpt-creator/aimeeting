@@ -45,14 +45,18 @@ PERIODIC_INTERVAL_S = 45  # how often the live worker triggers an identify pass
 MIN_BUFFER_SECONDS = 20   # don't bother identifying buffers shorter than this
 # pyannote matching threshold (sent to /identify). Higher = stricter:
 # pyannote refuses to claim a match unless the voiceprint similarity is
-# very high. Tuned up from 0.5 → 0.7 after testers reported environment
-# audio + non-attendee voices being attributed to enrolled speakers.
-PYANNOTE_MATCH_THRESHOLD = 0.7
+# very high. Round-2 testing showed 0.7 still leaks unenrolled-speaker
+# attribution; bumped to 0.75 to err on the side of UNKNOWN over
+# wrong-name. Manual correction UI exists for the long-tail.
+PYANNOTE_MATCH_THRESHOLD = 0.75
 # When aligning ASR sentences to pyannote segments, we additionally require
 # at least this fraction of the sentence's duration to overlap with the
-# matched segment. Otherwise we leave the line UNKNOWN. This blocks the
-# 'short word inside long noise window' false-positive.
-MIN_LINE_OVERLAP_RATIO = 0.5
+# matched segment. Round-2 raised from 0.5 → 0.7 to suppress short-word
+# attribution from noise windows.
+MIN_LINE_OVERLAP_RATIO = 0.7
+# Skip pyannote segments shorter than this — they are usually clipped
+# fragments of noise that happen to score well against a voiceprint.
+MIN_SEGMENT_DURATION_MS = 1000
 
 
 async def identify_worker(
@@ -226,7 +230,17 @@ async def run_identify(meeting_id: uuid.UUID, *, final: bool = True) -> bool:
         return False
 
     segments = pyannote.parse_identify_segments(result)
-    logger.info("meeting %s: %d speaker segments", meeting_id, len(segments))
+    raw_count = len(segments)
+    # Drop micro-segments (usually noise that randomly correlates with a
+    # voiceprint) before persisting / aligning.
+    segments = [
+        s for s in segments
+        if (s.end_ms - s.start_ms) >= MIN_SEGMENT_DURATION_MS
+    ]
+    logger.info(
+        "meeting %s: %d raw segments (%d after MIN_SEGMENT_DURATION filter)",
+        meeting_id, raw_count, len(segments),
+    )
 
     changed = False
     async with SessionLocal() as db:
@@ -260,6 +274,11 @@ async def run_identify(meeting_id: uuid.UUID, *, final: bool = True) -> bool:
         ).scalars().all()
 
         for line in lines:
+            # Never overwrite a manual correction. If a user has explicitly
+            # set (or unset) a speaker via the correction UI, that wins —
+            # subsequent automatic identify passes must respect it.
+            if line.speaker_status in ("manually_corrected", "manually_unset"):
+                continue
             uid, conf = _align_line_to_segments(line, segments, label_to_user)
             new_label = "auto_recognized" if uid else "UNKNOWN"
             new_status = "auto_recognized" if uid else "low_confidence"

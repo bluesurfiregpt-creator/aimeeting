@@ -15,6 +15,13 @@ export type SpeakersUpdatedEvent = {
   type: "speakers_updated";
 };
 
+export type TranscriptPersistedEvent = {
+  type: "transcript_persisted";
+  line_id: number;
+  start_ms: number | null;
+  end_ms: number | null;
+};
+
 export type AgentMessageStartEvent = {
   type: "agent_message_start";
   agent_id: string;
@@ -38,6 +45,7 @@ export type SttEvent =
   | TranscriptEvent
   | SystemEvent
   | SpeakersUpdatedEvent
+  | TranscriptPersistedEvent
   | AgentMessageStartEvent
   | AgentMessageChunkEvent
   | AgentMessageEndEvent;

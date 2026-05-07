@@ -197,6 +197,18 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       void refreshSpeakers();
       return;
     }
+    if (e.type === "transcript_persisted") {
+      // Wire the DB line_id onto the local final line that matches by start_ms.
+      // This is what unlocks the in-meeting "✏️ correct speaker" affordance.
+      setLines((prev) =>
+        prev.map((l) =>
+          l.kind === "user" && l.final && l.startMs === e.start_ms
+            ? { ...l, serverLineId: e.line_id }
+            : l,
+        ),
+      );
+      return;
+    }
     if (e.type === "agent_message_start") {
       setBusyAgents((prev) => {
         if (prev.has(e.agent_id)) return prev;
@@ -401,6 +413,12 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       (rows) => setAgents(rows.filter((a) => a.is_active)),
       (err) => console.warn("listAgents failed", err),
     );
+    // Also pre-load the attendee pool so the in-meeting correction
+    // dropdown is populated immediately when the first ✏️ is clicked.
+    api.listUsers().then(
+      (rs) => setAttendees(rs.map((r) => ({ id: r.id, name: r.name }))),
+      () => {},
+    );
   }, []);
 
   const invokeAgent = useCallback((agent: Agent) => {
@@ -549,7 +567,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                 >
                   <SpeakerLabel
                     line={l}
-                    canEdit={phase === "ended" && l.serverLineId !== null}
+                    canEdit={l.final && l.serverLineId !== null}
                     isOpen={correctingLineId === l.serverLineId}
                     onToggle={() =>
                       setCorrectingLineId(
