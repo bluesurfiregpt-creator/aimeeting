@@ -9,9 +9,6 @@ type Form = {
   persona: string;
   keywords: string;        // comma separated for input
   color: string;
-  dify_app_type: string;
-  dify_base_url: string;
-  dify_api_key: string;
   knowledge_base_ids: Set<string>;
   is_active: boolean;
 };
@@ -22,9 +19,6 @@ const EMPTY: Form = {
   persona: "",
   keywords: "",
   color: "violet",
-  dify_app_type: "chatflow",
-  dify_base_url: "https://api.dify.ai",
-  dify_api_key: "",
   knowledge_base_ids: new Set<string>(),
   is_active: true,
 };
@@ -60,13 +54,10 @@ export default function AgentsAdmin() {
       persona: a.persona ?? "",
       keywords: (a.keywords ?? []).join(", "),
       color: a.color ?? "violet",
-      dify_app_type: a.dify_app_type,
-      dify_base_url: a.dify_base_url ?? "https://api.dify.ai",
-      dify_api_key: "",  // never echoed
       knowledge_base_ids: new Set<string>(a.knowledge_base_ids ?? []),
       is_active: a.is_active,
     });
-    setMsg(a.has_dify_key ? "Dify Key 已配置；想换的话填新的覆盖。" : "");
+    setMsg("");
   };
 
   const toggleKb = (kbId: string) => {
@@ -85,9 +76,6 @@ export default function AgentsAdmin() {
       persona: form.persona || null,
       keywords: form.keywords ? form.keywords.split(",").map((s) => s.trim()).filter(Boolean) : [],
       color: form.color,
-      dify_app_type: form.dify_app_type,
-      dify_base_url: form.dify_base_url,
-      ...(form.dify_api_key ? { dify_api_key: form.dify_api_key } : {}),
       knowledge_base_ids: Array.from(form.knowledge_base_ids),
       is_active: form.is_active,
     };
@@ -96,7 +84,7 @@ export default function AgentsAdmin() {
         await api.updateAgent(editing, body);
         setMsg("✅ 已更新");
       } else {
-        await api.createAgent({ ...body, dify_api_key: form.dify_api_key });
+        await api.createAgent(body);
         setMsg("✅ 已创建");
         reset();
       }
@@ -143,36 +131,10 @@ export default function AgentsAdmin() {
             </div>
           </div>
 
-          <div className="mt-4 rounded-lg border border-ink-700 bg-ink-950 p-3">
-            <div className="text-xs uppercase tracking-wider text-zinc-500">Dify 连接（可选 · 留空则用「LLM 模型」页面配置的默认模型）</div>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              <label className="block text-sm">
-                <span className="text-xs text-zinc-500">App 类型</span>
-                <select
-                  value={form.dify_app_type}
-                  onChange={(e) => setForm({ ...form, dify_app_type: e.target.value })}
-                  className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white focus:border-accent-500 focus:outline-none"
-                >
-                  <option value="chatflow">chatflow / 聊天助手</option>
-                  <option value="agent">agent</option>
-                  <option value="workflow">workflow / 工作流</option>
-                </select>
-              </label>
-              <Field
-                label="Base URL"
-                value={form.dify_base_url}
-                onChange={(v) => setForm({ ...form, dify_base_url: v })}
-              />
-            </div>
-            <div className="mt-2">
-              <Field
-                label="App API Key（在 Dify app → 「访问 API」获取，以 app- 开头）"
-                value={form.dify_api_key}
-                onChange={(v) => setForm({ ...form, dify_api_key: v })}
-                placeholder={editing ? "(留空表示不修改)" : "app-xxxxxxxx"}
-                type="password"
-              />
-            </div>
+          <div className="mt-3 rounded-lg border border-ink-700 bg-ink-950/40 px-3 py-2 text-xs text-zinc-500">
+            🤖 Agent 默认使用{" "}
+            <a href="/admin/models" className="text-accent-400 hover:text-accent-500">「LLM 模型」</a>{" "}
+            页配置的默认模型(当前工作空间生效)。无需在此处单独配置 API Key。
           </div>
 
           <div className="rounded-lg border border-ink-700 bg-ink-950 p-3">
@@ -268,9 +230,6 @@ export default function AgentsAdmin() {
                     <span className="font-medium text-white">{a.name}</span>
                     {!a.is_active && (
                       <span className="rounded-full bg-zinc-700/40 px-2 py-0.5 text-xs text-zinc-400">已停用</span>
-                    )}
-                    {!a.has_dify_key && (
-                      <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs text-amber-300">缺 Dify Key</span>
                     )}
                   </div>
                   <div className="flex gap-2">
