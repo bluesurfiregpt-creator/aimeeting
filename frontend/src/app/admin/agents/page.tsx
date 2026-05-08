@@ -245,10 +245,22 @@ export default function AgentsAdmin() {
                     {!a.is_active && (
                       <span className="rounded-full bg-zinc-700/40 px-2 py-0.5 text-xs text-zinc-400">已停用</span>
                     )}
+                    {a.role === "moderator" && (
+                      <span
+                        className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300"
+                        title="工作空间内置主持人,用于自动议程监督。建议保留。"
+                      >
+                        🛡 内置主持人
+                      </span>
+                    )}
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => startEdit(a)} className="text-xs text-zinc-400 hover:text-white">编辑</button>
-                    <button onClick={() => remove(a.id, a.name)} className="text-xs text-rose-400 hover:text-rose-300">删除</button>
+                    {a.role === "moderator" ? (
+                      <span className="text-xs text-zinc-700" title="内置主持人不可删除">🔒</span>
+                    ) : (
+                      <button onClick={() => remove(a.id, a.name)} className="text-xs text-rose-400 hover:text-rose-300">删除</button>
+                    )}
                   </div>
                 </div>
                 {a.domain && <div className="mt-1 text-xs text-zinc-500">{a.domain}</div>}

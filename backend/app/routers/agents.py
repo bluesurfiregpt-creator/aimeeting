@@ -52,6 +52,7 @@ class AgentOut(BaseModel):
     dify_workflow_id: Optional[str] = None
     knowledge_base_ids: Optional[list[uuid.UUID]] = None
     is_active: bool
+    role: str = "expert"  # M3.0: 'moderator' for the workspace's built-in
     has_dify_key: bool = False  # don't echo the key itself
     created_at: datetime
 
@@ -146,6 +147,11 @@ async def delete_agent(
     auth: AuthContext = Depends(get_current_auth),
 ):
     a = await _load_owned_agent(agent_id, session, auth)
+    if a.role == "moderator":
+        # The built-in moderator drives agenda_monitor; deleting it would
+        # silently disable that whole feature. If a user really wants to
+        # change behavior they can edit the persona instead.
+        raise HTTPException(400, "cannot delete the built-in moderator agent")
     name = a.name
     await session.delete(a)
     await session.commit()

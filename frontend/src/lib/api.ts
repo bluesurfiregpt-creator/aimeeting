@@ -235,6 +235,9 @@ export type Agent = {
   dify_workflow_id: string | null;
   knowledge_base_ids: string[] | null;
   is_active: boolean;
+  /** M3.0: 'expert' (default, user-configurable) | 'moderator'
+   *  (built-in per workspace, drives agenda_monitor banners). */
+  role: "expert" | "moderator";
   has_dify_key: boolean;
   created_at: string;
 };
