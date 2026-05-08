@@ -23,11 +23,20 @@ const EMPTY_FORM: Form = {
   note: "",
 };
 
+type ModelOption = { id: string; label?: string | null };
+
 export default function ModelsAdmin() {
   const [catalog, setCatalog] = useState<ProviderCatalogEntry[]>([]);
   const [configs, setConfigs] = useState<ProviderConfig[]>([]);
   const [forms, setForms] = useState<Record<string, Form>>({});
+  // Per-provider list of models pulled live via /list-models. Keyed by
+  // provider name. Only populated when the user clicks 拉取模型列表;
+  // otherwise the Model ID field stays as free-text.
+  const [models, setModels] = useState<Record<string, ModelOption[]>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  // Separate busy state for the list-models call so saving and listing
+  // can't both spin the same button.
+  const [listing, setListing] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
 
   const refresh = useCallback(async () => {
@@ -103,6 +112,56 @@ export default function ModelsAdmin() {
     }
   };
 
+  /**
+   * Pull live models for one provider. We use whichever API key the user has
+   * typed in the form right now (preferred — they may be testing a new key)
+   * and only fall back to a hint to type one if they haven't.
+   */
+  const fetchModels = async (provider: string) => {
+    const f = forms[provider];
+    if (!f) return;
+    if (!f.api_key) {
+      setMsg("请先在「API Key」里粘贴 key,再拉取模型列表");
+      return;
+    }
+    setListing(provider);
+    setMsg("");
+    try {
+      const r = await api.listProviderModels(provider, {
+        api_key: f.api_key,
+        base_url: f.base_url || undefined,
+      });
+      setModels((prev) => ({ ...prev, [provider]: r.models }));
+      // Auto-select current model_id if it appears in the new list, else
+      // pick the first one. This lets the dropdown have something selected.
+      if (r.models.length > 0) {
+        const current = forms[provider]?.model_id;
+        const stillThere = current && r.models.some((m) => m.id === current);
+        if (!stillThere) {
+          setForms((prev) => ({
+            ...prev,
+            [provider]: { ...prev[provider], model_id: r.models[0].id },
+          }));
+        }
+        setMsg(`✅ ${provider} 拉到 ${r.models.length} 个模型`);
+      } else {
+        setMsg(`⚠️ ${provider} 返回空列表 — 你可能要用其他 key 或 Base URL`);
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? `❌ 拉取失败:${e.message}` : "拉取失败");
+    } finally {
+      setListing(null);
+    }
+  };
+
+  const clearModels = (provider: string) => {
+    setModels((prev) => {
+      const next = { ...prev };
+      delete next[provider];
+      return next;
+    });
+  };
+
   return (
     <div>
       <p className="text-sm text-zinc-500">
@@ -160,12 +219,53 @@ export default function ModelsAdmin() {
                   onChange={(v) => update("api_key", v)}
                   type="password"
                 />
-                <Field
-                  label="Model ID"
-                  value={f.model_id}
-                  placeholder={sp.default_model}
-                  onChange={(v) => update("model_id", v)}
-                />
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-zinc-500">Model ID</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => fetchModels(sp.name)}
+                        disabled={listing === sp.name || !f.api_key}
+                        className="text-xs text-accent-400 hover:text-accent-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={!f.api_key ? "先填 API Key" : "用当前 Key 调 /models 接口拉取列表"}
+                      >
+                        {listing === sp.name ? "拉取中…" : "拉取模型列表 ↻"}
+                      </button>
+                      {models[sp.name] && (
+                        <button
+                          type="button"
+                          onClick={() => clearModels(sp.name)}
+                          className="text-xs text-zinc-500 hover:text-zinc-300"
+                          title="改回手动填写"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {models[sp.name] && models[sp.name].length > 0 ? (
+                    <select
+                      value={f.model_id}
+                      onChange={(e) => update("model_id", e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white focus:border-accent-500 focus:outline-none"
+                    >
+                      {models[sp.name].map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label ? `${m.id} — ${m.label}` : m.id}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={f.model_id}
+                      placeholder={sp.default_model}
+                      onChange={(e) => update("model_id", e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
+                    />
+                  )}
+                </div>
                 <Field
                   label="Base URL"
                   value={f.base_url}

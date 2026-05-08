@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
+from ..list_models import ListModelsError, list_models
 from ..llm_providers import SUPPORTED_PROVIDERS, get_spec
 from ..models import ModelProviderConfig
 
@@ -35,6 +36,20 @@ class ProviderConfigIn(BaseModel):
     model_id: Optional[str] = None
     is_active: bool = False
     note: Optional[str] = None
+
+
+class ListModelsIn(BaseModel):
+    api_key: str
+    base_url: Optional[str] = None
+
+
+class ModelEntryOut(BaseModel):
+    id: str
+    label: Optional[str] = None
+
+
+class ListModelsOut(BaseModel):
+    models: list[ModelEntryOut]
 
 
 class ProviderConfigOut(BaseModel):
@@ -175,6 +190,34 @@ async def activate(
     await session.commit()
     await session.refresh(row)
     return _to_out(row)
+
+
+@router.post("/{provider}/list-models", response_model=ListModelsOut)
+async def list_provider_models(
+    provider: str,
+    payload: ListModelsIn,
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    Fetch the live model catalog from the provider's /models endpoint
+    using the supplied (unsaved) API key, so the admin form can show a
+    dropdown instead of forcing the user to remember model IDs.
+
+    The key is NOT persisted by this call — caller must still hit
+    PUT /{provider} to save. We only require auth here so anonymous
+    callers can't burn other people's quota.
+    """
+    if get_spec(provider) is None:
+        raise HTTPException(400, f"unknown provider {provider}")
+    try:
+        models = await list_models(provider, payload.api_key, payload.base_url)
+    except ListModelsError as exc:
+        # Surface as 400 with the provider's message so the UI can
+        # display "your key was rejected" or "endpoint unreachable".
+        raise HTTPException(400, f"list models failed: {exc}")
+    return ListModelsOut(
+        models=[ModelEntryOut(id=m.id, label=m.label) for m in models]
+    )
 
 
 @router.delete("/{provider}", status_code=204)
