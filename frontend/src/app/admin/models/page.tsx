@@ -113,22 +113,24 @@ export default function ModelsAdmin() {
   };
 
   /**
-   * Pull live models for one provider. We use whichever API key the user has
-   * typed in the form right now (preferred — they may be testing a new key)
-   * and only fall back to a hint to type one if they haven't.
+   * Pull live models for one provider. Backend resolves the API key in
+   * order: form value (user testing a new key) → saved value in DB. So
+   * we send whatever the form has — empty string is fine when a config
+   * already exists for this provider.
    */
   const fetchModels = async (provider: string) => {
     const f = forms[provider];
     if (!f) return;
-    if (!f.api_key) {
-      setMsg("请先在「API Key」里粘贴 key,再拉取模型列表");
+    const cfg = configs.find((c) => c.provider === provider);
+    if (!f.api_key && !cfg) {
+      setMsg("请先在「API Key」里粘贴 key,或先保存一次配置后再拉取");
       return;
     }
     setListing(provider);
     setMsg("");
     try {
       const r = await api.listProviderModels(provider, {
-        api_key: f.api_key,
+        api_key: f.api_key || undefined,
         base_url: f.base_url || undefined,
       });
       setModels((prev) => ({ ...prev, [provider]: r.models }));
@@ -226,9 +228,15 @@ export default function ModelsAdmin() {
                       <button
                         type="button"
                         onClick={() => fetchModels(sp.name)}
-                        disabled={listing === sp.name || !f.api_key}
+                        disabled={listing === sp.name || (!f.api_key && !cfg)}
                         className="text-xs text-accent-400 hover:text-accent-500 disabled:opacity-40 disabled:cursor-not-allowed"
-                        title={!f.api_key ? "先填 API Key" : "用当前 Key 调 /models 接口拉取列表"}
+                        title={
+                          !f.api_key && !cfg
+                            ? "先填 API Key 或保存一次配置"
+                            : f.api_key
+                              ? "用刚填的 Key 拉取列表(不会保存,仅探查)"
+                              : "用已保存的 Key 拉取列表"
+                        }
                       >
                         {listing === sp.name ? "拉取中…" : "拉取模型列表 ↻"}
                       </button>

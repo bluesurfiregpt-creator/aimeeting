@@ -458,7 +458,7 @@ export const api = {
   deleteProviderConfig: (provider: string) => jdelete(`/api/model-providers/${provider}`),
   listProviderModels: (
     provider: string,
-    body: { api_key: string; base_url?: string },
+    body: { api_key?: string; base_url?: string },
   ) =>
     jpost<{ models: Array<{ id: string; label?: string | null }> }>(
       `/api/model-providers/${provider}/list-models`,

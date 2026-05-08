@@ -39,7 +39,11 @@ class ProviderConfigIn(BaseModel):
 
 
 class ListModelsIn(BaseModel):
-    api_key: str
+    # Optional: when empty, the route falls back to the workspace's saved
+    # api_key for this provider. This lets users hit "拉取模型列表" without
+    # re-typing a key they've already configured (the admin form never
+    # echoes saved keys back, so the form field is always blank on load).
+    api_key: Optional[str] = None
     base_url: Optional[str] = None
 
 
@@ -196,21 +200,45 @@ async def activate(
 async def list_provider_models(
     provider: str,
     payload: ListModelsIn,
+    session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
     """
     Fetch the live model catalog from the provider's /models endpoint
-    using the supplied (unsaved) API key, so the admin form can show a
-    dropdown instead of forcing the user to remember model IDs.
+    so the admin form can show a dropdown instead of forcing the user
+    to remember model IDs.
 
-    The key is NOT persisted by this call — caller must still hit
-    PUT /{provider} to save. We only require auth here so anonymous
-    callers can't burn other people's quota.
+    Resolution order for the API key:
+    1. payload.api_key if non-empty (user is testing a new key before saving)
+    2. fall back to the workspace's saved key for this provider (user
+       just clicked the button without re-typing — most common case)
+
+    Same for base_url. The key is NOT persisted by this call.
     """
     if get_spec(provider) is None:
         raise HTTPException(400, f"unknown provider {provider}")
+
+    api_key = (payload.api_key or "").strip()
+    base_url = (payload.base_url or "").strip() or None
+
+    if not api_key or not base_url:
+        saved = (
+            await session.execute(
+                select(ModelProviderConfig).where(
+                    ModelProviderConfig.provider == provider,
+                    ModelProviderConfig.workspace_id == auth.workspace.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not api_key:
+            if saved is None or not saved.api_key:
+                raise HTTPException(400, "no API key on form and none saved — paste a key first")
+            api_key = saved.api_key
+        if not base_url and saved is not None:
+            base_url = saved.base_url
+
     try:
-        models = await list_models(provider, payload.api_key, payload.base_url)
+        models = await list_models(provider, api_key, base_url)
     except ListModelsError as exc:
         # Surface as 400 with the provider's message so the UI can
         # display "your key was rejected" or "endpoint unreachable".
