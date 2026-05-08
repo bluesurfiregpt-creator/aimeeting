@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v16）
+# Aimeeting · 测试用例（v17）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -310,7 +310,8 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v16** | 2026-05-08 | **主题 1 · P0 行动项协作闭环**:① 后端新建表 `meeting_action_item_comment` + `notification`(in-app);② 新 router `/api/me`(`GET /actions`、`GET /notifications`、`POST /notifications/{id}/read`、`POST /notifications/read-all`);③ 行动项评论 CRUD(`/api/meetings/{mid}/actions/{aid}/comments`,作者可删不可改);④ 创建 / 改派行动项时给 assignee 写 `action_assigned`(self-notify 抑制);⑤ FastAPI lifespan 内挂后台 loop(默认 1h tick)生成 `action_due_soon` / `action_overdue`,helper `notify.py` 内 24h 去重;⑥ 前端:顶栏 🔔 NotificationBell + 抽屉(60s 轮询、未读红点、全部已读)、`/me` 个人页(我的待办 open/done 切换 + 通知列表)、ActionItemsCard 每行加可折叠评论线程(💬 计数 / lazy fetch / Cmd+Enter 发送);⑦ 测试:cowork_suite 新增 Y 系列 7 用例(Y-1..Y-7,自动列表 / done 过滤 / 评论 CRUD / 作者-only delete / 通知 shape / self-notify 抑制 / mark-all-read);两份 baseline.json(repo + frontend/public)同步刷到 v16(总 44 用例,36 ✅ + 8 ⏭️)|
+| **v17** | 2026-05-09 | **Task 一级对象立项(智慧住建翻译层骨架)**:① 新表 `task`(id / workspace_id / title / content / assignee_user_id / created_by_user_id / due_at / status / source_type / source_ref(JSON) / 时间戳),状态 v17 只用 `open|done|cancelled`,`in_progress` 留给 v18 状态机;② 新建 `task_sync.py` helper:`add_action_with_task` / `mirror_patch_to_task` / `delete_task_for_action` / `delete_tasks_for_meeting_summary_actions`,client-side UUID 让 ActionItem ↔ Task 一笔事务交叉指 ID;③ `meeting_action_item.task_id` FK 列加上,`init_db.py` 启动时 backfill 现有所有 ActionItem 一对一映射 Task(source_type='meeting');④ `workspace.preset` JSON 列加上,默认 NULL=「general」,预留 'smart_construction' 等键;⑤ 双写接入:`POST/PATCH/DELETE /api/meetings/{m}/actions` 和 `action_extractor` 自动抽取都同步维护 Task;⑥ 新读端 `GET /api/me/tasks?status=(open|all|done|in_progress)` 返回 Task 列表 + 自动注水 `meeting_id`/`meeting_title`(source_type='meeting' 行);⑦ Notification payload 新增 `task_id` 字段(`action_id` 保留兼容),due_reminder cron / action_assigned / action_comment 都带上;⑧ 测试:Cowork Z 系列 5 用例(Z-1 dual-write 一致 / Z-2 PATCH 镜像 / Z-3 DELETE 级联 / Z-4 meeting_title 注水 / Z-5 in_progress v17 为空);两份 baseline.json 同步刷到 v17(总 49 用例,41 ✅ + 8 ⏭️);⑨ 前端零变更,Y 系列保持绿 |
+| v16 | 2026-05-08 | **主题 1 · P0 行动项协作闭环**:① 后端新建表 `meeting_action_item_comment` + `notification`(in-app);② 新 router `/api/me`(`GET /actions`、`GET /notifications`、`POST /notifications/{id}/read`、`POST /notifications/read-all`);③ 行动项评论 CRUD(`/api/meetings/{mid}/actions/{aid}/comments`,作者可删不可改);④ 创建 / 改派行动项时给 assignee 写 `action_assigned`(self-notify 抑制);⑤ FastAPI lifespan 内挂后台 loop(默认 1h tick)生成 `action_due_soon` / `action_overdue`,helper `notify.py` 内 24h 去重;⑥ 前端:顶栏 🔔 NotificationBell + 抽屉(60s 轮询、未读红点、全部已读)、`/me` 个人页(我的待办 open/done 切换 + 通知列表)、ActionItemsCard 每行加可折叠评论线程(💬 计数 / lazy fetch / Cmd+Enter 发送);⑦ 测试:cowork_suite 新增 Y 系列 7 用例(Y-1..Y-7,自动列表 / done 过滤 / 评论 CRUD / 作者-only delete / 通知 shape / self-notify 抑制 / mark-all-read);两份 baseline.json(repo + frontend/public)同步刷到 v16(总 44 用例,36 ✅ + 8 ⏭️)|
 | v15 | 2026-05-08 | **P1 · T1 + T2 落地**:① **T1** Cowork 全自动套件(`tests/cowork_suite.js`,29 用例 + 8 expected skip,84-105s 全跑完);套件挂在 `/cowork_suite.js`,任何登录浏览器一句 `runCoworkSuite()` 就能跑 ② **T2** baseline diff:`tests/baseline.json` 是 v14 节点的 frozen 快照,套件运行时**自动 fetch + diff**,5 个分类桶(regressions / fixed / new_passes / new_cases / missing);`r.json.summary.passed_baseline` 是 CI gate 关心的布尔值;markdown 顶部「✅ 与 baseline 一致」/「⚠️ 与 baseline 有偏差」横幅 ③ 套件 fixture 强化:G-1 行长 ≥ 18 字 / 总 ≥ 80 字以避开 backend `MIN_TRANSCRIPT_CHARS=60` 的 skipped 短路;poll 现在识别所有 terminal status(包括 skipped);依赖失败用 `SKIP_DEP_FAILED:<id>` 表示,自动归入 ⏭️ 而不是 ❌ |
 | v14 | 2026-05-08 | **修 v13 QA 报告 3 个 NEW-ISSUE**:① **NEW-ISSUE-B/C**(P2):简报顶部「上次会议未完待办」的总数 / 逾期数从原 `len(rows)`(被 LIMIT 截断) 改成独立 `COUNT(*)` 查询;当总数 > 8 时 header 加 `· 显示前 8` 透明化截断 ② **NEW-ISSUE-A**(P3):`prune_noise_users.py` 加 `--force-with-voiceprint` flag,显式覆盖 voiceprint guard;依赖 FK CASCADE 干净删除;跑了一次,删掉 `1` `111` 两条遗留 noise 用户 ③ 修了 prune 脚本的隐性 bug:`Voiceprint.user_id` / `WorkspaceMembership.user_id` / `PasswordResetToken.user_id` 都是 NOT NULL,以前 `_FK_REPOINT` 列表里包含他们,在 force 模式会触发约束违反 → 现在依赖 ondelete=CASCADE 自动级联 |
 | v13 | 2026-05-08 | **M3.0 收尾**:① **M3.0.4 僵局检测**:agenda_monitor LLM prompt 新增 `stuck` 信号;新事件类型 `agenda_stuck`,前端橙红色 banner + **5 秒倒计时**,用户不操作则**自动召唤主持人**(更激进的 UX) ② **M3.0.7 跨会议跟进**:`briefing_generator` 把本 workspace 内 `status='open'` 的行动项渲染到简报 markdown **顶部**(逾期项加 ⚠️ 标记) ③ **dissent run-now 同步触发端点**(对称 agenda 的 v12 修复)|
@@ -1072,6 +1073,29 @@ coworkX();
 
 ---
 
+## Z 系列 · v17 Task 一级对象(智慧住建翻译层骨架)
+
+> 把行动项从「会议附属物」升格成 workspace 级 Task 对象,为后续主线(状态机 / 6 种触发源 / 主责协办 / 三级催办)铺路。本轮 UI 无感(零前端改动),全部验证集中在「ActionItem ↔ Task 双写一致性」+「`/api/me/tasks` 新读端」。
+
+| 用例 | 操作 | 预期 | 状态 |
+|---|---|---|---|
+| Z-1 | 创建 manual action,GET `/api/me/tasks` | 找到 Task 行,`source_type=meeting`,`source_ref` 含 meeting_id + action_item_id | ✅ |
+| Z-2 | PATCH action `status=done`,再 GET `/me/tasks?status=open` 与 `?status=done` | open 列表无该 Task,done 列表含该 Task(状态镜像) | ✅ |
+| Z-3 | DELETE action,再 GET `/me/tasks?status=all` | 列表里完全找不到对应 Task(级联清理无 orphan) | ✅ |
+| Z-4 | 创建 meeting + action,GET `/me/tasks` | 行内 `meeting_id` / `meeting_title` 已注水(source_ref join 自动 hydrate) | ✅ |
+| Z-5 | GET `/me/tasks?status=in_progress` | 返回 `[]`(v17 ActionItem 镜像不写 in_progress,留给 v18 状态机) | ✅ |
+
+**手测点**:
+- 走完一次完整会议(开会 → 文字录入 → 自动纪要 → 自动抽取 action) → /me/tasks 应该看到对应的 source_type='meeting' Task
+- 后台启动日志应该出现 `due_reminder tick: due_soon=N overdue=M`,各条 notification 的 payload 里现在带 `task_id`(给 v18 用)
+
+**架构决策**(v17 落地的认知偏移):
+- Aimeeting 重心从「会议」偏移到「Task / 工单」,**会议变成 Task 的 6 个触发源之一**(智慧住建场景的 6 触发源:领导指令 / 会议决议 / 上级文件 / 定期巡检 / 异常预警 / 问题上报)
+- 「智慧住建」「智慧 XX」都是 Aimeeting 的 workspace 实例,通过 `workspace.preset` 区分子系统行为,**单一代码库,不分叉**
+- 现有 `MeetingActionItem` 在 v17 仍是 source-of-truth,Task 与之 1:1 镜像。v18 计划反过来:Task 升为 source-of-truth,ActionItem 退化为 view
+
+---
+
 ## 测试报告模板
 
 测完后请把这一段填给我：
@@ -1079,7 +1103,7 @@ coworkX();
 ```
 测试人:
 测试时间:
-测试用例版本: v16
+测试用例版本: v17
 浏览器/系统:
 默认账号是否生效: 是 / 否
 

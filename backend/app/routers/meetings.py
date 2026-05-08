@@ -28,9 +28,15 @@ from ..models import (
     MeetingAgentMessage,
     MeetingAttendee,
     MeetingTranscript,
+    Task,
     User,
 )
 from ..notify import emit_notification
+from ..task_sync import (
+    add_action_with_task,
+    delete_task_for_action,
+    mirror_patch_to_task,
+)
 from ..schemas import MeetingCreate, MeetingOut, MeetingResultOut, TranscriptLine
 from ..briefing_generator import generate_briefing
 from ..meeting_export import export_docx, export_markdown
@@ -735,16 +741,18 @@ async def create_action_item(
         ).scalar_one_or_none()
         if not u:
             raise HTTPException(400, "assignee_user_id not in this workspace")
-    row = MeetingActionItem(
-        meeting_id=m.id,
+    row, _task = add_action_with_task(
+        session,
         workspace_id=m.workspace_id,
+        meeting_id=m.id,
         content=payload.content.strip()[:1000],
         assignee_user_id=payload.assignee_user_id,
+        assignee_name_hint=None,
         due_at=payload.due_at,
         status="open",
-        source_type="manual",
+        action_source_type="manual",
+        created_by_user_id=auth.user.id,
     )
-    session.add(row)
     await session.flush()
     # Theme 1: notify the assignee unless they're the caller themselves
     # (no self-notify — you know what you just did).
@@ -761,6 +769,7 @@ async def create_action_item(
                 "meeting_id": str(m.id),
                 "meeting_title": m.title,
                 "action_id": str(row.id),
+                "task_id": str(row.task_id) if row.task_id else None,
                 "content": row.content,
                 "due_at": row.due_at.isoformat() if row.due_at else None,
                 "assigned_by": auth.user.name,
@@ -798,14 +807,24 @@ async def update_action_item(
     ).scalar_one_or_none()
     if not row:
         raise HTTPException(404, "action item not found")
+    new_status: Optional[str] = None
+    new_content: Optional[str] = None
+    new_due_at_set = False
+    new_due_at: Optional[datetime] = None
+    new_assignee_set = False
+    new_assignee: Optional[uuid.UUID] = None
     if payload.status is not None:
         if payload.status not in ("open", "done", "cancelled"):
             raise HTTPException(400, "status must be open|done|cancelled")
         row.status = payload.status
+        new_status = payload.status
     if payload.content is not None:
         row.content = payload.content.strip()[:1000]
+        new_content = row.content
     if payload.due_at is not None:
         row.due_at = payload.due_at
+        new_due_at_set = True
+        new_due_at = payload.due_at
     new_assignee_to_notify: Optional[uuid.UUID] = None
     if payload.assignee_user_id is not None:
         u = (
@@ -827,6 +846,20 @@ async def update_action_item(
             new_assignee_to_notify = payload.assignee_user_id
         row.assignee_user_id = payload.assignee_user_id
         row.assignee_name_hint = None  # rebound — drop the freeform hint
+        new_assignee_set = True
+        new_assignee = payload.assignee_user_id
+    # v17: mirror this patch onto the paired Task so /api/me/tasks and
+    # other Task-side readers see the same state as ActionItem.
+    await mirror_patch_to_task(
+        session,
+        row,
+        content=new_content,
+        assignee_user_id_set=new_assignee_set,
+        assignee_user_id=new_assignee,
+        due_at_set=new_due_at_set,
+        due_at=new_due_at,
+        status=new_status,
+    )
     if new_assignee_to_notify is not None:
         await emit_notification(
             session,
@@ -837,6 +870,7 @@ async def update_action_item(
                 "meeting_id": str(m.id),
                 "meeting_title": m.title,
                 "action_id": str(row.id),
+                "task_id": str(row.task_id) if row.task_id else None,
                 "content": row.content,
                 "due_at": row.due_at.isoformat() if row.due_at else None,
                 "assigned_by": auth.user.name,
@@ -872,6 +906,10 @@ async def delete_action_item(
     ).scalar_one_or_none()
     if not row:
         raise HTTPException(404, "action item not found")
+    # v17: cascade-delete the paired Task. We delete the Task FIRST while the
+    # FK from action_item.task_id → task.id is still set; the FK has
+    # ondelete=SET NULL so it doesn't block. Then we delete the action.
+    await delete_task_for_action(session, row)
     await session.delete(row)
     await session.commit()
 
@@ -1018,6 +1056,7 @@ async def create_action_comment(
                     "meeting_id": str(m.id),
                     "meeting_title": m.title,
                     "action_id": str(parent.id),
+                    "task_id": str(parent.task_id) if parent.task_id else None,
                     "action_content": parent.content,
                     "comment_id": str(row.id),
                     "comment_preview": preview,

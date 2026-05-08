@@ -62,6 +62,9 @@ async def _tick_once(session: AsyncSession) -> tuple[int, int]:
     for action, meeting_title in rows:
         if action.due_at is None or action.assignee_user_id is None:
             continue
+        # v17: include task_id in payload so Task-side readers (e.g. v18
+        # /me/tasks UIs) can hydrate the right object from notification.
+        task_id_str = str(action.task_id) if action.task_id else None
         if action.due_at < now:
             kind = "action_overdue"
             days_overdue = max(0, (now - action.due_at).days)
@@ -69,6 +72,7 @@ async def _tick_once(session: AsyncSession) -> tuple[int, int]:
                 "meeting_id": str(action.meeting_id),
                 "meeting_title": meeting_title,
                 "action_id": str(action.id),
+                "task_id": task_id_str,
                 "content": action.content,
                 "due_at": action.due_at.isoformat(),
                 "days_overdue": days_overdue,
@@ -80,6 +84,7 @@ async def _tick_once(session: AsyncSession) -> tuple[int, int]:
                 "meeting_id": str(action.meeting_id),
                 "meeting_title": meeting_title,
                 "action_id": str(action.id),
+                "task_id": task_id_str,
                 "content": action.content,
                 "due_at": action.due_at.isoformat(),
             }

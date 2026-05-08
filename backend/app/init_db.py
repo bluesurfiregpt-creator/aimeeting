@@ -46,6 +46,12 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     #     agenda_monitor LLM watcher
     ("agent", "role", "VARCHAR(16) NOT NULL DEFAULT 'expert'"),
     ("meeting", "agenda", "JSONB"),
+    # v17 (Theme 1 → 智慧住建 翻译层):
+    #   - workspace.preset selects subsystem behavior (general / smart_construction / ...)
+    #   - meeting_action_item.task_id links every ActionItem to its 1:1 Task row.
+    #     Backfilled below for existing rows.
+    ("workspace", "preset", "JSONB"),
+    ("meeting_action_item", "task_id", "UUID"),
 ]
 
 # Drop the legacy unique-on-provider constraint so the new
@@ -137,6 +143,60 @@ async def init_db() -> None:
                     SELECT 1 FROM workspace_membership wm
                     WHERE wm.workspace_id = u.workspace_id AND wm.user_id = u.id
                   )
+                """
+            )
+        )
+
+        # v17: backfill Task rows 1:1 for every existing meeting_action_item that
+        # doesn't yet have a task_id. Idempotent: skipped on subsequent boots.
+        # We do this in raw SQL (not ORM) because:
+        #   - it's a one-shot migration, not in the request hot path
+        #   - we want the same created_at/updated_at as the source ActionItem
+        #     so analytics on Task creation rate aren't artificially spiked
+        #     by the migration
+        # source_ref carries {meeting_id, action_item_id} so anyone reading
+        # the Task can trace back to the originating meeting.
+        await conn.execute(
+            text(
+                """
+                INSERT INTO task (
+                    id, workspace_id, title, content, assignee_user_id,
+                    created_by_user_id, due_at, status, source_type,
+                    source_ref, created_at, updated_at
+                )
+                SELECT
+                    gen_random_uuid(),
+                    ai.workspace_id,
+                    NULL,
+                    ai.content,
+                    ai.assignee_user_id,
+                    NULL,
+                    ai.due_at,
+                    ai.status,
+                    'meeting',
+                    jsonb_build_object(
+                        'meeting_id', ai.meeting_id::text,
+                        'action_item_id', ai.id::text,
+                        'action_source_type', ai.source_type
+                    ),
+                    ai.created_at,
+                    ai.updated_at
+                FROM meeting_action_item ai
+                WHERE ai.task_id IS NULL
+                """
+            )
+        )
+        # Now point each newly-orphaned ActionItem at its freshly-created
+        # Task by matching on the source_ref → action_item_id we just wrote.
+        await conn.execute(
+            text(
+                """
+                UPDATE meeting_action_item ai
+                SET task_id = t.id
+                FROM task t
+                WHERE ai.task_id IS NULL
+                  AND t.source_type = 'meeting'
+                  AND (t.source_ref->>'action_item_id')::uuid = ai.id
                 """
             )
         )

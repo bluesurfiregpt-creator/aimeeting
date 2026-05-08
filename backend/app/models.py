@@ -58,6 +58,15 @@ class Workspace(Base):
     id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
     name: Mapped[str] = mapped_column(String(128))
     slug: Mapped[str] = mapped_column(String(64), unique=True)
+    # v17: workspace preset — selects which subsystems are enabled and how they
+    # behave. NULL = "general" (default Aimeeting form: meeting-centric, simple
+    # notifications, flat roles). Reserved values:
+    #   - "general"            (= NULL, default; current Aimeeting behavior)
+    #   - "smart_construction" (智慧住建: 16-AI 集群 + 三级催办 + 5 级数据分级
+    #                          + 专家/领导角色二分 + 6 种触发源)
+    # Each subsystem reads `workspace.preset` at request time to decide its
+    # behavior, so the same code path serves all presets — no fork.
+    preset: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -335,6 +344,13 @@ class MeetingActionItem(Base):
     due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="open")  # open | done | cancelled
     source_type: Mapped[str] = mapped_column(String(16), default="summary")  # summary | manual | agent
+    # v17: every meeting-origin action item is also a Task (1:1). On insert we
+    # write both rows; on update we mirror status/content/assignee/due to Task.
+    # Old rows backfilled in init_db.py. Nullable for safety during the
+    # transition window (post-backfill should be NOT NULL — enforce in v18).
+    task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("task.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -365,6 +381,73 @@ class MeetingActionItemComment(Base):
     )
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Task(Base):
+    """
+    v17 (Theme 1 → 智慧住建 翻译层): the workspace-level task / 工单 /
+    work order — a unit of work that:
+
+      - has a clear owner (assignee), a deadline (due_at), and a state,
+      - can come from many places (会议决议 / 领导指令 / 上级文件 / 定期巡检 /
+        异常预警 / 问题上报 / manual),
+      - has an audit trail of comments, status changes, and notifications.
+
+    v17 scope: parallel to MeetingActionItem. Every meeting-extracted /
+    manual ActionItem creates a Task row 1:1 (mirroring status / content /
+    assignee / due_at). New read paths (e.g. GET /api/me/tasks, future
+    cross-source dashboards) should query this table; legacy paths still
+    use ActionItem until v18 cuts them over.
+
+    State values (v17):
+      open | in_progress | done | cancelled
+        ^---- ActionItem mirror only uses {open, done, cancelled};
+              `in_progress` is reserved for v18 state-machine work
+              (派发 → 签收 → 办理 → 上报 → 办结 → 归档).
+
+    `source_type`:
+      meeting           — extracted from a meeting (action_extractor) or
+                          added in the meeting page UI; source_ref carries
+                          {meeting_id, action_item_id}
+      manual            — manually created outside any meeting (v18+ UX)
+      leader_directive  — natural-language instruction from a leader
+                          (v19); source_ref carries {directive_id}
+      upper_doc         — extracted from an uploaded 上级文件 (v19);
+                          source_ref carries {document_id}
+      cron              — periodic 巡检 (v19)
+      alert             — triggered by an indicator threshold (v20)
+      report            — user-submitted issue report (v20)
+    """
+    __tablename__ = "task"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    # Optional short title; for ActionItem-mirrored tasks we leave NULL and
+    # the UI uses the first ~40 chars of `content`.
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    content: Mapped[str] = mapped_column(Text)
+    assignee_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(16), default="open", index=True)
+    source_type: Mapped[str] = mapped_column(String(32), default="manual", index=True)
+    # JSON pointer back to the originating object — schema varies by
+    # source_type (see class docstring). Always set, never NULL: even
+    # source_type='manual' has source_ref={"created_via": "..."} so we
+    # can audit how a Task got created.
+    source_ref: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class Notification(Base):

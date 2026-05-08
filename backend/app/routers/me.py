@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
-from ..models import Meeting, MeetingActionItem, Notification
+from ..models import Meeting, MeetingActionItem, Notification, Task
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -104,6 +104,109 @@ async def list_my_actions(
         )
         for r in rows
     ]
+
+
+# --------- /api/me/tasks ----------------------------------------------------
+
+
+class MyTaskOut(BaseModel):
+    id: uuid.UUID
+    title: Optional[str] = None
+    content: str
+    due_at: Optional[datetime] = None
+    status: str
+    source_type: str
+    # When source_type='meeting', source_ref carries the originating
+    # meeting + action_item ids so the FE can deeplink. Other source
+    # types carry their own keys (see Task.source_type docstring).
+    source_ref: Optional[dict] = None
+    # Convenience for the meeting-source case — saves the FE a join.
+    meeting_id: Optional[uuid.UUID] = None
+    meeting_title: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+@router.get("/tasks", response_model=list[MyTaskOut])
+async def list_my_tasks(
+    status: str = Query("open", regex="^(open|all|done|in_progress)$"),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v17: Task-side mirror of /api/me/actions.
+
+    Returns Tasks assigned to the caller in the active workspace, ordered
+    (due_at NULLS LAST, created_at desc) — same UX shape as /actions.
+    For source_type='meeting' rows we also populate `meeting_id` and
+    `meeting_title` from the source_ref's meeting_id (one extra join).
+
+    `status` accepts 'in_progress' here (Task has it; ActionItem doesn't)
+    so v18 state-machine UIs can call /tasks without a back-compat wart.
+    """
+    q = select(Task).where(
+        Task.assignee_user_id == auth.user.id,
+        Task.workspace_id == auth.workspace.id,
+    )
+    if status == "open":
+        q = q.where(Task.status == "open")
+    elif status == "done":
+        q = q.where(Task.status == "done")
+    elif status == "in_progress":
+        q = q.where(Task.status == "in_progress")
+    # status == 'all' → no extra filter
+    q = q.order_by(Task.due_at.asc().nullslast(), Task.created_at.desc())
+    tasks = (await session.execute(q)).scalars().all()
+    if not tasks:
+        return []
+
+    # Bulk-fetch meeting titles for source_type='meeting' rows.
+    meeting_ids: list[uuid.UUID] = []
+    for t in tasks:
+        if t.source_type == "meeting" and isinstance(t.source_ref, dict):
+            mid = t.source_ref.get("meeting_id")
+            if isinstance(mid, str):
+                try:
+                    meeting_ids.append(uuid.UUID(mid))
+                except ValueError:
+                    pass
+    title_by_id: dict[uuid.UUID, str] = {}
+    if meeting_ids:
+        rows = (
+            await session.execute(
+                select(Meeting.id, Meeting.title).where(Meeting.id.in_(meeting_ids))
+            )
+        ).all()
+        title_by_id = {r[0]: r[1] for r in rows}
+
+    out: list[MyTaskOut] = []
+    for t in tasks:
+        meeting_id: Optional[uuid.UUID] = None
+        meeting_title: Optional[str] = None
+        if t.source_type == "meeting" and isinstance(t.source_ref, dict):
+            mid_raw = t.source_ref.get("meeting_id")
+            if isinstance(mid_raw, str):
+                try:
+                    meeting_id = uuid.UUID(mid_raw)
+                    meeting_title = title_by_id.get(meeting_id)
+                except ValueError:
+                    pass
+        out.append(
+            MyTaskOut(
+                id=t.id,
+                title=t.title,
+                content=t.content,
+                due_at=t.due_at,
+                status=t.status,
+                source_type=t.source_type,
+                source_ref=t.source_ref,
+                meeting_id=meeting_id,
+                meeting_title=meeting_title,
+                created_at=t.created_at,
+                updated_at=t.updated_at,
+            )
+        )
+    return out
 
 
 # --------- /api/me/notifications --------------------------------------------

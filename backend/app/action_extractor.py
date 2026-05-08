@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .db import SessionLocal
 from .llm_direct import LlmError, get_active_provider, stream_chat
 from .models import Meeting, MeetingActionItem, User
+from .task_sync import add_action_with_task, delete_tasks_for_meeting_summary_actions
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +147,10 @@ async def extract_and_store_actions(
             await db.commit()
             return 0
 
-        # Replace existing summary-source rows
+        # v17: clean up the summary-source rows AND their paired Tasks before
+        # the replace-all insert. Order matters: drop Tasks first (while
+        # action.task_id still points at them), then drop the actions.
+        await delete_tasks_for_meeting_summary_actions(db, meeting_id)
         await db.execute(
             delete(MeetingActionItem).where(
                 MeetingActionItem.meeting_id == meeting_id,
@@ -163,17 +167,25 @@ async def extract_and_store_actions(
             due_str = (it.get("due_at") or "").strip()
             assignee_user_id = _match_user(ws_users, assignee_name)
 
-            row = MeetingActionItem(
-                meeting_id=meeting_id,
+            # v17 dual-write: every summary-extracted action also creates
+            # its 1:1 Task (source_type='meeting'). The helper picks ids
+            # client-side so cross-linking is one transaction.
+            add_action_with_task(
+                db,
                 workspace_id=m.workspace_id,
+                meeting_id=meeting_id,
                 content=content[:1000],
                 assignee_user_id=assignee_user_id,
-                assignee_name_hint=assignee_name[:128] if assignee_name and assignee_user_id is None else None,
+                assignee_name_hint=(
+                    assignee_name[:128]
+                    if assignee_name and assignee_user_id is None
+                    else None
+                ),
                 due_at=_parse_due(due_str),
                 status="open",
-                source_type="summary",
+                action_source_type="summary",
+                created_by_user_id=None,  # extractor is system-driven
             )
-            db.add(row)
             inserted += 1
 
         await db.commit()

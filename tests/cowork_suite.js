@@ -282,6 +282,7 @@
       ["V", "v8/9/12 回归"],
       ["X", "M3.0 自动主持人"],
       ["Y", "Theme 1 协作闭环"],
+      ["Z", "v17 Task 一级对象"],
     ];
     const counts = { pass: 0, fail: 0, skipped: 0 };
     for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
@@ -1300,6 +1301,141 @@
           return { ok: false, error: `${stillUnread.length} items still unread after mark-all` };
         }
         return { ok: true, evidence: { _note: "drawer cleared" } };
+      },
+    });
+
+    // ---------- Z series · v17 Task 一级对象 (dual-write 验证) -------------
+    R.register({
+      id: "Z-1",
+      series: "Z",
+      title: "Manual action 创建后,Task 表有匹配 1:1 行(/api/me/tasks 可见)",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        if (!me?.user_id) return { ok: false, error: "no caller user_id" };
+        const m = await POST("/api/meetings", { title: `${PREFIX}_Z1`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `create meeting ${m.status}` };
+        created("meeting", m.body.id, "Z1");
+        const a = await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_Z1_payload`,
+          assignee_user_id: me.user_id,
+        });
+        if (!a.ok) return { ok: false, error: `create action ${a.status}` };
+        const r = await GET("/api/me/tasks?status=open");
+        if (!r.ok) return { ok: false, error: `list tasks ${r.status}` };
+        const found = (r.body || []).find(
+          (t) => t.content === `${PREFIX}_Z1_payload`,
+        );
+        if (!found) return { ok: false, error: "newly-created action's Task not in /me/tasks" };
+        if (found.source_type !== "meeting") {
+          return { ok: false, error: `expected source_type=meeting, got ${found.source_type}` };
+        }
+        if (!found.source_ref || found.source_ref.meeting_id !== m.body.id) {
+          return { ok: false, error: `source_ref.meeting_id mismatch: ${JSON.stringify(found.source_ref)}` };
+        }
+        if (found.source_ref.action_item_id !== a.body.id) {
+          return { ok: false, error: `source_ref.action_item_id mismatch` };
+        }
+        ctx.Z1_meeting = m.body.id;
+        ctx.Z1_action = a.body.id;
+        ctx.Z1_task = found.id;
+        return { ok: true, evidence: { _note: `task=${found.id.slice(0, 8)}…` } };
+      },
+    });
+
+    R.register({
+      id: "Z-2",
+      series: "Z",
+      title: "PATCH action.status=done 镜像到 Task(/me/tasks 切桶)",
+      async run(ctx) {
+        if (!ctx.Z1_meeting || !ctx.Z1_action || !ctx.Z1_task) {
+          return { ok: false, error: "SKIP_DEP_FAILED:Z-1", evidence: { _skipped: true } };
+        }
+        const p = await PATCH(
+          `/api/meetings/${ctx.Z1_meeting}/actions/${ctx.Z1_action}`,
+          { status: "done" },
+        );
+        if (!p.ok) return { ok: false, error: `patch ${p.status}` };
+        const open = await GET("/api/me/tasks?status=open");
+        const done = await GET("/api/me/tasks?status=done");
+        if (!open.ok || !done.ok) return { ok: false, error: "list failed" };
+        const inOpen = (open.body || []).some((t) => t.id === ctx.Z1_task);
+        const inDone = (done.body || []).some((t) => t.id === ctx.Z1_task);
+        if (inOpen) return { ok: false, error: "Task still in open after action set done" };
+        if (!inDone) return { ok: false, error: "Task not in done bucket after mirror" };
+        return { ok: true, evidence: { _note: "mirror status OK" } };
+      },
+    });
+
+    R.register({
+      id: "Z-3",
+      series: "Z",
+      title: "DELETE action 级联删除 paired Task(/me/tasks 不留 orphan)",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_Z3`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `create meeting ${m.status}` };
+        created("meeting", m.body.id, "Z3");
+        const a = await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_Z3_to_delete`,
+          assignee_user_id: me.user_id,
+        });
+        if (!a.ok) return { ok: false, error: `create action ${a.status}` };
+        const before = await GET("/api/me/tasks?status=all");
+        const beforeFound = (before.body || []).find(
+          (t) => t.content === `${PREFIX}_Z3_to_delete`,
+        );
+        if (!beforeFound) return { ok: false, error: "Task not visible before delete" };
+        const taskId = beforeFound.id;
+        const d = await DEL(`/api/meetings/${m.body.id}/actions/${a.body.id}`);
+        if (!d.ok && d.status !== 204) return { ok: false, error: `delete ${d.status}` };
+        const after = await GET("/api/me/tasks?status=all");
+        if ((after.body || []).some((t) => t.id === taskId)) {
+          return { ok: false, error: "Task still in /me/tasks after action delete" };
+        }
+        return { ok: true, evidence: { _note: "no orphan task after action delete" } };
+      },
+    });
+
+    R.register({
+      id: "Z-4",
+      series: "Z",
+      title: "/me/tasks 给 source_type=meeting 行注水 meeting_title",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        const tag = `${PREFIX}_Z4_unique_title`;
+        const m = await POST("/api/meetings", { title: tag, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `create meeting ${m.status}` };
+        created("meeting", m.body.id, "Z4");
+        const a = await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_Z4_action`,
+          assignee_user_id: me.user_id,
+        });
+        if (!a.ok) return { ok: false, error: `create action ${a.status}` };
+        const r = await GET("/api/me/tasks?status=open");
+        const found = (r.body || []).find((t) => t.content === `${PREFIX}_Z4_action`);
+        if (!found) return { ok: false, error: "task missing" };
+        if (found.meeting_id !== m.body.id) {
+          return { ok: false, error: `meeting_id not hydrated (got ${found.meeting_id})` };
+        }
+        if (found.meeting_title !== tag) {
+          return { ok: false, error: `meeting_title not hydrated (got ${found.meeting_title})` };
+        }
+        return { ok: true, evidence: { _note: "title hydrated via source_ref join" } };
+      },
+    });
+
+    R.register({
+      id: "Z-5",
+      series: "Z",
+      title: "/me/tasks?status=in_progress 在 v17 返回空(状态机 v18 才用)",
+      async run() {
+        const r = await GET("/api/me/tasks?status=in_progress");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if (!Array.isArray(r.body)) return { ok: false, error: "not an array" };
+        if (r.body.length !== 0) {
+          return { ok: false, error: `expected 0, got ${r.body.length} (v17 不写 in_progress)` };
+        }
+        return { ok: true, evidence: { _note: "in_progress 状态在 v17 是空" } };
       },
     });
 

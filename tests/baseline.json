@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "frozen_at": "2026-05-08T16:00:00Z",
-  "frozen_against": "v16 (Theme 1 P0 — collaboration loop)",
+  "frozen_at": "2026-05-09T00:00:00Z",
+  "frozen_against": "v17 (Task 一级对象 + 智慧住建翻译层骨架)",
   "_note": "Deterministic per-case status snapshot. T2 diff: any case whose status differs from this baseline is a regression (or, for ⏭️→✅, a new pass to celebrate). evidence/error/timing intentionally excluded — those are non-deterministic.",
   "summary": {
-    "total": 44,
-    "pass": 36,
+    "total": 49,
+    "pass": 41,
     "fail": 0,
     "skipped": 8
   },
@@ -53,6 +53,11 @@
     { "id": "Y-4",  "series": "Y", "status": "pass" },
     { "id": "Y-5",  "series": "Y", "status": "pass" },
     { "id": "Y-6",  "series": "Y", "status": "pass" },
-    { "id": "Y-7",  "series": "Y", "status": "pass" }
+    { "id": "Y-7",  "series": "Y", "status": "pass" },
+    { "id": "Z-1",  "series": "Z", "status": "pass" },
+    { "id": "Z-2",  "series": "Z", "status": "pass" },
+    { "id": "Z-3",  "series": "Z", "status": "pass" },
+    { "id": "Z-4",  "series": "Z", "status": "pass" },
+    { "id": "Z-5",  "series": "Z", "status": "pass" }
   ]
 }
