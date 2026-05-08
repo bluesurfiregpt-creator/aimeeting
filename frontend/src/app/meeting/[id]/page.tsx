@@ -158,6 +158,12 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   const [phase, setPhase] = useState<Phase>("idle");
   const [statusText, setStatusText] = useState("待开始");
   const [audioCaps] = useState(() => probeAudioCapabilities());
+  // `mounted` gates browser-only conditional UI (iOS Safari notice, insecure
+  // context warning) so SSR + first hydration render identical markup. Without
+  // this, the SSR stub (window undefined → secureContext:false, isIOSSafari:false)
+  // diverges from CSR (real values) and React throws hydration error #418.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const [lines, setLines] = useState<LiveLine[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   // Agents currently producing a streamed reply (between agent_message_start
@@ -606,12 +612,12 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         </button>
       </div>
 
-      {phase === "idle" && audioCaps.isIOSSafari ? (
+      {mounted && phase === "idle" && audioCaps.isIOSSafari ? (
         <div className="mt-4 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-xs text-sky-200">
           📱 检测到 iOS Safari。开会前请确保:1) 浏览器允许麦克风权限(设置 → Safari → 麦克风);2) 屏幕保持点亮且 Safari 处于前台;3) 点击「开始会议」时直接对着麦克风说话,不要离设备太远。
         </div>
       ) : null}
-      {phase === "idle" && !audioCaps.secureContext ? (
+      {mounted && phase === "idle" && !audioCaps.secureContext ? (
         <div className="mt-4 rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-xs text-rose-200">
           ⚠️ 当前页面不在安全上下文中(需要 HTTPS)。浏览器禁止访问麦克风,无法开会。
         </div>
