@@ -511,6 +511,23 @@ export const api = {
     provider: string,
     body: { provider: string; api_key: string; base_url?: string; model_id?: string; is_active?: boolean; note?: string },
   ) => jput<ProviderConfig>(`/api/model-providers/${provider}`, body),
+  /**
+   * Type-a-message endpoint — alternative to mic for the "live UX" path
+   * when no WebSocket is attached, and the canonical entry for automation
+   * (Claude Cowork). Persists a transcript row and fires Agent + dissent
+   * triggers, just like a finalized ASR sentence does.
+   */
+  postManualTranscript: (
+    meetingId: string,
+    body: { text: string; speaker_user_id?: string | null },
+  ) =>
+    jpost<{
+      line_id: number;
+      speaker_user_id: string | null;
+      speaker_name: string | null;
+      text: string;
+    }>(`/api/meetings/${meetingId}/manual-transcript`, body),
+
   activateProvider: (provider: string) =>
     jpost<ProviderConfig>(`/api/model-providers/${provider}/activate`, {}),
   deleteProviderConfig: (provider: string) => jdelete(`/api/model-providers/${provider}`),

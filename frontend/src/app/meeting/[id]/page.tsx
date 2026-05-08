@@ -204,6 +204,12 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   // only relevant once identification is done.
   const [attendees, setAttendees] = useState<Array<{ id: string; name: string }>>([]);
   const [correctingLineId, setCorrectingLineId] = useState<number | null>(null);
+  // Text-input box (alternative to mic). Lives next to the transcript area.
+  // Speaker selection persists across sends so a single user can rapid-fire
+  // multiple lines without re-picking. Defaults to "未指定".
+  const [textInput, setTextInput] = useState("");
+  const [textSpeaker, setTextSpeaker] = useState<string>("");
+  const [textSending, setTextSending] = useState(false);
 
   const captureRef = useRef<AudioCaptureHandle | null>(null);
   const socketRef = useRef<SttSocket | null>(null);
@@ -428,8 +434,12 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   const start = useCallback(async () => {
     if (phase !== "idle") return;
     setStatusText("请求麦克风权限...");
+    // Open the WS first — even if mic fails we still want to be able to
+    // type (text-only mode). Only close the socket on hard WS failures
+    // (which throw immediately on `new WebSocket(...)`).
+    let sock: SttSocket | null = null;
     try {
-      const sock = openSttSocket({
+      sock = openSttSocket({
         url: backendWsUrl(meetingId),
         onEvent: handleEvent,
         onClose: () => {
@@ -437,26 +447,34 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         },
       });
       socketRef.current = sock;
-      const cap = await startAudioCapture((frame) => sock.send(frame));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "WebSocket 启动失败";
+      setStatusText(message);
+      toast.error("WebSocket 启动失败", { detail: message });
+      return;
+    }
+    // Now try to attach mic. If it fails (permission denied / no device /
+    // not secure context) keep the WS open in text-only mode — user can
+    // still type messages and trigger AI agents.
+    try {
+      const cap = await startAudioCapture((frame) => sock!.send(frame));
       captureRef.current = cap;
       setPhase("live");
     } catch (err) {
-      console.error(err);
-      const message =
+      console.warn("audio capture failed; entering text-only mode", err);
+      const detail =
         err instanceof MicPermissionError
           ? err.message
           : err instanceof Error
-          ? `启动失败：${err.message}`
-          : "启动失败";
-      setStatusText(message);
-      // Surface to a sticky toast so the user sees it even after navigating
-      // their attention elsewhere on the page.
-      if (err instanceof MicPermissionError) {
-        toast.error("麦克风启动失败", { detail: err.message, sticky: true });
-      } else {
-        toast.error("启动失败", { detail: message });
-      }
-      try { socketRef.current?.close(); } catch {}
+          ? err.message
+          : "启动麦克风失败";
+      // Tell the user the mic failed but emphasize they can still type.
+      setStatusText("⌨️ 仅文字模式(麦克风未启用)");
+      toast.warn("麦克风未启用,可在下方文字框打字录入", {
+        detail,
+        sticky: true,
+      });
+      setPhase("live");
     }
   }, [phase, meetingId, handleEvent]);
 
@@ -603,6 +621,62 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   const dismissDissent = useCallback(() => {
     setDissent(null);
   }, []);
+
+  /**
+   * Submit a typed message into the meeting transcript. Two paths:
+   *   - WS open (live meeting):  sendJson({action: "text_message", ...}) →
+   *     backend echoes a transcript event back instantly so the user sees
+   *     their line immediately, plus fires Agent/dissent triggers via the
+   *     same WS callbacks (streaming chunks visible in real time).
+   *   - WS not open (e.g. user never pressed 开始会议, or mic was denied):
+   *     fall back to REST POST /manual-transcript. The line still persists
+   *     and Agent triggers fire, but streaming chunks for those Agent
+   *     replies won't be visible (they're saved server-side and show up
+   *     after refresh). Optimistically append the line to local state.
+   */
+  const sendText = useCallback(async () => {
+    const text = textInput.trim();
+    if (!text || textSending) return;
+    const speakerId = textSpeaker || null;
+    setTextSending(true);
+    try {
+      if (socketRef.current && phase === "live") {
+        socketRef.current.sendJson({
+          action: "text_message",
+          text,
+          speaker_user_id: speakerId,
+        });
+        // The WS echoes a transcript event back; no optimistic append needed.
+      } else {
+        const r = await api.postManualTranscript(meetingId, {
+          text,
+          speaker_user_id: speakerId,
+        });
+        // Optimistically append since there's no WS to echo for us.
+        setLines((prev) => [
+          ...prev,
+          {
+            kind: "user",
+            id: `m${nextIdRef.current++}`,
+            text,
+            final: true,
+            startMs: null,
+            endMs: null,
+            speakerName: r.speaker_name,
+            speakerUserId: r.speaker_user_id,
+            serverLineId: r.line_id,
+          },
+        ]);
+      }
+      setTextInput("");
+    } catch (e) {
+      toast.error("发送失败", {
+        detail: e instanceof Error ? e.message : "未知错误",
+      });
+    } finally {
+      setTextSending(false);
+    }
+  }, [textInput, textSpeaker, textSending, phase, meetingId]);
 
   const correctSpeaker = useCallback(
     async (lineId: number, speakerUserId: string | null, displayName: string | null) => {
@@ -861,8 +935,58 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         )}
       </section>
 
+      {/* 文字录入(打字)— 麦克风的替代 / 自动化测试入口 */}
+      {phase !== "ended" ? (
+        <div
+          data-testid="manual-text-input"
+          className="mt-3 flex items-center gap-2 rounded-xl border border-ink-700 bg-ink-900 px-3 py-2"
+        >
+          <span className="shrink-0 text-base" title="打字录入(麦克风的替代)">💬</span>
+          <select
+            data-testid="manual-text-speaker"
+            value={textSpeaker}
+            onChange={(e) => setTextSpeaker(e.target.value)}
+            className="shrink-0 rounded-lg border border-ink-700 bg-ink-950 px-2 py-1.5 text-sm text-zinc-200 focus:border-accent-500 focus:outline-none"
+            title="发言人身份"
+          >
+            <option value="">未指定</option>
+            {attendees.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <input
+            data-testid="manual-text-content"
+            type="text"
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                void sendText();
+              }
+            }}
+            placeholder={
+              phase === "live"
+                ? "输入文字也可触发 AI 专家(也可同时说话)…"
+                : "输入文字加入字幕(无需 mic),回车发送…"
+            }
+            className="flex-1 rounded-lg border border-ink-700 bg-ink-950 px-3 py-1.5 text-sm text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
+          />
+          <button
+            data-testid="manual-text-send"
+            onClick={() => void sendText()}
+            disabled={!textInput.trim() || textSending}
+            className="shrink-0 rounded-lg bg-accent-500 px-3 py-1.5 text-sm font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent-400 transition"
+          >
+            {textSending ? "发送中…" : "发送"}
+          </button>
+        </div>
+      ) : null}
+
       <footer className="mt-3 text-xs text-zinc-600">
-        STT：DashScope · 声纹：pyannoteAI（约 45s 后台识别）· AI 专家：@关键词召唤 或点头像
+        STT：DashScope · 声纹：pyannoteAI（约 45s 后台识别）· AI 专家：@关键词召唤 或点头像 / 文字打字
       </footer>
     </main>
   );

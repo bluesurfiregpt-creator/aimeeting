@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v9）
+# Aimeeting · 测试用例（v10）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -174,6 +174,7 @@ WS PCM 同时缓冲到 in-mem session.pcm_buffer
 | 会议简报 | `GET /api/meetings/{id}/briefing` | 长期记忆生成的会前提要 |
 | 删除会议 | `DELETE /api/meetings/{id}` | 204 |
 | 纠错说话人 | `POST /api/meetings/{mid}/transcripts/{lid}/correct-speaker` body `{speaker_user_id}` | `lid` 是 `meeting_transcript.id`(数字) |
+| **打字录入** | `POST /api/meetings/{id}/manual-transcript` body `{text, speaker_user_id?}` | **Cowork 主入口** — 不需要 WS / mic 即可注入字幕,触发 Agent / 分歧检测同 ASR final;返回 `{line_id, speaker_user_id, speaker_name, text}` |
 | Agent CRUD | `/api/agents` POST/GET, `/api/agents/{id}` PATCH/DELETE | DELETE 后会写 audit log |
 | 知识库 CRUD | `/api/knowledge-bases` 同上 |  |
 | 文档上传 | `POST /api/knowledge-bases/{kbid}/documents` (multipart `file=...`) | 异步解析,200 返回时 `status=parsing`,稍后变 `ready` |
@@ -212,11 +213,11 @@ WS PCM 同时缓冲到 in-mem session.pcm_buffer
 |---|---|---|
 | A 账号 | ✅ 全自动 | 纯 API + UI 跳转,可直接调 `/api/auth/login` 验证 |
 | B 声纹录入 | ❌ 跳过 | 需要 35-45s 真人朗读 |
-| C 实时字幕 | ❌ 跳过 | 需要麦克风 |
-| D 声纹识别 | ❌ 跳过 | 依赖 C |
-| E 手动纠错 | ⚠️ 部分 | 在已有 transcript 的历史会议上可跑,跳过会议中纠错 |
-| F AI 专家触发 | ⚠️ 部分 | **手动召唤(F-3)可独立测**:在已结束会议页点头像调 `POST` invoke。关键词/@ 触发依赖语音 |
-| G 自动纪要 | ✅ 完全可读 | API 直接 `GET /api/meetings/{id}/summary`,UI 在已处理会议页有「会议纪要」卡 |
+| C 实时字幕 | ⚠️ **v10 起部分可跑** | 麦克风 ASR 仍需要真人;但**字幕 + 下游链路**可用 `POST /api/meetings/{id}/manual-transcript` 全程驱动 |
+| D 声纹识别 | ❌ 跳过 | 依赖真实音频 |
+| E 手动纠错 | ✅ **v10 起全自动** | 用 manual-transcript 注入几句 → 调 `correct-speaker` 改归属 → `GET /result` 验证 |
+| F AI 专家触发 | ✅ **v10 起全自动** | manual-transcript 可注入含关键词的句子触发 Agent;手动召唤(F-3)直接调 invoke;关键词/@ 都能在 Cowork 上验证 |
+| G 自动纪要 | ✅ 完全可读 | manual-transcript 注入 ≥ 3 句 + ≥ 60 字 → 调用 `/summary/regenerate` → `GET /summary` |
 | H 长期记忆 | ✅ 大部分 | 调 `GET /api/memory` 看条目;A-5 间接验证隔离 |
 | I 会前简报 | ✅ 大部分 | `GET /api/meetings/{id}/briefing`;UI 在新建会议详情页有「💡 会前简报」 |
 | J 会议历史 + 删除 | ✅ 全自动 | 列表/详情/删除全可跑;**避免删生产数据**,只删 Cowork 自己创建的 |
@@ -229,9 +230,10 @@ WS PCM 同时缓冲到 in-mem session.pcm_buffer
 | Q 知识库 | ✅ 全自动 | CRUD + 文件上传(用真实小文件) |
 | R 会议导出 | ✅ 全自动 | `GET /api/meetings/{id}/export?format=md` 拿到文件流并校验 `Content-Disposition` |
 | S 连接稳定性 | ⚠️ 限 Chrome MCP | 需要真实断网,用 Network panel 切 Offline |
-| T Agent 接力 | ❌ 跳过 | 需要 Agent 实际发言 |
-| U 分歧检测 | ❌ 跳过 | 需要语音对话 |
+| T Agent 接力 | ✅ **v10 起全自动** | 用 manual-transcript 注入两人对话 + `invoke_agent` → 等 Agent 发言完看 `agent_recommendation` 事件 |
+| U 分歧检测 | ✅ **v10 起全自动** | 用 manual-transcript 注入对立观点 5-8 句 → 等 `dissent_detected` 事件(WS 订阅或 25s 后看 audit) |
 | V v8/v9 回归 | ✅ 全自动 | DOM + Console 检查为主 |
+| **W 文字录入** | ✅ 全自动 | manual-transcript REST + UI testid 选择器都齐 |
 
 ### 5. Cowork 测试纪律
 
@@ -266,6 +268,28 @@ console.log(r.headers.get('Content-Disposition'))
 
 // 5. 删除自己创建的会议
 await fetch(`/api/meetings/${m.id}`, {method: 'DELETE', credentials: 'include'})
+
+// 6. 文字录入(v10 起,Cowork 主用入口) — 注入一句字幕,触发 Agent
+//    speaker_user_id 可选;省略则记为「未识别」
+await fetch(`/api/meetings/${m.id}/manual-transcript`, {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  credentials: 'include',
+  body: JSON.stringify({
+    text: '产品的合规风险需要法务把关一下',
+    speaker_user_id: null,  // 或某个真实 user.id
+  }),
+}).then(r => r.json())
+// → {line_id: 1234, speaker_user_id: null, speaker_name: null, text: '...'}
+// 副作用:
+//   - meeting_transcript 多一条 final 行(speaker_status='manual')
+//   - maybe_invoke_agents 后台跑,匹配 keywords/@ 的 Agent 自动发言(若节流允许)
+//   - maybe_detect_dissent 后台跑(节流 25s)
+// 验证 Agent 是否真发言:轮询 GET /api/meetings/{id}/result,若有 agent_messages 则成功
+
+// 7. 等 Agent 发言落库后再读纪要内容
+//    Agent 持久化存在 meeting_agent_message 表,/result 不直接返回它们;
+//    更可靠的方法是直接订阅 WebSocket 拿 agent_message_* 事件流。
 ```
 
 ---
@@ -274,7 +298,8 @@ await fetch(`/api/meetings/${m.id}`, {method: 'DELETE', credentials: 'include'})
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v9** | 2026-05-08 | 加【给 Claude Cowork 的指南】(API 速查表 / DOM 选择器约定 / 自动化纪律 / 复用代码片段);**v8 测试报告 6 个问题全部修掉**:① 详情页根据 `meeting.status` 切换渲染(已处理 → 直接显示纪要+实录,不再卡在「开始会议」UI);② 详情页 H1 显示真实会议标题(不再写死);③ API 错误 toast/message **不再泄露路径或原始 502 HTML**(自定义 `ApiError` + `friendlyDetail`);④ 三个 `window.confirm()` 全替换成 `<ConfirmDialog data-testid="confirm-dialog">` 应用内模态(自动化可点);⑤ `DELETE /team/members/<self>` 早返回 400(之前 500);⑥ `agent.create/update/delete` 都补上 `audit_log`;⑦ 顺手修了一个找到的脏数据 bug:`POST /api/users` 没邮箱时不再每次新建一行(同名 286 条 hefan 的元凶) |
+| **v10** | 2026-05-08 | 新增「文字录入」W 系列(打字录入入口 — 麦克风的替代,亦是 Cowork 全自动测试主力):① 会议页底部新增 `[💬 发言人下拉] [文字框] [发送]` 工具栏(`data-testid="manual-text-input"`);② WS 新增 `text_message` action(走与 ASR final 相同管道,触发 Agent + 分歧检测);③ 新增 REST `POST /api/meetings/{id}/manual-transcript`(无 WS 时也可注入字幕,Cowork 主用此入口);④ 麦权限拒绝时不再断开 WS,自动进入「⌨️ 仅文字模式」让用户继续打字 |
+| v9 | 2026-05-08 | 加【给 Claude Cowork 的指南】(API 速查表 / DOM 选择器约定 / 自动化纪律 / 复用代码片段);**v8 测试报告 6 个问题全部修掉**:① 详情页根据 `meeting.status` 切换渲染(已处理 → 直接显示纪要+实录,不再卡在「开始会议」UI);② 详情页 H1 显示真实会议标题(不再写死);③ API 错误 toast/message **不再泄露路径或原始 502 HTML**(自定义 `ApiError` + `friendlyDetail`);④ 三个 `window.confirm()` 全替换成 `<ConfirmDialog data-testid="confirm-dialog">` 应用内模态(自动化可点);⑤ `DELETE /team/members/<self>` 早返回 400(之前 500);⑥ `agent.create/update/delete` 都补上 `audit_log`;⑦ 顺手修了一个找到的脏数据 bug:`POST /api/users` 没邮箱时不再每次新建一行(同名 286 条 hefan 的元凶) |
 | v8 | 2026-05-08 | 文档头部加【系统概览】(架构图 / 数据流 / 触发路径 / 测试入门顺序);修复 `audioCapture.ts` 中 `audioWorklet` getter 在 prototype 上访问抛 `Illegal invocation` 的崩溃 bug → 影响 Sprint K.2 后所有进入会议页的用户(C 系列重点回归);加 SSR/CSR 水合 mounted 守卫(防 React #418) |
 | v7 | 2026-05-08 | 新增「分歧检测」U 系列(Multi-Agent M2.3:LLM 实时分析最近 8 句对话,识别两位以上参会人就同一话题持对立观点 → 主动召唤适合仲裁的 AI 专家;rose 色 banner,点「召唤<专家>」一键解决) |
 | v6 | 2026-05-08 | 新增「Agent 接力」T 系列(Multi-Agent Orchestrator V1:AI 专家发言完毕后系统推荐下一位发言专家;点击直接召唤) |
@@ -672,6 +697,82 @@ await fetch(`/api/meetings/${m.id}`, {method: 'DELETE', credentials: 'include'})
 
 ---
 
+## W 系列 · 文字录入(v10 新增 · Cowork 自动化主力)
+
+> **背景**:v10 之前,会议室只能用麦克风触发字幕和 AI;**自动化测试不可达**(用例报告 v8 明确点名)。v10 加了「💬 文字录入」工具栏(UI)+ `text_message` WS action(live UX)+ `POST /manual-transcript` REST 端点(Cowork 主入口)。**这一系列必跑 — 让 C/D/E/F/G/T/U 全部 Cowork 化。**
+
+| 编号 | 用例 | 步骤 | 预期 | 实际 | 结果 |
+|---|---|---|---|---|---|
+| **W-1** | UI 工具栏渲染 | 1. 进任一会议页(`/meeting/<id>`)<br>2. 看页面底部 | 字幕区下方有一行:`<div data-testid="manual-text-input">` 包含 💬 + `<select data-testid="manual-text-speaker">` + `<input data-testid="manual-text-content">` + `<button data-testid="manual-text-send">发送</button>` | | |
+| **W-2** | 已结束会议不显示工具栏 | 进 `status=processed` 会议页 | 工具栏**不渲染**(`data-testid="manual-text-input"` 不存在) — 已经结束了,不允许再补字幕 | | |
+| **W-3** | 默认发言人 = 未指定 | 看 select 默认值 | `<option value="">未指定</option>` 选中;其余 option 是 workspace 内所有用户(`<option value="<uuid>">姓名</option>`) | | |
+| **W-4** | REST 注入字幕 — 不指定发言人 | `POST /api/meetings/<id>/manual-transcript` body `{"text":"_cowork_smoke 测试"}` | 200,返回 `{line_id, speaker_user_id: null, speaker_name: null, text: "_cowork_smoke 测试"}`;`GET /result` 末尾应有这条;`speaker_status` = `'manual'`(可在 DB 验证) | | |
+| **W-5** | REST 注入字幕 — 指定发言人 | 1. `GET /api/users` 拿一个 user.id<br>2. `POST /manual-transcript` body `{"text":"...", "speaker_user_id":"<id>"}` | 返回 `speaker_name` 对得上;`/result` 中该行 `speaker_user_id` 已绑定;后续即使跑声纹识别也**不会**被覆盖(因为 `speaker_status='manual'`) | | |
+| **W-6** | 跨工作空间发言人被拒 | 1. A 账号建会议<br>2. 切换到 B 账号 user.id<br>3. A 账号 POST `/manual-transcript` body 含 B 的 user.id | 400 + `speaker_user_id not in this workspace` | | |
+| **W-7** | 空文本被拒 | POST body `{"text":""}` 或 `{"text":"   "}` | 400 + `text required` | | |
+| **W-8** | UI 输入框 — Enter 发送 | 1. 进 live 会议(已点开始)<br>2. 输入框输入 `测试` 后按 Enter | 字幕区立刻出现「测试」一行(WS 路径,有 echo);文字框被清空 | | |
+| **W-9** | UI 发送按钮 | 同上,改用「发送」按钮点击 | 同 W-8 | | |
+| **W-10** | UI 文字录入 → 触发 Agent(关键词) | 1. 在 live 会议输入 `产品的合规风险得请法务过一下`(命中法务专家关键词)<br>2. 等 5-10 秒 | 「法务专家」头像变忙(`busy: true` 红点闪);几秒后出现 AI 气泡 | | |
+| **W-11** | 文字录入 → 触发分歧检测 | 1. 切换发言人 A 输入「这个先做声纹」<br>2. 切发言人 B 输入「不对,先做 AI 专家」<br>3. 多轮对立 5-8 句(用 `_cowork_*` 用户避免污染)<br>4. 等 25s 节流过 | rose ⚖️ banner 出现:「检测到分歧 「<topic>」 · <理由>」+「召唤<专家>」按钮 | | |
+| **W-12** | 麦风权限被拒后仍可文字录入(text-only 模式) | 1. Chrome 设站点麦权限为「阻止」<br>2. 点「开始会议」<br>3. 看 toast | toast 文案「麦克风未启用,可在下方文字框打字录入」(sticky 不消失);状态条 = 「⌨️ 仅文字模式(麦克风未启用)」;**WS 仍连接**;文字录入工具栏可用 | | |
+| **W-13** | text-only 模式可触发 AI | 在 W-12 之后输入 `请产品给个建议` | Agent 正常发言(走 WS 路径) | | |
+| **W-14** | 已处理会议 REST 注入(后期补字幕) | `POST /manual-transcript` 给一条 status=processed 会议 | 200,行追加(因 `speaker_status='manual'`,后续 identify 不会覆盖)。注意:已处理的纪要不会自动重生成,需调 `/summary/regenerate` | | |
+| **W-15** | 节流仍生效 | 在 1 秒内连发 5 条触发关键词的句子 | Agent 自动召唤每 30s/会议节流(F 系列)依然有效;不会被 5 条全部触发 | | |
+
+### Cowork 端到端示例脚本(可直接复制运行)
+
+```js
+// 全自动跑:建会议 → 注入 5 句 → 等 Agent → 验证纪要 → 清理
+async function coworkSmoke() {
+  // 1. 创建会议
+  const m = await fetch('/api/meetings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    credentials: 'include',
+    body: JSON.stringify({title: '_cowork_w_smoke_' + Date.now(), attendee_user_ids: []}),
+  }).then(r => r.json());
+
+  // 2. 选两个不同 user.id 模拟两人对话
+  const users = await fetch('/api/users').then(r => r.json());
+  const [u1, u2] = users.slice(0, 2);
+
+  // 3. 注入 5 句对立观点
+  const lines = [
+    {speaker: u1.id, text: '我觉得这个需求要先做声纹识别,优先级最高'},
+    {speaker: u2.id, text: '不对,我觉得应该先做 AI 专家,声纹只是辅助'},
+    {speaker: u1.id, text: '声纹是基础设施,没有它后面都白做'},
+    {speaker: u2.id, text: 'AI 专家才是用户真正在意的'},
+    {speaker: u1.id, text: '我反对,声纹优先,这事得让法务也过一下合规'},
+  ];
+  for (const l of lines) {
+    await fetch(`/api/meetings/${m.id}/manual-transcript`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      credentials: 'include',
+      body: JSON.stringify({text: l.text, speaker_user_id: l.speaker}),
+    });
+    await new Promise(r => setTimeout(r, 500));  // 间隔避免 Agent 重叠
+  }
+
+  // 4. 拉结果(Agent 是否被触发可在 /result 的 lines 之外通过 WS 监听)
+  const result = await fetch(`/api/meetings/${m.id}/result`).then(r => r.json());
+  console.log('lines persisted:', result.lines.length);
+
+  // 5. 等 30s 让节流通过 + 触发分歧检测,然后 regenerate summary
+  await new Promise(r => setTimeout(r, 30000));
+  await fetch(`/api/meetings/${m.id}/summary/regenerate`, {method: 'POST', credentials: 'include'});
+  const sum = await fetch(`/api/meetings/${m.id}/summary`).then(r => r.json());
+  console.log('summary status:', sum.status);
+
+  // 6. 清理(避免污染生产)
+  await fetch(`/api/meetings/${m.id}`, {method: 'DELETE', credentials: 'include'});
+  return {ok: true, meetingId: m.id};
+}
+coworkSmoke();
+```
+
+---
+
 ## 测试报告模板
 
 测完后请把这一段填给我：
@@ -679,7 +780,7 @@ await fetch(`/api/meetings/${m.id}`, {method: 'DELETE', credentials: 'include'})
 ```
 测试人:
 测试时间:
-测试用例版本: v9
+测试用例版本: v10
 浏览器/系统:
 默认账号是否生效: 是 / 否
 

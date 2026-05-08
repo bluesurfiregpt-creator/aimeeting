@@ -10,10 +10,14 @@ from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import asyncio
+
 from .. import session_state
+from ..agent_router import maybe_invoke_agents
 from ..audit import audit_log
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
+from ..dissent_detector import maybe_detect_dissent
 from ..identify_pipeline import run_identify
 from ..models import Meeting, MeetingAttendee, MeetingTranscript, User
 from ..schemas import MeetingCreate, MeetingOut, MeetingResultOut, TranscriptLine
@@ -313,6 +317,99 @@ class CorrectSpeakerOut(BaseModel):
     speaker_user_id: uuid.UUID | None
     speaker_name: str | None
     status: str
+
+
+class ManualTranscriptIn(BaseModel):
+    text: str
+    speaker_user_id: uuid.UUID | None = None
+
+
+class ManualTranscriptOut(BaseModel):
+    line_id: int
+    speaker_user_id: uuid.UUID | None
+    speaker_name: str | None
+    text: str
+
+
+@router.post("/{meeting_id}/manual-transcript", response_model=ManualTranscriptOut)
+async def post_manual_transcript(
+    meeting_id: str,
+    payload: ManualTranscriptIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    Type-a-message endpoint. Same pipeline as a finalized ASR sentence:
+    persists a transcript row + fires Agent triggers + dissent detection.
+
+    Used by:
+      - The frontend's "💬 文字录入" box when there's no live WebSocket
+        attached (the live UX prefers the WS `text_message` action so the
+        user sees their own message echoed instantly).
+      - Claude Cowork / automation that wants to drive a meeting end-to-end
+        without going through the mic / WebSocket stack.
+
+    Speaker:
+      - speaker_user_id is optional. When given, must belong to the same
+        workspace as the caller; this is locked in with speaker_status
+        'manual' so the post-meeting voiceprint identify pass won't
+        overwrite it (same lock used by ✏️ in-meeting correction).
+      - When omitted, the line is recorded as 未识别 (the caller can fix it
+        later via /correct-speaker).
+
+    Note on streaming visibility: Agent / dissent events fired by this
+    endpoint go to a no-op sink (we have no WS attached). The Agent's
+    persistent reply is still saved to `meeting_agent_message`, so it
+    shows up in /result and the summary. Live page users on the same
+    meeting WS DO see ALL events normally — but this endpoint is
+    designed to be usable without one.
+    """
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    text = payload.text.strip()
+    if not text:
+        raise HTTPException(400, "text required")
+
+    speaker_uuid = payload.speaker_user_id
+    speaker_name: str | None = None
+    if speaker_uuid is not None:
+        u = (
+            await session.execute(
+                select(User).where(
+                    User.id == speaker_uuid,
+                    User.workspace_id == auth.workspace.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not u:
+            raise HTTPException(400, "speaker_user_id not in this workspace")
+        speaker_name = u.name
+
+    line = MeetingTranscript(
+        meeting_id=m.id,
+        text=text,
+        is_final=True,
+        speaker_user_id=speaker_uuid,
+        speaker_status="manual",
+    )
+    session.add(line)
+    await session.commit()
+    await session.refresh(line)
+
+    # Fire-and-forget agent + dissent. on_message has nowhere to deliver
+    # streaming chunks (this is a REST call, no socket), so use a no-op
+    # sink. Agent message persistence still works inside the agent_router.
+    async def _noop(_payload: dict) -> None:
+        return None
+
+    asyncio.create_task(maybe_invoke_agents(m.id, text, on_message=_noop))
+    asyncio.create_task(maybe_detect_dissent(m.id, on_message=_noop))
+
+    return ManualTranscriptOut(
+        line_id=line.id,
+        speaker_user_id=speaker_uuid,
+        speaker_name=speaker_name,
+        text=text,
+    )
 
 
 @router.post(

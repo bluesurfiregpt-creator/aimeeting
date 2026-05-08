@@ -148,7 +148,24 @@ async def ws_stt(ws: WebSocket):
         except Exception:
             logger.exception("ws agent event send failed")
 
-    async def emit(text: str, is_final: bool, start_ts, end_ts) -> None:
+    async def emit(
+        text: str,
+        is_final: bool,
+        start_ts,
+        end_ts,
+        *,
+        speaker_user_id: uuid.UUID | None = None,
+        speaker_status: str | None = None,
+    ) -> None:
+        """
+        Push a transcript line to the FE and (when final) persist it.
+
+        Default callers (FunASRClient) pass `speaker_user_id=None`; the
+        speaker is filled in later by the post-meeting voiceprint pipeline.
+        Manual text-message callers pass an explicit speaker_user_id and
+        `speaker_status='manual'` so the identify_worker won't overwrite it
+        (same lock used by the in-meeting "✏️ correct speaker" flow).
+        """
         try:
             await ws.send_text(
                 json.dumps(
@@ -169,6 +186,8 @@ async def ws_stt(ws: WebSocket):
                         start_ms=int(start_ts) if start_ts is not None else None,
                         end_ms=int(end_ts) if end_ts is not None else None,
                         is_final=True,
+                        speaker_user_id=speaker_user_id,
+                        speaker_status=speaker_status,
                     )
                     db.add(line)
                     await db.commit()
@@ -203,6 +222,23 @@ async def ws_stt(ws: WebSocket):
             asyncio.create_task(
                 maybe_detect_dissent(meeting_uuid, on_message=push_agent_event)
             )
+
+    async def emit_manual(text: str, speaker_user_id: uuid.UUID | None) -> None:
+        """
+        Surface a typed (non-ASR) message into the same pipeline. Used by the
+        WS `text_message` action — UI's typing affordance + Cowork tests.
+
+        Typed lines have no audio timestamp. We pass start_ms=None — sort
+        order within a meeting still works because /result orders by row id.
+        """
+        await emit(
+            text=text,
+            is_final=True,
+            start_ts=None,
+            end_ts=None,
+            speaker_user_id=speaker_user_id,
+            speaker_status="manual",
+        )
 
     async def notify_speakers_updated() -> None:
         try:
@@ -254,6 +290,20 @@ async def ws_stt(ws: WebSocket):
                                 query=payload.get("query"),
                             )
                         )
+                if action == "text_message" and meeting_uuid is not None:
+                    # Typed message from the chat box (alternative to mic).
+                    # Routes through emit_manual → same persistence + agent
+                    # trigger pipeline as a finalized ASR sentence, but with
+                    # an explicit speaker so identify_worker won't override.
+                    typed = (payload.get("text") or "").strip()
+                    if not typed:
+                        continue
+                    spk_raw = payload.get("speaker_user_id")
+                    try:
+                        spk_uuid = uuid.UUID(spk_raw) if spk_raw else None
+                    except ValueError:
+                        spk_uuid = None
+                    asyncio.create_task(emit_manual(typed, spk_uuid))
     except WebSocketDisconnect:
         pass
     except Exception:
