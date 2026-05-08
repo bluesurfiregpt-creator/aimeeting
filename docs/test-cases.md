@@ -1,12 +1,157 @@
-# Aimeeting · 测试用例（v7）
+# Aimeeting · 测试用例（v8）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
+>
+> **第一次拿到这份文档?** 直接从下面的【系统概览】开始读,5 分钟掌握系统全貌再动手测。
+
+---
+
+## 系统概览(Onboarding,5 分钟入门)
+
+### 1. 这是什么系统?
+
+**Aimeeting** —— **AI Agent + 会议系统**。把会议从「被动记录」升级为「组织决策智能系统」:多 AI 专家参会、记得住、能延续。
+
+**闭环目标(每场会议都跑这条流水线)**:
+
+```
+建会 → 录声纹 → 开会 → 实时字幕 → @AI 专家 → 带姓名的纪要 → 长期记忆 → 下场会议会前简报
+```
+
+### 2. 用户角色与典型场景
+
+| 角色 | 典型操作 | 在哪些系列里被覆盖 |
+|---|---|---|
+| **管理员**(创建工作空间者) | 拉人进队、配 Agent、传知识库、看审计 | A · O · F · Q · N |
+| **参会人** | 录声纹、开会发言、@专家、纠错说话人、导出纪要 | B · C · D · E · F · R |
+| **旁观/复盘者** | 看历史会议、读纪要、看长期记忆、读会前简报 | I · H · J |
+
+### 3. 整体架构
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                     浏览器(Chrome / Edge / Safari)                 │
+│  Next.js 15 + React 19 · 实时字幕 / Agent 头像条 / 后台管理        │
+└──────────────────┬───────────────────────────────┬─────────────────┘
+                   │ HTTPS                          │ WSS (PCM 16kHz)
+                   ▼                                ▼
+       ┌───────────────────────────────────────────────┐
+       │  Nginx (TLS · 反代 /api · /ws · / → Next.js)  │
+       └─────────────────┬─────────────────────────────┘
+                         ▼
+       ┌──────────────────────────────────────────────┐
+       │  FastAPI 后端 · 多路由 · WebSocket · SSE 流  │
+       │  ─ ASR pipeline   ─ Agent router  ─ Memory   │
+       │  ─ Voiceprint id  ─ Orchestrator  ─ Dissent  │
+       └────┬─────────────┬─────────────┬─────────────┘
+            ▼             ▼             ▼
+    ┌─────────────┐  ┌─────────┐  ┌────────────────────┐
+    │ PostgreSQL  │  │  Redis  │  │   外部依赖         │
+    │ + pgvector  │  │(可选)    │  │ ─ DashScope STT    │
+    │             │  │          │  │ ─ DashScope LLM    │
+    └─────────────┘  └─────────┘  │ ─ pyannoteAI 声纹   │
+                                  │ ─ 阿里云 OSS 音频   │
+                                  └────────────────────┘
+```
+
+**部署**:服务器 `47.245.92.62` · 域名 `aimeeting.zhzjpt.cn` · Docker Compose + Let's Encrypt 自动续证。
+
+### 4. 关键技术栈
+
+| 层 | 技术 | 用途 |
+|---|---|---|
+| 前端 | Next.js 15 (App Router) + React 19 + Tailwind 3.4 | SSR + CSR;实时字幕、流式 Agent 气泡、骨架屏 |
+| 后端 | FastAPI 0.115 + uvicorn + SQLAlchemy 2 (async) | REST + WebSocket + SSE |
+| 数据库 | PostgreSQL 16 + pgvector (cosine 距离) | 多租户表 + 1536 维向量 |
+| 缓存 | Redis 7 | 会话级 KV (本地内存兜底) |
+| LLM | DashScope (Qwen) 主 / Anthropic / OpenAI / DeepSeek / Gemini 副 | 单点配置 · `/admin/llm` 切换 |
+| STT | DashScope paraformer-realtime-v1 | 16kHz 单声道 PCM 流式 |
+| 声纹 | pyannoteAI precision-2 | 录入 + diarize + identify;match threshold 0.75 |
+| 嵌入 | DashScope text-embedding-v2(1536 维) | KB 文档分块 + 长期记忆 |
+| 音频存储 | 阿里云 OSS(新加坡) | 录音 + 声纹音频 |
+| 鉴权 | bcrypt + JWT in HttpOnly Cookie(14 天) | 工作空间隔离 |
+
+### 5. 核心数据流
+
+**字幕 → 持久化 → AI 联动**(每场会议的主链路):
+
+```
+mic → AudioContext 16kHz Int16 → WS frames → FunASRClient → DashScope
+  └→ 实时(non-final)字幕 → 前端灰色光标
+  └→ final 字幕
+       ├→ 写 meeting_transcript(DB)
+       ├→ 推回 WS(transcript_persisted,带 line_id 给前端做纠错锚点)
+       ├→ asyncio.create_task(maybe_invoke_agents)  ← 关键词/@ 触发 Agent
+       └→ asyncio.create_task(maybe_detect_dissent) ← M2.3 新增,LLM 检测对立观点
+```
+
+**声纹识别**(后台 worker,会议结束时收尾):
+
+```
+WS PCM 同时缓冲到 in-mem session.pcm_buffer
+  → 会议结束(WS close) → pyannote /diarize 拿说话人时间段
+  → 对每个 segment 调 /identify 匹配工作空间内的声纹
+  → 与 transcript 时间区间求交并集(line overlap ≥ 0.7 才认)
+  → 写 speaker_user_id 到 meeting_transcript
+  → 推 speakers_updated WS 事件 → 前端 refreshSpeakers
+```
+
+**AI 专家触发(四种路径,参考 F · T · U 系列)**:
+
+| 触发 | 入口 | 节流 | 参考 |
+|---|---|---|---|
+| **关键词** | final 字幕命中 Agent.keywords | 每 Agent 30s/会议 30s 双闸 | F-1 |
+| **@ 提及** | final 字幕含 `@专家名` | 同上 | F-2 |
+| **手动召唤** | 用户点 Agent 头像 | 不节流 | F-3 |
+| **接力推荐**(M2.1) | 上位 Agent 发言完毕,LLM 推下一位 | LLM 一次,90s 自动消失 | T-1 |
+| **分歧检测**(M2.3) | LLM 扫近 8 句,识别对立观点 | 25s 检测节流 + 60s 触发后抑制 | U-1 |
+
+### 6. 当前迭代覆盖范围
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| Phase 1 | 主链路(建会 → 字幕 → 单 Agent → 带姓名纪要) | ✅ 已完成 |
+| Phase 2 | 工作空间隔离 / 长期记忆 / 知识库(RAG) | ✅ 已完成 |
+| Phase 3 / M2.1 | 多 Agent 接力推荐(Orchestrator V1) | ✅ 已完成 |
+| Phase 3 / M2.2 | 知识库 RAG 注入 Agent prompt | ✅ 已完成 |
+| **Phase 3 / M2.3** | **分歧检测 + 主动召唤仲裁专家**(本版) | ✅ **本版上线** |
+| Phase 3 / M3.x | 全自动主持人 / 自动议程 | ⚪ 计划中 |
+| Phase 4 | 跨组织协作 / 公开知识库 | ⚪ 远期 |
+
+### 7. 关键技术约束(测试时**不要**当成 bug)
+
+| 约束 | 现象 | 为什么这么设计 |
+|---|---|---|
+| **声纹严格模式** | 部分语音被标「未识别」 | 宁缺勿滥(threshold 0.75 + line overlap 0.7 + ≥1s 段);手动纠错可改 |
+| **极短会议跳纪要** | < 3 句 final OR < 60 字时不出纪要 | 防止 LLM 编造内容 |
+| **声纹用户无密码** | 邓西/幸世杰能被识别但不能登录 | 录声纹只用作识别,不做账号 |
+| **工作空间硬隔离** | 跨 workspace 数据完全不可见(包括 Agent / 记忆 / 知识库) | 多租户安全 |
+| **WS 重连边界** | 重连期间字幕会丢一小段,JSON 控制消息会被缓冲 | 音频帧不缓冲(防止旧帧打乱时序) |
+| **首次进会议页有 0.5s 白屏** | 等 SSR + JS 注水 | 已知;不影响功能 |
+
+### 8. 测试人入门(推荐顺序,完整跑约 60 分钟)
+
+| 步骤 | 系列 | 用时 |
+|---|---|---|
+| 1. 登录 + 工作空间隔离 | A | ~5 分 |
+| 2. 录入 2-3 个人声纹(35-45s/人) | B | ~10 分 |
+| 3. 创建会议 + 实时字幕 + 多人对话 | C | ~10 分 |
+| 4. 验证声纹自动贴名 + 手动纠错 | D · E | ~10 分 |
+| 5. 测 AI 专家四种触发(关键词 / @ / 头像 / 接力 / 分歧) | F · T · **U** | ~15 分 |
+| 6. 等会议结束后看自动纪要 | G | ~3 分 |
+| 7. 导出 MD / DOCX | R | ~2 分 |
+| 8. 看长期记忆 / 会前简报 | H · I | ~5 分 |
+
+> **前置准备**:Chrome 桌面最新版 · 麦克风 · HTTPS 入口(本系统已配 Let's Encrypt,直接开 https://aimeeting.zhzjpt.cn 即可)。
+
+---
 
 ## 版本与变更记录
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v7** | 2026-05-08 | 新增「分歧检测」U 系列(Multi-Agent M2.3:LLM 实时分析最近 8 句对话,识别两位以上参会人就同一话题持对立观点 → 主动召唤适合仲裁的 AI 专家;rose 色 banner,点「召唤<专家>」一键解决) |
+| **v8** | 2026-05-08 | 文档头部加【系统概览】(架构图 / 数据流 / 触发路径 / 测试入门顺序);修复 `audioCapture.ts` 中 `audioWorklet` getter 在 prototype 上访问抛 `Illegal invocation` 的崩溃 bug → 影响 Sprint K.2 后所有进入会议页的用户(C 系列重点回归);加 SSR/CSR 水合 mounted 守卫(防 React #418) |
+| v7 | 2026-05-08 | 新增「分歧检测」U 系列(Multi-Agent M2.3:LLM 实时分析最近 8 句对话,识别两位以上参会人就同一话题持对立观点 → 主动召唤适合仲裁的 AI 专家;rose 色 banner,点「召唤<专家>」一键解决) |
 | v6 | 2026-05-08 | 新增「Agent 接力」T 系列(Multi-Agent Orchestrator V1:AI 专家发言完毕后系统推荐下一位发言专家;点击直接召唤) |
 | v5 | 2026-05-08 | 新增「会议导出」R 系列(MD/DOCX 下载) 和「连接稳定性」S 系列(WS 自动重连); C 系列加入 iOS Safari 提醒条 (C-11); 通用列表加载态升级为 skeleton |
 | v4 | 2026-05-07 | 新增「知识库」Q 系列(KB CRUD + 文档上传 + 解析状态 + Agent 引用 KB)；F-2 注解 AI 回答会优先引用知识库片段 |
@@ -24,13 +169,16 @@
 | 主测浏览器 | Chrome 桌面（最新） |
 | 兼容性副测 | Edge 桌面 / macOS Safari / iOS Safari |
 | 麦克风 | 任意可用麦克风（建议 USB / 无线耳麦） |
+| 测试服务端 | 47.245.92.62(阿里云 ECS · 上海) |
 
 ## 关键已知约束（不算 bug）
 
 - 邓西、幸世杰是**声纹用户**（无密码），出现在录入列表但不能登录
 - 极短会议（< 3 句 final 字幕 或 < 60 字）会**故意**跳过纪要生成
-- 同一工作空间暂不能多人共享（Sprint F.1 待做）
+- 同一工作空间暂不能多人共享（Sprint F.1 已做,见 O 系列）
 - 严格模式（v2 round-2 改进）：声纹宁可标"未识别"也不强行匹配，**部分语音"未识别"是预期行为**
+- AI 专家自动触发有 30s 节流;分歧检测 25s 节流 + 60s 抑制(防止打扰)
+- 进入会议页若看到 chrome `Illegal invocation` 错误 → **已在 v8 修复**,如再现请立即报告
 
 ---
 
@@ -369,6 +517,26 @@
 
 ---
 
+## V 系列 · v8 回归(关键 bug 防回退)
+
+> **背景**:v8 修复了一个进入会议页就直接抛 `TypeError: Illegal invocation` 的崩溃 bug,根因是 `AudioContext.prototype.audioWorklet`(getter)在原型上访问会触发 getter 但 `this` 不是真实实例,因此抛错。**本系列必跑,确认在所有目标浏览器上不再复现**。
+
+| 编号 | 用例 | 步骤 | 预期 | 实际 | 结果 |
+|---|---|---|---|---|---|
+| **V-1** | Chrome 桌面进会议页不崩 | 1. Chrome 桌面登录<br>2. 进任一已有会议(`/meeting/<id>`)<br>3. 打开 DevTools Console | 页面正常渲染:看到「开始会议」「结束会议」按钮 + AI 专家头像条;**Console 无任何红字错误** | | |
+| **V-2** | Edge 桌面进会议页不崩 | 同 V-1 但用 Edge | 同上 | | |
+| **V-3** | macOS Safari 进会议页不崩 | 同 V-1 但用 macOS Safari | 同上(allow audio worklet 检测应返回 true,但不抛错) | | |
+| **V-4** | iOS Safari 进会议页不崩 | iOS 真机 Safari 登录 → 进会议页 | 顶部出现蓝色 iOS 提示条;按钮正常;Console 无错 | | |
+| **V-5** | 老 Safari(< 14)兼容 | 如有 macOS 11 / iOS 13 设备 → 进会议页 | 因为旧版没有 audioWorklet,此前版本就会进 catch;新版用 `in` 算子,`in` 返回 false,页面照常渲染,只是 `hasAudioWorklet` 为 false | | |
+| **V-6** | 隐私模式 / 麦克风未授权 | Chrome 隐私模式登录(凭证仍能用) → 进会议页(还没点开始) | 不应崩;按钮可见;点开始才弹麦权限 | | |
+| **V-7** | 不安全上下文(纯 IP/HTTP) | 用 `http://47.245.92.62:3000/meeting/<id>` 直连(若开放) | 不应崩,应明确显示「⚠️ 当前页面不在安全上下文中」红条 | | |
+| **V-8** | 水合无 React #418 | 进会议页后 Console 看 React 错误 | **不应**出现 `Minified React error #418`(水合不一致);旧版会出 | | |
+| **V-9** | 多次反复进退会议页 | 进 → 返回 → 再进 → 重复 5 次 | 每次都正常渲染;无内存泄漏报错;无重复创建 AudioContext 的警告 | | |
+
+> **如果 V-1 到 V-3 任何一条失败,请立刻把 Console 整段红字 + Network 中的 page-`<hash>`.js URL 截图给我,这是优先级最高的 bug。**
+
+---
+
 ## 测试报告模板
 
 测完后请把这一段填给我：
@@ -376,7 +544,7 @@
 ```
 测试人:
 测试时间:
-测试用例版本: v7
+测试用例版本: v8
 浏览器/系统:
 默认账号是否生效: 是 / 否
 
