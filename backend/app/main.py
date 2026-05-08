@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 
 from .config import get_settings
 from .db import SessionLocal
+from .due_reminder import due_reminder_loop
 from .identify_pipeline import identify_worker
 from .init_db import init_db
 from .models import Meeting, MeetingTranscript
@@ -24,6 +25,7 @@ from .routers import agents as agents_router
 from .routers import audit as audit_router
 from .routers import auth as auth_router
 from .routers import knowledge as knowledge_router
+from .routers import me as me_router
 from .routers import meetings as meetings_router
 from .routers import memory as memory_router
 from .routers import model_providers as model_providers_router
@@ -45,7 +47,21 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await init_db()
-    yield
+    # Theme 1 (P0): background loop that emits due_soon / overdue
+    # notifications. Asyncio task lives for the FastAPI process; we
+    # signal it on shutdown so the loop exits cleanly.
+    stop_event = asyncio.Event()
+    reminder_task = asyncio.create_task(due_reminder_loop(stop_event))
+    try:
+        yield
+    finally:
+        stop_event.set()
+        try:
+            await asyncio.wait_for(reminder_task, timeout=5)
+        except asyncio.TimeoutError:
+            reminder_task.cancel()
+        except Exception:
+            logger.exception("due_reminder shutdown error")
 
 
 app = FastAPI(title="Aimeeting Backend", version="0.2.0", lifespan=lifespan)
@@ -68,6 +84,7 @@ app.include_router(memory_router.router)
 app.include_router(audit_router.router)
 app.include_router(team_router.router)
 app.include_router(knowledge_router.router)
+app.include_router(me_router.router)
 
 
 @app.get("/healthz")

@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "frozen_at": "2026-05-08T13:22:21Z",
-  "frozen_against": "v14 (commit 47170a0 + cowork_suite v1)",
+  "frozen_at": "2026-05-08T16:00:00Z",
+  "frozen_against": "v16 (Theme 1 P0 — collaboration loop)",
   "_note": "Deterministic per-case status snapshot. T2 diff: any case whose status differs from this baseline is a regression (or, for ⏭️→✅, a new pass to celebrate). evidence/error/timing intentionally excluded — those are non-deterministic.",
   "summary": {
-    "total": 37,
-    "pass": 29,
+    "total": 44,
+    "pass": 36,
     "fail": 0,
     "skipped": 8
   },
@@ -46,6 +46,13 @@
     { "id": "X-23", "series": "X", "status": "skipped" },
     { "id": "X-24", "series": "X", "status": "skipped" },
     { "id": "X-25", "series": "X", "status": "pass" },
-    { "id": "X-29", "series": "X", "status": "pass" }
+    { "id": "X-29", "series": "X", "status": "pass" },
+    { "id": "Y-1",  "series": "Y", "status": "pass" },
+    { "id": "Y-2",  "series": "Y", "status": "pass" },
+    { "id": "Y-3",  "series": "Y", "status": "pass" },
+    { "id": "Y-4",  "series": "Y", "status": "pass" },
+    { "id": "Y-5",  "series": "Y", "status": "pass" },
+    { "id": "Y-6",  "series": "Y", "status": "pass" },
+    { "id": "Y-7",  "series": "Y", "status": "pass" }
   ]
 }

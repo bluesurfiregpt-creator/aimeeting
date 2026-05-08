@@ -24,11 +24,13 @@ from ..identify_pipeline import run_identify
 from ..models import (
     Meeting,
     MeetingActionItem,
+    MeetingActionItemComment,
     MeetingAgentMessage,
     MeetingAttendee,
     MeetingTranscript,
     User,
 )
+from ..notify import emit_notification
 from ..schemas import MeetingCreate, MeetingOut, MeetingResultOut, TranscriptLine
 from ..briefing_generator import generate_briefing
 from ..meeting_export import export_docx, export_markdown
@@ -743,6 +745,27 @@ async def create_action_item(
         source_type="manual",
     )
     session.add(row)
+    await session.flush()
+    # Theme 1: notify the assignee unless they're the caller themselves
+    # (no self-notify — you know what you just did).
+    if (
+        row.assignee_user_id is not None
+        and row.assignee_user_id != auth.user.id
+    ):
+        await emit_notification(
+            session,
+            workspace_id=m.workspace_id,
+            user_id=row.assignee_user_id,
+            kind="action_assigned",
+            payload={
+                "meeting_id": str(m.id),
+                "meeting_title": m.title,
+                "action_id": str(row.id),
+                "content": row.content,
+                "due_at": row.due_at.isoformat() if row.due_at else None,
+                "assigned_by": auth.user.name,
+            },
+        )
     await session.commit()
     await session.refresh(row)
     name_by_id = {}
@@ -764,7 +787,7 @@ async def update_action_item(
     auth: AuthContext = Depends(get_current_auth),
 ):
     """Toggle done / edit content / change assignee or due date."""
-    await _load_owned_meeting(meeting_id, session, auth)
+    m = await _load_owned_meeting(meeting_id, session, auth)
     row = (
         await session.execute(
             select(MeetingActionItem).where(
@@ -783,6 +806,7 @@ async def update_action_item(
         row.content = payload.content.strip()[:1000]
     if payload.due_at is not None:
         row.due_at = payload.due_at
+    new_assignee_to_notify: Optional[uuid.UUID] = None
     if payload.assignee_user_id is not None:
         u = (
             await session.execute(
@@ -794,8 +818,30 @@ async def update_action_item(
         ).scalar_one_or_none()
         if not u:
             raise HTTPException(400, "assignee_user_id not in this workspace")
+        # Notify only if it's actually a *change* and the new assignee
+        # isn't the caller themselves (don't self-notify).
+        if (
+            row.assignee_user_id != payload.assignee_user_id
+            and payload.assignee_user_id != auth.user.id
+        ):
+            new_assignee_to_notify = payload.assignee_user_id
         row.assignee_user_id = payload.assignee_user_id
         row.assignee_name_hint = None  # rebound — drop the freeform hint
+    if new_assignee_to_notify is not None:
+        await emit_notification(
+            session,
+            workspace_id=m.workspace_id,
+            user_id=new_assignee_to_notify,
+            kind="action_assigned",
+            payload={
+                "meeting_id": str(m.id),
+                "meeting_title": m.title,
+                "action_id": str(row.id),
+                "content": row.content,
+                "due_at": row.due_at.isoformat() if row.due_at else None,
+                "assigned_by": auth.user.name,
+            },
+        )
     await session.commit()
     await session.refresh(row)
     name_by_id = {}
@@ -826,6 +872,206 @@ async def delete_action_item(
     ).scalar_one_or_none()
     if not row:
         raise HTTPException(404, "action item not found")
+    await session.delete(row)
+    await session.commit()
+
+
+# --------- Theme 1 (P0): action item comments + notify hooks ------------------
+
+
+class ActionCommentOut(BaseModel):
+    id: uuid.UUID
+    action_item_id: uuid.UUID
+    author_user_id: Optional[uuid.UUID] = None
+    author_name: Optional[str] = None
+    content: str
+    created_at: datetime
+    can_delete: bool = False  # True iff the caller authored this comment
+
+
+class ActionCommentIn(BaseModel):
+    content: str
+
+
+@router.get(
+    "/{meeting_id}/actions/{action_id}/comments",
+    response_model=list[ActionCommentOut],
+)
+async def list_action_comments(
+    meeting_id: str,
+    action_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    await _load_owned_meeting(meeting_id, session, auth)
+    # Verify the action belongs to this meeting (and therefore workspace).
+    parent = (
+        await session.execute(
+            select(MeetingActionItem).where(
+                MeetingActionItem.meeting_id == meeting_id,
+                MeetingActionItem.id == action_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not parent:
+        raise HTTPException(404, "action item not found")
+    rows = (
+        await session.execute(
+            select(MeetingActionItemComment)
+            .where(MeetingActionItemComment.action_item_id == action_id)
+            .order_by(MeetingActionItemComment.created_at)
+        )
+    ).scalars().all()
+    author_ids = {r.author_user_id for r in rows if r.author_user_id}
+    name_by_id: dict[uuid.UUID, str] = {}
+    if author_ids:
+        users = (
+            await session.execute(select(User).where(User.id.in_(author_ids)))
+        ).scalars().all()
+        name_by_id = {u.id: u.name for u in users}
+    return [
+        ActionCommentOut(
+            id=r.id,
+            action_item_id=r.action_item_id,
+            author_user_id=r.author_user_id,
+            author_name=name_by_id.get(r.author_user_id) if r.author_user_id else None,
+            content=r.content,
+            created_at=r.created_at,
+            can_delete=(r.author_user_id == auth.user.id),
+        )
+        for r in rows
+    ]
+
+
+@router.post(
+    "/{meeting_id}/actions/{action_id}/comments",
+    response_model=ActionCommentOut,
+)
+async def create_action_comment(
+    meeting_id: str,
+    action_id: str,
+    payload: ActionCommentIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    Append a progress note to an action item.
+
+    Side effect: notify the assignee + every prior commenter (besides the
+    caller themselves) with kind=`action_comment` so a comment thread keeps
+    everyone who has touched it informed without manual @ mentions.
+    """
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    parent = (
+        await session.execute(
+            select(MeetingActionItem).where(
+                MeetingActionItem.meeting_id == meeting_id,
+                MeetingActionItem.id == action_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not parent:
+        raise HTTPException(404, "action item not found")
+    body = (payload.content or "").strip()
+    if not body:
+        raise HTTPException(400, "content required")
+    body = body[:2000]  # hard cap; comments are notes, not essays
+
+    row = MeetingActionItemComment(
+        action_item_id=parent.id,
+        author_user_id=auth.user.id,
+        content=body,
+    )
+    session.add(row)
+    await session.flush()
+
+    # Build the audience: assignee + all prior commenters, minus the
+    # current author (who knows what they just typed).
+    audience: set[uuid.UUID] = set()
+    if parent.assignee_user_id:
+        audience.add(parent.assignee_user_id)
+    prior_commenters = (
+        await session.execute(
+            select(MeetingActionItemComment.author_user_id)
+            .where(
+                MeetingActionItemComment.action_item_id == parent.id,
+                MeetingActionItemComment.id != row.id,
+                MeetingActionItemComment.author_user_id.isnot(None),
+            )
+            .distinct()
+        )
+    ).all()
+    for (uid,) in prior_commenters:
+        if uid is not None:
+            audience.add(uid)
+    audience.discard(auth.user.id)
+
+    if audience:
+        preview = body if len(body) <= 80 else body[:80] + "…"
+        for uid in audience:
+            await emit_notification(
+                session,
+                workspace_id=m.workspace_id,
+                user_id=uid,
+                kind="action_comment",
+                payload={
+                    "meeting_id": str(m.id),
+                    "meeting_title": m.title,
+                    "action_id": str(parent.id),
+                    "action_content": parent.content,
+                    "comment_id": str(row.id),
+                    "comment_preview": preview,
+                    "author_name": auth.user.name,
+                },
+            )
+
+    await session.commit()
+    await session.refresh(row)
+    return ActionCommentOut(
+        id=row.id,
+        action_item_id=row.action_item_id,
+        author_user_id=row.author_user_id,
+        author_name=auth.user.name,
+        content=row.content,
+        created_at=row.created_at,
+        can_delete=True,
+    )
+
+
+@router.delete(
+    "/{meeting_id}/actions/{action_id}/comments/{comment_id}",
+    status_code=204,
+)
+async def delete_action_comment(
+    meeting_id: str,
+    action_id: str,
+    comment_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    Author-only delete. Per product decision: comments are deletable but
+    not editable, so the audit trail isn't quietly rewritten.
+    """
+    await _load_owned_meeting(meeting_id, session, auth)
+    row = (
+        await session.execute(
+            select(MeetingActionItemComment)
+            .join(
+                MeetingActionItem,
+                MeetingActionItem.id == MeetingActionItemComment.action_item_id,
+            )
+            .where(
+                MeetingActionItemComment.id == comment_id,
+                MeetingActionItem.id == action_id,
+                MeetingActionItem.meeting_id == meeting_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "comment not found")
+    if row.author_user_id != auth.user.id:
+        raise HTTPException(403, "only the author can delete this comment")
     await session.delete(row)
     await session.commit()
 

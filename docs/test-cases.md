@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v15）
+# Aimeeting · 测试用例（v16）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -310,7 +310,8 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v15** | 2026-05-08 | **P1 · T1 + T2 落地**:① **T1** Cowork 全自动套件(`tests/cowork_suite.js`,29 用例 + 8 expected skip,84-105s 全跑完);套件挂在 `/cowork_suite.js`,任何登录浏览器一句 `runCoworkSuite()` 就能跑 ② **T2** baseline diff:`tests/baseline.json` 是 v14 节点的 frozen 快照,套件运行时**自动 fetch + diff**,5 个分类桶(regressions / fixed / new_passes / new_cases / missing);`r.json.summary.passed_baseline` 是 CI gate 关心的布尔值;markdown 顶部「✅ 与 baseline 一致」/「⚠️ 与 baseline 有偏差」横幅 ③ 套件 fixture 强化:G-1 行长 ≥ 18 字 / 总 ≥ 80 字以避开 backend `MIN_TRANSCRIPT_CHARS=60` 的 skipped 短路;poll 现在识别所有 terminal status(包括 skipped);依赖失败用 `SKIP_DEP_FAILED:<id>` 表示,自动归入 ⏭️ 而不是 ❌ |
+| **v16** | 2026-05-08 | **主题 1 · P0 行动项协作闭环**:① 后端新建表 `meeting_action_item_comment` + `notification`(in-app);② 新 router `/api/me`(`GET /actions`、`GET /notifications`、`POST /notifications/{id}/read`、`POST /notifications/read-all`);③ 行动项评论 CRUD(`/api/meetings/{mid}/actions/{aid}/comments`,作者可删不可改);④ 创建 / 改派行动项时给 assignee 写 `action_assigned`(self-notify 抑制);⑤ FastAPI lifespan 内挂后台 loop(默认 1h tick)生成 `action_due_soon` / `action_overdue`,helper `notify.py` 内 24h 去重;⑥ 前端:顶栏 🔔 NotificationBell + 抽屉(60s 轮询、未读红点、全部已读)、`/me` 个人页(我的待办 open/done 切换 + 通知列表)、ActionItemsCard 每行加可折叠评论线程(💬 计数 / lazy fetch / Cmd+Enter 发送);⑦ 测试:cowork_suite 新增 Y 系列 7 用例(Y-1..Y-7,自动列表 / done 过滤 / 评论 CRUD / 作者-only delete / 通知 shape / self-notify 抑制 / mark-all-read);两份 baseline.json(repo + frontend/public)同步刷到 v16(总 44 用例,36 ✅ + 8 ⏭️)|
+| v15 | 2026-05-08 | **P1 · T1 + T2 落地**:① **T1** Cowork 全自动套件(`tests/cowork_suite.js`,29 用例 + 8 expected skip,84-105s 全跑完);套件挂在 `/cowork_suite.js`,任何登录浏览器一句 `runCoworkSuite()` 就能跑 ② **T2** baseline diff:`tests/baseline.json` 是 v14 节点的 frozen 快照,套件运行时**自动 fetch + diff**,5 个分类桶(regressions / fixed / new_passes / new_cases / missing);`r.json.summary.passed_baseline` 是 CI gate 关心的布尔值;markdown 顶部「✅ 与 baseline 一致」/「⚠️ 与 baseline 有偏差」横幅 ③ 套件 fixture 强化:G-1 行长 ≥ 18 字 / 总 ≥ 80 字以避开 backend `MIN_TRANSCRIPT_CHARS=60` 的 skipped 短路;poll 现在识别所有 terminal status(包括 skipped);依赖失败用 `SKIP_DEP_FAILED:<id>` 表示,自动归入 ⏭️ 而不是 ❌ |
 | v14 | 2026-05-08 | **修 v13 QA 报告 3 个 NEW-ISSUE**:① **NEW-ISSUE-B/C**(P2):简报顶部「上次会议未完待办」的总数 / 逾期数从原 `len(rows)`(被 LIMIT 截断) 改成独立 `COUNT(*)` 查询;当总数 > 8 时 header 加 `· 显示前 8` 透明化截断 ② **NEW-ISSUE-A**(P3):`prune_noise_users.py` 加 `--force-with-voiceprint` flag,显式覆盖 voiceprint guard;依赖 FK CASCADE 干净删除;跑了一次,删掉 `1` `111` 两条遗留 noise 用户 ③ 修了 prune 脚本的隐性 bug:`Voiceprint.user_id` / `WorkspaceMembership.user_id` / `PasswordResetToken.user_id` 都是 NOT NULL,以前 `_FK_REPOINT` 列表里包含他们,在 force 模式会触发约束违反 → 现在依赖 ondelete=CASCADE 自动级联 |
 | v13 | 2026-05-08 | **M3.0 收尾**:① **M3.0.4 僵局检测**:agenda_monitor LLM prompt 新增 `stuck` 信号;新事件类型 `agenda_stuck`,前端橙红色 banner + **5 秒倒计时**,用户不操作则**自动召唤主持人**(更激进的 UX) ② **M3.0.7 跨会议跟进**:`briefing_generator` 把本 workspace 内 `status='open'` 的行动项渲染到简报 markdown **顶部**(逾期项加 ⚠️ 标记) ③ **dissent run-now 同步触发端点**(对称 agenda 的 v12 修复)|
 | v12 | 2026-05-08 | **修掉 v11 QA 报告的全部 5 个发现**:① ISSUE-1: `/result` 返回的 line 同时带 `id` 和 `line_id`(POST 一致);② ISSUE-2: dissent + agenda 检测器都写 `audit_log` (`dissent.detected` / `agenda.agenda_off_topic` / `agenda.agenda_time_warning`);manual-transcript 第一次注入时把 `meeting.status` 从 `scheduled` 翻到 `ongoing` + 记 `started_at`;③ ISSUE-4: 新增 `POST /api/meetings/{id}/agenda-monitor/run-now` 同步触发(绕过 60s 节流 + 90s 抑制),返回 banner payload;④ ISSUE-3: action_extractor prompt 重写,加 5 条 NEGATIVE 规则 + 2 个 few-shot,纯闲聊纪要现在返回 `[]`;⑤ ISSUE-5: 跑了一轮 prune_noise_users,删掉 noise 名(脏数据再清理一轮) |
@@ -1045,6 +1046,32 @@ coworkX();
 
 ---
 
+## Y 系列 · 主题 1 协作闭环(v16 新增)
+
+> 把行动项从只读看板做成真正的协作闭环 —— 个人待办视图 + 评论线程 + 应用内通知。
+
+| 用例 | 操作 | 预期 | 状态 |
+|---|---|---|---|
+| Y-1 | `GET /api/me/actions?status=open` 返回当前用户分配到的未完成行动项 | 列表包含刚分配给自己的 manual action,字段含 `meeting_title` | ✅ |
+| Y-2 | 把 Y-1 的 action `PATCH status=done`,再分别 GET `?status=open` / `?status=done` | open 列表移除该项,done 列表包含该项 | ✅ |
+| Y-3 | 行动项评论 CRUD:GET 空 → POST → GET 含新评论 → DELETE → GET 空 | 全程 200/204,作者拿到 `can_delete=true` | ✅ |
+| Y-4 | 删除一条不存在的 comment id | 404 / 403,不会 500 | ✅ |
+| Y-5 | `GET /api/me/notifications?unread_only=false&limit=10` | items 是数组、`unread_count` 是数字、list-unread ≤ unread_count | ✅ |
+| Y-6 | 对自己创建并分配给自己的 action,前后比较 unread_count | 不增加(no-self-notify 规则) | ✅ |
+| Y-7 | `POST /api/me/notifications/read-all` 后再 GET | unread_count = 0,所有 items 的 read_at 非空 | ✅ |
+
+**手测点(Cowork 套件之外)**:
+- 顶栏 🔔 红点未读数随通知到达更新;打开抽屉 → 单条点击跳转 + 自动标记已读
+- `/me` 页两栏:左 我的待办(未完成 / 已完成 切换),右 通知(支持「全部已读」)
+- 会议页 ActionItemsCard 每行末尾 💬 + 计数;展开后看到评论线程 + 「写一条进展或反馈,⌘/Ctrl+↵ 发送」
+- 通知文案:`action_assigned` /  `action_due_soon` / `action_overdue`(带逾期天数)/ `action_comment`(带作者 + 摘要前 80 字)
+
+**已知限制 / 跳过**:
+- 由于单浏览器单 session,Y 系列只能从「调用方视角」校验。跨用户的「assignee 看到通知」「commenter 看到对方提交」需要双账号联调,放到 Cowork 之外的人工冒烟里
+- 后台 cron(`due_soon` / `overdue`)默认 1h tick,本轮 Y 用例不主动触发,避免和真实数据互相影响
+
+---
+
 ## 测试报告模板
 
 测完后请把这一段填给我：
@@ -1052,7 +1079,7 @@ coworkX();
 ```
 测试人:
 测试时间:
-测试用例版本: v15
+测试用例版本: v16
 浏览器/系统:
 默认账号是否生效: 是 / 否
 

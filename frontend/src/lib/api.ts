@@ -124,6 +124,22 @@ async function jpost<T>(path: string, body: unknown): Promise<T> {
   }
   return r.json();
 }
+/** POST that doesn't expect a JSON body in the response (e.g. 204). */
+async function jpostVoid(path: string, body: unknown): Promise<void> {
+  const r = await fetch(backendBase() + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+  if (!r.ok && r.status !== 204) {
+    handleAuthError(r.status);
+    const text = await r.text().catch(() => "");
+    handleNetworkError(path, r.status, text);
+    throw makeError(path, r.status, text);
+  }
+}
+
 async function jpostForm<T>(path: string, form: FormData): Promise<T> {
   const r = await fetch(backendBase() + path, {
     method: "POST",
@@ -359,6 +375,53 @@ async function jdelete(path: string): Promise<void> {
   }
 }
 
+/** Theme 1 (P0): one comment on an action item. Append-only — `can_delete`
+ *  is true only when the caller is the author. Author + name are nullable
+ *  in case the user account was later removed (FK on author_user_id is
+ *  ON DELETE SET NULL so the thread doesn't go stale). */
+export type ActionComment = {
+  id: string;
+  action_item_id: string;
+  author_user_id: string | null;
+  author_name: string | null;
+  content: string;
+  created_at: string;
+  can_delete: boolean;
+};
+
+/** Theme 1 (P0): a row in `/api/me/actions` — adds the meeting title for
+ *  display + drops assignee fields (it's always the caller). */
+export type MyAction = {
+  id: string;
+  meeting_id: string;
+  meeting_title: string | null;
+  content: string;
+  due_at: string | null;
+  status: "open" | "done" | "cancelled";
+  source_type: "summary" | "manual" | "agent";
+  created_at: string;
+  updated_at: string;
+};
+
+/** Theme 1 (P0): one bell-drawer entry. `payload` shape varies by `kind`;
+ *  the UI switches on `kind` to format the human-readable line. */
+export type Notification = {
+  id: string;
+  kind:
+    | "action_assigned"
+    | "action_due_soon"
+    | "action_overdue"
+    | "action_comment";
+  payload: Record<string, unknown> | null;
+  read_at: string | null;
+  created_at: string;
+};
+
+export type NotificationList = {
+  items: Notification[];
+  unread_count: number;
+};
+
 export type Me = {
   user_id: string;
   name: string;
@@ -468,6 +531,37 @@ export const api = {
   ) => jpatch<ActionItem>(`/api/meetings/${meetingId}/actions/${actionId}`, body),
   deleteActionItem: (meetingId: string, actionId: string) =>
     jdelete(`/api/meetings/${meetingId}/actions/${actionId}`),
+
+  // Theme 1 (P0): action item comments
+  listActionComments: (meetingId: string, actionId: string) =>
+    jget<ActionComment[]>(
+      `/api/meetings/${meetingId}/actions/${actionId}/comments`,
+    ),
+  createActionComment: (meetingId: string, actionId: string, content: string) =>
+    jpost<ActionComment>(
+      `/api/meetings/${meetingId}/actions/${actionId}/comments`,
+      { content },
+    ),
+  deleteActionComment: (
+    meetingId: string,
+    actionId: string,
+    commentId: string,
+  ) =>
+    jdelete(
+      `/api/meetings/${meetingId}/actions/${actionId}/comments/${commentId}`,
+    ),
+
+  // Theme 1 (P0): personal dashboard
+  listMyActions: (status: "open" | "all" | "done" = "open") =>
+    jget<MyAction[]>(`/api/me/actions?status=${status}`),
+  listMyNotifications: (unreadOnly = false, limit = 50) =>
+    jget<NotificationList>(
+      `/api/me/notifications?unread_only=${unreadOnly}&limit=${limit}`,
+    ),
+  markNotificationRead: (id: string) =>
+    jpostVoid(`/api/me/notifications/${id}/read`, {}),
+  markAllNotificationsRead: () =>
+    jpostVoid(`/api/me/notifications/read-all`, {}),
 
   // M3.0 agent message history (Cowork-friendly read-only)
   listAgentMessages: (meetingId: string) =>

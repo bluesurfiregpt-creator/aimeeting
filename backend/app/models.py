@@ -341,6 +341,64 @@ class MeetingActionItem(Base):
     )
 
 
+class MeetingActionItemComment(Base):
+    """
+    Theme 1 (P0) progress note on an action item. Append-only — entries
+    are deletable by their author but not editable (per product decision:
+    "comment history not tampered" beats "fix typo" for accountability).
+
+    Triggers an `action_comment` notification for everyone touching this
+    action besides the comment author (assignee + prior commenters).
+    """
+    __tablename__ = "meeting_action_item_comment"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    action_item_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("meeting_action_item.id", ondelete="CASCADE"),
+        index=True,
+    )
+    # Author is set on insert; if the author user is later deleted we keep
+    # the comment but null the FK so we don't dangle. UI shows "(已删除用户)".
+    author_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Notification(Base):
+    """
+    Theme 1 (P0) in-app notification. Bell badge / drawer reads this table.
+
+    `kind` controls how the UI formats the message:
+      - 'action_assigned'  payload: {meeting_id, meeting_title, action_id, content}
+      - 'action_due_soon'  payload: {meeting_id, action_id, content, due_at}
+      - 'action_overdue'   payload: {meeting_id, action_id, content, due_at, days_overdue}
+      - 'action_comment'   payload: {meeting_id, action_id, action_content,
+                                     comment_preview, author_name}
+
+    Cron-generated kinds (due_soon / overdue) dedup per (user, action, kind)
+    within 24h via a SELECT-then-INSERT in code, so the bell doesn't fill
+    with duplicates over multiple cron ticks.
+    """
+    __tablename__ = "notification"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
 class MeetingSpeakerSegment(Base):
     """One pyannoteAI speaker segment (0.5–N s)."""
     __tablename__ = "meeting_speaker_segment"
