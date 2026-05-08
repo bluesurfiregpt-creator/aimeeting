@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v11）
+# Aimeeting · 测试用例（v12）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -181,6 +181,8 @@ WS PCM 同时缓冲到 in-mem session.pcm_buffer
 | **行动项更新** | `PATCH /api/meetings/{id}/actions/{action_id}` body 可含 `{status, content, assignee_user_id, due_at}` | status ∈ open\|done\|cancelled |
 | **行动项删除** | `DELETE /api/meetings/{id}/actions/{action_id}` | 204 |
 | **Agent 发言历史** | `GET /api/meetings/{id}/agent-messages` | M3.0 Cowork 验证利器:不需订阅 WS 也能看到 Agent 是否真触发了发言(persistent record 来自 meeting_agent_message) |
+| **Agenda 同步触发** | `POST /api/meetings/{id}/agenda-monitor/run-now` | **v12 ISSUE-4 修复**:绕过 60s 节流强制跑一次 agenda 检查,返回 `{fired, payload, note}`。CI 可用。无 agenda 或 LLM 判无信号 → fired=false |
+| **Audit · 系统检测** | `GET /api/audit?action=dissent.detected` <br> `GET /api/audit?action=agenda.agenda_off_topic` <br> `GET /api/audit?action=agenda.agenda_time_warning` | **v12 ISSUE-2 修复**:每次检测器触发都会写 audit 行,Cowork 不订阅 WS 也能验证 |
 | Agent CRUD | `/api/agents` POST/GET, `/api/agents/{id}` PATCH/DELETE | DELETE 后会写 audit log |
 | 知识库 CRUD | `/api/knowledge-bases` 同上 |  |
 | 文档上传 | `POST /api/knowledge-bases/{kbid}/documents` (multipart `file=...`) | 异步解析,200 返回时 `status=parsing`,稍后变 `ready` |
@@ -307,7 +309,8 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v11** | 2026-05-08 | 新增「自动主持人」X 系列(M3.0 Multi-Agent V2):① **议程**(meeting.agenda)— 创建会议时填议程项 + 时间预算 → 进入 LLM 监督 ② **主持人 Agent**(role='moderator')每个 workspace 自动建一个 ③ **跑题检测**(`agenda_off_topic`)+ **时间预警**(`agenda_time_warning`)WS 事件 → 主持人 banner ④ **行动项自动抽取**(MeetingActionItem 表 + action_extractor 接在 summary 之后)+ ActionItemsCard UI(勾选完成 / 手动添加 / 删除)⑤ **agent-messages 端点**(Cowork 验证 Agent 是否真发言);**给 Claude Cowork 的指南**重写为「全场景驱动方案」,明确除 B/C/D 三个真声纹系列外,**所有系列都有可执行的 REST 流程** |
+| **v12** | 2026-05-08 | **修掉 v11 QA 报告的全部 5 个发现**:① ISSUE-1: `/result` 返回的 line 同时带 `id` 和 `line_id`(POST 一致);② ISSUE-2: dissent + agenda 检测器都写 `audit_log` (`dissent.detected` / `agenda.agenda_off_topic` / `agenda.agenda_time_warning`);manual-transcript 第一次注入时把 `meeting.status` 从 `scheduled` 翻到 `ongoing` + 记 `started_at`;③ ISSUE-4: 新增 `POST /api/meetings/{id}/agenda-monitor/run-now` 同步触发(绕过 60s 节流 + 90s 抑制),返回 banner payload;④ ISSUE-3: action_extractor prompt 重写,加 5 条 NEGATIVE 规则 + 2 个 few-shot,纯闲聊纪要现在返回 `[]`;⑤ ISSUE-5: 跑了一轮 prune_noise_users,删掉 noise 名(脏数据再清理一轮) |
+| v11 | 2026-05-08 | 新增「自动主持人」X 系列(M3.0 Multi-Agent V2):① **议程**(meeting.agenda)— 创建会议时填议程项 + 时间预算 → 进入 LLM 监督 ② **主持人 Agent**(role='moderator')每个 workspace 自动建一个 ③ **跑题检测**(`agenda_off_topic`)+ **时间预警**(`agenda_time_warning`)WS 事件 → 主持人 banner ④ **行动项自动抽取**(MeetingActionItem 表 + action_extractor 接在 summary 之后)+ ActionItemsCard UI(勾选完成 / 手动添加 / 删除)⑤ **agent-messages 端点**(Cowork 验证 Agent 是否真发言);**给 Claude Cowork 的指南**重写为「全场景驱动方案」,明确除 B/C/D 三个真声纹系列外,**所有系列都有可执行的 REST 流程** |
 | v10 | 2026-05-08 | 新增「文字录入」W 系列(打字录入入口 — 麦克风的替代,亦是 Cowork 全自动测试主力):① 会议页底部新增 `[💬 发言人下拉] [文字框] [发送]` 工具栏(`data-testid="manual-text-input"`);② WS 新增 `text_message` action(走与 ASR final 相同管道,触发 Agent + 分歧检测);③ 新增 REST `POST /api/meetings/{id}/manual-transcript`(无 WS 时也可注入字幕,Cowork 主用此入口);④ 麦权限拒绝时不再断开 WS,自动进入「⌨️ 仅文字模式」让用户继续打字 |
 | v9 | 2026-05-08 | 加【给 Claude Cowork 的指南】(API 速查表 / DOM 选择器约定 / 自动化纪律 / 复用代码片段);**v8 测试报告 6 个问题全部修掉**:① 详情页根据 `meeting.status` 切换渲染(已处理 → 直接显示纪要+实录,不再卡在「开始会议」UI);② 详情页 H1 显示真实会议标题(不再写死);③ API 错误 toast/message **不再泄露路径或原始 502 HTML**(自定义 `ApiError` + `friendlyDetail`);④ 三个 `window.confirm()` 全替换成 `<ConfirmDialog data-testid="confirm-dialog">` 应用内模态(自动化可点);⑤ `DELETE /team/members/<self>` 早返回 400(之前 500);⑥ `agent.create/update/delete` 都补上 `audit_log`;⑦ 顺手修了一个找到的脏数据 bug:`POST /api/users` 没邮箱时不再每次新建一行(同名 286 条 hefan 的元凶) |
 | v8 | 2026-05-08 | 文档头部加【系统概览】(架构图 / 数据流 / 触发路径 / 测试入门顺序);修复 `audioCapture.ts` 中 `audioWorklet` getter 在 prototype 上访问抛 `Illegal invocation` 的崩溃 bug → 影响 Sprint K.2 后所有进入会议页的用户(C 系列重点回归);加 SSR/CSR 水合 mounted 守卫(防 React #418) |
@@ -800,7 +803,7 @@ coworkSmoke();
 | **X-3** | 创建会议时填议程 | `POST /api/meetings` body 含 `agenda: [{title:"合规", time_budget_min:10},{title:"上线计划"}]` | 200 + `agenda` 反映回来;`/api/meetings/{id}` 也读得到 | | |
 | **X-4** | UI 议程录入 | 1. 进首页 `data-testid="agenda-section"`<br>2. 在第一行输入「合规风险评估」<br>3. 点击预算栏输 `15`<br>4. 输完第一行后**自动追加**第二行空白 | UI 至少 2 个 `data-testid="agenda-row-N"`;第二行 title 为空时不会随会议提交 | | |
 | **X-5** | 议程在会议页可见 | 进有议程的会议页 | 状态栏下方有 `data-testid="agenda-strip"`,显示编号 + title + (Nm) | | |
-| **X-6** | 跑题检测触发 | 1. 创建会议 agenda=[{title:"数据出境合规"}]<br>2. manual-transcript 注入 5 句和数据出境**完全无关**的(如「中午吃啥」「假期安排」)<br>3. 等 60-90s | WS 收到 `{type: "agenda_off_topic", current_agenda_item: "数据出境合规", reason: "..."}`;前端 `data-testid="moderator-banner-off_topic"` 渲染 | | |
+| **X-6** | 跑题检测触发(**v12 改用 run-now**) | 1. 创建会议 agenda=[{title:"数据出境合规"}]<br>2. manual-transcript 注入 5 句和数据出境**完全无关**的(如「中午吃啥」「假期安排」)<br>3. **`POST /api/meetings/{id}/agenda-monitor/run-now`** | 返回 `{fired:true, payload:{type:"agenda_off_topic", current_agenda_item:"数据出境合规", reason:"..."}}`;`GET /api/audit?action=agenda.agenda_off_topic` 列表里多一条 target_id=meeting_id 的记录 | | |
 | **X-7** | 召唤主持人 | X-6 的 banner 出现后点 `data-testid="moderator-accept"` | banner 消失;主持人 Agent 进 busy;`GET /agent-messages` 几秒后多一条 trigger='manual'、agent_id 是 moderator 的发言 | | |
 | **X-8** | 时间预警 | 1. 创建会议 agenda=[{title:"产品",time_budget_min:1}]<br>2. 等会议跑过 50s+(可调时间)<br>3. manual-transcript 注入一句 | WS 收到 `agenda_time_warning`;banner data-testid 含 `time_warning` | | |
 | **X-9** | 节流生效(60s 检查) | 60 秒内反复注入 manual-transcript | 后端日志中 `agenda_monitor LLM call` 至多 1 次/分钟 | | |
@@ -813,7 +816,7 @@ coworkSmoke();
 | **X-16** | regenerate 不破坏 manual 项 | 1. 自动抽取出 N 条<br>2. 手动添加 1 条<br>3. `POST /summary/regenerate` | source_type='summary' 全部被替换;source_type='manual' **保留**;前后行数差 = 重新抽取数 - 旧自动数 | | |
 | **X-17** | 跨工作空间发言人被拒 | `POST /actions` body 含其他 workspace 的 user.id | 400 + `assignee_user_id not in this workspace` | | |
 | **X-18** | 行动项无议程也工作 | 不填 agenda 创建会议,正常注入对话,生成纪要 | action_extractor 仍然跑(基于 summary,不依赖议程) | | |
-| **X-19** | empty extraction 不报错 | 注入纯闲聊 5 句(没有任何明确待办),regen summary | `actions` 返回 [];之前的 summary 类项被清空 | | |
+| **X-19** | empty extraction 不报错(**v12 prompt 强化**) | 注入 5 句纯闲聊(午餐 / 天气 / 看电影,**无任何工作内容**),regen summary 等 25s | `GET /actions` 返回 `[]`(prompt 中 NEGATIVE 规则 + few-shot 已让 LLM 把闲聊当 empty case 处理);之前的 summary 类项被清空 | | |
 | **X-20** | 隔离 | A 账号建会议 → B 账号 `GET /actions/...` | 404(workspace 隔离生效) | | |
 
 ### Cowork X 系列驱动脚本(议程 + 跑题 + 行动项)
@@ -926,7 +929,7 @@ coworkX();
 ```
 测试人:
 测试时间:
-测试用例版本: v11
+测试用例版本: v12
 浏览器/系统:
 默认账号是否生效: 是 / 否
 
