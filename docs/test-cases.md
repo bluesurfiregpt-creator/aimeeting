@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v14）
+# Aimeeting · 测试用例（v15）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -310,7 +310,8 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v14** | 2026-05-08 | **修 v13 QA 报告 3 个 NEW-ISSUE**:① **NEW-ISSUE-B/C**(P2):简报顶部「上次会议未完待办」的总数 / 逾期数从原 `len(rows)`(被 LIMIT 截断) 改成独立 `COUNT(*)` 查询;当总数 > 8 时 header 加 `· 显示前 8` 透明化截断 ② **NEW-ISSUE-A**(P3):`prune_noise_users.py` 加 `--force-with-voiceprint` flag,显式覆盖 voiceprint guard;依赖 FK CASCADE 干净删除;跑了一次,删掉 `1` `111` 两条遗留 noise 用户 ③ 修了 prune 脚本的隐性 bug:`Voiceprint.user_id` / `WorkspaceMembership.user_id` / `PasswordResetToken.user_id` 都是 NOT NULL,以前 `_FK_REPOINT` 列表里包含他们,在 force 模式会触发约束违反 → 现在依赖 ondelete=CASCADE 自动级联 |
+| **v15** | 2026-05-08 | **P1 · T1 + T2 落地**:① **T1** Cowork 全自动套件(`tests/cowork_suite.js`,29 用例 + 8 expected skip,84-105s 全跑完);套件挂在 `/cowork_suite.js`,任何登录浏览器一句 `runCoworkSuite()` 就能跑 ② **T2** baseline diff:`tests/baseline.json` 是 v14 节点的 frozen 快照,套件运行时**自动 fetch + diff**,5 个分类桶(regressions / fixed / new_passes / new_cases / missing);`r.json.summary.passed_baseline` 是 CI gate 关心的布尔值;markdown 顶部「✅ 与 baseline 一致」/「⚠️ 与 baseline 有偏差」横幅 ③ 套件 fixture 强化:G-1 行长 ≥ 18 字 / 总 ≥ 80 字以避开 backend `MIN_TRANSCRIPT_CHARS=60` 的 skipped 短路;poll 现在识别所有 terminal status(包括 skipped);依赖失败用 `SKIP_DEP_FAILED:<id>` 表示,自动归入 ⏭️ 而不是 ❌ |
+| v14 | 2026-05-08 | **修 v13 QA 报告 3 个 NEW-ISSUE**:① **NEW-ISSUE-B/C**(P2):简报顶部「上次会议未完待办」的总数 / 逾期数从原 `len(rows)`(被 LIMIT 截断) 改成独立 `COUNT(*)` 查询;当总数 > 8 时 header 加 `· 显示前 8` 透明化截断 ② **NEW-ISSUE-A**(P3):`prune_noise_users.py` 加 `--force-with-voiceprint` flag,显式覆盖 voiceprint guard;依赖 FK CASCADE 干净删除;跑了一次,删掉 `1` `111` 两条遗留 noise 用户 ③ 修了 prune 脚本的隐性 bug:`Voiceprint.user_id` / `WorkspaceMembership.user_id` / `PasswordResetToken.user_id` 都是 NOT NULL,以前 `_FK_REPOINT` 列表里包含他们,在 force 模式会触发约束违反 → 现在依赖 ondelete=CASCADE 自动级联 |
 | v13 | 2026-05-08 | **M3.0 收尾**:① **M3.0.4 僵局检测**:agenda_monitor LLM prompt 新增 `stuck` 信号;新事件类型 `agenda_stuck`,前端橙红色 banner + **5 秒倒计时**,用户不操作则**自动召唤主持人**(更激进的 UX) ② **M3.0.7 跨会议跟进**:`briefing_generator` 把本 workspace 内 `status='open'` 的行动项渲染到简报 markdown **顶部**(逾期项加 ⚠️ 标记) ③ **dissent run-now 同步触发端点**(对称 agenda 的 v12 修复)|
 | v12 | 2026-05-08 | **修掉 v11 QA 报告的全部 5 个发现**:① ISSUE-1: `/result` 返回的 line 同时带 `id` 和 `line_id`(POST 一致);② ISSUE-2: dissent + agenda 检测器都写 `audit_log` (`dissent.detected` / `agenda.agenda_off_topic` / `agenda.agenda_time_warning`);manual-transcript 第一次注入时把 `meeting.status` 从 `scheduled` 翻到 `ongoing` + 记 `started_at`;③ ISSUE-4: 新增 `POST /api/meetings/{id}/agenda-monitor/run-now` 同步触发(绕过 60s 节流 + 90s 抑制),返回 banner payload;④ ISSUE-3: action_extractor prompt 重写,加 5 条 NEGATIVE 规则 + 2 个 few-shot,纯闲聊纪要现在返回 `[]`;⑤ ISSUE-5: 跑了一轮 prune_noise_users,删掉 noise 名(脏数据再清理一轮) |
 | v11 | 2026-05-08 | 新增「自动主持人」X 系列(M3.0 Multi-Agent V2):① **议程**(meeting.agenda)— 创建会议时填议程项 + 时间预算 → 进入 LLM 监督 ② **主持人 Agent**(role='moderator')每个 workspace 自动建一个 ③ **跑题检测**(`agenda_off_topic`)+ **时间预警**(`agenda_time_warning`)WS 事件 → 主持人 banner ④ **行动项自动抽取**(MeetingActionItem 表 + action_extractor 接在 summary 之后)+ ActionItemsCard UI(勾选完成 / 手动添加 / 删除)⑤ **agent-messages 端点**(Cowork 验证 Agent 是否真发言);**给 Claude Cowork 的指南**重写为「全场景驱动方案」,明确除 B/C/D 三个真声纹系列外,**所有系列都有可执行的 REST 流程** |
@@ -735,37 +736,111 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 | **W-14** | 已处理会议 REST 注入(后期补字幕) | `POST /manual-transcript` 给一条 status=processed 会议 | 200,行追加(因 `speaker_status='manual'`,后续 identify 不会覆盖)。注意:已处理的纪要不会自动重生成,需调 `/summary/regenerate` | | |
 | **W-15** | 节流仍生效 | 在 1 秒内连发 5 条触发关键词的句子 | Agent 自动召唤每 30s/会议节流(F 系列)依然有效;不会被 5 条全部触发 | | |
 
-### 🔥 Cowork 全自动套件 v14+(推荐入口 · `tests/cowork_suite.js`)
+### 🔥 Cowork 全自动套件(v15+ · 唯一推荐入口)
 
-> **T1 · v14 起**:仓库下 [`tests/cowork_suite.js`](../tests/cowork_suite.js) 是**Cowork 自动化测试主入口**,一次性覆盖 A / W / E / F / G / I / J / K / N / Q / R / V / X 13 个系列共约 25 个高价值用例。**这是 Cowork 例行回归的默认动作。**
+> **P1·T1 + T2 已落地**:仓库下 [`tests/cowork_suite.js`](../tests/cowork_suite.js) 是 **Cowork 自动化测试唯一主入口**,跑完会:
 >
-> - 跑完产出**结构化 markdown 报告 + JSON**(JSON 是 T2 baseline 比对用)
+> - 一次性覆盖 A / W / E / F / G / I / J / K / N / Q / R / V / X 13 个系列共 **29 用例 + 8 hard-skip = 37 cases**
+> - **自动 fetch [`/baseline.json`](../tests/baseline.json)** 做 diff,把当次结果按 5 个桶分类(`regressions / fixed / new_passes / new_cases / missing`)
+> - 产出**结构化 markdown 报告 + JSON**;`r.json.summary.passed_baseline` 是 boolean,**CI gate 直接 key 这个**
 > - **全程自动清理**:每个用例创建的资源都标了 `_cowork_suite_<runid>` 前缀,跑完 DELETE 干净
-> - 总耗时 ~3-5 分钟(LLM 调用为主)
-> - 失败的用例自动汇总到报告顶部 `## ❌ 失败用例` 段
->
-> **使用方式(Cowork 操作员或 Chrome MCP)**:
->
-> 1. 在 https://aimeeting.zhzjpt.cn/ **登录**(默认账号即可)
-> 2. F12 → Console
-> 3. 复制粘贴 `tests/cowork_suite.js` 整个文件内容到 console(注册 `runCoworkSuite()`)
-> 4. 运行:
->    ```js
->    const r = await runCoworkSuite()
->    console.log(r.markdown)  // human-readable report
->    // copy(r.markdown) 也行,直接进系统剪贴板
->    ```
->
-> 报告头部就是 `✅ N 通过 / ❌ M 失败 / ⏭️ K 跳过` 的总览,接着各系列详情表 + 失败用例 stack trace + 清理日志。
->
-> **新增用例怎么加**:在 `tests/cowork_suite.js` 的 `registerCases(R)` 里 `R.register({id, series, title, async run(ctx, cleanup) {...}})`。`ctx` 是跨用例共享上下文(比如 G-1 创了个会议给 G-3 / R-1 / R-2 复用);`cleanup` push 进去会在最后自动 DELETE。
->
-> **跳过列表(写在脚本里)**:
-> - `B / C / D` — 真人声不可绕
-> - `W-12 / W-13` — 浏览器麦权限拒绝场景需真实浏览器交互
-> - `X-22 / X-23 / X-24` — 5s 倒计时 banner 需要 live UI
->
-> 这些会以 `⏭️` 形式记录在报告里,带具体跳过原因。
+> - 总耗时 ~80-110 秒(LLM 调用为主)
+
+#### 一键跑(在已登录的浏览器 console)
+
+```js
+const src = await fetch('/cowork_suite.js?v=' + Date.now()).then(r => r.text());
+new Function(src)();                  // 注册 window.runCoworkSuite
+const r = await runCoworkSuite();     // 自动 fetch /baseline.json 做 diff
+console.log(r.markdown);              // 给人看
+console.log(JSON.stringify(r.json));  // 给 CI 用
+console.log('passed_baseline:', r.json.summary.passed_baseline);
+```
+
+#### 报告结构(markdown 优先级,从上往下)
+
+```
+# Aimeeting · Cowork 自动套件回归报告
+- 环境 / 时间 / 登录 / 总计 / 运行 ID
+
+## ✅ 与 baseline 一致              ← 或 ⚠️ 与 baseline 有偏差
+  baseline frozen 时间 · against XYZ
+  - 🔴 regressions: N · 💚 fixed: N · ✨ new passes: N · 🆕 new cases: N · ⚠️ missing: N · stable: N
+
+  ### 🔴 Regressions(必须解决)    ← 当 N>0 才出现,必须立即看
+    | 编号 | 之前 | 现在 | 原因 / 错误 |
+    ...
+
+  ### 💚 Fixed since baseline: ...
+  ### ✨ Newly passing (was skipped): ...
+  ### 🆕 New cases (not in baseline): ...
+  ### ⚠️ Missing in this run: ...
+
+## ❌ 失败用例                      ← 跨 baseline 一致性,只看本次失败
+## 各系列详情                       ← 每系列一张表
+## 测试数据清理                     ← DELETE 日志
+```
+
+#### 5 个 diff 桶含义
+
+| 桶 | 含义 | 该不该担心 |
+|---|---|---|
+| **🔴 regressions** | baseline 是 pass 但本次 fail/skipped(或 baseline skipped 本次 fail) | **是 — 必须查** |
+| **💚 fixed** | baseline 是 fail 但本次 pass | 庆祝,可考虑更新 baseline |
+| **✨ new_passes** | baseline 是 skipped 但本次 pass(基础设施约束解锁了) | 庆祝,看是否进 baseline |
+| **🆕 new_cases** | baseline 没有这条,本次有 | 期望中(刚加的用例),记得更新 baseline |
+| **⚠️ missing** | baseline 有这条,本次没跑 | 通常是合并冲突 / 重命名,**要查** |
+
+`passed_baseline === true` 当且仅当 `regressions.length === 0 && missing.length === 0`。
+
+#### baseline 怎么更新
+
+当出现合理的 fixed / new_passes / new_cases 时,把当次 `r.json.results` 转成 baseline 形状写回 `tests/baseline.json`(只保留 `{id, series, status}`,sort by id):
+
+```js
+// 在 console 里:
+const fresh = {
+  schema_version: 1,
+  frozen_at: new Date().toISOString(),
+  frozen_against: 'v15 (commit XXXXXX)',
+  cases: r.json.results
+    .map(x => ({id: x.id, series: x.series, status: x.status}))
+    .sort((a,b) => a.id.localeCompare(b.id)),
+};
+copy(JSON.stringify(fresh, null, 2));   // 直接进剪贴板
+// 然后粘贴到 tests/baseline.json + frontend/public/baseline.json
+```
+
+#### 添加新用例
+
+`tests/cowork_suite.js` 的 `registerCases(R)` 里:
+
+```js
+R.register({
+  id: "Q-99",
+  series: "Q",
+  title: "短描述",
+  async run(ctx, cleanup) {
+    return { ok: true, evidence: { _note: "短结论" } };
+    // OR { ok: false, error: "what went wrong" }
+    // OR { ok: false, error: "SKIP_DEP_FAILED:Q-1" }   ← runner 自动归 skipped
+  },
+});
+```
+
+`ctx` 跨用例共享(比如 G-1 创了个 meeting 给 G-3 / R-1 / R-2 复用)。push `cleanup.push({kind, id})` 会在最后自动 DELETE(`kind` ∈ `{meeting, agent, kb, invitation, action}`)。
+
+#### Hard-skip 列表(已写死在脚本)
+
+| ID | 原因 |
+|---|---|
+| B 整系列 | 真人朗读 35-45s |
+| C 整系列 | 麦克风 ASR |
+| D 整系列 | 依赖真人音频 |
+| W-12 / W-13 | 浏览器麦权限拒绝 |
+| X-22 / X-23 / X-24 | live banner 倒计时 UI(需真浏览器交互) |
+
+这些会以 `⏭️` 形式列在报告 + baseline,**不会**计入 `regressions`。
 
 ---
 
@@ -977,7 +1052,7 @@ coworkX();
 ```
 测试人:
 测试时间:
-测试用例版本: v14
+测试用例版本: v15
 浏览器/系统:
 默认账号是否生效: 是 / 否
 

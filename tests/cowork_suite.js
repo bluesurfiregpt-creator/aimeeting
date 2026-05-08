@@ -168,9 +168,100 @@
     return log;
   }
 
+  // -------- Baseline diff (T2) ---------------------------------------------
+
+  /**
+   * Compare the current run against a frozen baseline (`tests/baseline.json`
+   * format). Categorizes each case into a single bucket so a CI gate can
+   * key on `regressions.length` alone:
+   *
+   *   - regressions: was-better, now-worse (pass→{fail|skipped} or skipped→fail)
+   *   - fixed:       was-fail, now-pass
+   *   - new_passes:  was-skipped, now-pass (an infra constraint lifted)
+   *   - new_cases:   not in baseline
+   *   - missing:     in baseline but not in this run (likely a code merge issue)
+   *   - stable:      same status both runs (no entry in details, just count)
+   *
+   * Also emits `passed_baseline` boolean for programmatic CI signals.
+   */
+  function diffAgainstBaseline(currentResults, baseline) {
+    if (!baseline || !Array.isArray(baseline.cases)) {
+      return { available: false };
+    }
+    const byId = (arr) => Object.fromEntries(arr.map((x) => [x.id, x]));
+    const cur = byId(currentResults);
+    const base = byId(baseline.cases);
+
+    const regressions = [];
+    const fixed = [];
+    const new_passes = [];
+    const new_cases = [];
+    const missing = [];
+    let stable = 0;
+
+    for (const id of Object.keys(base)) {
+      const c = cur[id];
+      const b = base[id];
+      if (!c) {
+        missing.push({ id, was: b.status });
+        continue;
+      }
+      if (c.status === b.status) {
+        stable++;
+        continue;
+      }
+      // Movement classification
+      const fromPass = b.status === "pass";
+      const fromFail = b.status === "fail";
+      const fromSkip = b.status === "skipped";
+      const toPass = c.status === "pass";
+      const toFail = c.status === "fail";
+      const toSkip = c.status === "skipped";
+
+      if (toPass && (fromFail || fromSkip)) {
+        (fromFail ? fixed : new_passes).push({ id, was: b.status, is: c.status });
+      } else if ((fromPass && (toFail || toSkip)) || (fromSkip && toFail)) {
+        regressions.push({
+          id,
+          was: b.status,
+          is: c.status,
+          error: c.error?.slice(0, 200),
+        });
+      } else {
+        // fail→skipped is a soft regression too (we lost coverage), but we
+        // surface it under regressions with reason='lost_coverage' so it's
+        // visible without overweighting.
+        regressions.push({
+          id,
+          was: b.status,
+          is: c.status,
+          error: c.error?.slice(0, 200),
+          reason: "lost_coverage",
+        });
+      }
+    }
+
+    for (const id of Object.keys(cur)) {
+      if (!base[id]) new_cases.push({ id, status: cur[id].status });
+    }
+
+    return {
+      available: true,
+      baseline_frozen_at: baseline.frozen_at || null,
+      baseline_frozen_against: baseline.frozen_against || null,
+      regressions,
+      fixed,
+      new_passes,
+      new_cases,
+      missing,
+      stable_count: stable,
+      passed_baseline: regressions.length === 0 && missing.length === 0,
+    };
+  }
+
   // -------- Markdown emitter -----------------------------------------------
 
-  function buildMarkdown(meta, results, cleanupLog) {
+  function buildMarkdown(meta, results, cleanupLog, diff) {
     const bySeries = new Map();
     for (const r of results) {
       if (!bySeries.has(r.series)) bySeries.set(r.series, []);
@@ -203,6 +294,57 @@
     lines.push(`- **总计**: ${results.length} 用例 · ✅ ${counts.pass} · ❌ ${counts.fail} · ⏭️ ${counts.skipped || 0}`);
     lines.push(`- **运行 ID**: ${meta.runId}`);
     lines.push("");
+
+    // T2: vs-baseline section (only when baseline was available + diffed)
+    if (diff && diff.available) {
+      const status = diff.passed_baseline ? "✅ 与 baseline 一致" : "⚠️ 与 baseline 有偏差";
+      lines.push(`## ${status}`);
+      lines.push("");
+      lines.push(
+        `_baseline frozen ${diff.baseline_frozen_at || "(unknown time)"} · ${diff.baseline_frozen_against || ""}_`,
+      );
+      lines.push("");
+      lines.push(
+        `- 🔴 regressions: **${diff.regressions.length}** ` +
+          `· 💚 fixed: ${diff.fixed.length} ` +
+          `· ✨ new passes: ${diff.new_passes.length} ` +
+          `· 🆕 new cases: ${diff.new_cases.length} ` +
+          `· ⚠️ missing: ${diff.missing.length} ` +
+          `· stable: ${diff.stable_count}`,
+      );
+      lines.push("");
+
+      if (diff.regressions.length > 0) {
+        lines.push("### 🔴 Regressions(必须解决)");
+        lines.push("");
+        lines.push("| 编号 | 之前 | 现在 | 原因 / 错误 |");
+        lines.push("|---|---|---|---|");
+        for (const r of diff.regressions) {
+          const note = r.reason ? `_${r.reason}_ — ${r.error || ""}` : (r.error || "");
+          lines.push(`| **${r.id}** | ${r.was} | ${r.is} | ${note.replace(/\|/g, "\\|").slice(0, 200)} |`);
+        }
+        lines.push("");
+      }
+      if (diff.fixed.length > 0) {
+        lines.push(`### 💚 Fixed since baseline: ${diff.fixed.map((f) => f.id).join(", ")}`);
+        lines.push("");
+      }
+      if (diff.new_passes.length > 0) {
+        lines.push(`### ✨ Newly passing (was skipped): ${diff.new_passes.map((f) => f.id).join(", ")}`);
+        lines.push("");
+      }
+      if (diff.new_cases.length > 0) {
+        lines.push(`### 🆕 New cases (not in baseline): ${diff.new_cases.map((f) => `${f.id}=${f.status}`).join(", ")}`);
+        lines.push("");
+      }
+      if (diff.missing.length > 0) {
+        lines.push(`### ⚠️ Missing in this run: ${diff.missing.map((f) => `${f.id} (was ${f.was})`).join(", ")}`);
+        lines.push("");
+      }
+    } else if (diff) {
+      lines.push("## (no baseline loaded — pass `{baseline}` to runCoworkSuite() or serve `/baseline.json`)");
+      lines.push("");
+    }
 
     if (counts.fail > 0) {
       lines.push("## ❌ 失败用例(优先看这一段)");
@@ -988,6 +1130,23 @@
       };
     }
 
+    // T2: load baseline. Caller can pass `{baseline: <obj>}` explicitly,
+    // pass `{baseline: false}` to skip the diff entirely, or rely on the
+    // auto-fetch from /baseline.json (default — what most CI runs want).
+    let baseline = null;
+    if (opts.baseline === false) {
+      baseline = null;
+    } else if (opts.baseline) {
+      baseline = opts.baseline;
+    } else {
+      try {
+        const r = await fetch("/baseline.json", { cache: "no-store" });
+        if (r.ok) baseline = await r.json();
+      } catch {
+        // No baseline available — that's fine, we'll just skip the diff
+      }
+    }
+
     const R = makeRunner();
     registerCases(R);
 
@@ -1009,8 +1168,22 @@
       durationMs,
     };
 
-    const json = { meta, results };
-    const markdown = buildMarkdown(meta, results, cleanupLog);
+    const counts = { pass: 0, fail: 0, skipped: 0 };
+    for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
+
+    const diff = diffAgainstBaseline(results, baseline);
+
+    const json = {
+      meta,
+      summary: {
+        total: results.length,
+        ...counts,
+        passed_baseline: diff.available ? diff.passed_baseline : null,
+      },
+      results,
+      diff,
+    };
+    const markdown = buildMarkdown(meta, results, cleanupLog, diff);
 
     return { json, markdown };
   }
