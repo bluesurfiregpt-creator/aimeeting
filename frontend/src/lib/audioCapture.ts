@@ -108,8 +108,12 @@ export function probeAudioCapabilities(): AudioCapabilities {
     secureContext: window.isSecureContext === true,
     hasGetUserMedia: !!navigator.mediaDevices?.getUserMedia,
     hasAudioContext: !!ACtor,
-    hasScriptProcessor: !!(ACtor && ACtor.prototype.createScriptProcessor),
-    hasAudioWorklet: !!(ACtor && ACtor.prototype.audioWorklet),
+    // Use `in` instead of property access: `audioWorklet` is a getter that
+    // throws "Illegal invocation" when read on the prototype (it requires
+    // `this` to be a live AudioContext instance). `in` only checks the
+    // descriptor table, never triggers the getter — safe on the prototype.
+    hasScriptProcessor: !!(ACtor && "createScriptProcessor" in ACtor.prototype),
+    hasAudioWorklet: !!(ACtor && "audioWorklet" in ACtor.prototype),
     defaultSampleRate: defaultRate,
     isIOSSafari: isIOS && isSafari,
   };
