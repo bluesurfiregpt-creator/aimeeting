@@ -142,9 +142,11 @@ async def upsert_config(
         session.add(existing)
 
     spec = get_spec(provider)
-    existing.api_key = payload.api_key
-    existing.base_url = payload.base_url or (spec.default_base_url if spec else None)
-    existing.model_id = payload.model_id or (spec.default_model if spec else None)
+    # Trim whitespace — pasted keys often pick up trailing newlines, and
+    # httpx will refuse to send a header value containing them.
+    existing.api_key = (payload.api_key or "").strip()
+    existing.base_url = (payload.base_url or "").strip() or (spec.default_base_url if spec else None)
+    existing.model_id = (payload.model_id or "").strip() or (spec.default_model if spec else None)
     existing.is_active = payload.is_active
     existing.note = payload.note
 

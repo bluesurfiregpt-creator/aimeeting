@@ -51,8 +51,14 @@ async def list_models(
     base_url: Optional[str] = None,
 ) -> list[ModelEntry]:
     """Dispatch to the right provider implementation."""
+    # httpx rejects header values containing whitespace ("Illegal header
+    # value"). Stripped data may have been saved by older versions, by
+    # an env var with trailing newline, or by sloppy paste.
+    api_key = (api_key or "").strip()
     if not api_key:
         raise ListModelsError("api_key required")
+    if base_url:
+        base_url = base_url.strip()
 
     if provider in ("openai", "deepseek", "qwen"):
         return await _list_openai_compat(api_key, base_url or _default_base_url(provider))

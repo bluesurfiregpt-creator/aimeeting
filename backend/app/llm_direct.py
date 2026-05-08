@@ -83,8 +83,10 @@ async def _stream_openai_compatible(
             {"role": "user", "content": user_prompt},
         ],
     }
+    # Strip whitespace defensively — pasted keys often have trailing
+    # newlines, and httpx refuses to send a header value with whitespace.
     headers = {
-        "Authorization": f"Bearer {provider.api_key}",
+        "Authorization": f"Bearer {(provider.api_key or '').strip()}",
         "Content-Type": "application/json",
     }
 
@@ -131,7 +133,7 @@ async def _stream_anthropic(
         "messages": [{"role": "user", "content": user_prompt}],
     }
     headers = {
-        "x-api-key": provider.api_key,
+        "x-api-key": (provider.api_key or "").strip(),
         "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
     }
