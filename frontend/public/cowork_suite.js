@@ -281,6 +281,7 @@
       ["R", "会议导出"],
       ["V", "v8/9/12 回归"],
       ["X", "M3.0 自动主持人"],
+      ["Y", "Theme 1 协作闭环"],
     ];
     const counts = { pass: 0, fail: 0, skipped: 0 };
     for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
@@ -1089,6 +1090,216 @@
           return { ok: false, error: `expected ${before - 2}, got ${after} (head: ${head2})` };
         }
         return { ok: true, evidence: { _note: `${before} → ${after}` } };
+      },
+    });
+
+    // ---------- Y series · Theme 1 collaboration loop --------------------
+    R.register({
+      id: "Y-1",
+      series: "Y",
+      title: "/api/me/actions 仅含分配给当前用户的 open 项",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        if (!me?.user_id) return { ok: false, error: "no caller user_id" };
+        const m = await POST("/api/meetings", { title: `${PREFIX}_Y1`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `create meeting ${m.status}` };
+        created("meeting", m.body.id, "Y1");
+        const a = await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_Y1_mine`,
+          assignee_user_id: me.user_id,
+        });
+        if (!a.ok) return { ok: false, error: `create action ${a.status} ${JSON.stringify(a.body)}` };
+        ctx.Y1_meeting = m.body.id;
+        ctx.Y1_action = a.body.id;
+        const r = await GET("/api/me/actions?status=open");
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        const found = (r.body || []).find((x) => x.id === a.body.id);
+        if (!found) return { ok: false, error: "newly-assigned action missing in /api/me/actions" };
+        if (found.status !== "open") return { ok: false, error: `unexpected status ${found.status}` };
+        if (!found.meeting_title?.includes(PREFIX)) {
+          return { ok: false, error: `meeting_title not joined: ${found.meeting_title}` };
+        }
+        return { ok: true, evidence: { _note: `${(r.body || []).length} my open items` } };
+      },
+    });
+
+    R.register({
+      id: "Y-2",
+      series: "Y",
+      title: "/api/me/actions?status=done 切换返回已完成项",
+      async run(ctx) {
+        if (!ctx.Y1_action || !ctx.Y1_meeting) {
+          return { ok: false, error: "SKIP_DEP_FAILED:Y-1", evidence: { _skipped: true } };
+        }
+        const p = await PATCH(`/api/meetings/${ctx.Y1_meeting}/actions/${ctx.Y1_action}`, {
+          status: "done",
+        });
+        if (!p.ok) return { ok: false, error: `patch ${p.status}` };
+        const open = await GET("/api/me/actions?status=open");
+        const done = await GET("/api/me/actions?status=done");
+        if (!open.ok || !done.ok) return { ok: false, error: "list failed" };
+        const inOpen = (open.body || []).some((x) => x.id === ctx.Y1_action);
+        const inDone = (done.body || []).some((x) => x.id === ctx.Y1_action);
+        if (inOpen) return { ok: false, error: "done item still in /me/actions?status=open" };
+        if (!inDone) return { ok: false, error: "done item missing from /me/actions?status=done" };
+        return { ok: true, evidence: { _note: "open / done filters honored" } };
+      },
+    });
+
+    R.register({
+      id: "Y-3",
+      series: "Y",
+      title: "评论 CRUD: 空 → POST → list → DELETE → 空",
+      async run(ctx) {
+        const m = await POST("/api/meetings", { title: `${PREFIX}_Y3`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `create meeting ${m.status}` };
+        created("meeting", m.body.id, "Y3");
+        const a = await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_Y3_action`,
+        });
+        if (!a.ok) return { ok: false, error: `create action ${a.status}` };
+        const empty = await GET(`/api/meetings/${m.body.id}/actions/${a.body.id}/comments`);
+        if (!empty.ok) return { ok: false, error: `list comments ${empty.status}` };
+        if ((empty.body || []).length !== 0) {
+          return { ok: false, error: `expected 0 comments, got ${empty.body.length}` };
+        }
+        const c = await POST(
+          `/api/meetings/${m.body.id}/actions/${a.body.id}/comments`,
+          { content: `${PREFIX}_Y3_note` },
+        );
+        if (!c.ok) return { ok: false, error: `post comment ${c.status} ${JSON.stringify(c.body)}` };
+        if (!c.body?.id) return { ok: false, error: "no comment id returned" };
+        if (c.body.can_delete !== true) return { ok: false, error: "author can_delete should be true" };
+        const after = await GET(`/api/meetings/${m.body.id}/actions/${a.body.id}/comments`);
+        if (!(after.body || []).some((x) => x.id === c.body.id)) {
+          return { ok: false, error: "posted comment not in list" };
+        }
+        const d = await DEL(
+          `/api/meetings/${m.body.id}/actions/${a.body.id}/comments/${c.body.id}`,
+        );
+        if (!d.ok && d.status !== 204) return { ok: false, error: `delete ${d.status}` };
+        const final = await GET(`/api/meetings/${m.body.id}/actions/${a.body.id}/comments`);
+        if ((final.body || []).some((x) => x.id === c.body.id)) {
+          return { ok: false, error: "comment still present after delete" };
+        }
+        return { ok: true, evidence: { _note: "create+list+delete OK" } };
+      },
+    });
+
+    R.register({
+      id: "Y-4",
+      series: "Y",
+      title: "评论作者 can_delete=true / 非作者无权删(单用户简化校验)",
+      async run() {
+        // Single-user smoke check: we can't impersonate a second user from
+        // a single browser, so we verify the half we *can* — that the API
+        // returns can_delete=true for the author and the delete endpoint
+        // 404s on a bogus id (proxy for "not found / not authorized").
+        const m = await POST("/api/meetings", { title: `${PREFIX}_Y4`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `create meeting ${m.status}` };
+        created("meeting", m.body.id, "Y4");
+        const a = await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_Y4_action`,
+        });
+        const c = await POST(
+          `/api/meetings/${m.body.id}/actions/${a.body.id}/comments`,
+          { content: `${PREFIX}_Y4_msg` },
+        );
+        if (!c.ok || c.body.can_delete !== true) {
+          return { ok: false, error: "author should see can_delete=true" };
+        }
+        const bogus = "00000000-0000-0000-0000-000000000000";
+        const d = await DEL(`/api/meetings/${m.body.id}/actions/${a.body.id}/comments/${bogus}`);
+        if (d.ok || (d.status !== 404 && d.status !== 403)) {
+          return { ok: false, error: `bogus delete should 404/403, got ${d.status}` };
+        }
+        return { ok: true, evidence: { _note: "author owns delete; bogus 404" } };
+      },
+    });
+
+    R.register({
+      id: "Y-5",
+      series: "Y",
+      title: "通知接口形状 + unread_count 与 list 一致",
+      async run() {
+        const r = await GET("/api/me/notifications?unread_only=false&limit=10");
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        if (!Array.isArray(r.body?.items)) {
+          return { ok: false, error: "items not an array" };
+        }
+        if (typeof r.body.unread_count !== "number") {
+          return { ok: false, error: `unread_count not a number (${typeof r.body.unread_count})` };
+        }
+        const unreadInList = r.body.items.filter((x) => !x.read_at).length;
+        // unreadInList is bounded by limit=10, so we only check the
+        // invariant that list-unread <= total unread_count.
+        if (unreadInList > r.body.unread_count) {
+          return {
+            ok: false,
+            error: `list shows ${unreadInList} unread but unread_count=${r.body.unread_count}`,
+          };
+        }
+        return {
+          ok: true,
+          evidence: {
+            _note: `${r.body.items.length} items · ${r.body.unread_count} unread`,
+          },
+        };
+      },
+    });
+
+    R.register({
+      id: "Y-6",
+      series: "Y",
+      title: "Self-assign 不产生 notification(no self-notify 规则)",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        if (!me?.user_id) return { ok: false, error: "no caller user_id" };
+        const before = await GET("/api/me/notifications?unread_only=true&limit=1");
+        if (!before.ok) return { ok: false, error: `before ${before.status}` };
+        const beforeCount = before.body?.unread_count ?? 0;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_Y6`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `create meeting ${m.status}` };
+        created("meeting", m.body.id, "Y6");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_Y6_self`,
+          assignee_user_id: me.user_id,
+        });
+        // Small grace window in case the cron tick fires concurrently —
+        // we still expect 'self assignment' itself not to bump anything.
+        await SLEEP(500);
+        const after = await GET("/api/me/notifications?unread_only=true&limit=1");
+        if (!after.ok) return { ok: false, error: `after ${after.status}` };
+        const afterCount = after.body?.unread_count ?? 0;
+        if (afterCount > beforeCount) {
+          return {
+            ok: false,
+            error: `unread_count grew ${beforeCount} → ${afterCount} on self-assign`,
+          };
+        }
+        return { ok: true, evidence: { _note: `unread_count stable: ${beforeCount}` } };
+      },
+    });
+
+    R.register({
+      id: "Y-7",
+      series: "Y",
+      title: "mark-all-read 将 unread_count 置 0",
+      async run() {
+        const r = await POST("/api/me/notifications/read-all", {});
+        if (!r.ok && r.status !== 204) {
+          return { ok: false, error: `read-all ${r.status}` };
+        }
+        const after = await GET("/api/me/notifications?unread_only=false&limit=10");
+        if (!after.ok) return { ok: false, error: `list ${after.status}` };
+        if ((after.body?.unread_count ?? -1) !== 0) {
+          return { ok: false, error: `unread_count expected 0, got ${after.body.unread_count}` };
+        }
+        const stillUnread = (after.body.items || []).filter((x) => !x.read_at);
+        if (stillUnread.length > 0) {
+          return { ok: false, error: `${stillUnread.length} items still unread after mark-all` };
+        }
+        return { ok: true, evidence: { _note: "drawer cleared" } };
       },
     });
 
