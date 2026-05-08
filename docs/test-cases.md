@@ -735,9 +735,43 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 | **W-14** | 已处理会议 REST 注入(后期补字幕) | `POST /manual-transcript` 给一条 status=processed 会议 | 200,行追加(因 `speaker_status='manual'`,后续 identify 不会覆盖)。注意:已处理的纪要不会自动重生成,需调 `/summary/regenerate` | | |
 | **W-15** | 节流仍生效 | 在 1 秒内连发 5 条触发关键词的句子 | Agent 自动召唤每 30s/会议节流(F 系列)依然有效;不会被 5 条全部触发 | | |
 
-### Cowork 端到端示例脚本(可直接复制运行)
+### 🔥 Cowork 全自动套件 v14+(推荐入口 · `tests/cowork_suite.js`)
 
-> 下面这段脚本一次跑完 **W → F → G → H → R** 五个系列的核心路径,作为 Cowork 入门冒烟。需要更宽覆盖时,见后面 **X 系列**示例脚本(议程 + 主持人 + 行动项)。
+> **T1 · v14 起**:仓库下 [`tests/cowork_suite.js`](../tests/cowork_suite.js) 是**Cowork 自动化测试主入口**,一次性覆盖 A / W / E / F / G / I / J / K / N / Q / R / V / X 13 个系列共约 25 个高价值用例。**这是 Cowork 例行回归的默认动作。**
+>
+> - 跑完产出**结构化 markdown 报告 + JSON**(JSON 是 T2 baseline 比对用)
+> - **全程自动清理**:每个用例创建的资源都标了 `_cowork_suite_<runid>` 前缀,跑完 DELETE 干净
+> - 总耗时 ~3-5 分钟(LLM 调用为主)
+> - 失败的用例自动汇总到报告顶部 `## ❌ 失败用例` 段
+>
+> **使用方式(Cowork 操作员或 Chrome MCP)**:
+>
+> 1. 在 https://aimeeting.zhzjpt.cn/ **登录**(默认账号即可)
+> 2. F12 → Console
+> 3. 复制粘贴 `tests/cowork_suite.js` 整个文件内容到 console(注册 `runCoworkSuite()`)
+> 4. 运行:
+>    ```js
+>    const r = await runCoworkSuite()
+>    console.log(r.markdown)  // human-readable report
+>    // copy(r.markdown) 也行,直接进系统剪贴板
+>    ```
+>
+> 报告头部就是 `✅ N 通过 / ❌ M 失败 / ⏭️ K 跳过` 的总览,接着各系列详情表 + 失败用例 stack trace + 清理日志。
+>
+> **新增用例怎么加**:在 `tests/cowork_suite.js` 的 `registerCases(R)` 里 `R.register({id, series, title, async run(ctx, cleanup) {...}})`。`ctx` 是跨用例共享上下文(比如 G-1 创了个会议给 G-3 / R-1 / R-2 复用);`cleanup` push 进去会在最后自动 DELETE。
+>
+> **跳过列表(写在脚本里)**:
+> - `B / C / D` — 真人声不可绕
+> - `W-12 / W-13` — 浏览器麦权限拒绝场景需真实浏览器交互
+> - `X-22 / X-23 / X-24` — 5s 倒计时 banner 需要 live UI
+>
+> 这些会以 `⏭️` 形式记录在报告里,带具体跳过原因。
+
+---
+
+### Cowork 入门示例脚本(简化版 · 仅作教学)
+
+> 下面这段脚本仅展示 **W → F → G → H → R** 五个系列的核心路径骨架,适合理解 Cowork 测试模式。**实际回归请用上面的 `cowork_suite.js`**。
 
 ```js
 // 全自动跑:建会议 → 注入 5 句 → 等 Agent → 验证纪要 → 清理
