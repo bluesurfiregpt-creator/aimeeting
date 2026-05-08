@@ -51,6 +51,9 @@ BRIEFING_SYSTEM_PROMPT = """你是会议秘书,用 1 分钟的篇幅给主持人
 """
 
 
+_BRIEFING_LIST_LIMIT = 8
+
+
 async def _open_actions_block(
     db: AsyncSession,
     workspace_id: uuid.UUID,
@@ -69,25 +72,56 @@ async def _open_actions_block(
         zombies from years ago dominating the briefing)
 
     Returns markdown or None if there's nothing to surface.
+
+    v14 NEW-ISSUE-B/C fix: header total + overdue count come from a
+    SEPARATE COUNT(*) query (no LIMIT), so the numbers always reflect the
+    real workspace state. The `LIMIT _BRIEFING_LIST_LIMIT` only caps the
+    rendered LIST. When total > limit, the header shows `显示前 N` to
+    make the truncation explicit (NEW-ISSUE-C).
     """
+    from sqlalchemy import func
+
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    now = datetime.now(timezone.utc)
+
+    base_filter = (
+        MeetingActionItem.workspace_id == workspace_id,
+        MeetingActionItem.status == "open",
+        MeetingActionItem.meeting_id != current_meeting_id,
+        (MeetingActionItem.due_at.is_(None))
+        | (MeetingActionItem.due_at >= cutoff),
+    )
+
+    # 1. Total + overdue counts — separate from the rendered list, so
+    #    truncation never makes the header lie.
+    total_open = (
+        await db.execute(
+            select(func.count(MeetingActionItem.id)).where(*base_filter)
+        )
+    ).scalar() or 0
+    if total_open == 0:
+        return None
+    total_overdue = (
+        await db.execute(
+            select(func.count(MeetingActionItem.id)).where(
+                *base_filter, MeetingActionItem.due_at < now
+            )
+        )
+    ).scalar() or 0
+
+    # 2. Rendered list (capped). Sort: overdue first (due_at asc), then
+    #    no-due items (NULLS LAST), then created_at desc.
     rows = (
         await db.execute(
             select(MeetingActionItem)
-            .where(
-                MeetingActionItem.workspace_id == workspace_id,
-                MeetingActionItem.status == "open",
-                MeetingActionItem.meeting_id != current_meeting_id,
-                # Either no due_at OR due_at >= 30 days ago (ignore ancient stale items)
-                (MeetingActionItem.due_at.is_(None))
-                | (MeetingActionItem.due_at >= cutoff),
+            .where(*base_filter)
+            .order_by(
+                MeetingActionItem.due_at.asc().nullslast(),
+                MeetingActionItem.created_at.desc(),
             )
-            .order_by(MeetingActionItem.due_at.asc().nullslast(), MeetingActionItem.created_at.desc())
-            .limit(8)
+            .limit(_BRIEFING_LIST_LIMIT)
         )
     ).scalars().all()
-    if not rows:
-        return None
 
     # Resolve assignee names
     user_ids = {r.assignee_user_id for r in rows if r.assignee_user_id}
@@ -99,8 +133,6 @@ async def _open_actions_block(
         name_by_id = {u.id: u.name for u in users_loaded}
 
     lines = []
-    overdue_count = 0
-    now = datetime.now(timezone.utc)
     for r in rows:
         assignee = (
             name_by_id.get(r.assignee_user_id)
@@ -110,16 +142,17 @@ async def _open_actions_block(
         suffix = ""
         if r.due_at:
             if r.due_at < now:
-                overdue_count += 1
                 suffix = f"  ⚠️ **逾期 {(now - r.due_at).days}d**"
             else:
                 days_left = max(0, (r.due_at - now).days)
                 suffix = f"  · 截止 {r.due_at.strftime('%m-%d')}({days_left}d 内)"
         lines.append(f"- **{assignee}** · {r.content}{suffix}")
 
-    header = f"## 📌 上次会议未完待办 ({len(rows)} 项"
-    if overdue_count:
-        header += f", **{overdue_count} 项逾期**"
+    header = f"## 📌 上次会议未完待办 ({total_open} 项"
+    if total_overdue:
+        header += f", **{total_overdue} 项逾期**"
+    if total_open > _BRIEFING_LIST_LIMIT:
+        header += f" · 显示前 {_BRIEFING_LIST_LIMIT}"
     header += ")"
 
     return f"{header}\n" + "\n".join(lines)

@@ -65,15 +65,17 @@ _NOISE_NAMES = {
     "demo", "demo1", "tmp", "temp",
 }
 
+# Only NULLable FK columns — these we can SET NULL safely.
+# NOT-NULL columns (Voiceprint.user_id, WorkspaceMembership.user_id,
+# PasswordResetToken.user_id) all have ondelete=CASCADE in the model and
+# get cleaned up automatically when the User row deletes — we just don't
+# touch them ahead of time.
 _FK_REPOINT = [
-    (Voiceprint, Voiceprint.user_id),
     (MeetingAttendee, MeetingAttendee.user_id),
     (MeetingTranscript, MeetingTranscript.speaker_user_id),
     (MeetingSpeakerSegment, MeetingSpeakerSegment.user_id),
-    (WorkspaceMembership, WorkspaceMembership.user_id),
     (WorkspaceInvitation, WorkspaceInvitation.created_by_user_id),
     (WorkspaceInvitation, WorkspaceInvitation.accepted_by_user_id),
-    (PasswordResetToken, PasswordResetToken.user_id),
     (AuditLog, AuditLog.user_id),
 ]
 
@@ -98,6 +100,15 @@ def _is_noise(name: str) -> bool:
 async def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument(
+        "--force-with-voiceprint",
+        action="store_true",
+        help=(
+            "Also prune candidates that have ACTIVE voiceprints (default: spare them). "
+            "Voiceprint rows are deactivated first, then the user row deletes. "
+            "Use this when the voiceprint was created with a junk name like '1' / '111'."
+        ),
+    )
     args = parser.parse_args()
 
     async with SessionLocal() as db:
@@ -109,7 +120,12 @@ async def main() -> int:
 
         candidates: list[User] = [u for u in users if _is_noise(u.name)]
 
-        # Skip ones with active voiceprints — they actually enrolled
+        # Voiceprint guard — by default spare candidates with active VPs
+        # (they actually enrolled). v14 NEW-ISSUE-A: --force-with-voiceprint
+        # opts out, useful when the voiceprint itself was junk (name='1' /
+        # '111' style). The voiceprint rows are deactivated as part of the
+        # delete to preserve the audit trail without breaking FK.
+        candidates_with_vp: list[uuid.UUID] = []
         if candidates:
             cand_ids = [u.id for u in candidates]
             vp_user_ids = {
@@ -123,7 +139,10 @@ async def main() -> int:
                     )
                 ).all()
             }
-            candidates = [u for u in candidates if u.id not in vp_user_ids]
+            if args.force_with_voiceprint:
+                candidates_with_vp = [u.id for u in candidates if u.id in vp_user_ids]
+            else:
+                candidates = [u for u in candidates if u.id not in vp_user_ids]
 
         # Skip workspace members
         if candidates:
@@ -151,7 +170,22 @@ async def main() -> int:
 
         if not args.apply:
             print("\n⚠️ DRY RUN — no DELETE issued. Re-run with --apply to commit.\n")
+            if candidates_with_vp:
+                print(
+                    f"   ({len(candidates_with_vp)} candidate(s) had active voiceprints "
+                    f"and would also be deleted under --force-with-voiceprint.)\n"
+                )
             return 0
+
+        # If forcing through the voiceprint guard: voiceprint rows will be
+        # CASCADE-deleted along with their owning user (FK has
+        # ondelete=CASCADE). Just announce here so the operator sees what's
+        # about to happen.
+        if candidates_with_vp:
+            print(
+                f"   --force-with-voiceprint: {len(candidates_with_vp)} user(s) "
+                f"have active voiceprints which will CASCADE-delete with the user row."
+            )
 
         # Defensive: clear any lingering FK refs (shouldn't exist by our
         # guardrails, but cheap to be sure — sets to NULL where allowed,

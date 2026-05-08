@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v13）
+# Aimeeting · 测试用例（v14）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -310,7 +310,8 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v13** | 2026-05-08 | **M3.0 收尾**:① **M3.0.4 僵局检测**:agenda_monitor LLM prompt 新增 `stuck` 信号;新事件类型 `agenda_stuck`,前端橙红色 banner + **5 秒倒计时**,用户不操作则**自动召唤主持人**(更激进的 UX) ② **M3.0.7 跨会议跟进**:`briefing_generator` 把本 workspace 内 `status='open'` 的行动项渲染到简报 markdown **顶部**(逾期项加 ⚠️ 标记) ③ **dissent run-now 同步触发端点**(对称 agenda 的 v12 修复)|
+| **v14** | 2026-05-08 | **修 v13 QA 报告 3 个 NEW-ISSUE**:① **NEW-ISSUE-B/C**(P2):简报顶部「上次会议未完待办」的总数 / 逾期数从原 `len(rows)`(被 LIMIT 截断) 改成独立 `COUNT(*)` 查询;当总数 > 8 时 header 加 `· 显示前 8` 透明化截断 ② **NEW-ISSUE-A**(P3):`prune_noise_users.py` 加 `--force-with-voiceprint` flag,显式覆盖 voiceprint guard;依赖 FK CASCADE 干净删除;跑了一次,删掉 `1` `111` 两条遗留 noise 用户 ③ 修了 prune 脚本的隐性 bug:`Voiceprint.user_id` / `WorkspaceMembership.user_id` / `PasswordResetToken.user_id` 都是 NOT NULL,以前 `_FK_REPOINT` 列表里包含他们,在 force 模式会触发约束违反 → 现在依赖 ondelete=CASCADE 自动级联 |
+| v13 | 2026-05-08 | **M3.0 收尾**:① **M3.0.4 僵局检测**:agenda_monitor LLM prompt 新增 `stuck` 信号;新事件类型 `agenda_stuck`,前端橙红色 banner + **5 秒倒计时**,用户不操作则**自动召唤主持人**(更激进的 UX) ② **M3.0.7 跨会议跟进**:`briefing_generator` 把本 workspace 内 `status='open'` 的行动项渲染到简报 markdown **顶部**(逾期项加 ⚠️ 标记) ③ **dissent run-now 同步触发端点**(对称 agenda 的 v12 修复)|
 | v12 | 2026-05-08 | **修掉 v11 QA 报告的全部 5 个发现**:① ISSUE-1: `/result` 返回的 line 同时带 `id` 和 `line_id`(POST 一致);② ISSUE-2: dissent + agenda 检测器都写 `audit_log` (`dissent.detected` / `agenda.agenda_off_topic` / `agenda.agenda_time_warning`);manual-transcript 第一次注入时把 `meeting.status` 从 `scheduled` 翻到 `ongoing` + 记 `started_at`;③ ISSUE-4: 新增 `POST /api/meetings/{id}/agenda-monitor/run-now` 同步触发(绕过 60s 节流 + 90s 抑制),返回 banner payload;④ ISSUE-3: action_extractor prompt 重写,加 5 条 NEGATIVE 规则 + 2 个 few-shot,纯闲聊纪要现在返回 `[]`;⑤ ISSUE-5: 跑了一轮 prune_noise_users,删掉 noise 名(脏数据再清理一轮) |
 | v11 | 2026-05-08 | 新增「自动主持人」X 系列(M3.0 Multi-Agent V2):① **议程**(meeting.agenda)— 创建会议时填议程项 + 时间预算 → 进入 LLM 监督 ② **主持人 Agent**(role='moderator')每个 workspace 自动建一个 ③ **跑题检测**(`agenda_off_topic`)+ **时间预警**(`agenda_time_warning`)WS 事件 → 主持人 banner ④ **行动项自动抽取**(MeetingActionItem 表 + action_extractor 接在 summary 之后)+ ActionItemsCard UI(勾选完成 / 手动添加 / 删除)⑤ **agent-messages 端点**(Cowork 验证 Agent 是否真发言);**给 Claude Cowork 的指南**重写为「全场景驱动方案」,明确除 B/C/D 三个真声纹系列外,**所有系列都有可执行的 REST 流程** |
 | v10 | 2026-05-08 | 新增「文字录入」W 系列(打字录入入口 — 麦克风的替代,亦是 Cowork 全自动测试主力):① 会议页底部新增 `[💬 发言人下拉] [文字框] [发送]` 工具栏(`data-testid="manual-text-input"`);② WS 新增 `text_message` action(走与 ASR final 相同管道,触发 Agent + 分歧检测);③ 新增 REST `POST /api/meetings/{id}/manual-transcript`(无 WS 时也可注入字幕,Cowork 主用此入口);④ 麦权限拒绝时不再断开 WS,自动进入「⌨️ 仅文字模式」让用户继续打字 |
@@ -828,6 +829,9 @@ coworkSmoke();
 | **X-26** | 跨会议跟进进入简报顶部(**v13 新增 M3.0.7**) | 1. 在会议 A 添加 1-2 个 manual action item(status='open')<br>2. 创建新会议 B (相同 workspace)<br>3. `GET /api/meetings/{B.id}/briefing` | `briefing_md` **以**「## 📌 上次会议未完待办 (N 项)」开头,列出 A 的 open 项,每条 `- **<assignee>** · <content>`;**之后**才是 LLM 生成的「上次/历史相关结论 / 仍未关闭的事 / 需要重点关注」 | | |
 | **X-27** | 逾期项加 ⚠️ | 1. 创建一个 due_at 为昨天的 action item(via PATCH `due_at`)<br>2. 创建新会议 → 看简报 | 「上次会议未完待办」标题里出现「**N 项逾期**」;对应行尾有「⚠️ **逾期 Xd**」 | | |
 | **X-28** | 已完成 / 已取消项不进简报 | 1. 把所有 open 改成 done 或 cancelled<br>2. 简报 | 简报顶部不再显示「上次会议未完待办」段落(全部清完则段落整段不出) | | |
+| **X-29** | 简报 header 总数实时一致(**v14 修复**) | 1. workspace 内 N 个 open 行动项<br>2. PATCH 关掉 K 个<br>3. 创建新会议 → `GET /briefing` | header 文案 `(N-K 项, ...)` **而不是** 旧值 N;header 数字与 list 行数一致(直到 LIMIT=8) | | |
+| **X-30** | 简报截断透明化(**v14 新增**) | workspace 内 ≥ 9 个 open 行动项 | header 末尾出现 `· 显示前 8`;list 仍只渲 8 行 | | |
+| **X-31** | prune `--force-with-voiceprint`(**v14 新增**) | 1. 创建一个名为 `_x31` 的声纹用户(借 `POST /api/users` 加录入)<br>2. `python prune_noise_users.py --apply --force-with-voiceprint`<br>3. 检查 `/api/users` | `_x31` 不会被删(不在 noise 名规则里);但 `1`、`111`(纯数字 + 有声纹)会被删 | | |
 
 ### Cowork X 系列驱动脚本(议程 + 跑题 + 行动项)
 
@@ -939,7 +943,7 @@ coworkX();
 ```
 测试人:
 测试时间:
-测试用例版本: v13
+测试用例版本: v14
 浏览器/系统:
 默认账号是否生效: 是 / 否
 
