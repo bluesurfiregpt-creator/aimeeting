@@ -20,27 +20,80 @@ function handleAuthError(status: number) {
   window.location.assign(`/login?next=${encodeURIComponent(path)}`);
 }
 
+/**
+ * Custom error thrown by the fetch wrappers. Call sites should display
+ * `error.message` directly — it always carries a friendly, end-user-readable
+ * message (parsed from FastAPI's {detail} shape, or a fallback like
+ * "请求失败"). The raw status / path / response body are exposed on the error
+ * object for logging but should NOT be shown to users (per v8 test report
+ * P1+P2 — login/register pages were leaking these into form error labels).
+ */
+export class ApiError extends Error {
+  status: number;
+  path: string;
+  rawBody: string;
+  constructor(message: string, opts: { status: number; path: string; rawBody: string }) {
+    super(message);
+    this.name = "ApiError";
+    this.status = opts.status;
+    this.path = opts.path;
+    this.rawBody = opts.rawBody;
+  }
+}
+
+/** Pull the friendliest message we can find out of an error response.
+ *  Order:
+ *    1. FastAPI {"detail": "..."}
+ *    2. Some endpoints return {"message": "..."}
+ *    3. Plain-text body if it's short and looks like text (not HTML)
+ *    4. Generic fallback by status code
+ *  Never returns the raw HTML 502 page or the bare path/status string. */
+function friendlyDetail(status: number, body: string): string {
+  const trimmed = (body || "").trim();
+  if (trimmed) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed?.detail) {
+        return Array.isArray(parsed.detail)
+          ? parsed.detail.map((d: { msg?: string }) => d?.msg || JSON.stringify(d)).join("; ")
+          : String(parsed.detail);
+      }
+      if (parsed?.message) return String(parsed.message);
+    } catch {
+      // not JSON — only show as detail if it looks like a short plain message
+      const isHtml = /^\s*<(!doctype|html|body)/i.test(trimmed);
+      if (!isHtml && trimmed.length <= 200) return trimmed;
+    }
+  }
+  if (status === 401) return "请先登录";
+  if (status === 403) return "无权限";
+  if (status === 404) return "资源不存在";
+  if (status === 409) return "资源冲突";
+  if (status === 429) return "请求过于频繁";
+  if (status >= 500) return "服务器暂时不可用，请稍后重试";
+  return `请求失败（${status}）`;
+}
+
 /** Surface non-401 network errors as a toast so users get visible feedback
  *  even when individual call sites silently swallow the throw. */
-function handleNetworkError(path: string, status: number, body: string) {
+function handleNetworkError(_path: string, status: number, body: string) {
   if (typeof window === "undefined") return;
   if (status === 401) return; // handled by handleAuthError
-  // Try to extract a useful message from FastAPI's {"detail": "..."} shape
-  let detail = body.slice(0, 200);
-  try {
-    const parsed = JSON.parse(body);
-    if (parsed?.detail) detail = String(parsed.detail);
-  } catch {}
+  const detail = friendlyDetail(status, body);
   if (status >= 500) {
-    toast.error("服务器错误", { detail: `${status} ${path} :: ${detail}` });
+    toast.error("服务器错误", { detail });
   } else if (status === 404) {
     // 404s are often expected (e.g. polling for a resource) — only toast on
     // explicit user actions. We default to silent here; callers can toast
     // themselves where it matters.
     return;
   } else if (status >= 400) {
-    toast.warn(`请求失败 (${status})`, { detail: `${path} :: ${detail}` });
+    toast.warn(`请求失败 (${status})`, { detail });
   }
+}
+
+function makeError(path: string, status: number, body: string): ApiError {
+  return new ApiError(friendlyDetail(status, body), { status, path, rawBody: body });
 }
 
 async function jget<T>(path: string): Promise<T> {
@@ -50,8 +103,9 @@ async function jget<T>(path: string): Promise<T> {
   });
   if (!r.ok) {
     handleAuthError(r.status);
-    handleNetworkError(path, r.status, "");
-    throw new Error(`${path}: ${r.status}`);
+    const body = await r.text().catch(() => "");
+    handleNetworkError(path, r.status, body);
+    throw makeError(path, r.status, body);
   }
   return r.json();
 }
@@ -64,9 +118,9 @@ async function jpost<T>(path: string, body: unknown): Promise<T> {
   });
   if (!r.ok) {
     handleAuthError(r.status);
-    const body = await r.text().catch(() => "");
-    handleNetworkError(path, r.status, body);
-    throw new Error(`${path}: ${r.status} ${body}`);
+    const text = await r.text().catch(() => "");
+    handleNetworkError(path, r.status, text);
+    throw makeError(path, r.status, text);
   }
   return r.json();
 }
@@ -80,7 +134,7 @@ async function jpostForm<T>(path: string, form: FormData): Promise<T> {
     handleAuthError(r.status);
     const body = await r.text().catch(() => "");
     handleNetworkError(path, r.status, body);
-    throw new Error(`${path}: ${r.status} ${body}`);
+    throw makeError(path, r.status, body);
   }
   return r.json();
 }
@@ -230,9 +284,9 @@ async function jput<T>(path: string, body: unknown): Promise<T> {
   });
   if (!r.ok) {
     handleAuthError(r.status);
-    const body = await r.text().catch(() => "");
-    handleNetworkError(path, r.status, body);
-    throw new Error(`${path}: ${r.status} ${body}`);
+    const text = await r.text().catch(() => "");
+    handleNetworkError(path, r.status, text);
+    throw makeError(path, r.status, text);
   }
   return r.json();
 }
@@ -245,9 +299,9 @@ async function jpatch<T>(path: string, body: unknown): Promise<T> {
   });
   if (!r.ok) {
     handleAuthError(r.status);
-    const body = await r.text().catch(() => "");
-    handleNetworkError(path, r.status, body);
-    throw new Error(`${path}: ${r.status} ${body}`);
+    const text = await r.text().catch(() => "");
+    handleNetworkError(path, r.status, text);
+    throw makeError(path, r.status, text);
   }
   return r.json();
 }
@@ -258,7 +312,9 @@ async function jdelete(path: string): Promise<void> {
   });
   if (!r.ok && r.status !== 204) {
     handleAuthError(r.status);
-    throw new Error(`${path}: ${r.status} ${await r.text().catch(() => "")}`);
+    const text = await r.text().catch(() => "");
+    handleNetworkError(path, r.status, text);
+    throw makeError(path, r.status, text);
   }
 }
 
@@ -366,7 +422,9 @@ export const api = {
     );
     if (!r.ok) {
       handleAuthError(r.status);
-      throw new Error(`export: ${r.status} ${await r.text().catch(() => "")}`);
+      const text = await r.text().catch(() => "");
+      handleNetworkError(`/api/meetings/${id}/export`, r.status, text);
+      throw makeError(`/api/meetings/${id}/export`, r.status, text);
     }
     const cd = r.headers.get("Content-Disposition") ?? "";
     let filename = `meeting.${format}`;

@@ -109,14 +109,23 @@ async def remove_member(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    await _require_admin(session, auth)
-    if str(auth.user.id) == user_id:
+    # Validate + self-check FIRST so an invalid UUID or "remove self" attempt
+    # surfaces as a 4xx with a clear message, not a 500 from a downstream
+    # query (per v8 test report P4 — DELETE /team/members/<my_id> was
+    # returning 500 + empty body instead of the 400 that's already coded).
+    try:
+        target_uuid = uuid.UUID(user_id.strip())
+    except (ValueError, AttributeError):
+        raise HTTPException(400, "invalid user id")
+    if auth.user.id == target_uuid:
         raise HTTPException(400, "cannot remove yourself; transfer ownership first")
+
+    await _require_admin(session, auth)
     target = (
         await session.execute(
             select(WorkspaceMembership).where(
                 WorkspaceMembership.workspace_id == auth.workspace.id,
-                WorkspaceMembership.user_id == user_id,
+                WorkspaceMembership.user_id == target_uuid,
             )
         )
     ).scalar_one_or_none()
@@ -128,7 +137,7 @@ async def remove_member(
     await session.commit()
     await audit_log(
         session, auth, "team.remove_member",
-        target_type="user", target_id=user_id,
+        target_type="user", target_id=str(target_uuid),
     )
 
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api, type KnowledgeBase } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { SkeletonGrid } from "@/components/Skeleton";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 export default function KnowledgeAdmin() {
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
@@ -12,6 +13,7 @@ export default function KnowledgeAdmin() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [creating, setCreating] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -43,11 +45,20 @@ export default function KnowledgeAdmin() {
     }
   };
 
-  const remove = async (id: string, kbName: string) => {
-    if (!confirm(`确认删除知识库「${kbName}」？所有文档和分块会一起删除（OSS 上的源文件会保留）。`))
-      return;
-    await api.deleteKnowledgeBase(id);
-    await refresh();
+  const remove = (id: string, kbName: string) => {
+    setConfirmDelete({ id, name: kbName });
+  };
+
+  const performDelete = async () => {
+    if (!confirmDelete) return;
+    const { id } = confirmDelete;
+    setConfirmDelete(null);
+    try {
+      await api.deleteKnowledgeBase(id);
+      await refresh();
+    } catch (e) {
+      toast.error("删除失败", { detail: e instanceof Error ? e.message : "未知错误" });
+    }
   };
 
   return (
@@ -124,6 +135,21 @@ export default function KnowledgeAdmin() {
           </ul>
         )}
       </section>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title="确认删除知识库？"
+        body={
+          <>
+            将删除「<span className="text-white">{confirmDelete?.name}</span>」。
+            所有文档和分块会一起删除(OSS 上的源文件会保留,可联系管理员手动清理)。
+          </>
+        }
+        confirmLabel="删除"
+        danger
+        onConfirm={performDelete}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, type Meeting, type User } from "@/lib/api";
 import { SkeletonList } from "@/components/Skeleton";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { toast } from "@/lib/toast";
 
 const STATUS_TONE: Record<string, string> = {
   scheduled: "bg-zinc-700/40 text-zinc-400",
@@ -23,6 +25,7 @@ export default function MeetingsListPage() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [users, setUsers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -37,14 +40,19 @@ export default function MeetingsListPage() {
     return () => { alive = false; };
   }, []);
 
-  const remove = async (id: string, title: string) => {
-    if (!confirm(`确认删除会议「${title}」？\n\n该会议的字幕、纪要、音频片段都会一起删除。\n从中抽取的长期记忆会**保留**(可在 /admin/memory 单独清理)。`))
-      return;
+  const remove = (id: string, title: string) => {
+    setConfirmDelete({ id, title });
+  };
+
+  const performDelete = async () => {
+    if (!confirmDelete) return;
+    const { id } = confirmDelete;
+    setConfirmDelete(null);
     try {
       await api.deleteMeeting(id);
       setMeetings((prev) => prev.filter((m) => m.id !== id));
     } catch (e) {
-      alert(e instanceof Error ? `删除失败：${e.message}` : "删除失败");
+      toast.error("删除失败", { detail: e instanceof Error ? e.message : "未知错误" });
     }
   };
 
@@ -107,6 +115,24 @@ export default function MeetingsListPage() {
           })}
         </ul>
       )}
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title="确认删除会议？"
+        body={
+          <>
+            将删除「<span className="text-white">{confirmDelete?.title}</span>」。
+            <br />
+            该会议的字幕、纪要、音频片段都会一起删除。
+            <br />
+            从中抽取的长期记忆会<strong>保留</strong>(可在 <code>/admin/memory</code> 单独清理)。
+          </>
+        }
+        confirmLabel="删除"
+        danger
+        onConfirm={performDelete}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </main>
   );
 }

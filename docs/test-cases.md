@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v8）
+# Aimeeting · 测试用例（v9）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -146,11 +146,136 @@ WS PCM 同时缓冲到 in-mem session.pcm_buffer
 
 ---
 
+## 给 Claude Cowork(自动化测试 Agent)的指南
+
+> 这一节专门为 **Cowork** 这种自动化测试 Agent 写。如果你是人类测试员,跳过即可;但里面的 API 端点速查表对手工 debug 也有用。
+
+### 1. 鉴权 / 登录(必读)
+
+- 入口 `https://aimeeting.zhzjpt.cn`,所有 `/admin/*`、`/meetings/*` 都需要登录。
+- 默认测试账号:邮箱 `bluesurfiregpt@gmail.com` / 密码 `aimeeting123`。
+- 鉴权机制:`POST /api/auth/login` 返回 `Set-Cookie: aimeeting_session=<JWT>; HttpOnly; Secure; SameSite=Lax; Max-Age=14d`。后续所有请求 `credentials: include` 即可自动带上。
+- 登录成功后浏览器跳到首页,右上角文案应是「默认工作空间 · Bluesurfire · 登出」。**Cowork 验证登录是否成功的最稳定方法**:`GET /api/auth/me` 返回 200 + `{user_id, name, email, workspace_id, workspace_name}`(401 即未登录)。
+- 401 在前端会自动重定向到 `/login?next=<原路径>`,**不要**当作业务错误。
+
+### 2. API 端点速查表(可直接用 fetch / curl 验证,无需 UI 交互)
+
+| 资源 | 方法 + 路径 | 备注 |
+|---|---|---|
+| 当前用户 | `GET /api/auth/me` | 鉴权检查首选 |
+| 登录 | `POST /api/auth/login` body `{email, password}` | 返回 `{user_id, ...}` 并 set cookie |
+| 注册 | `POST /api/auth/register` body `{email, name, password, workspace_name?}` | 自动登录 |
+| 用户列表 | `GET /api/users` | 当前 workspace 全部声纹用户 |
+| 会议列表 | `GET /api/meetings` | 倒序按创建时间 |
+| 会议详情 | `GET /api/meetings/{id}` | `status` ∈ `{scheduled, ongoing, finished, processed}` |
+| **会议字幕** | `GET /api/meetings/{id}/result` | ⚠️ **不是** `/transcript` 也不是 `/lines`。返回 `{meeting, lines[], identification_status, identification_message}` |
+| 会议纪要 | `GET /api/meetings/{id}/summary` | 返回 `{summary_md, status}`,`status` ∈ `{ready, pending, skipped, unconfigured, failed}` |
+| **会议导出** | `GET /api/meetings/{id}/export?format=md\|docx` | ⚠️ **不是** `/export.md`/`/export.docx`,而是 `?format=md` 或 `?format=docx`。响应是文件流 + `Content-Disposition` |
+| 会议简报 | `GET /api/meetings/{id}/briefing` | 长期记忆生成的会前提要 |
+| 删除会议 | `DELETE /api/meetings/{id}` | 204 |
+| 纠错说话人 | `POST /api/meetings/{mid}/transcripts/{lid}/correct-speaker` body `{speaker_user_id}` | `lid` 是 `meeting_transcript.id`(数字) |
+| Agent CRUD | `/api/agents` POST/GET, `/api/agents/{id}` PATCH/DELETE | DELETE 后会写 audit log |
+| 知识库 CRUD | `/api/knowledge-bases` 同上 |  |
+| 文档上传 | `POST /api/knowledge-bases/{kbid}/documents` (multipart `file=...`) | 异步解析,200 返回时 `status=parsing`,稍后变 `ready` |
+| LLM Provider 列表 | `GET /api/model-providers` | masked_key 不会泄露完整 key |
+| LLM Provider 拉取模型 | `POST /api/model-providers/{provider}/list-models` body `{api_key?, base_url?}` | 留空则用已保存的 |
+| 团队成员 | `GET /api/team/members` | 包含 owner / admin / member 角色 |
+| 邀请 | `POST /api/team/invitations` body `{email, role}` | 返回含 invite_url + 7d TTL |
+| 移除成员 | `DELETE /api/team/members/{user_id}` | **移除自己 → 400** + `cannot remove yourself; transfer ownership first`(v9 修复:之前会 500) |
+| 审计日志 | `GET /api/audit?action=&user_id=&limit=&offset=` | 倒序 |
+| 找回密码 | `POST /api/auth/password/forgot` body `{email}` | 总是返回成功(防枚举);链接打到后端日志 |
+| WebSocket(STT) | `wss://aimeeting.zhzjpt.cn/ws/stt?meeting_id=<id>` | 鉴权走 cookie。发 PCM bytes,收 JSON 事件 |
+| 健康检查 | `GET /healthz` | `{ok: true, env: "prod"}`,公开 |
+
+### 3. UI 选择器约定
+
+为方便 Cowork 用 DOM-based 工具(claude-in-chrome、playwright)定位元素,关键交互点都用以下方式可发现:
+
+- **登录按钮**:文案 = `登录` 的 `<button type="submit">`
+- **登出按钮**:右上角文案 = `登出`
+- **开始会议按钮**(首页):文案 = `开始会议`,点后 `POST /api/meetings` → 跳 `/meeting/<id>`
+- **开始会议按钮**(会议页):同样文案,点击后唤起 mic 权限
+- **删除按钮**:文案 = `删除`(知识库/会议/Agent 都用同一个文案)。点击后**不会**弹原生 `confirm()`,而是渲染一个 `<div role="dialog" data-testid="confirm-dialog">` 模态框。模态框里有两个按钮:
+  - `data-testid="confirm-dialog-confirm"` — 红色,文案「删除」(或 `confirmLabel` 指定的)
+  - `data-testid="confirm-dialog-cancel"` — 灰色,文案「取消」
+  - 按 Escape 也可关闭。
+- **AI 专家头像条**:`<button>` 包含一个圆形头像(背景色 = Agent.color)+ Agent 姓名。
+- **拉取模型列表按钮**:文案 = `拉取模型列表 ↻`,在 `/admin/models` 每个 Provider 卡片右上角(Model ID 标签旁)。
+- **「设为默认」复选框**:文案 = `设为默认（仅一个 provider 可同时为默认）`
+- **会议详情 H1**(v9 起):显示**会议标题**(从 `GET /api/meetings/{id}.title`),不再是写死的「实时字幕 · 异步贴姓名」
+- **错误 toast**:右上角浮层,5xx 红色、4xx 琥珀。文案是 FastAPI `detail` 字段(v9 修复:不再泄露 API 路径或原始 502 HTML)
+- **Toaster**(全局):挂在 `<body>` 顶层
+
+### 4. 哪些用例 Cowork 可独立完成,哪些需要人 / 物理设备
+
+| 系列 | 自动化能跑? | 原因 |
+|---|---|---|
+| A 账号 | ✅ 全自动 | 纯 API + UI 跳转,可直接调 `/api/auth/login` 验证 |
+| B 声纹录入 | ❌ 跳过 | 需要 35-45s 真人朗读 |
+| C 实时字幕 | ❌ 跳过 | 需要麦克风 |
+| D 声纹识别 | ❌ 跳过 | 依赖 C |
+| E 手动纠错 | ⚠️ 部分 | 在已有 transcript 的历史会议上可跑,跳过会议中纠错 |
+| F AI 专家触发 | ⚠️ 部分 | **手动召唤(F-3)可独立测**:在已结束会议页点头像调 `POST` invoke。关键词/@ 触发依赖语音 |
+| G 自动纪要 | ✅ 完全可读 | API 直接 `GET /api/meetings/{id}/summary`,UI 在已处理会议页有「会议纪要」卡 |
+| H 长期记忆 | ✅ 大部分 | 调 `GET /api/memory` 看条目;A-5 间接验证隔离 |
+| I 会前简报 | ✅ 大部分 | `GET /api/meetings/{id}/briefing`;UI 在新建会议详情页有「💡 会前简报」 |
+| J 会议历史 + 删除 | ✅ 全自动 | 列表/详情/删除全可跑;**避免删生产数据**,只删 Cowork 自己创建的 |
+| K LLM/Agent 后台 | ✅ 全自动 | CRUD 全可跑 |
+| L 边界 | ⚠️ 部分 | Back/Forward 可跑;多浏览器/iOS 跳过 |
+| M 错误 toast | ✅ 全自动 | 故意调坏的 API 看 toast |
+| N 审计日志 | ✅ 全自动 | `GET /api/audit` 直接验证 |
+| O 团队管理 | ⚠️ 大部分 | 邀请创建可跑;**接受邀请需要新浏览器/会话**,可用 Cowork 第二个 tab 模拟 |
+| P 找回密码 | ❌ 慎跑 | 跑 P-5 会改默认账号密码,跑前先注册一个 throwaway 账号 |
+| Q 知识库 | ✅ 全自动 | CRUD + 文件上传(用真实小文件) |
+| R 会议导出 | ✅ 全自动 | `GET /api/meetings/{id}/export?format=md` 拿到文件流并校验 `Content-Disposition` |
+| S 连接稳定性 | ⚠️ 限 Chrome MCP | 需要真实断网,用 Network panel 切 Offline |
+| T Agent 接力 | ❌ 跳过 | 需要 Agent 实际发言 |
+| U 分歧检测 | ❌ 跳过 | 需要语音对话 |
+| V v8/v9 回归 | ✅ 全自动 | DOM + Console 检查为主 |
+
+### 5. Cowork 测试纪律
+
+1. **测试数据隔离**:Cowork 创建的所有可识别数据**必须**以 `_cowork_` 或 `_test_` 前缀命名(Agent 名 / 知识库名 / 会议标题 / 邀请邮箱),便于事后批量清理。
+2. **不动生产数据**:不删不属于自己创建的会议 / 知识库 / Agent;不切换默认 LLM Provider;不改默认账号的密码 / 邮箱。
+3. **不点击有风险的按钮**:除非测试用例明确要求,不点「删除工作空间」、「禁用所有 AI 专家」之类影响面大的操作。
+4. **测试结束清理**:每条 Cowork 自己创建的资源在测试结束时通过 API DELETE 掉。可以一份汇总日志:「我创建了 X / Y / Z,已清理」。
+5. **Toast / 状态推断**:UI 状态变化等待最多 5 秒;长任务(声纹识别、文档解析)轮询时 30 秒上限就退;真等不到就把现状写进「实际结果」字段而不是死等。
+6. **抓证据**:失败时同时记录:Console 红字(`mcp__claude-in-chrome__read_console_messages`)、网络请求(`mcp__claude-in-chrome__read_network_requests`)、关键 DOM 截图(`computer screenshot`)。
+
+### 6. Cowork 可直接复用的辅助代码片段
+
+```js
+// 1. 验证登录态 (cookie-based)
+await fetch('/api/auth/me').then(r => r.json())
+// → {user_id, name, ..., workspace_id, workspace_name}
+
+// 2. 创建测试会议(标题以 _cowork_ 开头便于清理)
+const m = await fetch('/api/meetings', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  credentials: 'include',
+  body: JSON.stringify({title: '_cowork_smoke_' + Date.now(), attendee_user_ids: []}),
+}).then(r => r.json())
+
+// 3. 拉取会议字幕(注意是 /result,不是 /transcript)
+await fetch(`/api/meetings/${m.id}/result`).then(r => r.json())
+
+// 4. 下载导出文件
+const r = await fetch(`/api/meetings/${m.id}/export?format=md`)
+console.log(r.headers.get('Content-Disposition'))
+
+// 5. 删除自己创建的会议
+await fetch(`/api/meetings/${m.id}`, {method: 'DELETE', credentials: 'include'})
+```
+
+---
+
 ## 版本与变更记录
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v8** | 2026-05-08 | 文档头部加【系统概览】(架构图 / 数据流 / 触发路径 / 测试入门顺序);修复 `audioCapture.ts` 中 `audioWorklet` getter 在 prototype 上访问抛 `Illegal invocation` 的崩溃 bug → 影响 Sprint K.2 后所有进入会议页的用户(C 系列重点回归);加 SSR/CSR 水合 mounted 守卫(防 React #418) |
+| **v9** | 2026-05-08 | 加【给 Claude Cowork 的指南】(API 速查表 / DOM 选择器约定 / 自动化纪律 / 复用代码片段);**v8 测试报告 6 个问题全部修掉**:① 详情页根据 `meeting.status` 切换渲染(已处理 → 直接显示纪要+实录,不再卡在「开始会议」UI);② 详情页 H1 显示真实会议标题(不再写死);③ API 错误 toast/message **不再泄露路径或原始 502 HTML**(自定义 `ApiError` + `friendlyDetail`);④ 三个 `window.confirm()` 全替换成 `<ConfirmDialog data-testid="confirm-dialog">` 应用内模态(自动化可点);⑤ `DELETE /team/members/<self>` 早返回 400(之前 500);⑥ `agent.create/update/delete` 都补上 `audit_log`;⑦ 顺手修了一个找到的脏数据 bug:`POST /api/users` 没邮箱时不再每次新建一行(同名 286 条 hefan 的元凶) |
+| v8 | 2026-05-08 | 文档头部加【系统概览】(架构图 / 数据流 / 触发路径 / 测试入门顺序);修复 `audioCapture.ts` 中 `audioWorklet` getter 在 prototype 上访问抛 `Illegal invocation` 的崩溃 bug → 影响 Sprint K.2 后所有进入会议页的用户(C 系列重点回归);加 SSR/CSR 水合 mounted 守卫(防 React #418) |
 | v7 | 2026-05-08 | 新增「分歧检测」U 系列(Multi-Agent M2.3:LLM 实时分析最近 8 句对话,识别两位以上参会人就同一话题持对立观点 → 主动召唤适合仲裁的 AI 专家;rose 色 banner,点「召唤<专家>」一键解决) |
 | v6 | 2026-05-08 | 新增「Agent 接力」T 系列(Multi-Agent Orchestrator V1:AI 专家发言完毕后系统推荐下一位发言专家;点击直接召唤) |
 | v5 | 2026-05-08 | 新增「会议导出」R 系列(MD/DOCX 下载) 和「连接稳定性」S 系列(WS 自动重连); C 系列加入 iOS Safari 提醒条 (C-11); 通用列表加载态升级为 skeleton |
@@ -532,8 +657,18 @@ WS PCM 同时缓冲到 in-mem session.pcm_buffer
 | **V-7** | 不安全上下文(纯 IP/HTTP) | 用 `http://47.245.92.62:3000/meeting/<id>` 直连(若开放) | 不应崩,应明确显示「⚠️ 当前页面不在安全上下文中」红条 | | |
 | **V-8** | 水合无 React #418 | 进会议页后 Console 看 React 错误 | **不应**出现 `Minified React error #418`(水合不一致);旧版会出 | | |
 | **V-9** | 多次反复进退会议页 | 进 → 返回 → 再进 → 重复 5 次 | 每次都正常渲染;无内存泄漏报错;无重复创建 AudioContext 的警告 | | |
+| **V-10** | 已处理会议详情页直接显示纪要 + 实录(v9 P0 回归) | 1. `/meetings` 找一条紫色「已处理」徽标的会议<br>2. 点进详情<br>3. 等加载 | **不应**只看到「开始会议」按钮和会前简报。应直接看到:① H1 显示**会议真实标题**(不是「实时字幕 · 异步贴姓名」);② 「会议纪要」卡片(SummaryCard);③ 字幕实录区有内容;④ 「导出 .md / 导出 .docx」按钮可用 | | |
+| **V-11** | 会议详情 H1 是会议标题(v9 UX 回归) | 同 V-10 | H1 文案 = `meeting.title`(如「测试会议 5 月 8 日」),feature 描述「实时字幕 · 异步贴姓名」降级为副标题(更小 / 更灰) | | |
+| **V-12** | 错误 toast 不泄露 API 路径 / HTML(v9 P1+P2 回归) | 1. 登出<br>2. 故意用错误密码登录,或注册重复邮箱<br>3. 看右下角 toast | toast 文案应是 FastAPI `detail` 字段(如 `incorrect email or password`、`email already registered`)。**不应**包含 `/api/auth/...`、`401`、`409`、`502 Bad Gateway nginx/...` 等 | | |
+| **V-13** | 502 时不渲染 nginx HTML(v9 P1 回归) | 模拟后端瞬时挂掉(可临时 `docker stop aimeeting-backend` 5 秒)再尝试任意操作 | 表单/页面文本里**不应**出现 `<html>`、`502 Bad Gateway`、`nginx/1.18`。只看到友好提示「服务器暂时不可用,请稍后重试」 | | |
+| **V-14** | 删除按钮触发应用内模态(v9 P3 回归) | 1. 进 `/admin/agents`<br>2. 在任一 Agent 名旁点「删除」 | **不应**弹原生浏览器 `confirm()` 对话框。应渲染:`<div role="dialog" data-testid="confirm-dialog">` 模态,内含「删除」(`data-testid="confirm-dialog-confirm"`,红色)+「取消」按钮。Esc 也能关。**自动化可点!** | | |
+| **V-15** | 知识库 / 会议删除也用同款模态 | 1. `/admin/knowledge` 或 `/meetings` 点删除按钮 | 同 V-14。同一个 ConfirmDialog 组件 | | |
+| **V-16** | 删自己 → 400 而非 500(v9 P4 回归) | 1. 用默认账号(owner)在 `/admin/team`<br>2. devtools 直接调 `fetch('/api/team/members/<my_user_id>', {method: 'DELETE'})` | 状态码 **400**,响应 `{"detail":"cannot remove yourself; transfer ownership first"}`。**不应** 500 + 空 body | | |
+| **V-17** | agent.create / update / delete 都被审计(v9 P5 回归) | 1. `POST /api/agents` 建 `_cowork_audit_test`<br>2. `PATCH /api/agents/<id>` 改名<br>3. `DELETE /api/agents/<id>`<br>4. `GET /api/audit?action=agent.create` | 三条 audit 记录都能查到:`agent.create` / `agent.update` / `agent.delete`,payload 含 agent name + fields_changed | | |
+| **V-18** | 同名声纹用户不再每次新建(v9 数据回归) | 1. 用 `_cowork_user_<ts>` 名调 `POST /api/users {name: '_cowork_user_<ts>'}` 两次<br>2. 第二次返回 | 第二次应返回**第一次创建的 user.id**(同一条),不创建新行。`GET /api/users` 该名只 1 条 | | |
 
 > **如果 V-1 到 V-3 任何一条失败,请立刻把 Console 整段红字 + Network 中的 page-`<hash>`.js URL 截图给我,这是优先级最高的 bug。**
+> **v9 P0 回归(V-10/V-11)** 是最容易复现的视觉回归,**任何 Cowork 例行回归首跑都先跑这条**。
 
 ---
 
@@ -544,7 +679,7 @@ WS PCM 同时缓冲到 in-mem session.pcm_buffer
 ```
 测试人:
 测试时间:
-测试用例版本: v8
+测试用例版本: v9
 浏览器/系统:
 默认账号是否生效: 是 / 否
 

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..audit import audit_log
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
 from ..models import Agent
@@ -85,6 +86,11 @@ async def create_agent(
     session.add(a)
     await session.commit()
     await session.refresh(a)
+    await audit_log(
+        session, auth, "agent.create",
+        target_type="agent", target_id=str(a.id),
+        payload={"name": a.name, "domain": a.domain},
+    )
     return _to_out(a)
 
 
@@ -120,10 +126,16 @@ async def update_agent(
     auth: AuthContext = Depends(get_current_auth),
 ):
     a = await _load_owned_agent(agent_id, session, auth)
+    changed = list(payload.model_dump(exclude_unset=True).keys())
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(a, k, v)
     await session.commit()
     await session.refresh(a)
+    await audit_log(
+        session, auth, "agent.update",
+        target_type="agent", target_id=str(a.id),
+        payload={"name": a.name, "fields_changed": changed},
+    )
     return _to_out(a)
 
 
@@ -134,5 +146,11 @@ async def delete_agent(
     auth: AuthContext = Depends(get_current_auth),
 ):
     a = await _load_owned_agent(agent_id, session, auth)
+    name = a.name
     await session.delete(a)
     await session.commit()
+    await audit_log(
+        session, auth, "agent.delete",
+        target_type="agent", target_id=str(agent_id),
+        payload={"name": name},
+    )

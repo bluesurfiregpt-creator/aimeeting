@@ -25,9 +25,18 @@ async def create_user(
     auth: AuthContext = Depends(get_current_auth),
 ):
     """
-    Creates a *speaker-only* user (no password) within the current
+    Find-or-create a *speaker-only* user (no password) within the current
     workspace. Used by /enroll. Real account creation is via /api/auth/register.
+
+    Dedup order:
+      1. by (workspace, email)  — exact match wins if email provided
+      2. by (workspace, name)   — voiceprint enrollers usually leave email
+                                  blank; we MUST not create a new User
+                                  every time someone hits "录入声纹"
+                                  (v8 test report found 286 hefan rows
+                                  caused by this missing dedup)
     """
+    name = payload.name.strip()
     if payload.email:
         existing = (
             await session.execute(
@@ -41,8 +50,22 @@ async def create_user(
             return UserOut.model_validate(
                 {**existing.__dict__, "has_voiceprint": False}
             )
+    else:
+        # Find-or-create by name within the workspace
+        existing = (
+            await session.execute(
+                select(User).where(
+                    User.name == name,
+                    User.workspace_id == auth.workspace.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            return UserOut.model_validate(
+                {**existing.__dict__, "has_voiceprint": False}
+            )
     u = User(
-        name=payload.name.strip(),
+        name=name,
         email=payload.email,
         workspace_id=auth.workspace.id,
     )

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, type Agent, type KnowledgeBase } from "@/lib/api";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 type Form = {
   name: string;
@@ -28,6 +29,9 @@ const COLORS = ["violet", "sky", "emerald", "amber", "rose", "teal"];
 export default function AgentsAdmin() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
+  // {id, name} of the agent the user is being asked to confirm deletion for.
+  // null = no dialog open.
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
   const [form, setForm] = useState<Form>(EMPTY);
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -96,11 +100,21 @@ export default function AgentsAdmin() {
     }
   };
 
-  const remove = async (id: string) => {
-    if (!confirm("确认删除这个 Agent？")) return;
-    await api.deleteAgent(id);
-    await refresh();
-    if (editing === id) reset();
+  const remove = (id: string, name: string) => {
+    setConfirmDelete({ id, name });
+  };
+
+  const performDelete = async () => {
+    if (!confirmDelete) return;
+    const { id } = confirmDelete;
+    setConfirmDelete(null);
+    try {
+      await api.deleteAgent(id);
+      await refresh();
+      if (editing === id) reset();
+    } catch (e) {
+      setMsg(e instanceof Error ? `❌ ${e.message}` : "删除失败");
+    }
   };
 
   return (
@@ -234,7 +248,7 @@ export default function AgentsAdmin() {
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => startEdit(a)} className="text-xs text-zinc-400 hover:text-white">编辑</button>
-                    <button onClick={() => remove(a.id)} className="text-xs text-rose-400 hover:text-rose-300">删除</button>
+                    <button onClick={() => remove(a.id, a.name)} className="text-xs text-rose-400 hover:text-rose-300">删除</button>
                   </div>
                 </div>
                 {a.domain && <div className="mt-1 text-xs text-zinc-500">{a.domain}</div>}
@@ -258,6 +272,21 @@ export default function AgentsAdmin() {
           </ul>
         )}
       </section>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title="确认删除 Agent？"
+        body={
+          <>
+            将删除「<span className="text-white">{confirmDelete?.name}</span>」。
+            该 Agent 在所有会议中的历史发言记录会保留，但今后无法再被召唤。
+          </>
+        }
+        confirmLabel="删除"
+        danger
+        onConfirm={performDelete}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

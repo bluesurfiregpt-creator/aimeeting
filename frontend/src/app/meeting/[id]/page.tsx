@@ -157,6 +157,16 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [statusText, setStatusText] = useState("待开始");
+  // Meeting metadata loaded on mount so we can:
+  //   1. Show the actual meeting title in the H1 (was hardcoded to a feature
+  //      description, which confused testers — see report v8 finding 4)
+  //   2. Auto-jump straight to "ended" phase when navigating to a meeting
+  //      that's already processed/finished, so the SummaryCard + transcript
+  //      render instead of the start-meeting UI (report v8 P0 finding)
+  const [meetingMeta, setMeetingMeta] = useState<{
+    title: string;
+    status: string;
+  } | null>(null);
   const [audioCaps] = useState(() => probeAudioCapabilities());
   // `mounted` gates browser-only conditional UI (iOS Safari notice, insecure
   // context warning) so SSR + first hydration render identical markup. Without
@@ -514,6 +524,48 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     );
   }, []);
 
+  // Load meeting metadata; if the meeting is already finished/processed,
+  // jump straight to "ended" phase so SummaryCard + transcript render. Also
+  // surface meeting title for the H1.
+  useEffect(() => {
+    let alive = true;
+    api.getMeeting(meetingId).then(
+      (m) => {
+        if (!alive) return;
+        setMeetingMeta({ title: m.title, status: m.status });
+        if (m.status === "processed" || m.status === "finished") {
+          setPhase("ended");
+          setStatusText(m.status === "processed" ? "✅ 已处理" : "已结束");
+          // Pre-populate transcript + speaker names so the user sees
+          // historical content immediately, not a "请点开始会议" empty state.
+          api.meetingResult(meetingId).then(
+            (r) => {
+              if (!alive) return;
+              setLines(
+                r.lines.map((l) => ({
+                  kind: "user" as const,
+                  id: `s${l.id}`,
+                  text: l.text,
+                  final: true,
+                  startMs: l.start_ms,
+                  endMs: l.end_ms,
+                  speakerName: l.speaker_name,
+                  speakerUserId: l.speaker_user_id,
+                  serverLineId: l.id,
+                })),
+              );
+            },
+            () => {},
+          );
+        }
+      },
+      (err) => console.warn("getMeeting failed", err),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [meetingId]);
+
   const invokeAgent = useCallback((agent: Agent) => {
     if (phase !== "live" || !socketRef.current) return;
     if (busyAgents.has(agent.id)) return;
@@ -577,7 +629,10 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       <header className="flex items-center justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.3em] text-zinc-500">会议室</div>
-          <h1 className="mt-1 text-2xl font-semibold text-white">实时字幕 · 异步贴姓名</h1>
+          <h1 className="mt-1 text-2xl font-semibold text-white">
+            {meetingMeta?.title || "正在加载…"}
+          </h1>
+          <p className="mt-1 text-xs text-zinc-500">实时字幕 · 异步贴姓名</p>
         </div>
         <Link href="/" className="text-sm text-zinc-400 hover:text-white">← 首页</Link>
       </header>
