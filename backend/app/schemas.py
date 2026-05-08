@@ -51,7 +51,12 @@ class MeetingOut(BaseModel):
 
 
 class TranscriptLine(BaseModel):
+    # `id` was the original field name (legacy SQLAlchemy column). v11 QA
+    # report ISSUE-1 flagged the inconsistency vs. POST /manual-transcript's
+    # `line_id` (and the URL param `lid` on /correct-speaker). We now expose
+    # BOTH — `line_id` is canonical, `id` stays for one release for back-compat.
     id: int
+    line_id: int
     text: str
     start_ms: Optional[int] = None
     end_ms: Optional[int] = None

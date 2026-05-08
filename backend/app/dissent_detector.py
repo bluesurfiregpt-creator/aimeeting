@@ -42,9 +42,10 @@ from typing import Awaitable, Callable, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .audit import system_audit_log
 from .db import SessionLocal
 from .llm_direct import LlmError, get_active_provider, stream_chat
-from .models import Agent, MeetingTranscript, User
+from .models import Agent, Meeting, MeetingTranscript, User
 
 logger = logging.getLogger(__name__)
 
@@ -213,6 +214,36 @@ async def maybe_detect_dissent(
 
     _mark_fire(meeting_id)
     logger.info("dissent fired in meeting %s -> %s (%s)", meeting_id, chosen.name, topic)
+
+    # v11 ISSUE-2: write an audit row so REST-only callers (Cowork) can
+    # verify the detector fired without subscribing to the live WS.
+    # Look up workspace_id from the meeting (we already have a fresh DB
+    # session inside the call site below). Best-effort — failures are
+    # swallowed by system_audit_log itself.
+    try:
+        async with SessionLocal() as audit_db:
+            m_row = (
+                await audit_db.execute(select(Meeting).where(Meeting.id == meeting_id))
+            ).scalar_one_or_none()
+            ws_id = m_row.workspace_id if m_row is not None else None
+        async with SessionLocal() as audit_db:
+            await system_audit_log(
+                audit_db,
+                ws_id,
+                "dissent.detected",
+                target_type="meeting",
+                target_id=str(meeting_id),
+                payload={
+                    "topic": topic[:80],
+                    "parties": [str(p)[:32] for p in parties[:4]],
+                    "suggested_agent_id": str(chosen.id),
+                    "suggested_agent_name": chosen.name,
+                    "reason": reason[:80],
+                },
+            )
+    except Exception:
+        logger.exception("dissent audit write failed (non-fatal)")
+
     await on_message(
         {
             "type": "dissent_detected",

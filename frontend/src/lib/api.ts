@@ -202,7 +202,10 @@ export type AgentMessage = {
 };
 
 export type TranscriptLine = {
+  /** Back-compat — same value as `line_id`. Kept until callers migrate. */
   id: number;
+  /** Canonical name; matches POST /manual-transcript and /correct-speaker URLs. */
+  line_id: number;
   text: string;
   start_ms: number | null;
   end_ms: number | null;

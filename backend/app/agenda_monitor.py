@@ -36,6 +36,7 @@ from typing import Awaitable, Callable, Optional
 
 from sqlalchemy import select
 
+from .audit import system_audit_log
 from .db import SessionLocal
 from .llm_direct import LlmError, get_active_provider, stream_chat
 from .models import Agent, Meeting, MeetingTranscript, User
@@ -105,13 +106,20 @@ async def maybe_check_agenda(
     meeting_id: uuid.UUID,
     *,
     on_message: Callable[[dict], Awaitable[None]],
-) -> None:
+    force: bool = False,
+) -> Optional[dict]:
     """
     Fire-and-forget agenda check driven by each finalized transcript line.
     Caller does NOT need to await — errors are swallowed and logged.
+
+    `force=True` (per v11 ISSUE-4) bypasses the rate-limit + cooldown so
+    the dev endpoint `POST /api/meetings/{id}/agenda-monitor/run-now`
+    can drive the same logic synchronously for tests.
+
+    Returns the banner payload that was emitted (None if nothing fired).
     """
-    if not _can_run(meeting_id):
-        return
+    if not force and not _can_run(meeting_id):
+        return None
     _mark_run(meeting_id)
 
     async with SessionLocal() as db:
@@ -261,7 +269,39 @@ async def maybe_check_agenda(
 
     _mark_fire(meeting_id)
     logger.info("agenda_monitor fired %s in meeting %s: %s", payload["type"], meeting_id, reason)
+
+    # v11 ISSUE-2: audit row so REST-only callers can verify the trigger
+    # fired even without subscribing to the live WS.
+    try:
+        async with SessionLocal() as audit_db:
+            await system_audit_log(
+                audit_db,
+                m.workspace_id,
+                f"agenda.{payload['type']}",  # 'agenda.agenda_off_topic' / 'agenda.agenda_time_warning'
+                target_type="meeting",
+                target_id=str(meeting_id),
+                payload={
+                    "reason": reason[:80],
+                    "moderator_agent_id": payload.get("moderator_agent_id"),
+                    **(
+                        {
+                            "current_agenda_item": payload.get("current_agenda_item"),
+                            "suggested_agenda_item": payload.get("suggested_agenda_item"),
+                            "off_topic_summary": payload.get("off_topic_summary"),
+                        }
+                        if payload["type"] == "agenda_off_topic"
+                        else {
+                            "elapsed_min": payload.get("elapsed_min"),
+                            "time_warning_text": payload.get("time_warning_text"),
+                        }
+                    ),
+                },
+            )
+    except Exception:
+        logger.exception("agenda audit write failed (non-fatal)")
+
     await on_message(payload)
+    return payload
 
 
 def _safe_parse_json_obj(raw: str) -> Optional[dict]:

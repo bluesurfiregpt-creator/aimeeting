@@ -407,6 +407,16 @@ async def post_manual_transcript(
         speaker_status="manual",
     )
     session.add(line)
+
+    # v11 ISSUE-2: a meeting that's receiving transcripts is, by definition,
+    # happening — flip 'scheduled' → 'ongoing' on first injection so
+    # agenda_monitor's elapsed-time math has a sane baseline. ASR path does
+    # the equivalent in main.py when the WS opens; this mirrors it for
+    # mic-less / Cowork driven meetings.
+    if m.status == "scheduled":
+        m.status = "ongoing"
+        m.started_at = datetime.now(timezone.utc)
+
     await session.commit()
     await session.refresh(line)
 
@@ -513,6 +523,7 @@ async def get_result(
     out_lines = [
         TranscriptLine(
             id=l.id,
+            line_id=l.id,  # v11 QA ISSUE-1: canonical field, matches POST shape
             text=l.text,
             start_ms=l.start_ms,
             end_ms=l.end_ms,
@@ -550,6 +561,49 @@ async def get_result(
         identification_status=status,
         identification_message=msg,
     )
+
+
+# --------- M3.0: dev-only synchronous agenda-monitor trigger -----------------
+
+
+class AgendaMonitorRunOut(BaseModel):
+    fired: bool
+    payload: Optional[dict] = None
+    note: Optional[str] = None
+
+
+@router.post("/{meeting_id}/agenda-monitor/run-now", response_model=AgendaMonitorRunOut)
+async def run_agenda_monitor(
+    meeting_id: str,
+    auth: AuthContext = Depends(get_current_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Run the agenda monitor synchronously for this meeting, bypassing the
+    60s throttle and 90s post-fire cooldown. Returns whatever banner the
+    LLM produced (or note='no_signal' if it judged everything is fine).
+
+    Per v11 QA report ISSUE-4: production runs the monitor on a 60s
+    schedule which is impractical for CI / Cowork to verify. This
+    endpoint provides deterministic on-demand triggering.
+
+    Auth-gated like every other route (workspace ownership check on the
+    meeting). Not gated on env — the monitor is read-only from the user's
+    perspective, just an extra LLM call.
+    """
+    await _load_owned_meeting(meeting_id, session, auth)
+
+    captured: list[dict] = []
+
+    async def _capture(payload: dict) -> None:
+        captured.append(payload)
+
+    from ..agenda_monitor import maybe_check_agenda
+    fired = await maybe_check_agenda(uuid.UUID(meeting_id), on_message=_capture, force=True)
+
+    if fired is None:
+        return AgendaMonitorRunOut(fired=False, note="no_signal_or_no_agenda")
+    return AgendaMonitorRunOut(fired=True, payload=fired)
 
 
 # --------- M3.0: action items CRUD --------------------------------------------
