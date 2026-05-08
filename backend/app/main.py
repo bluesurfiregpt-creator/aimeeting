@@ -17,6 +17,7 @@ from .identify_pipeline import identify_worker
 from .init_db import init_db
 from .models import Meeting, MeetingTranscript
 from .agent_router import invoke_agent_directly, maybe_invoke_agents
+from .agenda_monitor import maybe_check_agenda
 from .dissent_detector import maybe_detect_dissent
 from .auth import COOKIE_NAME, decode_token
 from .routers import agents as agents_router
@@ -221,6 +222,11 @@ async def ws_stt(ws: WebSocket):
             # Sprint M2.3: also run dissent detection (rate-limited inside).
             asyncio.create_task(
                 maybe_detect_dissent(meeting_uuid, on_message=push_agent_event)
+            )
+            # M3.0: agenda monitor — only does anything when meeting.agenda
+            # is set; otherwise no-ops on the first DB peek.
+            asyncio.create_task(
+                maybe_check_agenda(meeting_uuid, on_message=push_agent_event)
             )
 
     async def emit_manual(text: str, speaker_user_id: uuid.UUID | None) -> None:

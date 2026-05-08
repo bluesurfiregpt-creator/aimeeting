@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v10）
+# Aimeeting · 测试用例（v11）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -174,7 +174,13 @@ WS PCM 同时缓冲到 in-mem session.pcm_buffer
 | 会议简报 | `GET /api/meetings/{id}/briefing` | 长期记忆生成的会前提要 |
 | 删除会议 | `DELETE /api/meetings/{id}` | 204 |
 | 纠错说话人 | `POST /api/meetings/{mid}/transcripts/{lid}/correct-speaker` body `{speaker_user_id}` | `lid` 是 `meeting_transcript.id`(数字) |
-| **打字录入** | `POST /api/meetings/{id}/manual-transcript` body `{text, speaker_user_id?}` | **Cowork 主入口** — 不需要 WS / mic 即可注入字幕,触发 Agent / 分歧检测同 ASR final;返回 `{line_id, speaker_user_id, speaker_name, text}` |
+| **打字录入** | `POST /api/meetings/{id}/manual-transcript` body `{text, speaker_user_id?}` | **Cowork 主入口** — 不需要 WS / mic 即可注入字幕,触发 Agent / 分歧检测 / 议程监督同 ASR final;返回 `{line_id, speaker_user_id, speaker_name, text}` |
+| **创建会议(带议程)** | `POST /api/meetings` body 加 `agenda: [{title, time_budget_min?, note?}]` | **M3.0 起**:有 agenda 才会启动 agenda_monitor 跑题检测和时间预警;agenda 留空则关闭这一层 |
+| **行动项列表** | `GET /api/meetings/{id}/actions` | M3.0:summary 生成后约 5-15s 自动填充;包含 manual 添加项 |
+| **行动项添加** | `POST /api/meetings/{id}/actions` body `{content, assignee_user_id?, due_at?}` | source_type='manual' |
+| **行动项更新** | `PATCH /api/meetings/{id}/actions/{action_id}` body 可含 `{status, content, assignee_user_id, due_at}` | status ∈ open\|done\|cancelled |
+| **行动项删除** | `DELETE /api/meetings/{id}/actions/{action_id}` | 204 |
+| **Agent 发言历史** | `GET /api/meetings/{id}/agent-messages` | M3.0 Cowork 验证利器:不需订阅 WS 也能看到 Agent 是否真触发了发言(persistent record 来自 meeting_agent_message) |
 | Agent CRUD | `/api/agents` POST/GET, `/api/agents/{id}` PATCH/DELETE | DELETE 后会写 audit log |
 | 知识库 CRUD | `/api/knowledge-bases` 同上 |  |
 | 文档上传 | `POST /api/knowledge-bases/{kbid}/documents` (multipart `file=...`) | 异步解析,200 返回时 `status=parsing`,稍后变 `ready` |
@@ -209,31 +215,34 @@ WS PCM 同时缓冲到 in-mem session.pcm_buffer
 
 ### 4. 哪些用例 Cowork 可独立完成,哪些需要人 / 物理设备
 
-| 系列 | 自动化能跑? | 原因 |
+> **总原则(v11)**:除了 B/C/D 这三个**直接依赖真实人声**的系列外,**所有系列都已具备 REST 驱动路径**,Cowork 可以独立完整跑通。下表的 ❌ 只标真人声音不可绕开的项;凡 ✅ 都给出了具体执行手段。
+
+| 系列 | 自动化能跑? | Cowork 驱动方法(精确到 API / DOM) |
 |---|---|---|
-| A 账号 | ✅ 全自动 | 纯 API + UI 跳转,可直接调 `/api/auth/login` 验证 |
-| B 声纹录入 | ❌ 跳过 | 需要 35-45s 真人朗读 |
-| C 实时字幕 | ⚠️ **v10 起部分可跑** | 麦克风 ASR 仍需要真人;但**字幕 + 下游链路**可用 `POST /api/meetings/{id}/manual-transcript` 全程驱动 |
-| D 声纹识别 | ❌ 跳过 | 依赖真实音频 |
-| E 手动纠错 | ✅ **v10 起全自动** | 用 manual-transcript 注入几句 → 调 `correct-speaker` 改归属 → `GET /result` 验证 |
-| F AI 专家触发 | ✅ **v10 起全自动** | manual-transcript 可注入含关键词的句子触发 Agent;手动召唤(F-3)直接调 invoke;关键词/@ 都能在 Cowork 上验证 |
-| G 自动纪要 | ✅ 完全可读 | manual-transcript 注入 ≥ 3 句 + ≥ 60 字 → 调用 `/summary/regenerate` → `GET /summary` |
-| H 长期记忆 | ✅ 大部分 | 调 `GET /api/memory` 看条目;A-5 间接验证隔离 |
-| I 会前简报 | ✅ 大部分 | `GET /api/meetings/{id}/briefing`;UI 在新建会议详情页有「💡 会前简报」 |
-| J 会议历史 + 删除 | ✅ 全自动 | 列表/详情/删除全可跑;**避免删生产数据**,只删 Cowork 自己创建的 |
-| K LLM/Agent 后台 | ✅ 全自动 | CRUD 全可跑 |
-| L 边界 | ⚠️ 部分 | Back/Forward 可跑;多浏览器/iOS 跳过 |
-| M 错误 toast | ✅ 全自动 | 故意调坏的 API 看 toast |
-| N 审计日志 | ✅ 全自动 | `GET /api/audit` 直接验证 |
-| O 团队管理 | ⚠️ 大部分 | 邀请创建可跑;**接受邀请需要新浏览器/会话**,可用 Cowork 第二个 tab 模拟 |
-| P 找回密码 | ❌ 慎跑 | 跑 P-5 会改默认账号密码,跑前先注册一个 throwaway 账号 |
-| Q 知识库 | ✅ 全自动 | CRUD + 文件上传(用真实小文件) |
-| R 会议导出 | ✅ 全自动 | `GET /api/meetings/{id}/export?format=md` 拿到文件流并校验 `Content-Disposition` |
-| S 连接稳定性 | ⚠️ 限 Chrome MCP | 需要真实断网,用 Network panel 切 Offline |
-| T Agent 接力 | ✅ **v10 起全自动** | 用 manual-transcript 注入两人对话 + `invoke_agent` → 等 Agent 发言完看 `agent_recommendation` 事件 |
-| U 分歧检测 | ✅ **v10 起全自动** | 用 manual-transcript 注入对立观点 5-8 句 → 等 `dissent_detected` 事件(WS 订阅或 25s 后看 audit) |
-| V v8/v9 回归 | ✅ 全自动 | DOM + Console 检查为主 |
-| **W 文字录入** | ✅ 全自动 | manual-transcript REST + UI testid 选择器都齐 |
+| A 账号 | ✅ 全自动 | `POST /api/auth/register \| login` + cookie;`/api/auth/me` 验证登录态 |
+| **B 声纹录入** | ❌ **必须人声** | 35-45s 真人朗读音频流;无法用文字模拟。**唯一无法 Cowork 化的系列。** |
+| **C 实时字幕(ASR)** | ❌ **必须人声** | 真人麦克风 → DashScope STT;无法用文字模拟。**但「会议生命周期」可用 manual-transcript 模拟整场对话。** |
+| **D 声纹识别** | ❌ **必须人声** | 依赖 B 录入 + C 真音频对齐识别;两者都是真人声路径。 |
+| E 手动纠错 | ✅ 全自动 | `manual-transcript` 注入若干行 → `correct-speaker` 改 speaker_user_id → `GET /result` 验证 |
+| F AI 专家触发 | ✅ 全自动 | manual-transcript 注入命中 keyword 的句子 → `GET /agent-messages` 看是否真发言;手动召唤直接 WS `invoke_agent` |
+| G 自动纪要 | ✅ 全自动 | manual-transcript 注入 ≥ 3 句 + ≥ 60 字 → `POST /summary/regenerate` → `GET /summary` 等 status=ready |
+| H 长期记忆 | ✅ 全自动 | summary 生成后,`memory_extractor` 后台抽事实;`GET /api/memory` 看条目;`A-5` 间接验证隔离 |
+| I 会前简报 | ✅ 全自动 | `GET /api/meetings/{id}/briefing` 直接读;先注入纪要才有内容 |
+| J 会议历史 + 删除 | ✅ 全自动 | `GET /api/meetings`、`DELETE /api/meetings/{id}`;**只删 Cowork 自己创建的(`_cowork_*` 前缀)** |
+| K LLM/Agent 后台 | ✅ 全自动 | CRUD 全 API 化;`/list-models` 拉模型列表 |
+| L 边界 | ⚠️ 部分 | Back/Forward 可在 Chrome MCP 模拟;多浏览器 / iOS Safari 仍需真机 |
+| M 错误 toast | ✅ 全自动 | 故意发错误请求(空 body / 错 cookie / 不存在 ID)看 toast 文案 |
+| N 审计日志 | ✅ 全自动 | `GET /api/audit?action=...` 直接验证 |
+| O 团队管理 | ✅ 全自动 | 邀请创建 / 撤销 / 移除成员全 API 化;接受邀请用第二个 fetch 上下文(独立 cookie jar)模拟新成员 |
+| P 找回密码 | ⚠️ 慎跑 | 全自动可跑,但 P-5 会改密码 — **建议先注册 throwaway 账号** |
+| Q 知识库 | ✅ 全自动 | CRUD + 文件上传(`Blob` 构造 + `multipart`) |
+| R 会议导出 | ✅ 全自动 | `GET /api/meetings/{id}/export?format=md\|docx` 拿 blob,校验 `Content-Disposition` |
+| S 连接稳定性 | ⚠️ 限 Chrome MCP | 真实断网需要 Chrome devtools Network → Offline,Cowork 经 chrome-mcp 可跑 |
+| T Agent 接力 | ✅ 全自动 | manual-transcript 注入两人对话 → manually invoke 一个 Agent → 等 `agent_recommendation` WS 事件;无 WS 时检查 `meeting_agent_message` 看是否触发了下一位 |
+| U 分歧检测 | ✅ 全自动 | manual-transcript 注入对立观点 5-8 句 + 不同 speaker_user_id → 等 25s 节流过 → 通过 WS 收 `dissent_detected` 或检查 audit_log |
+| V v8/v9 回归 | ✅ 全自动 | DOM + Console 检查为主;chrome-mcp 跑 |
+| **W 文字录入** | ✅ 全自动 | `manual-transcript` REST + UI `data-testid="manual-text-input"` |
+| **X M3.0 自动主持人** | ✅ 全自动(**v11 新增**) | 创建会议带 `agenda` → manual-transcript 注入跑题对话 → 等 `agenda_off_topic` 事件 / 检查 banner DOM;`GET /actions` 看抽取的待办;`PATCH` 切换状态 |
 
 ### 5. Cowork 测试纪律
 
@@ -298,7 +307,8 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v10** | 2026-05-08 | 新增「文字录入」W 系列(打字录入入口 — 麦克风的替代,亦是 Cowork 全自动测试主力):① 会议页底部新增 `[💬 发言人下拉] [文字框] [发送]` 工具栏(`data-testid="manual-text-input"`);② WS 新增 `text_message` action(走与 ASR final 相同管道,触发 Agent + 分歧检测);③ 新增 REST `POST /api/meetings/{id}/manual-transcript`(无 WS 时也可注入字幕,Cowork 主用此入口);④ 麦权限拒绝时不再断开 WS,自动进入「⌨️ 仅文字模式」让用户继续打字 |
+| **v11** | 2026-05-08 | 新增「自动主持人」X 系列(M3.0 Multi-Agent V2):① **议程**(meeting.agenda)— 创建会议时填议程项 + 时间预算 → 进入 LLM 监督 ② **主持人 Agent**(role='moderator')每个 workspace 自动建一个 ③ **跑题检测**(`agenda_off_topic`)+ **时间预警**(`agenda_time_warning`)WS 事件 → 主持人 banner ④ **行动项自动抽取**(MeetingActionItem 表 + action_extractor 接在 summary 之后)+ ActionItemsCard UI(勾选完成 / 手动添加 / 删除)⑤ **agent-messages 端点**(Cowork 验证 Agent 是否真发言);**给 Claude Cowork 的指南**重写为「全场景驱动方案」,明确除 B/C/D 三个真声纹系列外,**所有系列都有可执行的 REST 流程** |
+| v10 | 2026-05-08 | 新增「文字录入」W 系列(打字录入入口 — 麦克风的替代,亦是 Cowork 全自动测试主力):① 会议页底部新增 `[💬 发言人下拉] [文字框] [发送]` 工具栏(`data-testid="manual-text-input"`);② WS 新增 `text_message` action(走与 ASR final 相同管道,触发 Agent + 分歧检测);③ 新增 REST `POST /api/meetings/{id}/manual-transcript`(无 WS 时也可注入字幕,Cowork 主用此入口);④ 麦权限拒绝时不再断开 WS,自动进入「⌨️ 仅文字模式」让用户继续打字 |
 | v9 | 2026-05-08 | 加【给 Claude Cowork 的指南】(API 速查表 / DOM 选择器约定 / 自动化纪律 / 复用代码片段);**v8 测试报告 6 个问题全部修掉**:① 详情页根据 `meeting.status` 切换渲染(已处理 → 直接显示纪要+实录,不再卡在「开始会议」UI);② 详情页 H1 显示真实会议标题(不再写死);③ API 错误 toast/message **不再泄露路径或原始 502 HTML**(自定义 `ApiError` + `friendlyDetail`);④ 三个 `window.confirm()` 全替换成 `<ConfirmDialog data-testid="confirm-dialog">` 应用内模态(自动化可点);⑤ `DELETE /team/members/<self>` 早返回 400(之前 500);⑥ `agent.create/update/delete` 都补上 `audit_log`;⑦ 顺手修了一个找到的脏数据 bug:`POST /api/users` 没邮箱时不再每次新建一行(同名 286 条 hefan 的元凶) |
 | v8 | 2026-05-08 | 文档头部加【系统概览】(架构图 / 数据流 / 触发路径 / 测试入门顺序);修复 `audioCapture.ts` 中 `audioWorklet` getter 在 prototype 上访问抛 `Illegal invocation` 的崩溃 bug → 影响 Sprint K.2 后所有进入会议页的用户(C 系列重点回归);加 SSR/CSR 水合 mounted 守卫(防 React #418) |
 | v7 | 2026-05-08 | 新增「分歧检测」U 系列(Multi-Agent M2.3:LLM 实时分析最近 8 句对话,识别两位以上参会人就同一话题持对立观点 → 主动召唤适合仲裁的 AI 专家;rose 色 banner,点「召唤<专家>」一键解决) |
@@ -721,6 +731,8 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 
 ### Cowork 端到端示例脚本(可直接复制运行)
 
+> 下面这段脚本一次跑完 **W → F → G → H → R** 五个系列的核心路径,作为 Cowork 入门冒烟。需要更宽覆盖时,见后面 **X 系列**示例脚本(议程 + 主持人 + 行动项)。
+
 ```js
 // 全自动跑:建会议 → 注入 5 句 → 等 Agent → 验证纪要 → 清理
 async function coworkSmoke() {
@@ -773,6 +785,140 @@ coworkSmoke();
 
 ---
 
+## X 系列 · M3.0 自动主持人(v11 新增 · Multi-Agent V2)
+
+> **核心能力**:
+> 1. 创建会议时可填**议程项**(title + 可选 time_budget_min);开 agenda monitor。
+> 2. 每条 final 字幕(无论来自 ASR 还是 manual-transcript)后,后台 LLM 检查讨论是否偏离当前议程项 / 当前议程项时间预算是否快超。最多 60s 检查一次;触发后 90s 抑制。
+> 3. 触发时推 WS 事件 `agenda_off_topic` 或 `agenda_time_warning`;前端渲染琥珀色 banner「召唤主持人」按钮。点击 → 调用 workspace 内 role='moderator' 的内置 Agent。
+> 4. 会议处理完毕后,**action_extractor** 在 summary 之上再跑一次 LLM 抽出**结构化行动项**到 `meeting_action_item` 表,UI 在「📌 行动项」卡片以 checkbox 列表展示。
+
+| 编号 | 用例 | 步骤 | 预期 | 实际 | 结果 |
+|---|---|---|---|---|---|
+| **X-1** | 内置 moderator agent | 1. 进任一 workspace 的 `/admin/agents`<br>2. 看 Agent 列表 | 列表里有一条 name='主持人',color=amber,role='moderator';UI 标了「🛡 内置」;`GET /api/agents` 返回这条带 `role: "moderator"` | | |
+| **X-2** | 创建会议时不填议程 | `POST /api/meetings` body 不含 agenda | 200 + `agenda: null`;agenda_monitor 完全不跑(日志中无任何相关 LLM 调用) | | |
+| **X-3** | 创建会议时填议程 | `POST /api/meetings` body 含 `agenda: [{title:"合规", time_budget_min:10},{title:"上线计划"}]` | 200 + `agenda` 反映回来;`/api/meetings/{id}` 也读得到 | | |
+| **X-4** | UI 议程录入 | 1. 进首页 `data-testid="agenda-section"`<br>2. 在第一行输入「合规风险评估」<br>3. 点击预算栏输 `15`<br>4. 输完第一行后**自动追加**第二行空白 | UI 至少 2 个 `data-testid="agenda-row-N"`;第二行 title 为空时不会随会议提交 | | |
+| **X-5** | 议程在会议页可见 | 进有议程的会议页 | 状态栏下方有 `data-testid="agenda-strip"`,显示编号 + title + (Nm) | | |
+| **X-6** | 跑题检测触发 | 1. 创建会议 agenda=[{title:"数据出境合规"}]<br>2. manual-transcript 注入 5 句和数据出境**完全无关**的(如「中午吃啥」「假期安排」)<br>3. 等 60-90s | WS 收到 `{type: "agenda_off_topic", current_agenda_item: "数据出境合规", reason: "..."}`;前端 `data-testid="moderator-banner-off_topic"` 渲染 | | |
+| **X-7** | 召唤主持人 | X-6 的 banner 出现后点 `data-testid="moderator-accept"` | banner 消失;主持人 Agent 进 busy;`GET /agent-messages` 几秒后多一条 trigger='manual'、agent_id 是 moderator 的发言 | | |
+| **X-8** | 时间预警 | 1. 创建会议 agenda=[{title:"产品",time_budget_min:1}]<br>2. 等会议跑过 50s+(可调时间)<br>3. manual-transcript 注入一句 | WS 收到 `agenda_time_warning`;banner data-testid 含 `time_warning` | | |
+| **X-9** | 节流生效(60s 检查) | 60 秒内反复注入 manual-transcript | 后端日志中 `agenda_monitor LLM call` 至多 1 次/分钟 | | |
+| **X-10** | 触发后抑制 90s | 一次 banner 触发后立刻继续注入跑题句子 | 90 秒内**不再**收到第二条 banner | | |
+| **X-11** | 行动项自动抽取 | 1. 创建会议<br>2. manual-transcript 注入 5+ 句对话,内容含「邓西负责整理 PRD」「李法务下周三前出合规意见」<br>3. `POST /summary/regenerate` 等 status=ready<br>4. 5-15s 后 `GET /api/meetings/{id}/actions` | 返回 ≥ 2 条 source_type='summary' 的项,内容含「整理 PRD」「合规意见」;assignee_user_id 若 workspace 内有匹配则绑定,否则 `assignee_name_hint` 含原文姓名 | | |
+| **X-12** | UI 行动项卡片 | 进 status=processed 会议页 | `data-testid="action-items-card"` 渲染;每条有 `action-item-{id}` + `action-checkbox-{id}` | | |
+| **X-13** | 切换完成状态 | 点 X-12 中某条的 checkbox | `PATCH /actions/{id}` 200;UI 立刻打勾 + 中划线 | | |
+| **X-14** | 手动添加行动项 | 输入框输文 + 选发言人 + 点「添加」 | `POST /actions` 200,source_type='manual';卡片立刻多一条 | | |
+| **X-15** | 删除行动项 | 点某条 ✕ | `DELETE /actions/{id}` 204;UI 立刻消失 | | |
+| **X-16** | regenerate 不破坏 manual 项 | 1. 自动抽取出 N 条<br>2. 手动添加 1 条<br>3. `POST /summary/regenerate` | source_type='summary' 全部被替换;source_type='manual' **保留**;前后行数差 = 重新抽取数 - 旧自动数 | | |
+| **X-17** | 跨工作空间发言人被拒 | `POST /actions` body 含其他 workspace 的 user.id | 400 + `assignee_user_id not in this workspace` | | |
+| **X-18** | 行动项无议程也工作 | 不填 agenda 创建会议,正常注入对话,生成纪要 | action_extractor 仍然跑(基于 summary,不依赖议程) | | |
+| **X-19** | empty extraction 不报错 | 注入纯闲聊 5 句(没有任何明确待办),regen summary | `actions` 返回 [];之前的 summary 类项被清空 | | |
+| **X-20** | 隔离 | A 账号建会议 → B 账号 `GET /actions/...` | 404(workspace 隔离生效) | | |
+
+### Cowork X 系列驱动脚本(议程 + 跑题 + 行动项)
+
+```js
+async function coworkX() {
+  // 1. 拿 workspace 用户 id 作 speaker
+  const users = await fetch('/api/users').then(r => r.json());
+  const [u1, u2] = users.slice(0, 2);
+
+  // 2. 创建带议程的会议
+  const m = await fetch('/api/meetings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    credentials: 'include',
+    body: JSON.stringify({
+      title: '_cowork_x_' + Date.now(),
+      attendee_user_ids: [],
+      agenda: [
+        { title: '数据出境合规评估', time_budget_min: 5 },
+        { title: '产品上线计划', time_budget_min: 10 },
+      ],
+    }),
+  }).then(r => r.json());
+  console.log('meeting created with agenda:', m.agenda);
+
+  // 3. 注入 5+ 句"明显跑题"的对话(议程是合规,内容讲午餐)
+  const offTopicLines = [
+    '今天中午要不要去新开的那家川菜馆',
+    '我还没吃午饭,饿死了',
+    '好像隔壁部门今天团建',
+    '上周末看了部电影还行',
+    '那个新出的游戏挺好玩的',
+  ];
+  for (const text of offTopicLines) {
+    await fetch(`/api/meetings/${m.id}/manual-transcript`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      credentials: 'include',
+      body: JSON.stringify({ text, speaker_user_id: u1.id }),
+    });
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  // 4. 等 60-90s 让 agenda_monitor 跑(也可订阅 WS 实时拿事件)
+  console.log('waiting 90s for agenda_monitor to fire…');
+  await new Promise(r => setTimeout(r, 90000));
+
+  // 5. 注入"明显待办"的对话
+  const todoLines = [
+    {speaker: u1.id, text: '邓西负责整理这次的 PRD 文档,周五前给到大家'},
+    {speaker: u2.id, text: '李法务下周三前出一份数据出境合规意见'},
+    {speaker: u1.id, text: '王架构帮忙调研下 SDK 兼容性'},
+  ];
+  for (const l of todoLines) {
+    await fetch(`/api/meetings/${m.id}/manual-transcript`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      credentials: 'include',
+      body: JSON.stringify({ text: l.text, speaker_user_id: l.speaker }),
+    });
+  }
+
+  // 6. regenerate summary,触发 action_extractor
+  await fetch(`/api/meetings/${m.id}/summary/regenerate`, {
+    method: 'POST', credentials: 'include',
+  });
+  // 等 summary + action_extractor 都跑完
+  await new Promise(r => setTimeout(r, 25000));
+
+  // 7. 验证抽取的行动项
+  const actions = await fetch(`/api/meetings/${m.id}/actions`).then(r => r.json());
+  console.log(`extracted ${actions.length} action items:`, actions.map(a => a.content));
+
+  // 8. 切换其中一条为 done
+  if (actions[0]) {
+    await fetch(`/api/meetings/${m.id}/actions/${actions[0].id}`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      credentials: 'include',
+      body: JSON.stringify({ status: 'done' }),
+    });
+  }
+
+  // 9. 手动添加一条
+  await fetch(`/api/meetings/${m.id}/actions`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    credentials: 'include',
+    body: JSON.stringify({ content: '_cowork_x_manual_add_test' }),
+  });
+
+  // 10. 检查 Agent 是否被召唤过
+  const agentMsgs = await fetch(`/api/meetings/${m.id}/agent-messages`).then(r => r.json());
+  console.log(`${agentMsgs.length} agent messages persisted`);
+
+  // 11. 清理
+  await fetch(`/api/meetings/${m.id}`, { method: 'DELETE', credentials: 'include' });
+  return { ok: true, actionsExtracted: actions.length, agentMessages: agentMsgs.length };
+}
+coworkX();
+```
+
+---
+
 ## 测试报告模板
 
 测完后请把这一段填给我：
@@ -780,7 +926,7 @@ coworkSmoke();
 ```
 测试人:
 测试时间:
-测试用例版本: v10
+测试用例版本: v11
 浏览器/系统:
 默认账号是否生效: 是 / 否
 

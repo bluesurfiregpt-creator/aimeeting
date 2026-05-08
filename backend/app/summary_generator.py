@@ -256,4 +256,13 @@ async def generate_summary(
     except Exception:
         logger.exception("failed to schedule memory extraction")
 
+    # M3.0: also extract structured action items (待办事项) — separate LLM
+    # pass on the same summary, so we get a queryable / checkable list.
+    try:
+        import asyncio
+        from .action_extractor import extract_and_store_actions
+        asyncio.create_task(extract_and_store_actions(meeting_id, summary_md=summary))
+    except Exception:
+        logger.exception("failed to schedule action extraction")
+
     return summary

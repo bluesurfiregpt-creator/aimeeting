@@ -40,6 +40,12 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("long_term_memory", "workspace_id", "UUID"),
     # Sprint I: knowledge base bindings on agent
     ("agent", "knowledge_base_ids", "UUID[]"),
+    # M3.0 Multi-Agent V2:
+    #   - agent.role distinguishes built-in moderator from user-configured experts
+    #   - meeting.agenda holds {title, time_budget_min?, note?} list for the
+    #     agenda_monitor LLM watcher
+    ("agent", "role", "VARCHAR(16) NOT NULL DEFAULT 'expert'"),
+    ("meeting", "agenda", "JSONB"),
 ]
 
 # Drop the legacy unique-on-provider constraint so the new
@@ -131,6 +137,43 @@ async def init_db() -> None:
                     SELECT 1 FROM workspace_membership wm
                     WHERE wm.workspace_id = u.workspace_id AND wm.user_id = u.id
                   )
+                """
+            )
+        )
+
+        # M3.0: ensure every workspace has exactly one built-in moderator Agent.
+        # The moderator drives the agenda-watcher / off-topic / time-warning /
+        # stuck banners. Idempotent: skips workspaces that already have one.
+        await conn.execute(
+            text(
+                """
+                INSERT INTO agent (
+                    id, workspace_id, name, domain, persona, color, role,
+                    is_active, dify_app_type, version, stage, created_at
+                )
+                SELECT
+                    gen_random_uuid(),
+                    w.id,
+                    '主持人',
+                    '会议主持',
+                    $persona$你是这场会议中立的主持人。你的职责:
+- 当讨论偏离议程时,简短提醒大家回到议题(不超过 30 字)
+- 当讨论陷入僵局,综合双方观点提出折中方案
+- 当时间预算告急,提醒缩短发言并推进议程
+- 不要表达个人立场,只服务于让会议高效收尾
+- 一次发言不超过 80 字,语气温和但坚定$persona$,
+                    'amber',
+                    'moderator',
+                    TRUE,
+                    'chatflow',
+                    1,
+                    'prod',
+                    NOW()
+                FROM workspace w
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM agent a
+                    WHERE a.workspace_id = w.id AND a.role = 'moderator'
+                )
                 """
             )
         )

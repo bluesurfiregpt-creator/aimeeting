@@ -26,9 +26,17 @@ class VoiceprintOut(BaseModel):
     created_at: datetime
 
 
+class AgendaItem(BaseModel):
+    """One row in Meeting.agenda — drives the M3.0 agenda monitor."""
+    title: str
+    time_budget_min: Optional[int] = None
+    note: Optional[str] = None
+
+
 class MeetingCreate(BaseModel):
     title: Optional[str] = "未命名会议"
     attendee_user_ids: list[uuid.UUID] = []
+    agenda: Optional[list[AgendaItem]] = None
 
 
 class MeetingOut(BaseModel):
@@ -39,6 +47,7 @@ class MeetingOut(BaseModel):
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     attendee_user_ids: list[uuid.UUID] = []
+    agenda: Optional[list[AgendaItem]] = None
 
 
 class TranscriptLine(BaseModel):

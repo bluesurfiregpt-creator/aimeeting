@@ -157,6 +157,14 @@ export type Voiceprint = {
   created_at: string;
 };
 
+/** M3.0: one row of a meeting's agenda. Optional time_budget_min drives the
+ *  agenda-monitor's "time warning" trigger when usage crosses 80%. */
+export type AgendaItem = {
+  title: string;
+  time_budget_min?: number | null;
+  note?: string | null;
+};
+
 export type Meeting = {
   id: string;
   title: string;
@@ -164,6 +172,33 @@ export type Meeting = {
   started_at: string | null;
   ended_at: string | null;
   attendee_user_ids: string[];
+  agenda?: AgendaItem[] | null;
+};
+
+/** M3.0: a tracked TODO from a meeting (auto-extracted or manually added). */
+export type ActionItem = {
+  id: string;
+  meeting_id: string;
+  content: string;
+  assignee_user_id: string | null;
+  assignee_name: string | null;
+  assignee_name_hint: string | null;
+  due_at: string | null;
+  status: "open" | "done" | "cancelled";
+  source_type: "summary" | "manual" | "agent";
+  created_at: string;
+  updated_at: string;
+};
+
+/** M3.0: one persisted Agent reply in a meeting. Read-only post-hoc — for
+ *  Cowork to verify keyword/@-mention triggers fired correctly without
+ *  needing to subscribe to the live WS. */
+export type AgentMessage = {
+  id: number;
+  agent_id: string;
+  text: string;
+  trigger: string | null;
+  created_at: string;
 };
 
 export type TranscriptLine = {
@@ -394,11 +429,43 @@ export const api = {
   },
   listMeetings: () => jget<Meeting[]>("/api/meetings"),
   deleteMeeting: (id: string) => jdelete(`/api/meetings/${id}`),
-  createMeeting: (title: string, attendeeUserIds: string[]) =>
-    jpost<Meeting>("/api/meetings", { title, attendee_user_ids: attendeeUserIds }),
+  createMeeting: (
+    title: string,
+    attendeeUserIds: string[],
+    agenda?: AgendaItem[] | null,
+  ) =>
+    jpost<Meeting>("/api/meetings", {
+      title,
+      attendee_user_ids: attendeeUserIds,
+      ...(agenda && agenda.length ? { agenda } : {}),
+    }),
   getMeeting: (id: string) => jget<Meeting>(`/api/meetings/${id}`),
   finalizeMeeting: (id: string) => jpost<Meeting>(`/api/meetings/${id}/finalize`, {}),
   meetingResult: (id: string) => jget<MeetingResult>(`/api/meetings/${id}/result`),
+
+  // M3.0 action items
+  listActionItems: (meetingId: string) =>
+    jget<ActionItem[]>(`/api/meetings/${meetingId}/actions`),
+  createActionItem: (
+    meetingId: string,
+    body: { content: string; assignee_user_id?: string | null; due_at?: string | null },
+  ) => jpost<ActionItem>(`/api/meetings/${meetingId}/actions`, body),
+  patchActionItem: (
+    meetingId: string,
+    actionId: string,
+    body: Partial<{
+      content: string;
+      assignee_user_id: string | null;
+      due_at: string | null;
+      status: "open" | "done" | "cancelled";
+    }>,
+  ) => jpatch<ActionItem>(`/api/meetings/${meetingId}/actions/${actionId}`, body),
+  deleteActionItem: (meetingId: string, actionId: string) =>
+    jdelete(`/api/meetings/${meetingId}/actions/${actionId}`),
+
+  // M3.0 agent message history (Cowork-friendly read-only)
+  listAgentMessages: (meetingId: string) =>
+    jget<AgentMessage[]>(`/api/meetings/${meetingId}/agent-messages`),
 
   // Agents
   listAgents: () => jget<Agent[]>("/api/agents"),

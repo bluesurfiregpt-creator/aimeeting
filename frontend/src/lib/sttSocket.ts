@@ -59,6 +59,29 @@ export type DissentDetectedEvent = {
   reason: string;
 };
 
+/** M3.0: discussion has drifted from the current agenda item. */
+export type AgendaOffTopicEvent = {
+  type: "agenda_off_topic";
+  off_topic_summary: string;
+  current_agenda_item: string | null;
+  suggested_agenda_item: string | null;
+  moderator_agent_id: string;
+  moderator_agent_name: string;
+  moderator_agent_color: string;
+  reason: string;
+};
+
+/** M3.0: current agenda item's time budget is ≥ 80% spent. */
+export type AgendaTimeWarningEvent = {
+  type: "agenda_time_warning";
+  time_warning_text: string;
+  elapsed_min: number;
+  moderator_agent_id: string;
+  moderator_agent_name: string;
+  moderator_agent_color: string;
+  reason: string;
+};
+
 /** Synthetic event the wrapper emits on its own (not from the wire) so
  *  the UI can show "重连中…" / "已重连" without snooping at WS state. */
 export type ReconnectEvent = {
@@ -77,6 +100,8 @@ export type SttEvent =
   | AgentMessageEndEvent
   | AgentRecommendationEvent
   | DissentDetectedEvent
+  | AgendaOffTopicEvent
+  | AgendaTimeWarningEvent
   | ReconnectEvent;
 
 export interface SttSocket {

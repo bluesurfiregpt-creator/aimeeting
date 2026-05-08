@@ -4,6 +4,7 @@ import logging
 import re
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
@@ -13,13 +14,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import asyncio
 
 from .. import session_state
+from ..agenda_monitor import maybe_check_agenda
 from ..agent_router import maybe_invoke_agents
 from ..audit import audit_log
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
 from ..dissent_detector import maybe_detect_dissent
 from ..identify_pipeline import run_identify
-from ..models import Meeting, MeetingAttendee, MeetingTranscript, User
+from ..models import (
+    Meeting,
+    MeetingActionItem,
+    MeetingAgentMessage,
+    MeetingAttendee,
+    MeetingTranscript,
+    User,
+)
 from ..schemas import MeetingCreate, MeetingOut, MeetingResultOut, TranscriptLine
 from ..briefing_generator import generate_briefing
 from ..meeting_export import export_docx, export_markdown
@@ -53,6 +62,7 @@ def _to_meeting_out(m: Meeting, attendee_user_ids: list[uuid.UUID]) -> MeetingOu
             "started_at": m.started_at,
             "ended_at": m.ended_at,
             "attendee_user_ids": attendee_user_ids,
+            "agenda": m.agenda,
         }
     )
 
@@ -67,6 +77,11 @@ async def create_meeting(
         title=payload.title or "未命名会议",
         status="scheduled",
         workspace_id=auth.workspace.id,
+        agenda=(
+            [a.model_dump(exclude_none=True) for a in payload.agenda]
+            if payload.agenda
+            else None
+        ),
     )
     session.add(m)
     await session.flush()
@@ -403,6 +418,7 @@ async def post_manual_transcript(
 
     asyncio.create_task(maybe_invoke_agents(m.id, text, on_message=_noop))
     asyncio.create_task(maybe_detect_dissent(m.id, on_message=_noop))
+    asyncio.create_task(maybe_check_agenda(m.id, on_message=_noop))
 
     return ManualTranscriptOut(
         line_id=line.id,
@@ -534,3 +550,240 @@ async def get_result(
         identification_status=status,
         identification_message=msg,
     )
+
+
+# --------- M3.0: action items CRUD --------------------------------------------
+
+
+class ActionItemOut(BaseModel):
+    id: uuid.UUID
+    meeting_id: uuid.UUID
+    content: str
+    assignee_user_id: Optional[uuid.UUID] = None
+    assignee_name: Optional[str] = None
+    assignee_name_hint: Optional[str] = None
+    due_at: Optional[datetime] = None
+    status: str
+    source_type: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ActionItemIn(BaseModel):
+    content: str
+    assignee_user_id: Optional[uuid.UUID] = None
+    due_at: Optional[datetime] = None
+
+
+class ActionItemPatch(BaseModel):
+    content: Optional[str] = None
+    assignee_user_id: Optional[uuid.UUID] = None
+    due_at: Optional[datetime] = None
+    status: Optional[str] = None  # open | done | cancelled
+
+
+def _action_to_out(row: MeetingActionItem, name_by_id: dict[uuid.UUID, str]) -> ActionItemOut:
+    return ActionItemOut(
+        id=row.id,
+        meeting_id=row.meeting_id,
+        content=row.content,
+        assignee_user_id=row.assignee_user_id,
+        assignee_name=name_by_id.get(row.assignee_user_id) if row.assignee_user_id else None,
+        assignee_name_hint=row.assignee_name_hint,
+        due_at=row.due_at,
+        status=row.status,
+        source_type=row.source_type,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+@router.get("/{meeting_id}/actions", response_model=list[ActionItemOut])
+async def list_action_items(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """List all action items for this meeting (auto-extracted + manual)."""
+    await _load_owned_meeting(meeting_id, session, auth)
+    rows = (
+        await session.execute(
+            select(MeetingActionItem)
+            .where(MeetingActionItem.meeting_id == meeting_id)
+            .order_by(MeetingActionItem.created_at)
+        )
+    ).scalars().all()
+    user_ids = {r.assignee_user_id for r in rows if r.assignee_user_id}
+    name_by_id: dict[uuid.UUID, str] = {}
+    if user_ids:
+        users = (
+            await session.execute(select(User).where(User.id.in_(user_ids)))
+        ).scalars().all()
+        name_by_id = {u.id: u.name for u in users}
+    return [_action_to_out(r, name_by_id) for r in rows]
+
+
+@router.post("/{meeting_id}/actions", response_model=ActionItemOut)
+async def create_action_item(
+    meeting_id: str,
+    payload: ActionItemIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """Manually add a new action item (source_type='manual')."""
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    if not payload.content.strip():
+        raise HTTPException(400, "content required")
+    if payload.assignee_user_id is not None:
+        u = (
+            await session.execute(
+                select(User).where(
+                    User.id == payload.assignee_user_id,
+                    User.workspace_id == auth.workspace.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not u:
+            raise HTTPException(400, "assignee_user_id not in this workspace")
+    row = MeetingActionItem(
+        meeting_id=m.id,
+        workspace_id=m.workspace_id,
+        content=payload.content.strip()[:1000],
+        assignee_user_id=payload.assignee_user_id,
+        due_at=payload.due_at,
+        status="open",
+        source_type="manual",
+    )
+    session.add(row)
+    await session.commit()
+    await session.refresh(row)
+    name_by_id = {}
+    if row.assignee_user_id:
+        u = (
+            await session.execute(select(User).where(User.id == row.assignee_user_id))
+        ).scalar_one_or_none()
+        if u:
+            name_by_id[u.id] = u.name
+    return _action_to_out(row, name_by_id)
+
+
+@router.patch("/{meeting_id}/actions/{action_id}", response_model=ActionItemOut)
+async def update_action_item(
+    meeting_id: str,
+    action_id: str,
+    payload: ActionItemPatch,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """Toggle done / edit content / change assignee or due date."""
+    await _load_owned_meeting(meeting_id, session, auth)
+    row = (
+        await session.execute(
+            select(MeetingActionItem).where(
+                MeetingActionItem.meeting_id == meeting_id,
+                MeetingActionItem.id == action_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "action item not found")
+    if payload.status is not None:
+        if payload.status not in ("open", "done", "cancelled"):
+            raise HTTPException(400, "status must be open|done|cancelled")
+        row.status = payload.status
+    if payload.content is not None:
+        row.content = payload.content.strip()[:1000]
+    if payload.due_at is not None:
+        row.due_at = payload.due_at
+    if payload.assignee_user_id is not None:
+        u = (
+            await session.execute(
+                select(User).where(
+                    User.id == payload.assignee_user_id,
+                    User.workspace_id == auth.workspace.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not u:
+            raise HTTPException(400, "assignee_user_id not in this workspace")
+        row.assignee_user_id = payload.assignee_user_id
+        row.assignee_name_hint = None  # rebound — drop the freeform hint
+    await session.commit()
+    await session.refresh(row)
+    name_by_id = {}
+    if row.assignee_user_id:
+        u = (
+            await session.execute(select(User).where(User.id == row.assignee_user_id))
+        ).scalar_one_or_none()
+        if u:
+            name_by_id[u.id] = u.name
+    return _action_to_out(row, name_by_id)
+
+
+@router.delete("/{meeting_id}/actions/{action_id}", status_code=204)
+async def delete_action_item(
+    meeting_id: str,
+    action_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    await _load_owned_meeting(meeting_id, session, auth)
+    row = (
+        await session.execute(
+            select(MeetingActionItem).where(
+                MeetingActionItem.meeting_id == meeting_id,
+                MeetingActionItem.id == action_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "action item not found")
+    await session.delete(row)
+    await session.commit()
+
+
+# --------- M3.0: Cowork-friendly Agent message reader -------------------------
+
+
+class AgentMessageOut(BaseModel):
+    id: int
+    agent_id: uuid.UUID
+    text: str
+    trigger: Optional[str] = None
+    created_at: datetime
+
+
+@router.get("/{meeting_id}/agent-messages", response_model=list[AgentMessageOut])
+async def list_agent_messages(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    Persistent record of every Agent reply produced in this meeting.
+
+    Streaming chunks during a live WS session can be assembled by listening
+    for `agent_message_*` events; this endpoint is the post-hoc transcript
+    of those replies, useful when:
+      - The meeting has ended and you want to audit who said what
+      - You're driving via REST only (Cowork) and want to verify the
+        keyword/@-mention/manual triggers actually fired the right Agent
+    """
+    await _load_owned_meeting(meeting_id, session, auth)
+    rows = (
+        await session.execute(
+            select(MeetingAgentMessage)
+            .where(MeetingAgentMessage.meeting_id == meeting_id)
+            .order_by(MeetingAgentMessage.id)
+        )
+    ).scalars().all()
+    return [
+        AgentMessageOut(
+            id=r.id,
+            agent_id=r.agent_id,
+            text=r.text,
+            trigger=r.trigger,
+            created_at=r.created_at,
+        )
+        for r in rows
+    ]

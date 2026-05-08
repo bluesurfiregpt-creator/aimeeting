@@ -210,6 +210,11 @@ class Agent(Base):
     knowledge_base_ids: Mapped[Optional[list[uuid.UUID]]] = mapped_column(
         ARRAY(PgUUID(as_uuid=True)), nullable=True
     )
+    # M3.0 (Multi-Agent V2): "expert" is the default — user-configurable domain
+    # specialist. "moderator" is the auto-created built-in per workspace, used
+    # by agenda_monitor for off-topic / time-warning / stuck banners. UI hides
+    # the delete button + Dify fields for moderators.
+    role: Mapped[str] = mapped_column(String(16), default="expert")  # expert | moderator
 
     version: Mapped[int] = mapped_column(Integer, default=1)
     stage: Mapped[str] = mapped_column(String(16), default="prod")  # test|prod
@@ -233,6 +238,11 @@ class Meeting(Base):
     recording_oss_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     pyannote_job_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     summary_md: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # M3.0: agenda is a list of {title: str, time_budget_min?: int, note?: str}.
+    # When present, agenda_monitor LLM-watches transcript drift + time pacing
+    # and pushes "off topic" / "time warning" banners via the moderator agent.
+    # When absent (None), no monitoring runs (legacy meetings stay untouched).
+    agenda: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -294,6 +304,41 @@ class MeetingAgentMessage(Base):
     trigger: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # at_mention|keyword|manual
     trigger_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MeetingActionItem(Base):
+    """
+    M3.0 Multi-Agent V2: a single tracked TODO from a meeting.
+
+    Auto-extracted by `action_extractor` after summary generation, optionally
+    edited / added manually via the UI. Carries forward into the next meeting's
+    会前简报 (briefing_generator pulls open items into the briefing markdown so
+    the opener sees "上次会议有 N 个未完成").
+    """
+    __tablename__ = "meeting_action_item"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    meeting_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("meeting.id", ondelete="CASCADE"), index=True
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    content: Mapped[str] = mapped_column(Text)
+    # Set when extractor matched the assignee text to a known workspace user;
+    # otherwise we keep the raw name in `assignee_name_hint` so the human can
+    # rebind via the UI later. Either may be None for un-assigned tasks.
+    assignee_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    assignee_name_hint: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="open")  # open | done | cancelled
+    source_type: Mapped[str] = mapped_column(String(16), default="summary")  # summary | manual | agent
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class MeetingSpeakerSegment(Base):

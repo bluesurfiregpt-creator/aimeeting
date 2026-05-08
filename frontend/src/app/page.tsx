@@ -3,13 +3,21 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, type User } from "@/lib/api";
+import { api, type AgendaItem, type User } from "@/lib/api";
+
+type DraftAgendaRow = { title: string; time_budget_min: string }; // string for input
 
 export default function Home() {
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState("");
+  // M3.0: agenda items (optional). Each row: title (required) + budget min.
+  // `agenda` is committed to the API only when at least one row has a title.
+  // Empty rows are dropped on submit; the trailing empty row is the "add" UX.
+  const [agendaRows, setAgendaRows] = useState<DraftAgendaRow[]>([
+    { title: "", time_budget_min: "" },
+  ]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -30,15 +38,46 @@ export default function Home() {
     setErr("");
     setBusy(true);
     try {
+      const cleaned: AgendaItem[] = agendaRows
+        .map((r) => ({
+          title: r.title.trim(),
+          time_budget_min: r.time_budget_min.trim()
+            ? Math.max(1, Math.min(600, parseInt(r.time_budget_min, 10) || 0)) || null
+            : null,
+        }))
+        .filter((r) => r.title.length > 0);
       const m = await api.createMeeting(
         title.trim() || `会议 ${new Date().toLocaleString("zh-CN")}`,
         Array.from(picked),
+        cleaned.length ? cleaned : null,
       );
       router.push(`/meeting/${m.id}`);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "创建失败");
       setBusy(false);
     }
+  };
+
+  const updateAgendaRow = (idx: number, key: "title" | "time_budget_min", v: string) => {
+    setAgendaRows((rows) => {
+      const next = rows.map((r, i) => (i === idx ? { ...r, [key]: v } : r));
+      // If user just typed in the last row's title, append a new empty row
+      if (
+        idx === next.length - 1 &&
+        key === "title" &&
+        v.trim().length > 0
+      ) {
+        next.push({ title: "", time_budget_min: "" });
+      }
+      return next;
+    });
+  };
+
+  const removeAgendaRow = (idx: number) => {
+    setAgendaRows((rows) => {
+      const next = rows.filter((_, i) => i !== idx);
+      return next.length ? next : [{ title: "", time_budget_min: "" }];
+    });
   };
 
   return (
@@ -89,6 +128,51 @@ export default function Home() {
           placeholder="会议主题（可不填）"
           className="mt-4 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
         />
+
+        {/* M3.0: 议程（可选）— 填了就启动 agenda monitor 跑题/时间预警 */}
+        <div className="mt-4" data-testid="agenda-section">
+          <div className="text-xs text-zinc-500">
+            议程项（可选 · 填了系统会自动监督跑题 + 时间预算)
+          </div>
+          <ul className="mt-2 space-y-2">
+            {agendaRows.map((r, i) => (
+              <li key={i} className="flex items-center gap-2" data-testid={`agenda-row-${i}`}>
+                <span className="w-6 shrink-0 text-right text-xs text-zinc-600">{i + 1}.</span>
+                <input
+                  data-testid={`agenda-title-${i}`}
+                  type="text"
+                  value={r.title}
+                  onChange={(e) => updateAgendaRow(i, "title", e.target.value)}
+                  placeholder="议程项（如：合规风险评估）"
+                  className="flex-1 rounded-lg border border-ink-700 bg-ink-950 px-3 py-1.5 text-sm text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
+                />
+                <input
+                  data-testid={`agenda-budget-${i}`}
+                  type="number"
+                  min={1}
+                  max={600}
+                  value={r.time_budget_min}
+                  onChange={(e) => updateAgendaRow(i, "time_budget_min", e.target.value)}
+                  placeholder="分钟"
+                  className="w-20 rounded-lg border border-ink-700 bg-ink-950 px-3 py-1.5 text-sm text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
+                />
+                {agendaRows.length > 1 || r.title.trim() ? (
+                  <button
+                    type="button"
+                    data-testid={`agenda-remove-${i}`}
+                    onClick={() => removeAgendaRow(i)}
+                    className="shrink-0 text-xs text-zinc-600 hover:text-rose-400"
+                    title="删除该议程项"
+                  >
+                    ✕
+                  </button>
+                ) : (
+                  <span className="w-4" />
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
 
         <div className="mt-4">
           <div className="text-xs text-zinc-500">勾选参会人（须先在「录入声纹」页录过）</div>

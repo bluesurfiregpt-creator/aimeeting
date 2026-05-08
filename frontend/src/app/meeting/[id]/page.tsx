@@ -10,9 +10,10 @@ import {
 } from "@/lib/audioCapture";
 import { toast } from "@/lib/toast";
 import { openSttSocket, type SttEvent, type SttSocket } from "@/lib/sttSocket";
-import { api, type Agent, type TranscriptLine } from "@/lib/api";
+import { api, type Agent, type AgendaItem, type TranscriptLine } from "@/lib/api";
 import BriefingCard from "./BriefingCard";
 import SummaryCard from "./SummaryCard";
+import ActionItemsCard from "./ActionItemsCard";
 
 type LiveLine =
   | {
@@ -166,6 +167,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   const [meetingMeta, setMeetingMeta] = useState<{
     title: string;
     status: string;
+    agenda: AgendaItem[] | null;
   } | null>(null);
   const [audioCaps] = useState(() => probeAudioCapabilities());
   // `mounted` gates browser-only conditional UI (iOS Safari notice, insecure
@@ -199,6 +201,19 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     reason: string;
   } | null>(null);
   const dissentTimerRef = useRef<number | null>(null);
+  // M3.0: moderator banner — agenda_off_topic OR agenda_time_warning. We
+  // unify both kinds into one slot since only one banner shows at a time
+  // (similar UX pattern as recommendation / dissent above).
+  const [moderator, setModerator] = useState<{
+    kind: "off_topic" | "time_warning";
+    title: string;     // headline shown bold
+    body: string;      // friendly reason
+    agent_id: string;
+    agent_name: string;
+    agent_color: string;
+    invoke_query: string;
+  } | null>(null);
+  const moderatorTimerRef = useRef<number | null>(null);
   // Pool of attendees we let users pick from when manually correcting a
   // line's speaker after the meeting. Loaded after stop() because it's
   // only relevant once identification is done.
@@ -307,6 +322,41 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       });
       dissentTimerRef.current = window.setTimeout(() => {
         setDissent(null);
+      }, 90_000);
+      return;
+    }
+    if (e.type === "agenda_off_topic" || e.type === "agenda_time_warning") {
+      if (moderatorTimerRef.current) {
+        window.clearTimeout(moderatorTimerRef.current);
+      }
+      if (e.type === "agenda_off_topic") {
+        setModerator({
+          kind: "off_topic",
+          title: e.current_agenda_item
+            ? `已偏离议程「${e.current_agenda_item}」`
+            : "讨论已偏离议程",
+          body: e.off_topic_summary || e.reason,
+          agent_id: e.moderator_agent_id,
+          agent_name: e.moderator_agent_name,
+          agent_color: e.moderator_agent_color,
+          invoke_query: `请你作为主持人,简短提醒大家回到议程项「${
+            e.suggested_agenda_item ?? e.current_agenda_item ?? "原议题"
+          }」。`,
+        });
+      } else {
+        setModerator({
+          kind: "time_warning",
+          title: "议程时间预算告急",
+          body: e.time_warning_text || `已开会 ${e.elapsed_min} 分钟,${e.reason}`,
+          agent_id: e.moderator_agent_id,
+          agent_name: e.moderator_agent_name,
+          agent_color: e.moderator_agent_color,
+          invoke_query:
+            "请你作为主持人,提醒大家时间快到了,需要尽快推进或锁定结论。",
+        });
+      }
+      moderatorTimerRef.current = window.setTimeout(() => {
+        setModerator(null);
       }, 90_000);
       return;
     }
@@ -526,6 +576,9 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     if (dissentTimerRef.current) {
       window.clearTimeout(dissentTimerRef.current);
     }
+    if (moderatorTimerRef.current) {
+      window.clearTimeout(moderatorTimerRef.current);
+    }
   }, []);
 
   // Pull agents on mount so the avatar bar populates even before "开始会议".
@@ -550,7 +603,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     api.getMeeting(meetingId).then(
       (m) => {
         if (!alive) return;
-        setMeetingMeta({ title: m.title, status: m.status });
+        setMeetingMeta({ title: m.title, status: m.status, agenda: m.agenda ?? null });
         if (m.status === "processed" || m.status === "finished") {
           setPhase("ended");
           setStatusText(m.status === "processed" ? "✅ 已处理" : "已结束");
@@ -620,6 +673,24 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
 
   const dismissDissent = useCallback(() => {
     setDissent(null);
+  }, []);
+
+  // M3.0: summon the moderator (built-in agent) to actually intervene.
+  // Same shape as acceptDissent — sends invoke_agent over WS with a custom
+  // query. The moderator's persona handles the response style.
+  const acceptModerator = useCallback(() => {
+    if (!moderator || !socketRef.current || phase !== "live") return;
+    if (busyAgents.has(moderator.agent_id)) return;
+    socketRef.current.sendJson({
+      action: "invoke_agent",
+      agent_id: moderator.agent_id,
+      query: moderator.invoke_query,
+    });
+    setModerator(null);
+  }, [moderator, phase, busyAgents]);
+
+  const dismissModerator = useCallback(() => {
+    setModerator(null);
   }, []);
 
   /**
@@ -753,6 +824,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       ) : null}
       {phase === "idle" ? <BriefingCard meetingId={meetingId} /> : null}
       {phase === "ended" ? <SummaryCard meetingId={meetingId} /> : null}
+      {phase === "ended" ? <ActionItemsCard meetingId={meetingId} /> : null}
 
       {agents.length > 0 ? (
         <div className="mt-6 rounded-xl border border-ink-700 bg-ink-900 px-4 py-3">
@@ -876,6 +948,62 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
               ✕
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {/* M3.0: 主持人 banner (off-topic + time warning) */}
+      {moderator && phase === "live" ? (
+        <div
+          data-testid={`moderator-banner-${moderator.kind}`}
+          className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2"
+          style={{ borderLeftColor: tailwindColor(moderator.agent_color), borderLeftWidth: 3 }}
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-2 text-sm text-zinc-200">
+            <span className="text-base">{moderator.kind === "off_topic" ? "🧭" : "⏱️"}</span>
+            <span className="min-w-0">
+              <span className="font-medium text-amber-200">{moderator.title}</span>
+              <span className="mx-1 text-zinc-500">·</span>
+              <span className="text-zinc-400">{moderator.body}</span>
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              data-testid="moderator-accept"
+              onClick={acceptModerator}
+              disabled={busyAgents.has(moderator.agent_id)}
+              className="rounded-lg px-3 py-1 text-xs font-medium text-white shadow transition disabled:opacity-50"
+              style={{ backgroundColor: tailwindColor(moderator.agent_color) }}
+            >
+              召唤{moderator.agent_name}
+            </button>
+            <button
+              onClick={dismissModerator}
+              className="text-xs text-zinc-500 hover:text-zinc-300"
+              title="忽略"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* M3.0: 议程 strip — read-only 显示这场会议的议程项. */}
+      {meetingMeta?.agenda && meetingMeta.agenda.length > 0 ? (
+        <div
+          data-testid="agenda-strip"
+          className="mt-3 rounded-lg border border-ink-700 bg-ink-950/40 px-3 py-2 text-xs"
+        >
+          <div className="text-zinc-500">本场议程</div>
+          <ol className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+            {meetingMeta.agenda.map((item, i) => (
+              <li key={i} className="text-zinc-300">
+                <span className="text-zinc-600">{i + 1}.</span> {item.title}
+                {item.time_budget_min ? (
+                  <span className="ml-1 text-zinc-600">({item.time_budget_min}m)</span>
+                ) : null}
+              </li>
+            ))}
+          </ol>
         </div>
       ) : null}
 
