@@ -92,6 +92,7 @@ export default function MePage() {
   const [notifs, setNotifs] = useState<NotificationList>({
     items: [],
     unread_count: 0,
+    max_unread_severity: "normal",
   });
   const [notifsLoading, setNotifsLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -114,7 +115,7 @@ export default function MePage() {
       const r = await api.listMyNotifications(false, 100);
       setNotifs(r);
     } catch {
-      setNotifs({ items: [], unread_count: 0 });
+      setNotifs({ items: [], unread_count: 0, max_unread_severity: "normal" });
     } finally {
       setNotifsLoading(false);
     }
@@ -157,6 +158,7 @@ export default function MePage() {
       setNotifs((d) => ({
         items: d.items.map((x) => (x.read_at ? x : { ...x, read_at: now })),
         unread_count: 0,
+        max_unread_severity: "normal",
       }));
     } finally {
       setBusy(false);
@@ -175,6 +177,7 @@ export default function MePage() {
             : x,
         ),
         unread_count: Math.max(0, d.unread_count - 1),
+        max_unread_severity: d.max_unread_severity,
       }));
     }
   }, []);

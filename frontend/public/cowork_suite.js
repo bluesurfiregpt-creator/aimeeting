@@ -1427,15 +1427,238 @@
     R.register({
       id: "Z-5",
       series: "Z",
-      title: "/me/tasks?status=in_progress 在 v17 返回空(状态机 v18 才用)",
-      async run() {
-        const r = await GET("/api/me/tasks?status=in_progress");
-        if (!r.ok) return { ok: false, error: `${r.status}` };
-        if (!Array.isArray(r.body)) return { ok: false, error: "not an array" };
-        if (r.body.length !== 0) {
-          return { ok: false, error: `expected 0, got ${r.body.length} (v17 不写 in_progress)` };
+      title: "/me/tasks?status=active 含 open|dispatched|accepted|in_progress(复合桶)",
+      async run(ctx) {
+        // v18: Z-5 重定义 — 验证 'active' 复合桶 + 'pending'(待签收) + 'working'(办理中)
+        // 三种新过滤生效。在 prod 默认账号下,不一定有现成数据,只校验返回是数组 + 200。
+        for (const s of ["active", "pending", "working", "all"]) {
+          const r = await GET(`/api/me/tasks?status=${s}`);
+          if (!r.ok) return { ok: false, error: `${s} → ${r.status}` };
+          if (!Array.isArray(r.body)) return { ok: false, error: `${s} not array` };
         }
-        return { ok: true, evidence: { _note: "in_progress 状态在 v17 是空" } };
+        return { ok: true, evidence: { _note: "active/pending/working/all 四种过滤都 200" } };
+      },
+    });
+
+    // ---------- Z (cont'd) · v18 状态机 + 派发签收 + 三级催办 -------------
+    R.register({
+      id: "Z-6",
+      series: "Z",
+      title: "派发: open → dispatched, 写时间戳 + 派发人",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        if (!me?.user_id) return { ok: false, error: "no caller user_id" };
+        const m = await POST("/api/meetings", { title: `${PREFIX}_Z6`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `create meeting ${m.status}` };
+        created("meeting", m.body.id, "Z6");
+        const a = await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_Z6_action`,
+        });
+        if (!a.ok) return { ok: false, error: `create action ${a.status}` };
+        // 找到对应 task
+        const list = await GET("/api/me/tasks?status=all");
+        // action 没有 assignee,所以 task.assignee_user_id 为 null,/me/tasks 拿不到
+        // 改用 meeting actions 接口拿 task_id
+        const actionRows = await GET(`/api/meetings/${m.body.id}/actions`);
+        const actionRow = actionRows.body && actionRows.body[0];
+        if (!actionRow) return { ok: false, error: "action not in meeting list" };
+        // 通过 v18 dispatch 端点把 task 派给自己
+        // 先要知道 task_id — Z-1 已经验证过 source_ref.action_item_id,这里走另一条:
+        // /me/tasks?status=all assignee 默认空,不会出现。我们走 PATCH action 设置 assignee 的方式:
+        // 但这里我们是直接测 dispatch 端点。需要 task_id,从 source_ref 里反查 action_item.id 的工具没有。
+        // 简化:创 action 时直接带 assignee_user_id=me,这样 task 立刻归我,/me/tasks 能看到 task_id。
+        const a2 = await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_Z6_dispatchable`,
+          assignee_user_id: me.user_id,
+        });
+        if (!a2.ok) return { ok: false, error: `create assignee=me action ${a2.status}` };
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_Z6_dispatchable`);
+        if (!t) return { ok: false, error: "task not visible to me after assignee=me" };
+        ctx.Z6_task = t.id;
+        ctx.Z6_meeting = m.body.id;
+        // 派发本身要求 status='open',我们的初始 task 已经 open
+        const dispatchedDue = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+        const d = await POST(`/api/me/tasks/${t.id}/dispatch`, {
+          assignee_user_id: me.user_id,
+          due_at: dispatchedDue,
+          note: `${PREFIX}_dispatch_note`,
+        });
+        if (!d.ok) return { ok: false, error: `dispatch ${d.status} ${JSON.stringify(d.body)}` };
+        if (d.body.status !== "dispatched") {
+          return { ok: false, error: `expected status=dispatched, got ${d.body.status}` };
+        }
+        if (!d.body.dispatched_at) return { ok: false, error: "dispatched_at not stamped" };
+        if (d.body.dispatched_by_user_id !== me.user_id) {
+          return { ok: false, error: "dispatched_by_user_id mismatch" };
+        }
+        return { ok: true, evidence: { _note: `task ${t.id.slice(0, 8)}… → dispatched` } };
+      },
+    });
+
+    R.register({
+      id: "Z-7",
+      series: "Z",
+      title: "签收: dispatched → accepted, 写 accepted_at",
+      async run(ctx) {
+        if (!ctx.Z6_task) return { ok: false, error: "SKIP_DEP_FAILED:Z-6", evidence: { _skipped: true } };
+        const r = await POST(`/api/me/tasks/${ctx.Z6_task}/accept`, {});
+        if (!r.ok) return { ok: false, error: `accept ${r.status}` };
+        if (r.body.status !== "accepted") {
+          return { ok: false, error: `expected status=accepted, got ${r.body.status}` };
+        }
+        if (!r.body.accepted_at) return { ok: false, error: "accepted_at not stamped" };
+        return { ok: true, evidence: { _note: "accepted with timestamp" } };
+      },
+    });
+
+    R.register({
+      id: "Z-8",
+      series: "Z",
+      title: "办理 + 办结: accepted → in_progress → done",
+      async run(ctx) {
+        if (!ctx.Z6_task) return { ok: false, error: "SKIP_DEP_FAILED:Z-6", evidence: { _skipped: true } };
+        const start = await POST(`/api/me/tasks/${ctx.Z6_task}/start`, {});
+        if (!start.ok || start.body.status !== "in_progress") {
+          return { ok: false, error: `start ${start.status} status=${start.body && start.body.status}` };
+        }
+        if (!start.body.started_at) return { ok: false, error: "started_at not stamped" };
+        const done = await POST(`/api/me/tasks/${ctx.Z6_task}/complete`, {});
+        if (!done.ok || done.body.status !== "done") {
+          return { ok: false, error: `complete ${done.status} status=${done.body && done.body.status}` };
+        }
+        // ActionItem 镜像应当为 'done'
+        const actions = await GET(`/api/meetings/${ctx.Z6_meeting}/actions`);
+        const ai = (actions.body || []).find(
+          (x) => x.content === `${PREFIX}_Z6_dispatchable`,
+        );
+        if (!ai || ai.status !== "done") {
+          return { ok: false, error: `mirror to ActionItem failed: ${ai && ai.status}` };
+        }
+        return { ok: true, evidence: { _note: "in_progress → done + ActionItem 镜像" } };
+      },
+    });
+
+    R.register({
+      id: "Z-9",
+      series: "Z",
+      title: "退回: dispatched → open + 清空 assignee",
+      async run() {
+        const me = (await GET("/api/auth/me")).body;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_Z9`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `create meeting ${m.status}` };
+        created("meeting", m.body.id, "Z9");
+        const a = await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_Z9_action`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_Z9_action`);
+        if (!t) return { ok: false, error: "task not visible" };
+        const dispatched = await POST(`/api/me/tasks/${t.id}/dispatch`, {
+          assignee_user_id: me.user_id,
+        });
+        if (!dispatched.ok) return { ok: false, error: `dispatch ${dispatched.status}` };
+        const ret = await POST(`/api/me/tasks/${t.id}/return`, { reason: "test return" });
+        if (!ret.ok || ret.body.status !== "open") {
+          return { ok: false, error: `return ${ret.status} status=${ret.body && ret.body.status}` };
+        }
+        if (ret.body.assignee_user_id !== null) {
+          return { ok: false, error: `assignee should be cleared, got ${ret.body.assignee_user_id}` };
+        }
+        return { ok: true, evidence: { _note: "returned + assignee cleared" } };
+      },
+    });
+
+    R.register({
+      id: "Z-10",
+      series: "Z",
+      title: "非法转换被拒: 直接对 open 状态 accept 应 422",
+      async run() {
+        const me = (await GET("/api/auth/me")).body;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_Z10`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `create meeting ${m.status}` };
+        created("meeting", m.body.id, "Z10");
+        const a = await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_Z10_action`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_Z10_action`);
+        if (!t) return { ok: false, error: "task not visible" };
+        // task 当前 'open',直接尝试 accept(应当是 dispatched 才能 accept)
+        const r = await POST(`/api/me/tasks/${t.id}/accept`, {});
+        if (r.ok || r.status !== 422) {
+          return {
+            ok: false,
+            error: `expected 422, got ${r.status} ${JSON.stringify(r.body)}`,
+          };
+        }
+        return { ok: true, evidence: { _note: "状态机正确拒绝非法转换 (422)" } };
+      },
+    });
+
+    R.register({
+      id: "Z-11",
+      series: "Z",
+      title: "通知 severity 字段存在 + max_unread_severity 接口稳定",
+      async run() {
+        const r = await GET("/api/me/notifications?limit=10");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if (typeof r.body.max_unread_severity !== "string") {
+          return { ok: false, error: "max_unread_severity not a string" };
+        }
+        if (!["normal", "yellow", "red", "purple"].includes(r.body.max_unread_severity)) {
+          return { ok: false, error: `bad severity: ${r.body.max_unread_severity}` };
+        }
+        // 每条 item 必须带 severity
+        for (const it of r.body.items || []) {
+          if (typeof it.severity !== "string") {
+            return { ok: false, error: `item missing severity: ${it.id}` };
+          }
+        }
+        return {
+          ok: true,
+          evidence: {
+            _note: `max_severity=${r.body.max_unread_severity}, ${r.body.items.length} items`,
+          },
+        };
+      },
+    });
+
+    R.register({
+      id: "Z-12",
+      series: "Z",
+      title: "派发触发 task_dispatched 通知(单浏览器 self-dispatch 抑制规则反向校验)",
+      async run() {
+        const me = (await GET("/api/auth/me")).body;
+        // self-dispatch:派给自己 → 不应该产生 task_dispatched 通知
+        const before = await GET("/api/me/notifications?unread_only=true&limit=1");
+        const beforeCount = (before.body && before.body.unread_count) || 0;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_Z12`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `create meeting ${m.status}` };
+        created("meeting", m.body.id, "Z12");
+        const a = await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_Z12_action`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_Z12_action`);
+        if (!t) return { ok: false, error: "task not visible" };
+        const d = await POST(`/api/me/tasks/${t.id}/dispatch`, {
+          assignee_user_id: me.user_id,
+        });
+        if (!d.ok) return { ok: false, error: `dispatch ${d.status}` };
+        await SLEEP(300);
+        const after = await GET("/api/me/notifications?unread_only=true&limit=1");
+        const afterCount = (after.body && after.body.unread_count) || 0;
+        if (afterCount > beforeCount) {
+          return {
+            ok: false,
+            error: `self-dispatch should not bump unread_count (${beforeCount} → ${afterCount})`,
+          };
+        }
+        return { ok: true, evidence: { _note: "self-dispatch 抑制 OK" } };
       },
     });
 

@@ -403,15 +403,21 @@ export type MyAction = {
   updated_at: string;
 };
 
-/** Theme 1 (P0): one bell-drawer entry. `payload` shape varies by `kind`;
- *  the UI switches on `kind` to format the human-readable line. */
+/** Theme 1 (P0) → v18: one bell-drawer entry. `payload` shape varies
+ *  by `kind`; the UI switches on `kind` to format the line.
+ *  `severity` (v18) drives the bell badge / row coloring. */
 export type Notification = {
   id: string;
   kind:
     | "action_assigned"
     | "action_due_soon"
     | "action_overdue"
-    | "action_comment";
+    | "action_comment"
+    | "task_dispatched"
+    | "task_accepted"
+    | "task_returned"
+    | "task_completed";
+  severity: "normal" | "yellow" | "red" | "purple";
   payload: Record<string, unknown> | null;
   read_at: string | null;
   created_at: string;
@@ -420,6 +426,44 @@ export type Notification = {
 export type NotificationList = {
   items: Notification[];
   unread_count: number;
+  /** v18: highest severity among ALL unread (not just the first page).
+   *  Drives the bell badge color. */
+  max_unread_severity: "normal" | "yellow" | "red" | "purple";
+};
+
+/** v17 → v18: Task as workspace-level first-class object.
+ *  Status enum extends to the 6-state machine; new state-machine
+ *  timestamps stamp the corresponding transition. */
+export type MyTask = {
+  id: string;
+  title: string | null;
+  content: string;
+  assignee_user_id: string | null;
+  due_at: string | null;
+  status:
+    | "open"
+    | "dispatched"
+    | "accepted"
+    | "in_progress"
+    | "done"
+    | "cancelled";
+  dispatched_at: string | null;
+  dispatched_by_user_id: string | null;
+  accepted_at: string | null;
+  started_at: string | null;
+  source_type:
+    | "meeting"
+    | "manual"
+    | "leader_directive"
+    | "upper_doc"
+    | "cron"
+    | "alert"
+    | "report";
+  source_ref: Record<string, unknown> | null;
+  meeting_id: string | null;
+  meeting_title: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type Me = {
@@ -562,6 +606,39 @@ export const api = {
     jpostVoid(`/api/me/notifications/${id}/read`, {}),
   markAllNotificationsRead: () =>
     jpostVoid(`/api/me/notifications/read-all`, {}),
+
+  // v17 → v18: Task lifecycle (派发 / 签收 / 退回 / 办理 / 办结 / 取消)
+  listMyTasks: (
+    status:
+      | "active"
+      | "all"
+      | "open"
+      | "dispatched"
+      | "accepted"
+      | "in_progress"
+      | "done"
+      | "cancelled"
+      | "pending"
+      | "working" = "active",
+  ) => jget<MyTask[]>(`/api/me/tasks?status=${status}`),
+  dispatchTask: (
+    taskId: string,
+    body: {
+      assignee_user_id: string;
+      due_at?: string | null;
+      note?: string | null;
+    },
+  ) => jpost<MyTask>(`/api/me/tasks/${taskId}/dispatch`, body),
+  acceptTask: (taskId: string) =>
+    jpost<MyTask>(`/api/me/tasks/${taskId}/accept`, {}),
+  returnTask: (taskId: string, reason?: string | null) =>
+    jpost<MyTask>(`/api/me/tasks/${taskId}/return`, { reason }),
+  startTask: (taskId: string) =>
+    jpost<MyTask>(`/api/me/tasks/${taskId}/start`, {}),
+  completeTask: (taskId: string) =>
+    jpost<MyTask>(`/api/me/tasks/${taskId}/complete`, {}),
+  cancelTask: (taskId: string, reason?: string | null) =>
+    jpost<MyTask>(`/api/me/tasks/${taskId}/cancel`, { reason }),
 
   // M3.0 agent message history (Cowork-friendly read-only)
   listAgentMessages: (meetingId: string) =>

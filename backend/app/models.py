@@ -399,11 +399,26 @@ class Task(Base):
     cross-source dashboards) should query this table; legacy paths still
     use ActionItem until v18 cuts them over.
 
-    State values (v17):
-      open | in_progress | done | cancelled
-        ^---- ActionItem mirror only uses {open, done, cancelled};
-              `in_progress` is reserved for v18 state-machine work
-              (派发 → 签收 → 办理 → 上报 → 办结 → 归档).
+    State machine (v18 · 6 states active, 2 reserved):
+
+        open ──dispatch──▶ dispatched ──accept──▶ accepted ──start──▶ in_progress
+                                │                                          │
+                                │ return                                   │ complete
+                                ▼                                          ▼
+                              open                                       done
+                                                                          │
+                                                                          │ archive (v19+)
+                                                                          ▼
+                                                                       archived
+
+      Plus universal `cancelled` from any active state, and a future
+      `submitted` state (in_progress → submitted → done) reserved for
+      v19 when 「办结申请」上报审核流程上线.
+
+    The legacy ActionItem mirror only uses {open, done, cancelled} —
+    when Task moves through dispatched / accepted / in_progress, the
+    paired ActionItem stays at 'open' (its UI doesn't know these
+    states). Mirror logic lives in task_state.py.
 
     `source_type`:
       meeting           — extracted from a meeting (action_extractor) or
@@ -436,6 +451,17 @@ class Task(Base):
     )
     due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(16), default="open", index=True)
+    # v18 state-machine timestamps. Each is set when the corresponding
+    # transition fires and never cleared (audit trail). NULL means
+    # "transition hasn't happened yet". `dispatched_by_user_id` carries
+    # the dispatcher (typically a leader / admin); accepted_at /
+    # started_at are stamped when the assignee acts.
+    dispatched_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    dispatched_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     source_type: Mapped[str] = mapped_column(String(32), default="manual", index=True)
     # JSON pointer back to the originating object — schema varies by
     # source_type (see class docstring). Always set, never NULL: even
@@ -475,6 +501,14 @@ class Notification(Base):
         PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
     )
     kind: Mapped[str] = mapped_column(String(32), index=True)
+    # v18: severity escalates the visual treatment + (future) channel
+    # routing of the notification. Cron-generated reminders set this:
+    #   normal — default, all event-driven kinds (assigned / comment)
+    #   yellow — due_soon (within 3 days) — bell + (later) WeChat work
+    #   red    — overdue, days_overdue < 3 — bell + WeChat + SMS
+    #   purple — overdue, days_overdue >= 3 — also notifies workspace
+    #            admins/owners; bell + WeChat + SMS + email
+    severity: Mapped[str] = mapped_column(String(16), default="normal", index=True)
     payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

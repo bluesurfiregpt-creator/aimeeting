@@ -52,6 +52,17 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     #     Backfilled below for existing rows.
     ("workspace", "preset", "JSONB"),
     ("meeting_action_item", "task_id", "UUID"),
+    # v18 (Task 状态机 + 三级催办):
+    #   - task.{dispatched_at, dispatched_by_user_id, accepted_at, started_at}
+    #     stamp transitions through the 6-state machine (audit trail; never
+    #     cleared once set)
+    #   - notification.severity = normal | yellow | red | purple drives bell
+    #     coloring + (future) channel routing for catch-up reminders
+    ("task", "dispatched_at", "TIMESTAMPTZ"),
+    ("task", "dispatched_by_user_id", "UUID"),
+    ("task", "accepted_at", "TIMESTAMPTZ"),
+    ("task", "started_at", "TIMESTAMPTZ"),
+    ("notification", "severity", "VARCHAR(16) NOT NULL DEFAULT 'normal'"),
 ]
 
 # Drop the legacy unique-on-provider constraint so the new

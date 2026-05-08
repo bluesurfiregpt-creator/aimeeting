@@ -81,8 +81,64 @@ function describe(n: Notification): { line: string; href: string | null } {
         href,
       };
     }
+    case "task_dispatched": {
+      const by = typeof p.dispatched_by === "string" ? p.dispatched_by : "";
+      const content = typeof p.content === "string" ? p.content : "";
+      const title = meetingTitle ? `《${meetingTitle}》` : "";
+      return {
+        line: `${title}${by ? `${by} 派发给你：` : "新任务派发：" }${content}`.trim(),
+        href,
+      };
+    }
+    case "task_accepted": {
+      const by = typeof p.accepted_by === "string" ? p.accepted_by : "";
+      const content = typeof p.content === "string" ? p.content : "";
+      return { line: `${by} 已签收任务：${content}`.trim(), href };
+    }
+    case "task_returned": {
+      const by = typeof p.returned_by === "string" ? p.returned_by : "";
+      const reason = typeof p.reason === "string" ? p.reason : "";
+      const content = typeof p.content === "string" ? p.content : "";
+      return {
+        line: `${by} 退回了任务：${content}${reason ? `（${reason}）` : ""}`.trim(),
+        href,
+      };
+    }
+    case "task_completed": {
+      const by = typeof p.completed_by === "string" ? p.completed_by : "";
+      const content = typeof p.content === "string" ? p.content : "";
+      return { line: `${by} 已办结：${content}`.trim(), href };
+    }
     default:
       return { line: n.kind, href };
+  }
+}
+
+// v18: severity → badge color class (Tailwind). Higher severity = more urgent.
+function severityBadgeClass(severity: string): string {
+  switch (severity) {
+    case "purple":
+      return "bg-purple-500";
+    case "red":
+      return "bg-red-500";
+    case "yellow":
+      return "bg-amber-400 text-amber-950";
+    default:
+      return "bg-rose-500";
+  }
+}
+
+// v18: severity → unread-row dot color.
+function severityDotClass(severity: string): string {
+  switch (severity) {
+    case "purple":
+      return "bg-purple-400";
+    case "red":
+      return "bg-red-400";
+    case "yellow":
+      return "bg-amber-400";
+    default:
+      return "bg-rose-400";
   }
 }
 
@@ -90,6 +146,7 @@ export default function NotificationBell() {
   const [data, setData] = useState<NotificationList>({
     items: [],
     unread_count: 0,
+    max_unread_severity: "normal",
   });
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -98,7 +155,11 @@ export default function NotificationBell() {
   const refresh = useCallback(async () => {
     try {
       const list = await api.listMyNotifications(false, 50);
-      setData(list);
+      setData({
+        items: list.items,
+        unread_count: list.unread_count,
+        max_unread_severity: list.max_unread_severity ?? "normal",
+      });
     } catch {
       // 401 / network: bail silently. The api layer already toasts non-401
       // errors; we don't want to spam an idle background poll.
@@ -138,6 +199,7 @@ export default function NotificationBell() {
         unread_count: !n.read_at
           ? Math.max(0, d.unread_count - 1)
           : d.unread_count,
+        max_unread_severity: d.max_unread_severity,
       }));
     },
     [],
@@ -152,6 +214,7 @@ export default function NotificationBell() {
       setData((d) => ({
         items: d.items.map((x) => (x.read_at ? x : { ...x, read_at: now })),
         unread_count: 0,
+        max_unread_severity: "normal",
       }));
     } finally {
       setBusy(false);
@@ -187,7 +250,8 @@ export default function NotificationBell() {
           <span
             data-testid="notification-bell-badge"
             data-unread-count={data.unread_count}
-            className="absolute -right-0.5 -top-0.5 grid min-w-[16px] h-4 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold leading-none text-white"
+            data-severity={data.max_unread_severity}
+            className={`absolute -right-0.5 -top-0.5 grid min-w-[16px] h-4 place-items-center rounded-full px-1 text-[10px] font-semibold leading-none text-white ${severityBadgeClass(data.max_unread_severity)}`}
           >
             {data.unread_count > 99 ? "99+" : data.unread_count}
           </span>
@@ -239,7 +303,7 @@ export default function NotificationBell() {
                   >
                     <span
                       className={`mt-1.5 inline-block h-1.5 w-1.5 flex-none rounded-full ${
-                        unread ? "bg-rose-400" : "bg-transparent"
+                        unread ? severityDotClass(n.severity) : "bg-transparent"
                       }`}
                     />
                     <div className="flex-1 min-w-0">

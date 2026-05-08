@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v17）
+# Aimeeting · 测试用例（v18）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -310,7 +310,8 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v17** | 2026-05-09 | **Task 一级对象立项(智慧住建翻译层骨架)**:① 新表 `task`(id / workspace_id / title / content / assignee_user_id / created_by_user_id / due_at / status / source_type / source_ref(JSON) / 时间戳),状态 v17 只用 `open|done|cancelled`,`in_progress` 留给 v18 状态机;② 新建 `task_sync.py` helper:`add_action_with_task` / `mirror_patch_to_task` / `delete_task_for_action` / `delete_tasks_for_meeting_summary_actions`,client-side UUID 让 ActionItem ↔ Task 一笔事务交叉指 ID;③ `meeting_action_item.task_id` FK 列加上,`init_db.py` 启动时 backfill 现有所有 ActionItem 一对一映射 Task(source_type='meeting');④ `workspace.preset` JSON 列加上,默认 NULL=「general」,预留 'smart_construction' 等键;⑤ 双写接入:`POST/PATCH/DELETE /api/meetings/{m}/actions` 和 `action_extractor` 自动抽取都同步维护 Task;⑥ 新读端 `GET /api/me/tasks?status=(open|all|done|in_progress)` 返回 Task 列表 + 自动注水 `meeting_id`/`meeting_title`(source_type='meeting' 行);⑦ Notification payload 新增 `task_id` 字段(`action_id` 保留兼容),due_reminder cron / action_assigned / action_comment 都带上;⑧ 测试:Cowork Z 系列 5 用例(Z-1 dual-write 一致 / Z-2 PATCH 镜像 / Z-3 DELETE 级联 / Z-4 meeting_title 注水 / Z-5 in_progress v17 为空);两份 baseline.json 同步刷到 v17(总 49 用例,41 ✅ + 8 ⏭️);⑨ 前端零变更,Y 系列保持绿 |
+| **v18** | 2026-05-09 | **Task 状态机 + 派发签收 + 三级催办**:① 模型扩展:Task 增 `dispatched_at`/`dispatched_by_user_id`/`accepted_at`/`started_at` 时间戳列;状态枚举从 `open|done|cancelled` 扩到 6 态(open / dispatched / accepted / in_progress / done / cancelled),`submitted` 和 `archived` 留给 v19;Notification 增 `severity` 列(normal / yellow / red / purple);② 新模块 `task_state.py`:合法转换表 + `transition()` 把守 + `mirror_to_action_status()`(Task → ActionItem 状态映射,新增 dispatched/accepted/in_progress 全部映射成 ActionItem='open',旧 UI 完全不用改);③ 新端点 `POST /api/me/tasks/{tid}/{dispatch,accept,return,start,complete,cancel}`,各自校验权限(dispatch:同 workspace · accept/start/complete:必须是 assignee · cancel:assignee/dispatcher/creator 任一)、走状态机、镜像到 ActionItem、发对应 kind 通知(`task_dispatched`/`task_accepted`/`task_returned`/`task_completed`,self-* 抑制);④ `due_reminder.py` severity-aware 重写:黄(≤3d 距截止,48h dedup)/红(超时<3d,24h dedup)/紫(超时≥3d,24h dedup,**额外**通知 workspace owner+admin);⑤ `notify.py` 新增 `severity` 参数,dedup 窗口按 severity 不同;⑥ `/api/me/tasks` status 过滤扩展:加 `active`(=open|dispatched|accepted|in_progress,默认值)/ `pending`(=dispatched 待签收) / `working`(=accepted|in_progress 办理中);响应增加 `assignee_user_id` + 4 个状态机时间戳字段;⑦ `/api/me/notifications` 响应增加 `max_unread_severity` 字段(purple > red > yellow > normal),驱动铃铛 badge 颜色;⑧ 前端轻量适配:NotificationBell badge 颜色随 severity 变(rose/amber/red/purple),drawer 内行点颜色同步;api.ts 加 MyTask 类型 + 6 个 lifecycle 方法 + Notification 类型加 4 个新 kind 和 severity 字段;⑨ 测试 Z-6..Z-12(共 7 个新用例:派发 / 签收 / 办理+办结 / 退回 / 非法转换拒绝 / severity 字段稳定 / self-dispatch 抑制),Z-5 重定义为 active/pending/working/all 四种过滤生效校验;baseline 刷到 v18(总 56 用例,48 ✅ + 8 ⏭️) |
+| v17 | 2026-05-09 | **Task 一级对象立项(智慧住建翻译层骨架)**:① 新表 `task`(id / workspace_id / title / content / assignee_user_id / created_by_user_id / due_at / status / source_type / source_ref(JSON) / 时间戳),状态 v17 只用 `open|done|cancelled`,`in_progress` 留给 v18 状态机;② 新建 `task_sync.py` helper:`add_action_with_task` / `mirror_patch_to_task` / `delete_task_for_action` / `delete_tasks_for_meeting_summary_actions`,client-side UUID 让 ActionItem ↔ Task 一笔事务交叉指 ID;③ `meeting_action_item.task_id` FK 列加上,`init_db.py` 启动时 backfill 现有所有 ActionItem 一对一映射 Task(source_type='meeting');④ `workspace.preset` JSON 列加上,默认 NULL=「general」,预留 'smart_construction' 等键;⑤ 双写接入:`POST/PATCH/DELETE /api/meetings/{m}/actions` 和 `action_extractor` 自动抽取都同步维护 Task;⑥ 新读端 `GET /api/me/tasks?status=(open|all|done|in_progress)` 返回 Task 列表 + 自动注水 `meeting_id`/`meeting_title`(source_type='meeting' 行);⑦ Notification payload 新增 `task_id` 字段(`action_id` 保留兼容),due_reminder cron / action_assigned / action_comment 都带上;⑧ 测试:Cowork Z 系列 5 用例(Z-1 dual-write 一致 / Z-2 PATCH 镜像 / Z-3 DELETE 级联 / Z-4 meeting_title 注水 / Z-5 in_progress v17 为空);两份 baseline.json 同步刷到 v17(总 49 用例,41 ✅ + 8 ⏭️);⑨ 前端零变更,Y 系列保持绿 |
 | v16 | 2026-05-08 | **主题 1 · P0 行动项协作闭环**:① 后端新建表 `meeting_action_item_comment` + `notification`(in-app);② 新 router `/api/me`(`GET /actions`、`GET /notifications`、`POST /notifications/{id}/read`、`POST /notifications/read-all`);③ 行动项评论 CRUD(`/api/meetings/{mid}/actions/{aid}/comments`,作者可删不可改);④ 创建 / 改派行动项时给 assignee 写 `action_assigned`(self-notify 抑制);⑤ FastAPI lifespan 内挂后台 loop(默认 1h tick)生成 `action_due_soon` / `action_overdue`,helper `notify.py` 内 24h 去重;⑥ 前端:顶栏 🔔 NotificationBell + 抽屉(60s 轮询、未读红点、全部已读)、`/me` 个人页(我的待办 open/done 切换 + 通知列表)、ActionItemsCard 每行加可折叠评论线程(💬 计数 / lazy fetch / Cmd+Enter 发送);⑦ 测试:cowork_suite 新增 Y 系列 7 用例(Y-1..Y-7,自动列表 / done 过滤 / 评论 CRUD / 作者-only delete / 通知 shape / self-notify 抑制 / mark-all-read);两份 baseline.json(repo + frontend/public)同步刷到 v16(总 44 用例,36 ✅ + 8 ⏭️)|
 | v15 | 2026-05-08 | **P1 · T1 + T2 落地**:① **T1** Cowork 全自动套件(`tests/cowork_suite.js`,29 用例 + 8 expected skip,84-105s 全跑完);套件挂在 `/cowork_suite.js`,任何登录浏览器一句 `runCoworkSuite()` 就能跑 ② **T2** baseline diff:`tests/baseline.json` 是 v14 节点的 frozen 快照,套件运行时**自动 fetch + diff**,5 个分类桶(regressions / fixed / new_passes / new_cases / missing);`r.json.summary.passed_baseline` 是 CI gate 关心的布尔值;markdown 顶部「✅ 与 baseline 一致」/「⚠️ 与 baseline 有偏差」横幅 ③ 套件 fixture 强化:G-1 行长 ≥ 18 字 / 总 ≥ 80 字以避开 backend `MIN_TRANSCRIPT_CHARS=60` 的 skipped 短路;poll 现在识别所有 terminal status(包括 skipped);依赖失败用 `SKIP_DEP_FAILED:<id>` 表示,自动归入 ⏭️ 而不是 ❌ |
 | v14 | 2026-05-08 | **修 v13 QA 报告 3 个 NEW-ISSUE**:① **NEW-ISSUE-B/C**(P2):简报顶部「上次会议未完待办」的总数 / 逾期数从原 `len(rows)`(被 LIMIT 截断) 改成独立 `COUNT(*)` 查询;当总数 > 8 时 header 加 `· 显示前 8` 透明化截断 ② **NEW-ISSUE-A**(P3):`prune_noise_users.py` 加 `--force-with-voiceprint` flag,显式覆盖 voiceprint guard;依赖 FK CASCADE 干净删除;跑了一次,删掉 `1` `111` 两条遗留 noise 用户 ③ 修了 prune 脚本的隐性 bug:`Voiceprint.user_id` / `WorkspaceMembership.user_id` / `PasswordResetToken.user_id` 都是 NOT NULL,以前 `_FK_REPOINT` 列表里包含他们,在 force 模式会触发约束违反 → 现在依赖 ondelete=CASCADE 自动级联 |
@@ -1094,6 +1095,31 @@ coworkX();
 - 「智慧住建」「智慧 XX」都是 Aimeeting 的 workspace 实例,通过 `workspace.preset` 区分子系统行为,**单一代码库,不分叉**
 - 现有 `MeetingActionItem` 在 v17 仍是 source-of-truth,Task 与之 1:1 镜像。v18 计划反过来:Task 升为 source-of-truth,ActionItem 退化为 view
 
+### Z-6..Z-12 · v18 状态机 + 派发签收 + 三级催办
+
+| 用例 | 操作 | 预期 | 状态 |
+|---|---|---|---|
+| Z-6 | 创 task,POST `/api/me/tasks/{tid}/dispatch` { assignee, due_at, note } | 200,status=dispatched,dispatched_at + dispatched_by_user_id 都已写 | ✅ |
+| Z-7 | 上一步任务 POST `.../accept` | 200,status=accepted,accepted_at 已写 | ✅ |
+| Z-8 | 接 Z-7,POST `.../start`(in_progress)+ POST `.../complete`(done);校验 ActionItem 镜像同步 | 全 200,status 链路 in_progress → done;对应 ActionItem.status='done' | ✅ |
+| Z-9 | 重新派发一个 task,然后 POST `.../return` { reason } | 200,status=open,assignee_user_id=null | ✅ |
+| Z-10 | 在 status=open 的任务上直接 POST `.../accept`(跳过派发) | 422 状态机拒绝 | ✅ |
+| Z-11 | GET `/api/me/notifications` | 响应含 `max_unread_severity ∈ {normal,yellow,red,purple}`,每条 item 都有 `severity` 字段 | ✅ |
+| Z-12 | 把 task 派给自己(self-dispatch),前后比较 unread_count | 不增加(`task_dispatched` 抑制 self-notify) | ✅ |
+
+**v18 后端启动日志预期**:
+```
+INFO app.init_db :: DB schema ensured        ← 5 个 ALTER 全部 idempotent 跑通
+INFO app.due_reminder :: due_reminder_loop starting; tick=3600s
+INFO app.due_reminder :: due_reminder tick: yellow=N red=M purple=K purple_admins=L
+                                                                 ^---- 紫灯 escalation 给 owner+admin
+```
+
+**手测点**:
+- 在已登录页面 `GET /api/me/notifications` 看 `max_unread_severity`(prod 默认账号有几条 red/purple,会驱动铃铛 badge 变红/紫)
+- 在 `/me` 页打开抽屉 → 不同 severity 的行点颜色不同(amber/red/purple)
+- 在会议页对自己的 action 调 PATCH status='done' 应当继续工作(legacy 直跳路径未被状态机阻断)
+
 ---
 
 ## 测试报告模板
@@ -1103,7 +1129,7 @@ coworkX();
 ```
 测试人:
 测试时间:
-测试用例版本: v17
+测试用例版本: v18
 浏览器/系统:
 默认账号是否生效: 是 / 否
 
