@@ -201,19 +201,28 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     reason: string;
   } | null>(null);
   const dissentTimerRef = useRef<number | null>(null);
-  // M3.0: moderator banner — agenda_off_topic OR agenda_time_warning. We
-  // unify both kinds into one slot since only one banner shows at a time
-  // (similar UX pattern as recommendation / dissent above).
+  // M3.0: moderator banner — agenda_off_topic / agenda_time_warning /
+  // agenda_stuck (M3.0.4). All three share the same slot because only one
+  // shows at a time. `auto_summon_at_ms` is set ONLY for stuck — when the
+  // wall clock crosses that timestamp the banner auto-summons the moderator
+  // (the "more aggressive" UX agreed for stuck specifically).
   const [moderator, setModerator] = useState<{
-    kind: "off_topic" | "time_warning";
-    title: string;     // headline shown bold
-    body: string;      // friendly reason
+    kind: "off_topic" | "time_warning" | "stuck";
+    title: string;
+    body: string;
     agent_id: string;
     agent_name: string;
     agent_color: string;
     invoke_query: string;
+    auto_summon_at_ms: number | null;
   } | null>(null);
   const moderatorTimerRef = useRef<number | null>(null);
+  // Live countdown display for stuck banners. Refreshed via interval so the
+  // banner shows "5 → 4 → 3 → 2 → 1" without re-rendering the parent on
+  // every tick (we only re-render this small piece). null = no countdown.
+  const [moderatorCountdown, setModeratorCountdown] = useState<number | null>(null);
+  const moderatorCountdownIntervalRef = useRef<number | null>(null);
+  const moderatorAutoFireTimeoutRef = useRef<number | null>(null);
   // Pool of attendees we let users pick from when manually correcting a
   // line's speaker after the meeting. Loaded after stop() because it's
   // only relevant once identification is done.
@@ -325,10 +334,20 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       }, 90_000);
       return;
     }
-    if (e.type === "agenda_off_topic" || e.type === "agenda_time_warning") {
-      if (moderatorTimerRef.current) {
-        window.clearTimeout(moderatorTimerRef.current);
-      }
+    if (
+      e.type === "agenda_off_topic" ||
+      e.type === "agenda_time_warning" ||
+      e.type === "agenda_stuck"
+    ) {
+      // Wipe any previous banner timers (auto-dismiss / auto-fire / countdown)
+      if (moderatorTimerRef.current) window.clearTimeout(moderatorTimerRef.current);
+      if (moderatorAutoFireTimeoutRef.current) window.clearTimeout(moderatorAutoFireTimeoutRef.current);
+      if (moderatorCountdownIntervalRef.current) window.clearInterval(moderatorCountdownIntervalRef.current);
+      moderatorTimerRef.current = null;
+      moderatorAutoFireTimeoutRef.current = null;
+      moderatorCountdownIntervalRef.current = null;
+      setModeratorCountdown(null);
+
       if (e.type === "agenda_off_topic") {
         setModerator({
           kind: "off_topic",
@@ -342,8 +361,9 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           invoke_query: `请你作为主持人,简短提醒大家回到议程项「${
             e.suggested_agenda_item ?? e.current_agenda_item ?? "原议题"
           }」。`,
+          auto_summon_at_ms: null,
         });
-      } else {
+      } else if (e.type === "agenda_time_warning") {
         setModerator({
           kind: "time_warning",
           title: "议程时间预算告急",
@@ -353,11 +373,39 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           agent_color: e.moderator_agent_color,
           invoke_query:
             "请你作为主持人,提醒大家时间快到了,需要尽快推进或锁定结论。",
+          auto_summon_at_ms: null,
         });
+      } else {
+        // M3.0.4 stuck — auto-summon after countdown unless user dismisses
+        const seconds = Math.max(2, Math.min(15, e.auto_summon_after_s || 5));
+        const fireAt = Date.now() + seconds * 1000;
+        setModerator({
+          kind: "stuck",
+          title: "讨论陷入僵局",
+          body: e.stuck_summary || e.reason,
+          agent_id: e.moderator_agent_id,
+          agent_name: e.moderator_agent_name,
+          agent_color: e.moderator_agent_color,
+          invoke_query:
+            "请你作为主持人,综合双方观点,给出一个折中方案或推进建议,帮我们破局。",
+          auto_summon_at_ms: fireAt,
+        });
+        // Countdown display ticks every 250ms for smooth visual update
+        setModeratorCountdown(seconds);
+        moderatorCountdownIntervalRef.current = window.setInterval(() => {
+          const remain = Math.ceil((fireAt - Date.now()) / 1000);
+          setModeratorCountdown(remain > 0 ? remain : 0);
+        }, 250);
       }
-      moderatorTimerRef.current = window.setTimeout(() => {
-        setModerator(null);
-      }, 90_000);
+
+      // Auto-dismiss banner after 90s if user does nothing (off_topic + time_warning)
+      // Stuck has its own auto-fire via auto_summon_at_ms; we don't auto-dismiss it
+      // before that fires.
+      if (e.type !== "agenda_stuck") {
+        moderatorTimerRef.current = window.setTimeout(() => {
+          setModerator(null);
+        }, 90_000);
+      }
       return;
     }
     if (e.type === "agent_message_start") {
@@ -579,6 +627,12 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     if (moderatorTimerRef.current) {
       window.clearTimeout(moderatorTimerRef.current);
     }
+    if (moderatorAutoFireTimeoutRef.current) {
+      window.clearTimeout(moderatorAutoFireTimeoutRef.current);
+    }
+    if (moderatorCountdownIntervalRef.current) {
+      window.clearInterval(moderatorCountdownIntervalRef.current);
+    }
   }, []);
 
   // Pull agents on mount so the avatar bar populates even before "开始会议".
@@ -690,8 +744,53 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   }, [moderator, phase, busyAgents]);
 
   const dismissModerator = useCallback(() => {
+    // Wipe everything — banner, countdown, scheduled auto-fire.
+    if (moderatorAutoFireTimeoutRef.current) {
+      window.clearTimeout(moderatorAutoFireTimeoutRef.current);
+      moderatorAutoFireTimeoutRef.current = null;
+    }
+    if (moderatorCountdownIntervalRef.current) {
+      window.clearInterval(moderatorCountdownIntervalRef.current);
+      moderatorCountdownIntervalRef.current = null;
+    }
     setModerator(null);
+    setModeratorCountdown(null);
   }, []);
+
+  // M3.0.4: when a stuck banner sets `auto_summon_at_ms`, schedule the
+  // auto-summon. Runs once when the banner appears and clears itself if
+  // the banner changes / dismisses before fire. Aggressive but cancellable
+  // — cancel paths: ✕ click, banner replaced by another, phase != live.
+  useEffect(() => {
+    if (!moderator || moderator.auto_summon_at_ms == null) return;
+    if (phase !== "live" || !socketRef.current) return;
+    const delay = Math.max(0, moderator.auto_summon_at_ms - Date.now());
+    moderatorAutoFireTimeoutRef.current = window.setTimeout(() => {
+      // Don't pile on if the moderator is already mid-utterance.
+      if (busyAgents.has(moderator.agent_id)) {
+        setModerator(null);
+        return;
+      }
+      socketRef.current?.sendJson({
+        action: "invoke_agent",
+        agent_id: moderator.agent_id,
+        query: moderator.invoke_query,
+      });
+      if (moderatorCountdownIntervalRef.current) {
+        window.clearInterval(moderatorCountdownIntervalRef.current);
+        moderatorCountdownIntervalRef.current = null;
+      }
+      setModerator(null);
+      setModeratorCountdown(null);
+    }, delay);
+    return () => {
+      if (moderatorAutoFireTimeoutRef.current) {
+        window.clearTimeout(moderatorAutoFireTimeoutRef.current);
+        moderatorAutoFireTimeoutRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moderator?.auto_summon_at_ms, moderator?.agent_id, moderator?.invoke_query]);
 
   /**
    * Submit a typed message into the meeting transcript. Two paths:
@@ -955,15 +1054,43 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       {moderator && phase === "live" ? (
         <div
           data-testid={`moderator-banner-${moderator.kind}`}
-          className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2"
+          className={
+            // Stuck banner is more prominent — orange-red border + soft pulse
+            // to telegraph the imminent auto-summon.
+            moderator.kind === "stuck"
+              ? "mt-3 flex items-center justify-between gap-3 rounded-lg border border-orange-500/60 bg-orange-500/10 px-3 py-2 animate-pulse"
+              : "mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2"
+          }
           style={{ borderLeftColor: tailwindColor(moderator.agent_color), borderLeftWidth: 3 }}
         >
           <div className="flex min-w-0 flex-1 items-center gap-2 text-sm text-zinc-200">
-            <span className="text-base">{moderator.kind === "off_topic" ? "🧭" : "⏱️"}</span>
+            <span className="text-base">
+              {moderator.kind === "off_topic"
+                ? "🧭"
+                : moderator.kind === "time_warning"
+                ? "⏱️"
+                : "🔄"}
+            </span>
             <span className="min-w-0">
-              <span className="font-medium text-amber-200">{moderator.title}</span>
+              <span
+                className={
+                  moderator.kind === "stuck"
+                    ? "font-medium text-orange-200"
+                    : "font-medium text-amber-200"
+                }
+              >
+                {moderator.title}
+              </span>
               <span className="mx-1 text-zinc-500">·</span>
               <span className="text-zinc-400">{moderator.body}</span>
+              {moderator.kind === "stuck" && moderatorCountdown !== null ? (
+                <span
+                  data-testid="moderator-countdown"
+                  className="ml-2 rounded bg-orange-500/30 px-1.5 py-0.5 text-xs font-semibold text-orange-100"
+                >
+                  {moderatorCountdown}s 后自动召唤
+                </span>
+              ) : null}
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -971,15 +1098,24 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
               data-testid="moderator-accept"
               onClick={acceptModerator}
               disabled={busyAgents.has(moderator.agent_id)}
-              className="rounded-lg px-3 py-1 text-xs font-medium text-white shadow transition disabled:opacity-50"
-              style={{ backgroundColor: tailwindColor(moderator.agent_color) }}
+              className={
+                moderator.kind === "stuck"
+                  ? "rounded-lg bg-orange-500 px-3 py-1 text-xs font-medium text-white shadow transition disabled:opacity-50 hover:bg-orange-400"
+                  : "rounded-lg px-3 py-1 text-xs font-medium text-white shadow transition disabled:opacity-50"
+              }
+              style={
+                moderator.kind === "stuck"
+                  ? undefined
+                  : { backgroundColor: tailwindColor(moderator.agent_color) }
+              }
             >
-              召唤{moderator.agent_name}
+              {moderator.kind === "stuck" ? "立刻召唤" : `召唤${moderator.agent_name}`}
             </button>
             <button
+              data-testid="moderator-dismiss"
               onClick={dismissModerator}
               className="text-xs text-zinc-500 hover:text-zinc-300"
-              title="忽略"
+              title={moderator.kind === "stuck" ? "取消自动召唤" : "忽略"}
             >
               ✕
             </button>

@@ -82,6 +82,20 @@ export type AgendaTimeWarningEvent = {
   reason: string;
 };
 
+/** M3.0.4: discussion is going in circles — repeat positions, no new info.
+ *  Stronger signal than off_topic. Frontend renders this with a visible
+ *  countdown; if the user does nothing within `auto_summon_after_s`
+ *  seconds the moderator is summoned automatically. */
+export type AgendaStuckEvent = {
+  type: "agenda_stuck";
+  stuck_summary: string;
+  auto_summon_after_s: number;
+  moderator_agent_id: string;
+  moderator_agent_name: string;
+  moderator_agent_color: string;
+  reason: string;
+};
+
 /** Synthetic event the wrapper emits on its own (not from the wire) so
  *  the UI can show "重连中…" / "已重连" without snooping at WS state. */
 export type ReconnectEvent = {
@@ -102,6 +116,7 @@ export type SttEvent =
   | DissentDetectedEvent
   | AgendaOffTopicEvent
   | AgendaTimeWarningEvent
+  | AgendaStuckEvent
   | ReconnectEvent;
 
 export interface SttSocket {

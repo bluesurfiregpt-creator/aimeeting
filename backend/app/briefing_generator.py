@@ -19,10 +19,12 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import datetime, timedelta, timezone
+
 from .db import SessionLocal
 from .llm_direct import LlmError, get_active_provider, stream_chat
 from .memory_retrieval import retrieve_relevant
-from .models import Meeting, MeetingAttendee, User
+from .models import Meeting, MeetingActionItem, MeetingAttendee, User
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +51,88 @@ BRIEFING_SYSTEM_PROMPT = """你是会议秘书,用 1 分钟的篇幅给主持人
 """
 
 
+async def _open_actions_block(
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    current_meeting_id: uuid.UUID,
+) -> Optional[str]:
+    """
+    M3.0.7: pull open action items from PRIOR meetings in this workspace
+    so the briefing's first section is always "what we still owe each
+    other from last time".
+
+    Filters:
+      - status='open' (not done, not cancelled)
+      - workspace_id matches
+      - excludes the current meeting (it has no past actions yet)
+      - keeps items with no due_at OR due_at within ±30d (avoids ancient
+        zombies from years ago dominating the briefing)
+
+    Returns markdown or None if there's nothing to surface.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    rows = (
+        await db.execute(
+            select(MeetingActionItem)
+            .where(
+                MeetingActionItem.workspace_id == workspace_id,
+                MeetingActionItem.status == "open",
+                MeetingActionItem.meeting_id != current_meeting_id,
+                # Either no due_at OR due_at >= 30 days ago (ignore ancient stale items)
+                (MeetingActionItem.due_at.is_(None))
+                | (MeetingActionItem.due_at >= cutoff),
+            )
+            .order_by(MeetingActionItem.due_at.asc().nullslast(), MeetingActionItem.created_at.desc())
+            .limit(8)
+        )
+    ).scalars().all()
+    if not rows:
+        return None
+
+    # Resolve assignee names
+    user_ids = {r.assignee_user_id for r in rows if r.assignee_user_id}
+    name_by_id: dict[uuid.UUID, str] = {}
+    if user_ids:
+        users_loaded = (
+            await db.execute(select(User).where(User.id.in_(user_ids)))
+        ).scalars().all()
+        name_by_id = {u.id: u.name for u in users_loaded}
+
+    lines = []
+    overdue_count = 0
+    now = datetime.now(timezone.utc)
+    for r in rows:
+        assignee = (
+            name_by_id.get(r.assignee_user_id)
+            if r.assignee_user_id
+            else r.assignee_name_hint
+        ) or "未指定"
+        suffix = ""
+        if r.due_at:
+            if r.due_at < now:
+                overdue_count += 1
+                suffix = f"  ⚠️ **逾期 {(now - r.due_at).days}d**"
+            else:
+                days_left = max(0, (r.due_at - now).days)
+                suffix = f"  · 截止 {r.due_at.strftime('%m-%d')}({days_left}d 内)"
+        lines.append(f"- **{assignee}** · {r.content}{suffix}")
+
+    header = f"## 📌 上次会议未完待办 ({len(rows)} 项"
+    if overdue_count:
+        header += f", **{overdue_count} 项逾期**"
+    header += ")"
+
+    return f"{header}\n" + "\n".join(lines)
+
+
 async def generate_briefing(meeting_id: uuid.UUID) -> Optional[str]:
     """
     Build a short briefing markdown for an upcoming meeting based on its
-    title + attendees + the long_term_memory store. Returns None when there
-    are no relevant memories yet (briefing UI hides itself in that case).
+    title + attendees + the long_term_memory store + (M3.0.7) any open
+    action items from prior meetings in this workspace.
+
+    Returns None when there's no relevant content at all (the UI then
+    hides the briefing card entirely).
     """
     async with SessionLocal() as db:
         meeting = (
@@ -97,12 +176,29 @@ async def generate_briefing(meeting_id: uuid.UUID) -> Optional[str]:
             memories = []
         provider = await get_active_provider(db)
 
+        # M3.0.7: open action items from PRIOR meetings — rendered at the
+        # TOP of the briefing markdown so the user sees "what we still
+        # owe each other" before the LLM summary section.
+        open_actions_md: Optional[str] = None
+        if meeting.workspace_id:
+            open_actions_md = await _open_actions_block(
+                db, meeting.workspace_id, meeting_id
+            )
+
     # Filter out very-distant matches; cosine distance > 0.7 is generally noise.
     memories = [m for m in memories if m.distance < 0.7]
+
+    # If we have open actions but no memories, we can still produce a
+    # briefing of just the actions block (the LLM section becomes empty,
+    # but the user still sees value).
+    if not memories and not open_actions_md:
+        return None
     if not memories:
-        return None
+        # No memories → just return the actions block on its own.
+        return open_actions_md
     if provider is None:
-        return None
+        # No LLM but we have actions — surface those alone.
+        return open_actions_md
 
     facts_block = "\n".join(
         f"- ({m.scope}{':' + m.scope_ref if m.scope_ref else ''}) {m.content}"
@@ -127,4 +223,9 @@ async def generate_briefing(meeting_id: uuid.UUID) -> Optional[str]:
         return None
 
     md = "".join(chunks).strip()
-    return md or None
+    if not md:
+        return open_actions_md  # fall back to actions-only if LLM returned empty
+    if open_actions_md:
+        # Prepend at top — user request: "open loops" first, summary after
+        return f"{open_actions_md}\n\n---\n\n{md}"
+    return md

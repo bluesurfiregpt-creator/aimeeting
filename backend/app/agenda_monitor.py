@@ -89,6 +89,8 @@ _SYSTEM_PROMPT = """你是这场会议的主持人助理。会议有事先约定
   "suggested_agenda_item_idx": <若 off_topic, 应回到哪个议程项 index>,
   "time_warning": true/false,
   "time_warning_text": "<若 time_warning, 简短解释>",
+  "stuck": true/false,
+  "stuck_summary": "<若 stuck, 一句话写两边各坚持什么>",
   "reason": "<不超过 30 字的中文短句, 用于 banner 上展示>"
 }
 
@@ -96,9 +98,14 @@ _SYSTEM_PROMPT = """你是这场会议的主持人助理。会议有事先约定
 1. off_topic:近 5 句话题与当前议程项的 title / note 字段几乎不沾边, 且持续 ≥ 3 句 → true
 2. 偶尔的离题闲谈(< 3 句)不算
 3. time_warning:某议程项已用时间 / time_budget_min ≥ 0.8 时 → true (用时由调用方传入)
-4. reason 必须**简短并对用户有意义**, 例如:
+4. stuck (僵局):**最近 5+ 句**对话存在**重复立场**且**没新增论据** —— 几个人反复说同一件事但谁也说服不了谁,讨论原地打转 → true
+   - 反例:有新数据 / 新方案出现 → false
+   - 反例:正在快速达成共识(同意/接力) → false
+5. **同一轮调用最多触发一种**,优先级 stuck > off_topic > time_warning
+6. reason 必须**简短并对用户有意义**, 例如:
    - "在聊午餐安排, 议程是「合规风险评估」, 建议拉回"
    - "「数据出境讨论」预算 15 分钟已用 13, 建议推进下一项"
+   - "邓西、王架构反复就「先做 A 还是 B」打转, 主持人介入收口"
 """
 
 
@@ -224,20 +231,34 @@ async def maybe_check_agenda(
 
     off_topic = bool(parsed.get("off_topic"))
     time_warning = bool(parsed.get("time_warning"))
-    if not (off_topic or time_warning):
+    stuck = bool(parsed.get("stuck"))
+    if not (off_topic or time_warning or stuck):
         return  # nothing to surface
 
     reason = (parsed.get("reason") or "").strip()[:80]
 
     # Pick which one to fire — only one banner per cycle so we don't spam.
-    # off_topic wins because it's a stronger signal of trouble.
+    # Priority: stuck > off_topic > time_warning. Stuck is the strongest
+    # actionable signal (people locked in disagreement), off_topic next,
+    # time_warning is informational and softest.
     payload: dict = {
         "moderator_agent_id": str(moderator.id),
         "moderator_agent_name": moderator.name,
         "moderator_agent_color": moderator.color or "amber",
         "reason": reason or "议程进度需要关注",
     }
-    if off_topic:
+    if stuck:
+        payload.update(
+            {
+                "type": "agenda_stuck",
+                "stuck_summary": (parsed.get("stuck_summary") or "")[:80],
+                # M3.0.4: client renders this banner with a 5s countdown that
+                # auto-summons the moderator if the user does nothing — a
+                # tighter loop than off_topic which just sits there.
+                "auto_summon_after_s": 5,
+            }
+        )
+    elif off_topic:
         cur_idx = parsed.get("current_agenda_item_idx")
         sug_idx = parsed.get("suggested_agenda_item_idx")
         cur_item = (
@@ -273,29 +294,36 @@ async def maybe_check_agenda(
     # v11 ISSUE-2: audit row so REST-only callers can verify the trigger
     # fired even without subscribing to the live WS.
     try:
+        # Per-type audit payload shape — all have reason + moderator id, then
+        # type-specific fields layered on top.
+        audit_payload: dict = {
+            "reason": reason[:80],
+            "moderator_agent_id": payload.get("moderator_agent_id"),
+        }
+        if payload["type"] == "agenda_off_topic":
+            audit_payload.update(
+                current_agenda_item=payload.get("current_agenda_item"),
+                suggested_agenda_item=payload.get("suggested_agenda_item"),
+                off_topic_summary=payload.get("off_topic_summary"),
+            )
+        elif payload["type"] == "agenda_stuck":
+            audit_payload.update(
+                stuck_summary=payload.get("stuck_summary"),
+                auto_summon_after_s=payload.get("auto_summon_after_s"),
+            )
+        else:  # agenda_time_warning
+            audit_payload.update(
+                elapsed_min=payload.get("elapsed_min"),
+                time_warning_text=payload.get("time_warning_text"),
+            )
         async with SessionLocal() as audit_db:
             await system_audit_log(
                 audit_db,
                 m.workspace_id,
-                f"agenda.{payload['type']}",  # 'agenda.agenda_off_topic' / 'agenda.agenda_time_warning'
+                f"agenda.{payload['type']}",
                 target_type="meeting",
                 target_id=str(meeting_id),
-                payload={
-                    "reason": reason[:80],
-                    "moderator_agent_id": payload.get("moderator_agent_id"),
-                    **(
-                        {
-                            "current_agenda_item": payload.get("current_agenda_item"),
-                            "suggested_agenda_item": payload.get("suggested_agenda_item"),
-                            "off_topic_summary": payload.get("off_topic_summary"),
-                        }
-                        if payload["type"] == "agenda_off_topic"
-                        else {
-                            "elapsed_min": payload.get("elapsed_min"),
-                            "time_warning_text": payload.get("time_warning_text"),
-                        }
-                    ),
-                },
+                payload=audit_payload,
             )
     except Exception:
         logger.exception("agenda audit write failed (non-fatal)")

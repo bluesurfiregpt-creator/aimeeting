@@ -124,13 +124,20 @@ async def maybe_detect_dissent(
     meeting_id: uuid.UUID,
     *,
     on_message: Callable[[dict], Awaitable[None]],
-) -> None:
+    force: bool = False,
+) -> Optional[dict]:
     """
     Fire-and-forget detection driven by each finalized transcript line.
     Caller does NOT need to await — errors are swallowed and logged.
+
+    `force=True` (M3.0.x) bypasses the rate-limit + cooldown so the dev
+    endpoint `POST /api/meetings/{id}/dissent-detector/run-now` can drive
+    the same logic synchronously for tests.
+
+    Returns the banner payload that was emitted (None when nothing fired).
     """
-    if not _can_run(meeting_id):
-        return
+    if not force and not _can_run(meeting_id):
+        return None
     _mark_run(meeting_id)
 
     async with SessionLocal() as db:
@@ -244,17 +251,17 @@ async def maybe_detect_dissent(
     except Exception:
         logger.exception("dissent audit write failed (non-fatal)")
 
-    await on_message(
-        {
-            "type": "dissent_detected",
-            "topic": topic[:40],
-            "parties": [str(p)[:32] for p in parties[:4]],
-            "suggested_agent_id": str(chosen.id),
-            "suggested_agent_name": chosen.name,
-            "suggested_agent_color": chosen.color or "rose",
-            "reason": reason[:80],
-        }
-    )
+    payload_out = {
+        "type": "dissent_detected",
+        "topic": topic[:40],
+        "parties": [str(p)[:32] for p in parties[:4]],
+        "suggested_agent_id": str(chosen.id),
+        "suggested_agent_name": chosen.name,
+        "suggested_agent_color": chosen.color or "rose",
+        "reason": reason[:80],
+    }
+    await on_message(payload_out)
+    return payload_out
 
 
 def _pick_agent(

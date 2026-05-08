@@ -606,6 +606,40 @@ async def run_agenda_monitor(
     return AgendaMonitorRunOut(fired=True, payload=fired)
 
 
+class DissentRunNowOut(BaseModel):
+    fired: bool
+    payload: Optional[dict] = None
+    note: Optional[str] = None
+
+
+@router.post("/{meeting_id}/dissent-detector/run-now", response_model=DissentRunNowOut)
+async def run_dissent_detector(
+    meeting_id: str,
+    auth: AuthContext = Depends(get_current_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Synchronous trigger for the dissent detector — analogous to
+    `/agenda-monitor/run-now`. Bypasses the 25s throttle and 60s post-
+    fire cooldown. Returns either the banner payload or a no-signal note.
+
+    Useful for Cowork: inject a few opposing-view lines via
+    /manual-transcript, then call this endpoint to deterministically
+    drive the LLM check (production runs on a wall-clock cadence that's
+    too slow for CI).
+    """
+    await _load_owned_meeting(meeting_id, session, auth)
+
+    async def _noop(_payload: dict) -> None:
+        return None
+
+    fired = await maybe_detect_dissent(uuid.UUID(meeting_id), on_message=_noop, force=True)
+
+    if fired is None:
+        return DissentRunNowOut(fired=False, note="no_signal_or_no_named_speakers")
+    return DissentRunNowOut(fired=True, payload=fired)
+
+
 # --------- M3.0: action items CRUD --------------------------------------------
 
 

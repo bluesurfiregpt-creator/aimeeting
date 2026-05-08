@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v12）
+# Aimeeting · 测试用例（v13）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -182,7 +182,8 @@ WS PCM 同时缓冲到 in-mem session.pcm_buffer
 | **行动项删除** | `DELETE /api/meetings/{id}/actions/{action_id}` | 204 |
 | **Agent 发言历史** | `GET /api/meetings/{id}/agent-messages` | M3.0 Cowork 验证利器:不需订阅 WS 也能看到 Agent 是否真触发了发言(persistent record 来自 meeting_agent_message) |
 | **Agenda 同步触发** | `POST /api/meetings/{id}/agenda-monitor/run-now` | **v12 ISSUE-4 修复**:绕过 60s 节流强制跑一次 agenda 检查,返回 `{fired, payload, note}`。CI 可用。无 agenda 或 LLM 判无信号 → fired=false |
-| **Audit · 系统检测** | `GET /api/audit?action=dissent.detected` <br> `GET /api/audit?action=agenda.agenda_off_topic` <br> `GET /api/audit?action=agenda.agenda_time_warning` | **v12 ISSUE-2 修复**:每次检测器触发都会写 audit 行,Cowork 不订阅 WS 也能验证 |
+| **Dissent 同步触发** | `POST /api/meetings/{id}/dissent-detector/run-now` | **v13 新增**:对称 agenda run-now,绕过 25s 节流强制跑一次分歧检测;返回 `{fired, payload}`(payload 含 topic/parties/suggested_agent_id) |
+| **Audit · 系统检测** | `GET /api/audit?action=dissent.detected` <br> `GET /api/audit?action=agenda.agenda_off_topic` <br> `GET /api/audit?action=agenda.agenda_time_warning` <br> `GET /api/audit?action=agenda.agenda_stuck` | **v12+v13**:每次检测器触发都会写 audit 行,Cowork 不订阅 WS 也能验证 |
 | Agent CRUD | `/api/agents` POST/GET, `/api/agents/{id}` PATCH/DELETE | DELETE 后会写 audit log |
 | 知识库 CRUD | `/api/knowledge-bases` 同上 |  |
 | 文档上传 | `POST /api/knowledge-bases/{kbid}/documents` (multipart `file=...`) | 异步解析,200 返回时 `status=parsing`,稍后变 `ready` |
@@ -309,7 +310,8 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v12** | 2026-05-08 | **修掉 v11 QA 报告的全部 5 个发现**:① ISSUE-1: `/result` 返回的 line 同时带 `id` 和 `line_id`(POST 一致);② ISSUE-2: dissent + agenda 检测器都写 `audit_log` (`dissent.detected` / `agenda.agenda_off_topic` / `agenda.agenda_time_warning`);manual-transcript 第一次注入时把 `meeting.status` 从 `scheduled` 翻到 `ongoing` + 记 `started_at`;③ ISSUE-4: 新增 `POST /api/meetings/{id}/agenda-monitor/run-now` 同步触发(绕过 60s 节流 + 90s 抑制),返回 banner payload;④ ISSUE-3: action_extractor prompt 重写,加 5 条 NEGATIVE 规则 + 2 个 few-shot,纯闲聊纪要现在返回 `[]`;⑤ ISSUE-5: 跑了一轮 prune_noise_users,删掉 noise 名(脏数据再清理一轮) |
+| **v13** | 2026-05-08 | **M3.0 收尾**:① **M3.0.4 僵局检测**:agenda_monitor LLM prompt 新增 `stuck` 信号;新事件类型 `agenda_stuck`,前端橙红色 banner + **5 秒倒计时**,用户不操作则**自动召唤主持人**(更激进的 UX) ② **M3.0.7 跨会议跟进**:`briefing_generator` 把本 workspace 内 `status='open'` 的行动项渲染到简报 markdown **顶部**(逾期项加 ⚠️ 标记) ③ **dissent run-now 同步触发端点**(对称 agenda 的 v12 修复)|
+| v12 | 2026-05-08 | **修掉 v11 QA 报告的全部 5 个发现**:① ISSUE-1: `/result` 返回的 line 同时带 `id` 和 `line_id`(POST 一致);② ISSUE-2: dissent + agenda 检测器都写 `audit_log` (`dissent.detected` / `agenda.agenda_off_topic` / `agenda.agenda_time_warning`);manual-transcript 第一次注入时把 `meeting.status` 从 `scheduled` 翻到 `ongoing` + 记 `started_at`;③ ISSUE-4: 新增 `POST /api/meetings/{id}/agenda-monitor/run-now` 同步触发(绕过 60s 节流 + 90s 抑制),返回 banner payload;④ ISSUE-3: action_extractor prompt 重写,加 5 条 NEGATIVE 规则 + 2 个 few-shot,纯闲聊纪要现在返回 `[]`;⑤ ISSUE-5: 跑了一轮 prune_noise_users,删掉 noise 名(脏数据再清理一轮) |
 | v11 | 2026-05-08 | 新增「自动主持人」X 系列(M3.0 Multi-Agent V2):① **议程**(meeting.agenda)— 创建会议时填议程项 + 时间预算 → 进入 LLM 监督 ② **主持人 Agent**(role='moderator')每个 workspace 自动建一个 ③ **跑题检测**(`agenda_off_topic`)+ **时间预警**(`agenda_time_warning`)WS 事件 → 主持人 banner ④ **行动项自动抽取**(MeetingActionItem 表 + action_extractor 接在 summary 之后)+ ActionItemsCard UI(勾选完成 / 手动添加 / 删除)⑤ **agent-messages 端点**(Cowork 验证 Agent 是否真发言);**给 Claude Cowork 的指南**重写为「全场景驱动方案」,明确除 B/C/D 三个真声纹系列外,**所有系列都有可执行的 REST 流程** |
 | v10 | 2026-05-08 | 新增「文字录入」W 系列(打字录入入口 — 麦克风的替代,亦是 Cowork 全自动测试主力):① 会议页底部新增 `[💬 发言人下拉] [文字框] [发送]` 工具栏(`data-testid="manual-text-input"`);② WS 新增 `text_message` action(走与 ASR final 相同管道,触发 Agent + 分歧检测);③ 新增 REST `POST /api/meetings/{id}/manual-transcript`(无 WS 时也可注入字幕,Cowork 主用此入口);④ 麦权限拒绝时不再断开 WS,自动进入「⌨️ 仅文字模式」让用户继续打字 |
 | v9 | 2026-05-08 | 加【给 Claude Cowork 的指南】(API 速查表 / DOM 选择器约定 / 自动化纪律 / 复用代码片段);**v8 测试报告 6 个问题全部修掉**:① 详情页根据 `meeting.status` 切换渲染(已处理 → 直接显示纪要+实录,不再卡在「开始会议」UI);② 详情页 H1 显示真实会议标题(不再写死);③ API 错误 toast/message **不再泄露路径或原始 502 HTML**(自定义 `ApiError` + `friendlyDetail`);④ 三个 `window.confirm()` 全替换成 `<ConfirmDialog data-testid="confirm-dialog">` 应用内模态(自动化可点);⑤ `DELETE /team/members/<self>` 早返回 400(之前 500);⑥ `agent.create/update/delete` 都补上 `audit_log`;⑦ 顺手修了一个找到的脏数据 bug:`POST /api/users` 没邮箱时不再每次新建一行(同名 286 条 hefan 的元凶) |
@@ -818,6 +820,14 @@ coworkSmoke();
 | **X-18** | 行动项无议程也工作 | 不填 agenda 创建会议,正常注入对话,生成纪要 | action_extractor 仍然跑(基于 summary,不依赖议程) | | |
 | **X-19** | empty extraction 不报错(**v12 prompt 强化**) | 注入 5 句纯闲聊(午餐 / 天气 / 看电影,**无任何工作内容**),regen summary 等 25s | `GET /actions` 返回 `[]`(prompt 中 NEGATIVE 规则 + few-shot 已让 LLM 把闲聊当 empty case 处理);之前的 summary 类项被清空 | | |
 | **X-20** | 隔离 | A 账号建会议 → B 账号 `GET /actions/...` | 404(workspace 隔离生效) | | |
+| **X-21** | 僵局检测触发(**v13 新增 M3.0.4**) | 1. 创建会议 agenda=[{title:"先做 A 还是 B"}]<br>2. manual-transcript 注入 6 句重复立场对话:邓西「先做 A」/王架构「不,先做 B」交替 3 轮<br>3. `POST /api/meetings/{id}/agenda-monitor/run-now` | 返回 `{fired:true, payload:{type:"agenda_stuck", stuck_summary:..., auto_summon_after_s:5, ...}}`;`GET /api/audit?action=agenda.agenda_stuck` 列表里多一条 target_id=meeting_id | | |
+| **X-22** | 僵局 banner 5s 自动召唤(**v13 新增**) | 1. 进 live 会议(已点开始)<br>2. 触发僵局 banner(`data-testid="moderator-banner-stuck"` 出现)<br>3. 看 `data-testid="moderator-countdown"` 倒计时 `5s → 1s`<br>4. **不点任何按钮等 5 秒** | 5 秒到后:banner 自动消失;主持人头像变 busy;几秒后 AI 气泡出现(query 是「请你作为主持人,综合双方观点,给出折中方案...」) | | |
+| **X-23** | 僵局 banner ✕ 取消倒计时 | 触发僵局 banner 后立刻点 `data-testid="moderator-dismiss"`(✕) | banner 消失;**不召唤**主持人(检查 `GET /agent-messages` 数量未增) | | |
+| **X-24** | 僵局 banner 立刻召唤 | 触发僵局 banner 后点 `data-testid="moderator-accept"`(「立刻召唤」) | 立刻召唤主持人;倒计时 timer 取消(测点击后 2s 内 `agent-messages` 多一条) | | |
+| **X-25** | dissent run-now 同步触发(**v13 新增**) | 1. 创建会议<br>2. 注入 6 句对立观点(2 个不同 speaker_user_id)<br>3. `POST /api/meetings/{id}/dissent-detector/run-now` | 返回 `{fired:true, payload:{topic, parties, suggested_agent_id, ...}}`;`/api/audit?action=dissent.detected` 多一条;无需等 25s 节流 | | |
+| **X-26** | 跨会议跟进进入简报顶部(**v13 新增 M3.0.7**) | 1. 在会议 A 添加 1-2 个 manual action item(status='open')<br>2. 创建新会议 B (相同 workspace)<br>3. `GET /api/meetings/{B.id}/briefing` | `briefing_md` **以**「## 📌 上次会议未完待办 (N 项)」开头,列出 A 的 open 项,每条 `- **<assignee>** · <content>`;**之后**才是 LLM 生成的「上次/历史相关结论 / 仍未关闭的事 / 需要重点关注」 | | |
+| **X-27** | 逾期项加 ⚠️ | 1. 创建一个 due_at 为昨天的 action item(via PATCH `due_at`)<br>2. 创建新会议 → 看简报 | 「上次会议未完待办」标题里出现「**N 项逾期**」;对应行尾有「⚠️ **逾期 Xd**」 | | |
+| **X-28** | 已完成 / 已取消项不进简报 | 1. 把所有 open 改成 done 或 cancelled<br>2. 简报 | 简报顶部不再显示「上次会议未完待办」段落(全部清完则段落整段不出) | | |
 
 ### Cowork X 系列驱动脚本(议程 + 跑题 + 行动项)
 
@@ -929,7 +939,7 @@ coworkX();
 ```
 测试人:
 测试时间:
-测试用例版本: v12
+测试用例版本: v13
 浏览器/系统:
 默认账号是否生效: 是 / 否
 
