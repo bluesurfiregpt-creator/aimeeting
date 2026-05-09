@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "frozen_at": "2026-05-09T02:00:00Z",
-  "frozen_against": "v19 (领导指令 + 7 态状态机 + 上报办结审核)",
+  "frozen_at": "2026-05-09T03:00:00Z",
+  "frozen_against": "v20 (上级文件触发源 + cron 巡检触发源)",
   "_note": "Deterministic per-case status snapshot. T2 diff: any case whose status differs from this baseline is a regression (or, for ⏭️→✅, a new pass to celebrate). evidence/error/timing intentionally excluded — those are non-deterministic.",
   "summary": {
-    "total": 64,
-    "pass": 56,
+    "total": 71,
+    "pass": 63,
     "fail": 0,
     "skipped": 8
   },
@@ -73,6 +73,13 @@
     { "id": "AA-5", "series": "AA", "status": "pass" },
     { "id": "AA-6", "series": "AA", "status": "pass" },
     { "id": "AA-7", "series": "AA", "status": "pass" },
-    { "id": "AA-8", "series": "AA", "status": "pass" }
+    { "id": "AA-8", "series": "AA", "status": "pass" },
+    { "id": "BB-1", "series": "BB", "status": "pass" },
+    { "id": "BB-2", "series": "BB", "status": "pass" },
+    { "id": "BB-3", "series": "BB", "status": "pass" },
+    { "id": "BB-4", "series": "BB", "status": "pass" },
+    { "id": "BB-5", "series": "BB", "status": "pass" },
+    { "id": "BB-6", "series": "BB", "status": "pass" },
+    { "id": "BB-7", "series": "BB", "status": "pass" }
   ]
 }

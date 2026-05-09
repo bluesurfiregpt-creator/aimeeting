@@ -31,15 +31,19 @@ from pydantic import BaseModel
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fastapi import File, UploadFile
+
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
 from ..directive_parser import parse_directive
+from ..doc_parser import extract_text, kind_from_filename
 from ..models import (
     LeaderDirective,
     Meeting,
     MeetingActionItem,
     Notification,
     Task,
+    UpperDoc,
     User,
     WorkspaceMembership,
 )
@@ -1032,6 +1036,281 @@ async def list_my_directives(
         )
     ).scalars().all()
     return [_directive_to_out(r) for r in rows]
+
+
+# v20: 上级文件触发源 -------------------------------------------------------
+
+# Hard cap on extracted text length sent to the LLM. 上级文件可能很长(20+ 页),
+# 但 LLM context + 拆解准确率随 token 增加而下降。20K 字符约 7-10K token,
+# 对 Qwen-Plus 等模型友好,且足以覆盖大多数政务文件首部 + 主体。
+_UPPER_DOC_MAX_PARSE_CHARS = 20_000
+# 上传文件大小上限。10MB 应对大多数 PDF;PDF 是文本 + 矢量图,通常 <5MB。
+_UPPER_DOC_MAX_BYTES = 10 * 1024 * 1024
+
+
+class UpperDocOut(BaseModel):
+    id: uuid.UUID
+    filename: str
+    mime_type: Optional[str] = None
+    byte_size: Optional[int] = None
+    extracted_text_preview: Optional[str] = None  # 前 500 字预览,UI 用于让用户确认抽对了
+    extracted_text_truncated: bool = False
+    status: str
+    drafts: list[DirectiveDraftOut]
+    committed_task_ids: list[uuid.UUID] = []
+    parse_error: Optional[str] = None
+    created_at: datetime
+
+
+def _upper_doc_to_out(row: UpperDoc) -> UpperDocOut:
+    raw_ids = row.committed_task_ids or []
+    ids: list[uuid.UUID] = []
+    for s in raw_ids:
+        try:
+            ids.append(uuid.UUID(s))
+        except (TypeError, ValueError):
+            continue
+    text_preview: Optional[str] = None
+    truncated = False
+    if row.extracted_text:
+        text_preview = row.extracted_text[:500]
+        truncated = len(row.extracted_text) > 500
+    return UpperDocOut(
+        id=row.id,
+        filename=row.filename,
+        mime_type=row.mime_type,
+        byte_size=row.byte_size,
+        extracted_text_preview=text_preview,
+        extracted_text_truncated=truncated,
+        status=row.status,
+        drafts=_drafts_from_payload(row.parsed_drafts),
+        committed_task_ids=ids,
+        parse_error=row.parse_error,
+        created_at=row.created_at,
+    )
+
+
+@router.post("/upper-docs", response_model=UpperDocOut)
+async def create_upper_doc(
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v20: 上传上级文件 → 文本提取 → LLM 拆解 → 返回 draft.
+
+    文件不入 OSS / 不入知识库:本接口只是个一次性「文件 → 任务」转换器.
+    若需长期 KB 召回,走独立的 KB 上传路径.
+
+    支持文件类型:PDF / DOCX / XLSX / TXT / MD / CSV / JSON / YAML
+    (复用 doc_parser.SUPPORTED_EXTENSIONS).
+    """
+    if not file.filename:
+        raise HTTPException(400, "filename required")
+    kind = kind_from_filename(file.filename)
+    if kind is None:
+        raise HTTPException(
+            400,
+            "unsupported file type. allowed: PDF / DOCX / XLSX / TXT / MD / CSV / JSON / YAML",
+        )
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "empty file")
+    if len(raw) > _UPPER_DOC_MAX_BYTES:
+        raise HTTPException(
+            413, f"file too large ({len(raw)} bytes); max {_UPPER_DOC_MAX_BYTES}"
+        )
+
+    # 1) 抽文本
+    extracted = ""
+    parse_err: Optional[str] = None
+    try:
+        extracted = extract_text(file.filename, raw).strip()
+    except Exception as exc:  # 解析失败仍写入 row + parse_error,便于用户看到失败原因
+        parse_err = f"文件解析失败: {exc}"
+    if not parse_err and not extracted:
+        parse_err = "文件无可提取的文字内容"
+
+    # 2) LLM 拆解(只拿截断后的文本)
+    drafts: list[dict[str, Any]] = []
+    if not parse_err:
+        send_text = extracted[:_UPPER_DOC_MAX_PARSE_CHARS]
+        drafts, llm_err = await parse_directive(
+            session, workspace_id=auth.workspace.id, content=send_text
+        )
+        if llm_err:
+            parse_err = llm_err
+
+    # 3) 落库
+    row = UpperDoc(
+        workspace_id=auth.workspace.id,
+        created_by_user_id=auth.user.id,
+        filename=file.filename[:255],
+        mime_type=file.content_type,
+        byte_size=len(raw),
+        extracted_text=extracted[: _UPPER_DOC_MAX_PARSE_CHARS] if extracted else None,
+        parsed_drafts=drafts,
+        status="failed" if parse_err and not drafts else "draft",
+        parse_error=parse_err,
+    )
+    session.add(row)
+    await session.commit()
+    await session.refresh(row)
+    return _upper_doc_to_out(row)
+
+
+@router.post(
+    "/upper-docs/{upper_doc_id}/commit", response_model=DirectiveCommitOut
+)
+async def commit_upper_doc(
+    upper_doc_id: str,
+    payload: DirectiveCommitIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v20: 把上级文件拆出的草稿批量入库为 Task(source_type='upper_doc')."""
+    try:
+        did = uuid.UUID(upper_doc_id)
+    except ValueError:
+        raise HTTPException(400, "invalid upper_doc id")
+    row = (
+        await session.execute(
+            select(UpperDoc).where(
+                UpperDoc.id == did,
+                UpperDoc.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "upper_doc not found")
+    if row.status == "committed":
+        raise HTTPException(409, "already committed")
+    if row.status in ("discarded", "failed"):
+        raise HTTPException(409, f"cannot commit a {row.status} upper_doc")
+    if not payload.tasks:
+        raise HTTPException(400, "no tasks to commit")
+
+    # 复用 directives 的 assignee 校验逻辑
+    assignee_ids = {t.assignee_user_id for t in payload.tasks if t.assignee_user_id}
+    if assignee_ids:
+        valid = (
+            await session.execute(
+                select(User.id).where(
+                    User.id.in_(assignee_ids),
+                    User.workspace_id == auth.workspace.id,
+                )
+            )
+        ).all()
+        valid_set = {v[0] for v in valid}
+        missing = assignee_ids - valid_set
+        if missing:
+            raise HTTPException(
+                400, f"assignee_user_id(s) not in workspace: {', '.join(str(x) for x in missing)}"
+            )
+
+    now = datetime.now(timezone.utc)
+    committed_ids: list[uuid.UUID] = []
+    dispatched_count = 0
+
+    for tspec in payload.tasks:
+        c = (tspec.content or "").strip()
+        if not c:
+            continue
+        wants_dispatch = tspec.dispatch and tspec.assignee_user_id is not None
+        new_task = Task(
+            workspace_id=auth.workspace.id,
+            title=(tspec.title.strip()[:255] if tspec.title else None) or None,
+            content=c[:1000],
+            assignee_user_id=tspec.assignee_user_id,
+            created_by_user_id=auth.user.id,
+            due_at=tspec.due_at,
+            status="dispatched" if wants_dispatch else "open",
+            source_type="upper_doc",
+            source_ref={
+                "upper_doc_id": str(row.id),
+                "filename": row.filename,
+            },
+        )
+        if wants_dispatch:
+            new_task.dispatched_at = now
+            new_task.dispatched_by_user_id = auth.user.id
+        session.add(new_task)
+        await session.flush()
+        committed_ids.append(new_task.id)
+
+        if wants_dispatch and tspec.assignee_user_id != auth.user.id:
+            await emit_notification(
+                session,
+                workspace_id=auth.workspace.id,
+                user_id=tspec.assignee_user_id,
+                kind="task_dispatched",
+                payload={
+                    "task_id": str(new_task.id),
+                    "content": new_task.content,
+                    "due_at": new_task.due_at.isoformat() if new_task.due_at else None,
+                    "dispatched_by": auth.user.name,
+                    "upper_doc_id": str(row.id),
+                    "filename": row.filename,
+                },
+            )
+            dispatched_count += 1
+
+    row.status = "committed"
+    row.committed_task_ids = [str(x) for x in committed_ids]
+    await session.commit()
+
+    return DirectiveCommitOut(
+        directive_id=row.id,
+        committed_task_ids=committed_ids,
+        dispatched_count=dispatched_count,
+    )
+
+
+@router.post("/upper-docs/{upper_doc_id}/discard", status_code=204)
+async def discard_upper_doc(
+    upper_doc_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    try:
+        did = uuid.UUID(upper_doc_id)
+    except ValueError:
+        raise HTTPException(400, "invalid upper_doc id")
+    row = (
+        await session.execute(
+            select(UpperDoc).where(
+                UpperDoc.id == did,
+                UpperDoc.workspace_id == auth.workspace.id,
+                UpperDoc.created_by_user_id == auth.user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "upper_doc not found")
+    if row.status not in ("draft", "failed"):
+        raise HTTPException(409, f"cannot discard a {row.status} upper_doc")
+    row.status = "discarded"
+    await session.commit()
+
+
+@router.get("/upper-docs", response_model=list[UpperDocOut])
+async def list_my_upper_docs(
+    limit: int = Query(20, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    rows = (
+        await session.execute(
+            select(UpperDoc)
+            .where(
+                UpperDoc.workspace_id == auth.workspace.id,
+                UpperDoc.created_by_user_id == auth.user.id,
+            )
+            .order_by(UpperDoc.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [_upper_doc_to_out(r) for r in rows]
 
 
 async def _meeting_title_for(

@@ -432,11 +432,12 @@ class Task(Base):
       manual            — manually created outside any meeting (v18+ UX)
       leader_directive  — natural-language instruction from a leader
                           (v19); source_ref carries {directive_id}
-      upper_doc         — extracted from an uploaded 上级文件 (v19);
-                          source_ref carries {document_id}
-      cron              — periodic 巡检 (v19)
-      alert             — triggered by an indicator threshold (v20)
-      report            — user-submitted issue report (v20)
+      upper_doc         — extracted from an uploaded 上级文件 (v20);
+                          source_ref carries {upper_doc_id, filename}
+      cron              — periodic 巡检 (v20); source_ref carries
+                          {rule_id, fired_at}
+      alert             — triggered by an indicator threshold (v21+)
+      report            — user-submitted issue report (v21+)
     """
     __tablename__ = "task"
 
@@ -532,6 +533,102 @@ class LeaderDirective(Base):
     # If the LLM parse fails we still write the row so the UI can show an
     # error state — store the message here.
     parse_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class UpperDoc(Base):
+    """
+    v20 — 上级文件触发源.
+
+    Workflow:
+      1. POST /api/me/upper-docs (multipart, file upload)
+         → doc_parser.extract_text() → save extracted_text
+         → directive_parser.parse_directive(extracted_text) → drafts
+         → row status='draft', parsed_drafts=[...]
+      2. User reviews / edits drafts in DirectivePanel(共用)
+      3. POST /api/me/upper-docs/{id}/commit {tasks: [...]}
+         → write Task rows (source_type='upper_doc', source_ref={upper_doc_id, filename})
+      4. POST /api/me/upper-docs/{id}/discard
+
+    NOTE — UpperDoc 不入知识库:本表只为「文件触发了哪些 Task」做溯源.
+    若用户想把同一份文件加入知识库供 AI 召回,走独立的 KB 上传路径
+    (KnowledgeDocument).解耦的好处:
+      - 一份文件可能只是「下个临时通知」,不该污染长期知识库
+      - 知识库需要 chunking + embedding + 向量索引,这里不需要
+    """
+    __tablename__ = "upper_doc"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    filename: Mapped[str] = mapped_column(String(255))
+    mime_type: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    byte_size: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    # 截取的纯文本(LLM 拆解的输入)。大文件会截断到合理上限,见 routers 端实现。
+    extracted_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    parsed_drafts: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, nullable=True)
+    # draft | committed | discarded | failed
+    status: Mapped[str] = mapped_column(String(16), default="draft", index=True)
+    committed_task_ids: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
+    parse_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CronRule(Base):
+    """
+    v20 — 定期巡检触发源.
+
+    一条规则定义「每隔多久 / 在什么时间点 / 自动建一个 Task」.
+    例:
+      - name='每周一安全巡检',cron_expr='0 9 * * 1'(每周一上午9点)
+      - task_template_content='提交本周小散工程现场巡查报告'
+      - task_template_assignee_user_id=<王科长 uuid>
+      - auto_dispatch=true(直接 dispatched 状态,跳过 open)
+
+    后台 cron_runner.py 每分钟 tick,匹配的就 instantiate 一个 Task
+    (source_type='cron', source_ref={rule_id, fired_at}).
+
+    cron_expr 简化版(不引入 croniter 依赖):支持 `分 时 日 月 周` 五段
+    标准格式,每段可以是数字、`*`、或逗号分隔的多个数字。详见
+    cron_runner.py 的 _matches() 实现.
+    """
+    __tablename__ = "cron_rule"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(String(128))
+    cron_expr: Mapped[str] = mapped_column(String(64))
+    task_template_content: Mapped[str] = mapped_column(Text)
+    task_template_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    task_template_assignee_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    # 触发时直接派发(open → dispatched)还是只入库为 open
+    auto_dispatch: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 给 Task 加多少天截止日?NULL = 不设 due_at
+    due_days_after: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    last_fired_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    fire_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

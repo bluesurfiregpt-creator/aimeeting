@@ -506,6 +506,48 @@ export type DirectiveCommitResult = {
   dispatched_count: number;
 };
 
+/** v20: 上级文件触发源 — 上传文件 → 解析 → LLM 拆 Task 草稿. */
+export type UpperDoc = {
+  id: string;
+  filename: string;
+  mime_type: string | null;
+  byte_size: number | null;
+  extracted_text_preview: string | null;
+  extracted_text_truncated: boolean;
+  status: "draft" | "committed" | "discarded" | "failed";
+  drafts: DirectiveDraft[];
+  committed_task_ids: string[];
+  parse_error: string | null;
+  created_at: string;
+};
+
+/** v20: 定期巡检触发源 cron 规则. */
+export type CronRule = {
+  id: string;
+  name: string;
+  cron_expr: string;
+  task_template_content: string;
+  task_template_title: string | null;
+  task_template_assignee_user_id: string | null;
+  auto_dispatch: boolean;
+  due_days_after: number | null;
+  is_active: boolean;
+  last_fired_at: string | null;
+  fire_count: number;
+  created_at: string;
+};
+
+export type CronRuleInput = {
+  name: string;
+  cron_expr: string;
+  task_template_content: string;
+  task_template_title?: string | null;
+  task_template_assignee_user_id?: string | null;
+  auto_dispatch?: boolean;
+  due_days_after?: number | null;
+  is_active?: boolean;
+};
+
 export type Me = {
   user_id: string;
   name: string;
@@ -709,6 +751,35 @@ export const api = {
     jpostVoid(`/api/me/directives/${directiveId}/discard`, {}),
   listMyDirectives: (limit = 20) =>
     jget<LeaderDirective[]>(`/api/me/directives?limit=${limit}`),
+
+  // v20: 上级文件 → 解析 → LLM 拆 Task 草稿 → 批量入库
+  uploadUpperDoc: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    return jpostForm<UpperDoc>(`/api/me/upper-docs`, fd);
+  },
+  commitUpperDoc: (upperDocId: string, tasks: DirectiveCommitTask[]) =>
+    jpost<DirectiveCommitResult>(
+      `/api/me/upper-docs/${upperDocId}/commit`,
+      { tasks },
+    ),
+  discardUpperDoc: (upperDocId: string) =>
+    jpostVoid(`/api/me/upper-docs/${upperDocId}/discard`, {}),
+  listMyUpperDocs: (limit = 20) =>
+    jget<UpperDoc[]>(`/api/me/upper-docs?limit=${limit}`),
+
+  // v20: 定期巡检触发源 cron 规则
+  listCronRules: () => jget<CronRule[]>(`/api/cron-rules`),
+  createCronRule: (body: CronRuleInput) =>
+    jpost<CronRule>(`/api/cron-rules`, body),
+  updateCronRule: (id: string, body: Partial<CronRuleInput>) =>
+    jpatch<CronRule>(`/api/cron-rules/${id}`, body),
+  deleteCronRule: (id: string) => jdelete(`/api/cron-rules/${id}`),
+  forceFireCronRule: (id: string) =>
+    jpost<{ rule_id: string; task_id: string }>(
+      `/api/cron-rules/${id}/force-fire`,
+      {},
+    ),
 
   // M3.0 agent message history (Cowork-friendly read-only)
   listAgentMessages: (meetingId: string) =>

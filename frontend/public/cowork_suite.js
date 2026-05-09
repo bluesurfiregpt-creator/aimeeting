@@ -284,6 +284,7 @@
       ["Y", "Theme 1 协作闭环"],
       ["Z", "v17/v18 Task 一级对象 + 状态机"],
       ["AA", "v19 领导指令 + 状态机收尾"],
+      ["BB", "v20 上级文件 + 定期巡检"],
     ];
     const counts = { pass: 0, fail: 0, skipped: 0 };
     for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
@@ -1919,6 +1920,225 @@
           return { ok: false, error: `expected 422 on illegal approve from open, got ${r.status}` };
         }
         return { ok: true, evidence: { _note: "archive OK + illegal transition 422" } };
+      },
+    });
+
+    // ---------- BB series · v20 上级文件触发源 + cron 巡检触发源 ---------
+    R.register({
+      id: "BB-1",
+      series: "BB",
+      title: "POST /upper-docs 上传纯文本 → LLM 拆解 → drafts",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        if (!me?.user_id) return { ok: false, error: "no caller user_id" };
+        const text = `${PREFIX}_BB1_doc:\n\n关于本周工作安排的通知\n\n请王科长在本周五前提交一份小散工程上半年安全检查报告。\n李主任同步起草下一阶段招标公告。`;
+        const blob = new Blob([text], { type: "text/plain" });
+        const fd = new FormData();
+        fd.append("file", blob, `${PREFIX}_BB1_doc.txt`);
+        const r = await fetch("/api/me/upper-docs", {
+          method: "POST",
+          credentials: "include",
+          body: fd,
+        });
+        if (!r.ok) return { ok: false, error: `${r.status} ${await r.text().catch(() => "")}` };
+        const body = await r.json();
+        if (!body.id) return { ok: false, error: "no upper_doc id" };
+        if (body.parse_error) {
+          return { ok: false, error: `parse_error: ${body.parse_error}` };
+        }
+        if (!Array.isArray(body.drafts) || body.drafts.length === 0) {
+          return { ok: false, error: "0 drafts" };
+        }
+        ctx.BB1_upper_doc = body.id;
+        ctx.BB1_drafts = body.drafts;
+        return {
+          ok: true,
+          evidence: { _note: `${body.drafts.length} draft(s) from .txt` },
+        };
+      },
+    });
+
+    R.register({
+      id: "BB-2",
+      series: "BB",
+      title: "commit upper-doc → Tasks source_type='upper_doc' + source_ref.upper_doc_id",
+      async run(ctx) {
+        if (!ctx.BB1_upper_doc || !ctx.BB1_drafts) {
+          return { ok: false, error: "SKIP_DEP_FAILED:BB-1", evidence: { _skipped: true } };
+        }
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        const tasks = ctx.BB1_drafts.map((d) => ({
+          content: d.content,
+          assignee_user_id: me.user_id,
+          dispatch: false,
+        }));
+        const r = await POST(`/api/me/upper-docs/${ctx.BB1_upper_doc}/commit`, { tasks });
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        if (!Array.isArray(r.body.committed_task_ids)) {
+          return { ok: false, error: "no committed_task_ids" };
+        }
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const found = (myTasks.body || []).filter((t) =>
+          r.body.committed_task_ids.includes(t.id),
+        );
+        if (found.length !== tasks.length) {
+          return { ok: false, error: `expected ${tasks.length}, got ${found.length}` };
+        }
+        for (const t of found) {
+          if (t.source_type !== "upper_doc") {
+            return { ok: false, error: `wrong source_type ${t.source_type}` };
+          }
+          if (!t.source_ref || t.source_ref.upper_doc_id !== ctx.BB1_upper_doc) {
+            return { ok: false, error: "source_ref.upper_doc_id missing" };
+          }
+        }
+        return { ok: true, evidence: { _note: `${tasks.length} task(s) source_type=upper_doc` } };
+      },
+    });
+
+    R.register({
+      id: "BB-3",
+      series: "BB",
+      title: "discard upper-doc → status='discarded' + commit-after-discard 409",
+      async run() {
+        const text = `${PREFIX}_BB3_to_discard: 测试用,准备丢弃。`;
+        const blob = new Blob([text], { type: "text/plain" });
+        const fd = new FormData();
+        fd.append("file", blob, `${PREFIX}_BB3.txt`);
+        const r = await fetch("/api/me/upper-docs", {
+          method: "POST",
+          credentials: "include",
+          body: fd,
+        });
+        if (!r.ok) return { ok: false, error: `upload ${r.status}` };
+        const body = await r.json();
+        const did = body.id;
+        const dr = await POST(`/api/me/upper-docs/${did}/discard`, {});
+        if (!dr.ok && dr.status !== 204) return { ok: false, error: `discard ${dr.status}` };
+        const c2 = await POST(`/api/me/upper-docs/${did}/commit`, {
+          tasks: [{ content: "should not work" }],
+        });
+        if (c2.ok || c2.status !== 409) {
+          return { ok: false, error: `expected 409, got ${c2.status}` };
+        }
+        return { ok: true, evidence: { _note: "discard + 409 OK" } };
+      },
+    });
+
+    R.register({
+      id: "BB-4",
+      series: "BB",
+      title: "cron rule CRUD: create / list / patch / delete",
+      async run(ctx) {
+        const c = await POST("/api/cron-rules", {
+          name: `${PREFIX}_BB4_rule`,
+          cron_expr: "0 9 * * 1",
+          task_template_content: `${PREFIX}_BB4_template_content`,
+          is_active: true,
+        });
+        if (!c.ok) return { ok: false, error: `create ${c.status} ${JSON.stringify(c.body)}` };
+        const rid = c.body.id;
+        const list = await GET("/api/cron-rules");
+        if (!list.ok) return { ok: false, error: `list ${list.status}` };
+        if (!(list.body || []).some((x) => x.id === rid)) {
+          return { ok: false, error: "newly created not in list" };
+        }
+        const p = await PATCH(`/api/cron-rules/${rid}`, { is_active: false });
+        if (!p.ok) return { ok: false, error: `patch ${p.status}` };
+        if (p.body.is_active !== false) {
+          return { ok: false, error: `is_active toggle failed` };
+        }
+        const d = await DEL(`/api/cron-rules/${rid}`);
+        if (!d.ok && d.status !== 204) return { ok: false, error: `delete ${d.status}` };
+        return { ok: true, evidence: { _note: "create/list/patch/delete OK" } };
+      },
+    });
+
+    R.register({
+      id: "BB-5",
+      series: "BB",
+      title: "cron force-fire 立即生成 Task(source_type='cron')",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        const c = await POST("/api/cron-rules", {
+          name: `${PREFIX}_BB5_rule`,
+          cron_expr: "0 9 * * 1",
+          task_template_content: `${PREFIX}_BB5_template`,
+          task_template_assignee_user_id: me.user_id,
+          auto_dispatch: false,
+          is_active: true,
+        });
+        if (!c.ok) return { ok: false, error: `create rule ${c.status}` };
+        const rid = c.body.id;
+        const f = await POST(`/api/cron-rules/${rid}/force-fire`, {});
+        if (!f.ok) return { ok: false, error: `force-fire ${f.status} ${JSON.stringify(f.body)}` };
+        if (!f.body.task_id) return { ok: false, error: "no task_id" };
+        const tid = f.body.task_id;
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.id === tid);
+        if (!t) return { ok: false, error: "task not visible to me" };
+        if (t.source_type !== "cron") {
+          return { ok: false, error: `wrong source_type ${t.source_type}` };
+        }
+        if (!t.source_ref || t.source_ref.rule_id !== rid) {
+          return { ok: false, error: "source_ref.rule_id missing" };
+        }
+        if (t.status !== "open") {
+          return { ok: false, error: `expected open, got ${t.status}` };
+        }
+        // cleanup
+        await DEL(`/api/cron-rules/${rid}`);
+        return { ok: true, evidence: { _note: "force-fire creates open Task" } };
+      },
+    });
+
+    R.register({
+      id: "BB-6",
+      series: "BB",
+      title: "cron auto_dispatch=true + assignee → Task 直接 dispatched",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        const c = await POST("/api/cron-rules", {
+          name: `${PREFIX}_BB6_rule`,
+          cron_expr: "0 9 * * 1",
+          task_template_content: `${PREFIX}_BB6_dispatched`,
+          task_template_assignee_user_id: me.user_id,
+          auto_dispatch: true,
+          due_days_after: 7,
+          is_active: true,
+        });
+        if (!c.ok) return { ok: false, error: `create ${c.status}` };
+        const rid = c.body.id;
+        const f = await POST(`/api/cron-rules/${rid}/force-fire`, {});
+        if (!f.ok) return { ok: false, error: `fire ${f.status}` };
+        const tid = f.body.task_id;
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.id === tid);
+        if (!t) return { ok: false, error: "task not found" };
+        if (t.status !== "dispatched") {
+          return { ok: false, error: `expected dispatched, got ${t.status}` };
+        }
+        if (!t.dispatched_at) return { ok: false, error: "dispatched_at not stamped" };
+        if (!t.due_at) return { ok: false, error: "due_at not stamped" };
+        await DEL(`/api/cron-rules/${rid}`);
+        return { ok: true, evidence: { _note: "auto_dispatch + due_days_after OK" } };
+      },
+    });
+
+    R.register({
+      id: "BB-7",
+      series: "BB",
+      title: "非法 cron_expr → POST /cron-rules 400",
+      async run() {
+        const c = await POST("/api/cron-rules", {
+          name: `${PREFIX}_BB7_bad`,
+          cron_expr: "this is not a cron",
+          task_template_content: "x",
+        });
+        if (c.ok || c.status !== 400) {
+          return { ok: false, error: `expected 400, got ${c.status}` };
+        }
+        return { ok: true, evidence: { _note: "invalid cron rejected 400" } };
       },
     });
 

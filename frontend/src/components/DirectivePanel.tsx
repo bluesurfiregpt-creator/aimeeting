@@ -1,27 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   type DirectiveCommitTask,
   type DirectiveDraft,
-  type LeaderDirective,
   type User,
 } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
 /**
- * v19 — 领导指令(自然语言)→ Task 草稿 → 用户确认 → 批量入库
+ * v19 → v20 — 任务源 → LLM 拆解 → 用户确认 → 批量入库
  *
- * 单次表单形态(per Q1 决策):
- *   1. 输入框 → 「解析」按钮(同步调 LLM,5-15s,显示 loading)
- *   2. 解析完成后,展示 draft 列表 — 每条可编辑 content / 选 assignee /
- *      选 due_at / 切换是否「派发」(若派发,入库即转 dispatched 状态)
- *   3. 「全部入库」按钮 → 批量提交
- *   4. 用户也可「丢弃」整条指令(LeaderDirective.status='discarded')
+ * 两种 mode(顶部 tab 切换):
+ *   text  — 自然语言指令(v19,默认):textarea → 解析 → 草稿
+ *   file  — 上级文件(v20):上传 PDF/Word/...等 → 后端抽文本+LLM 拆 → 草稿
  *
- * 由 AuthHeader 顶栏控制开/关。
+ * 一旦有了草稿,两条路径汇合:同样的 draft 列表 UI、同样的逐条编辑/派发,
+ * commit/discard 时根据 source.kind 调用不同 endpoint.
+ *
+ * 由 AuthHeader 顶栏控制开/关.
  */
+
+type SourceObject =
+  | { kind: "directive"; id: string; parse_error: string | null }
+  | { kind: "upper_doc"; id: string; parse_error: string | null; filename: string };
+
+type Mode = "text" | "file";
 
 type DraftRow = DirectiveDraft & { _key: string; _dispatch: boolean };
 
@@ -33,10 +38,14 @@ function draftsToRows(drafts: DirectiveDraft[]): DraftRow[] {
   return drafts.map((d) => ({
     ...d,
     _key: uid(),
-    // 默认勾选派发 — 若 assignee 已被 LLM 匹配,直接走 dispatched 最快
     _dispatch: !!d.assignee_user_id,
   }));
 }
+
+const MODE_LABELS: Record<Mode, string> = {
+  text: "文本指令",
+  file: "上级文件",
+};
 
 export default function DirectivePanel({
   open,
@@ -45,14 +54,17 @@ export default function DirectivePanel({
   open: boolean;
   onClose: () => void;
 }) {
+  const [mode, setMode] = useState<Mode>("text");
   const [text, setText] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
   const [committing, setCommitting] = useState(false);
-  const [directive, setDirective] = useState<LeaderDirective | null>(null);
+  const [source, setSource] = useState<SourceObject | null>(null);
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Load workspace users for assignee dropdown.
+  // Workspace users for assignee dropdown.
   useEffect(() => {
     if (!open) return;
     api.listUsers().then(setUsers).catch(() => {});
@@ -61,19 +73,34 @@ export default function DirectivePanel({
   // Reset state on close so re-open is clean.
   useEffect(() => {
     if (!open) {
+      setMode("text");
       setText("");
-      setDirective(null);
+      setFile(null);
+      setSource(null);
       setDrafts([]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }, [open]);
 
-  const onParse = useCallback(async () => {
+  // Switching mode after parsing → reset (next parse should be in the new mode).
+  const onModeSwitch = useCallback((m: Mode) => {
+    if (m === mode) return;
+    if (source !== null) {
+      // Discarding silently happens server-side too if user closes;
+      // here we just clear the local drafts so the new mode starts fresh.
+    }
+    setMode(m);
+    setSource(null);
+    setDrafts([]);
+  }, [mode, source]);
+
+  const onParseText = useCallback(async () => {
     const content = text.trim();
     if (!content || parsing) return;
     setParsing(true);
     try {
       const d = await api.createDirective(content);
-      setDirective(d);
+      setSource({ kind: "directive", id: d.id, parse_error: d.parse_error });
       if (d.parse_error) {
         toast.warn("LLM 拆解失败", { detail: d.parse_error });
       }
@@ -90,15 +117,41 @@ export default function DirectivePanel({
     }
   }, [text, parsing]);
 
+  const onParseFile = useCallback(async () => {
+    if (!file || parsing) return;
+    setParsing(true);
+    try {
+      const d = await api.uploadUpperDoc(file);
+      setSource({
+        kind: "upper_doc",
+        id: d.id,
+        parse_error: d.parse_error,
+        filename: d.filename,
+      });
+      if (d.parse_error) {
+        toast.warn("文件解析或 LLM 失败", { detail: d.parse_error });
+      }
+      setDrafts(draftsToRows(d.drafts));
+      if (d.drafts.length === 0 && !d.parse_error) {
+        toast.warn("没有从文件里识别出可执行任务", {
+          detail: "确认文件含可读文字,或检查文档结构",
+        });
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "文件解析失败");
+    } finally {
+      setParsing(false);
+    }
+  }, [file, parsing]);
+
   const onCommit = useCallback(async () => {
-    if (!directive || committing) return;
+    if (!source || committing) return;
     const cleaned: DirectiveCommitTask[] = drafts
       .filter((d) => (d.content || "").trim().length > 0)
       .map((d) => ({
         content: d.content,
         title: d.title || null,
         assignee_user_id: d.assignee_user_id || null,
-        // due_at: drafts use ISO date string; backend wants datetime.
         due_at: d.due_at ? `${d.due_at}T00:00:00Z` : null,
         dispatch: d._dispatch && !!d.assignee_user_id,
       }));
@@ -108,7 +161,10 @@ export default function DirectivePanel({
     }
     setCommitting(true);
     try {
-      const r = await api.commitDirective(directive.id, cleaned);
+      const r =
+        source.kind === "directive"
+          ? await api.commitDirective(source.id, cleaned)
+          : await api.commitUpperDoc(source.id, cleaned);
       toast.success(
         `已入库 ${r.committed_task_ids.length} 条任务`,
         r.dispatched_count > 0
@@ -121,20 +177,24 @@ export default function DirectivePanel({
     } finally {
       setCommitting(false);
     }
-  }, [directive, drafts, committing, onClose]);
+  }, [source, drafts, committing, onClose]);
 
   const onDiscard = useCallback(async () => {
-    if (!directive) {
+    if (!source) {
       onClose();
       return;
     }
     try {
-      await api.discardDirective(directive.id);
+      if (source.kind === "directive") {
+        await api.discardDirective(source.id);
+      } else {
+        await api.discardUpperDoc(source.id);
+      }
     } catch {
       // ignore — close anyway
     }
     onClose();
-  }, [directive, onClose]);
+  }, [source, onClose]);
 
   const updateDraft = useCallback(
     (key: string, patch: Partial<DraftRow>) => {
@@ -166,6 +226,10 @@ export default function DirectivePanel({
 
   if (!open) return null;
 
+  const showInputArea = source === null;
+  const canParseText = mode === "text" && text.trim().length > 0 && !parsing;
+  const canParseFile = mode === "file" && file !== null && !parsing;
+
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-4 py-8"
@@ -174,11 +238,11 @@ export default function DirectivePanel({
       aria-modal="true"
     >
       <div className="w-full max-w-2xl max-h-full overflow-y-auto rounded-xl border border-ink-700 bg-ink-900 p-6 shadow-2xl">
-        <header className="flex items-center justify-between">
+        <header className="flex items-start justify-between">
           <div>
             <h2 className="text-base font-medium text-white">下达指令</h2>
             <p className="mt-0.5 text-xs text-zinc-500">
-              用自然语言描述,系统会拆解成结构化任务待你确认
+              文本或上级文件 → 系统拆解成结构化任务待你确认
             </p>
           </div>
           <button
@@ -190,34 +254,95 @@ export default function DirectivePanel({
           </button>
         </header>
 
-        {/* 输入区 */}
-        <div className="mt-4">
-          <textarea
-            data-testid="directive-input"
-            rows={4}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            disabled={parsing || directive !== null}
-            placeholder="例如:请王科长在本周五前提交一份小散工程上半年安全检查报告。"
-            className="w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none disabled:opacity-60"
-          />
-          {!directive && (
-            <div className="mt-2 flex items-center justify-end gap-2">
+        {/* Mode tabs */}
+        {showInputArea && (
+          <div className="mt-4 flex gap-1 rounded-lg border border-ink-700 p-0.5 text-xs">
+            {(["text", "file"] as const).map((m) => (
               <button
+                key={m}
                 type="button"
-                data-testid="directive-parse"
-                onClick={onParse}
-                disabled={!text.trim() || parsing}
-                className="rounded-lg bg-accent-500 px-4 py-1.5 text-sm font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent-400 transition"
+                onClick={() => onModeSwitch(m)}
+                data-testid={`directive-mode-${m}`}
+                className={`flex-1 rounded-md px-3 py-1.5 transition ${
+                  mode === m
+                    ? "bg-ink-800 text-zinc-100"
+                    : "text-zinc-500 hover:text-zinc-200"
+                }`}
               >
-                {parsing ? "解析中(约 5-15s)…" : "解析"}
+                {MODE_LABELS[m]}
               </button>
-            </div>
-          )}
-        </div>
+            ))}
+          </div>
+        )}
+
+        {/* 输入区 */}
+        {showInputArea && (
+          <div className="mt-3">
+            {mode === "text" ? (
+              <>
+                <textarea
+                  data-testid="directive-input"
+                  rows={4}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  disabled={parsing}
+                  placeholder="例如:请王科长在本周五前提交一份小散工程上半年安全检查报告。"
+                  className="w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none disabled:opacity-60"
+                />
+                <div className="mt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    data-testid="directive-parse"
+                    onClick={onParseText}
+                    disabled={!canParseText}
+                    className="rounded-lg bg-accent-500 px-4 py-1.5 text-sm font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent-400 transition"
+                  >
+                    {parsing ? "解析中(约 5-15s)…" : "解析"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.csv,.json,.yaml,.yml"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  disabled={parsing}
+                  data-testid="upper-doc-input"
+                  className="block w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-zinc-200 file:mr-3 file:rounded-md file:border-0 file:bg-ink-700 file:px-3 file:py-1.5 file:text-xs file:text-zinc-200 hover:file:bg-ink-600 disabled:opacity-60"
+                />
+                <p className="mt-1 text-[10px] text-zinc-500">
+                  支持 PDF / DOCX / XLSX / TXT / MD / CSV / JSON / YAML,最大 10MB.系统抽取文本后调 LLM 拆解.
+                </p>
+                <div className="mt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    data-testid="upper-doc-parse"
+                    onClick={onParseFile}
+                    disabled={!canParseFile}
+                    className="rounded-lg bg-accent-500 px-4 py-1.5 text-sm font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent-400 transition"
+                  >
+                    {parsing ? "上传 + 解析中(约 10-30s)…" : "上传 + 解析"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* 来源摘要 */}
+        {source && source.kind === "upper_doc" && (
+          <div
+            className="mt-4 rounded-md border border-ink-700 bg-ink-950 px-3 py-2 text-xs text-zinc-400"
+            data-testid="upper-doc-source-summary"
+          >
+            📄 {source.filename}
+          </div>
+        )}
 
         {/* 草稿列表 */}
-        {directive && (
+        {source && (
           <div className="mt-5">
             <div className="flex items-center justify-between">
               <h3 className="text-sm text-zinc-300">
@@ -234,7 +359,9 @@ export default function DirectivePanel({
 
             {drafts.length === 0 ? (
               <p className="mt-3 text-xs text-zinc-500">
-                没有草稿。可以「+ 加一条」手动添加,或直接关闭。
+                {source.parse_error
+                  ? `解析未成功:${source.parse_error}`
+                  : "没有草稿。可以「+ 加一条」手动添加,或直接关闭."}
               </p>
             ) : (
               <ul
@@ -262,7 +389,6 @@ export default function DirectivePanel({
                         onChange={(e) =>
                           updateDraft(d._key, {
                             assignee_user_id: e.target.value || null,
-                            // assignee 没了,派发也跟着关
                             _dispatch: e.target.value
                               ? d._dispatch
                               : false,

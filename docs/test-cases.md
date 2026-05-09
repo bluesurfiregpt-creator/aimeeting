@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v19）
+# Aimeeting · 测试用例（v20）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -310,7 +310,8 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v19** | 2026-05-09 | **领导指令(自然语言→Task)+ 7 态状态机收尾 + /me 状态 tab UI**:① 模型:新表 `leader_directive`(content / parsed_drafts(JSON) / status(draft\|committed\|discarded) / committed_task_ids / parse_error);Task.status 枚举扩展加 `submitted` / `archived`(8 态完整闭环);② 新模块 `directive_parser.py`:复用 action_extractor 的 LLM 调用基建 + `_match_user` + `_parse_due`,prompt 重写为"公文/指令拆解助手"(含 3 个 few-shot,负向规则禁止拆"研究/学习/重视"空话);同步调用,5-15s,失败时 row 仍写入并带 parse_error;③ task_state.py 加 4 个新动作 `submit/approve/reject/archive`,状态机扩展:in_progress→submitted (assignee 上报)、submitted→done (审核通过)、submitted→in_progress (驳回返工)、done→archived (归档)、各活跃态→cancelled;④ 5 个新端点:`POST /api/me/directives` (同步 LLM 拆解返回 drafts) / `POST /directives/{did}/commit` (批量入库 Task,可选 dispatch=true 直接转 dispatched) / `POST /directives/{did}/discard` (软丢弃) / `GET /directives` (history) / `POST /tasks/{tid}/submit|approve|reject|archive` 4 个 lifecycle;权限模型:approve/reject 允许 dispatcher / creator / workspace owner|admin;⑤ `/api/me/tasks` 加 `role=assignee\|reviewer` 参数,reviewer 视角拿到「待我审核」队列(过滤 submitted + 我是 dispatcher 或 creator);status 过滤补 submitted/archived/review;⑥ Notification 加 3 个新 kind:`task_submitted` / `task_approved` / `task_rejected`;⑦ 前端:新建 `DirectivePanel.tsx`(全屏 modal,文本框 → 解析按钮 → draft 列表逐条编辑/选 assignee/选 due/勾选派发 → 全部入库 + toast 反馈),顶栏加 `+` 按钮入口;`/me` 页**重写**:左列任务面板 5 个状态 tab(待签收/办理中/待审核/已完成/全部)+ state-aware action 按钮(签收/退回/开始办理/上报办结/归档,各按 Task.status 动态显示),「待我审核」单独区(reviewer 视角,通过/驳回 inline);⑧ 测试:Cowork AA 系列 8 个用例(指令拆解 / 批量入库 / dispatch=true / discard+409 / 上报办结 / 审核通过 / 驳回返工 / 归档+非法转换 422);两份 baseline.json 同步刷到 v19(总 64 用例,56 ✅ + 8 ⏭️);docs/test-cases.md 头部 v19 + 版本日志 + AA 系列章节 + 报告模板版本号 |
+| **v20** | 2026-05-09 | **触发源扩展:上级文件 + 定期巡检 cron**:① 模型:新表 `upper_doc`(filename/mime_type/byte_size/extracted_text/parsed_drafts/status/committed_task_ids/parse_error)+ `cron_rule`(name/cron_expr/task_template_*/auto_dispatch/due_days_after/is_active/last_fired_at/fire_count);Task.source_type 扩展支持 `upper_doc` / `cron`(枚举占位 v17 已埋,v20 真正使用);② 上级文件:`POST /api/me/upper-docs`(multipart 上传)→ 复用 doc_parser 抽文本(PDF/DOCX/XLSX/TXT/MD/CSV/JSON/YAML)→ 截断 20K 字 → 复用 directive_parser LLM 拆解 → 返回 drafts;`/commit` 入库 Task(source_type='upper_doc',source_ref={upper_doc_id, filename}),可选 dispatch=true 直接派发;`/discard` 软丢弃;`GET /upper-docs` history;文件**不入 OSS、不入知识库**(纯一次性触发器);③ cron 巡检:新模块 `cron_runner.py`(lifespan loop,默认 60s tick,每分钟扫 is_active=true 的 cron_rule,匹配则 instantiate Task,1 分钟内防重 fire);**简化 cron 解析器**(不依赖 croniter):5 段 `分 时 日 月 周`,支持 数字/`*`/`*/N`/逗号列表;新 router `routers/cron_rules.py`:`GET/POST/PATCH/DELETE /api/cron-rules` + `POST /api/cron-rules/{id}/force-fire`(测试 + 调试用,绕过时间匹配);auto_dispatch + assignee 时,fire 直接进 dispatched 并通知;due_days_after 让模板带相对截止;④ 前端:DirectivePanel 加 mode tab(「文本指令」/「上级文件」),file mode 用 file picker + multipart 上传,后续 draft list / commit / discard 完全复用;新页 `/admin/cron-rules`(列表 + 创建表单 + 行内停用/启用/立即触发/删除,4 个 cron 表达式预设 chip);api.ts 加 UpperDoc / CronRule 类型 + 9 个新方法;⑤ 测试:Cowork BB 系列 7 用例(BB-1 上传 .txt + LLM 拆解 / BB-2 commit 入库 + source_ref 校验 / BB-3 discard + 409 / BB-4 cron CRUD / BB-5 force-fire 入库为 open / BB-6 auto_dispatch + due_days_after / BB-7 非法 cron_expr 400);两份 baseline.json 同步刷到 v20(总 71 用例,63 ✅ + 8 ⏭️);触发源覆盖率从 33% (2/6) → **67% (4/6)** |
+| v19 | 2026-05-09 | **领导指令(自然语言→Task)+ 7 态状态机收尾 + /me 状态 tab UI**:① 模型:新表 `leader_directive`(content / parsed_drafts(JSON) / status(draft\|committed\|discarded) / committed_task_ids / parse_error);Task.status 枚举扩展加 `submitted` / `archived`(8 态完整闭环);② 新模块 `directive_parser.py`:复用 action_extractor 的 LLM 调用基建 + `_match_user` + `_parse_due`,prompt 重写为"公文/指令拆解助手"(含 3 个 few-shot,负向规则禁止拆"研究/学习/重视"空话);同步调用,5-15s,失败时 row 仍写入并带 parse_error;③ task_state.py 加 4 个新动作 `submit/approve/reject/archive`,状态机扩展:in_progress→submitted (assignee 上报)、submitted→done (审核通过)、submitted→in_progress (驳回返工)、done→archived (归档)、各活跃态→cancelled;④ 5 个新端点:`POST /api/me/directives` (同步 LLM 拆解返回 drafts) / `POST /directives/{did}/commit` (批量入库 Task,可选 dispatch=true 直接转 dispatched) / `POST /directives/{did}/discard` (软丢弃) / `GET /directives` (history) / `POST /tasks/{tid}/submit|approve|reject|archive` 4 个 lifecycle;权限模型:approve/reject 允许 dispatcher / creator / workspace owner|admin;⑤ `/api/me/tasks` 加 `role=assignee\|reviewer` 参数,reviewer 视角拿到「待我审核」队列(过滤 submitted + 我是 dispatcher 或 creator);status 过滤补 submitted/archived/review;⑥ Notification 加 3 个新 kind:`task_submitted` / `task_approved` / `task_rejected`;⑦ 前端:新建 `DirectivePanel.tsx`(全屏 modal,文本框 → 解析按钮 → draft 列表逐条编辑/选 assignee/选 due/勾选派发 → 全部入库 + toast 反馈),顶栏加 `+` 按钮入口;`/me` 页**重写**:左列任务面板 5 个状态 tab(待签收/办理中/待审核/已完成/全部)+ state-aware action 按钮(签收/退回/开始办理/上报办结/归档,各按 Task.status 动态显示),「待我审核」单独区(reviewer 视角,通过/驳回 inline);⑧ 测试:Cowork AA 系列 8 个用例(指令拆解 / 批量入库 / dispatch=true / discard+409 / 上报办结 / 审核通过 / 驳回返工 / 归档+非法转换 422);两份 baseline.json 同步刷到 v19(总 64 用例,56 ✅ + 8 ⏭️);docs/test-cases.md 头部 v19 + 版本日志 + AA 系列章节 + 报告模板版本号 |
 | v18 | 2026-05-09 | **Task 状态机 + 派发签收 + 三级催办**:① 模型扩展:Task 增 `dispatched_at`/`dispatched_by_user_id`/`accepted_at`/`started_at` 时间戳列;状态枚举从 `open|done|cancelled` 扩到 6 态(open / dispatched / accepted / in_progress / done / cancelled),`submitted` 和 `archived` 留给 v19;Notification 增 `severity` 列(normal / yellow / red / purple);② 新模块 `task_state.py`:合法转换表 + `transition()` 把守 + `mirror_to_action_status()`(Task → ActionItem 状态映射,新增 dispatched/accepted/in_progress 全部映射成 ActionItem='open',旧 UI 完全不用改);③ 新端点 `POST /api/me/tasks/{tid}/{dispatch,accept,return,start,complete,cancel}`,各自校验权限(dispatch:同 workspace · accept/start/complete:必须是 assignee · cancel:assignee/dispatcher/creator 任一)、走状态机、镜像到 ActionItem、发对应 kind 通知(`task_dispatched`/`task_accepted`/`task_returned`/`task_completed`,self-* 抑制);④ `due_reminder.py` severity-aware 重写:黄(≤3d 距截止,48h dedup)/红(超时<3d,24h dedup)/紫(超时≥3d,24h dedup,**额外**通知 workspace owner+admin);⑤ `notify.py` 新增 `severity` 参数,dedup 窗口按 severity 不同;⑥ `/api/me/tasks` status 过滤扩展:加 `active`(=open|dispatched|accepted|in_progress,默认值)/ `pending`(=dispatched 待签收) / `working`(=accepted|in_progress 办理中);响应增加 `assignee_user_id` + 4 个状态机时间戳字段;⑦ `/api/me/notifications` 响应增加 `max_unread_severity` 字段(purple > red > yellow > normal),驱动铃铛 badge 颜色;⑧ 前端轻量适配:NotificationBell badge 颜色随 severity 变(rose/amber/red/purple),drawer 内行点颜色同步;api.ts 加 MyTask 类型 + 6 个 lifecycle 方法 + Notification 类型加 4 个新 kind 和 severity 字段;⑨ 测试 Z-6..Z-12(共 7 个新用例:派发 / 签收 / 办理+办结 / 退回 / 非法转换拒绝 / severity 字段稳定 / self-dispatch 抑制),Z-5 重定义为 active/pending/working/all 四种过滤生效校验;baseline 刷到 v18(总 56 用例,48 ✅ + 8 ⏭️) |
 | v17 | 2026-05-09 | **Task 一级对象立项(智慧住建翻译层骨架)**:① 新表 `task`(id / workspace_id / title / content / assignee_user_id / created_by_user_id / due_at / status / source_type / source_ref(JSON) / 时间戳),状态 v17 只用 `open|done|cancelled`,`in_progress` 留给 v18 状态机;② 新建 `task_sync.py` helper:`add_action_with_task` / `mirror_patch_to_task` / `delete_task_for_action` / `delete_tasks_for_meeting_summary_actions`,client-side UUID 让 ActionItem ↔ Task 一笔事务交叉指 ID;③ `meeting_action_item.task_id` FK 列加上,`init_db.py` 启动时 backfill 现有所有 ActionItem 一对一映射 Task(source_type='meeting');④ `workspace.preset` JSON 列加上,默认 NULL=「general」,预留 'smart_construction' 等键;⑤ 双写接入:`POST/PATCH/DELETE /api/meetings/{m}/actions` 和 `action_extractor` 自动抽取都同步维护 Task;⑥ 新读端 `GET /api/me/tasks?status=(open|all|done|in_progress)` 返回 Task 列表 + 自动注水 `meeting_id`/`meeting_title`(source_type='meeting' 行);⑦ Notification payload 新增 `task_id` 字段(`action_id` 保留兼容),due_reminder cron / action_assigned / action_comment 都带上;⑧ 测试:Cowork Z 系列 5 用例(Z-1 dual-write 一致 / Z-2 PATCH 镜像 / Z-3 DELETE 级联 / Z-4 meeting_title 注水 / Z-5 in_progress v17 为空);两份 baseline.json 同步刷到 v17(总 49 用例,41 ✅ + 8 ⏭️);⑨ 前端零变更,Y 系列保持绿 |
 | v16 | 2026-05-08 | **主题 1 · P0 行动项协作闭环**:① 后端新建表 `meeting_action_item_comment` + `notification`(in-app);② 新 router `/api/me`(`GET /actions`、`GET /notifications`、`POST /notifications/{id}/read`、`POST /notifications/read-all`);③ 行动项评论 CRUD(`/api/meetings/{mid}/actions/{aid}/comments`,作者可删不可改);④ 创建 / 改派行动项时给 assignee 写 `action_assigned`(self-notify 抑制);⑤ FastAPI lifespan 内挂后台 loop(默认 1h tick)生成 `action_due_soon` / `action_overdue`,helper `notify.py` 内 24h 去重;⑥ 前端:顶栏 🔔 NotificationBell + 抽屉(60s 轮询、未读红点、全部已读)、`/me` 个人页(我的待办 open/done 切换 + 通知列表)、ActionItemsCard 每行加可折叠评论线程(💬 计数 / lazy fetch / Cmd+Enter 发送);⑦ 测试:cowork_suite 新增 Y 系列 7 用例(Y-1..Y-7,自动列表 / done 过滤 / 评论 CRUD / 作者-only delete / 通知 shape / self-notify 抑制 / mark-all-read);两份 baseline.json(repo + frontend/public)同步刷到 v16(总 44 用例,36 ✅ + 8 ⏭️)|
@@ -1152,6 +1153,34 @@ INFO app.due_reminder :: due_reminder tick: yellow=N red=M purple=K purple_admin
 
 ---
 
+## BB 系列 · v20 上级文件 + 定期巡检触发源
+
+> 触发源覆盖率从 v19 的 33% (2/6) → 67% (4/6).Aimeeting 不再只来自「会议 + 领导指令」,文件来文 + cron 定时也能造出工单.
+
+| 用例 | 操作 | 预期 | 状态 |
+|---|---|---|---|
+| BB-1 | POST `/api/me/upper-docs` 上传一段 .txt(含两条政务指令风内容) | 200,status='draft',drafts 数组非空,无 parse_error | ✅ |
+| BB-2 | POST `/api/me/upper-docs/{did}/commit` { tasks: [...] } | Task 入库,source_type='upper_doc',source_ref.upper_doc_id 反指 | ✅ |
+| BB-3 | 上传后 POST `/discard` → 再 commit | discard 后 status='discarded';再 commit 返回 409 | ✅ |
+| BB-4 | cron rule create / list / patch is_active=false / delete | 4 步全 200 | ✅ |
+| BB-5 | force-fire(auto_dispatch=false) | 立即生成 Task,source_type='cron',source_ref.rule_id 反指,status='open' | ✅ |
+| BB-6 | force-fire(auto_dispatch=true + assignee + due_days_after=7) | Task 直接进 dispatched + dispatched_at + due_at 已写 | ✅ |
+| BB-7 | POST `/api/cron-rules` cron_expr="bad" | 400 拒绝 | ✅ |
+
+**手测点(单浏览器无法验证的部分)**:
+- 顶栏 + 按钮 → DirectivePanel 切「上级文件」tab → 选一份 PDF → 等 10-30s → 看是否拆出 draft
+- /admin/cron-rules 页:点「立即触发」→ 看是否在 /me 出现新任务
+- 后端启动日志期望:`cron_runner_loop starting; tick=60s` + 触发后 `cron_runner tick: created N task(s)`
+
+**架构演进**(v17 → v20 累积):
+- v17:Task 升为一级对象
+- v18:6 态状态机 + 派发签收 + 三级催办
+- v19:8 态状态机 + 触发源 #1 领导指令 + 简化版上报审核
+- **v20**:**触发源 #3 上级文件 + 触发源 #4 定期巡检 cron**;触发源覆盖率 33% → 67%
+- 接下来 (v21+):多 AI 协作主责/协办 + 数据 5 级分级 + 角色二分(领导/专家)+ 考核评价 + 看板 + SSO + 触达扩展(企微/飞书/邮件)
+
+---
+
 ## 测试报告模板
 
 测完后请把这一段填给我：
@@ -1159,7 +1188,7 @@ INFO app.due_reminder :: due_reminder tick: yellow=N red=M purple=K purple_admin
 ```
 测试人:
 测试时间:
-测试用例版本: v19
+测试用例版本: v20
 浏览器/系统:
 默认账号是否生效: 是 / 否
 

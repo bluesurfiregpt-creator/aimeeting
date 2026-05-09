@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select, update
 
 from .config import get_settings
+from .cron_runner import cron_runner_loop
 from .db import SessionLocal
 from .due_reminder import due_reminder_loop
 from .identify_pipeline import identify_worker
@@ -24,6 +25,7 @@ from .auth import COOKIE_NAME, decode_token
 from .routers import agents as agents_router
 from .routers import audit as audit_router
 from .routers import auth as auth_router
+from .routers import cron_rules as cron_rules_router
 from .routers import knowledge as knowledge_router
 from .routers import me as me_router
 from .routers import meetings as meetings_router
@@ -47,21 +49,23 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await init_db()
-    # Theme 1 (P0): background loop that emits due_soon / overdue
-    # notifications. Asyncio task lives for the FastAPI process; we
-    # signal it on shutdown so the loop exits cleanly.
+    # 后台 loop 们都共用一个 stop_event,shutdown 时一齐退.
+    #   due_reminder_loop  — Theme 1 (P0): 黄/红/紫 催办通知
+    #   cron_runner_loop   — v20: 定期巡检触发源,每分钟 tick scan cron_rule
     stop_event = asyncio.Event()
     reminder_task = asyncio.create_task(due_reminder_loop(stop_event))
+    cron_task = asyncio.create_task(cron_runner_loop(stop_event))
     try:
         yield
     finally:
         stop_event.set()
-        try:
-            await asyncio.wait_for(reminder_task, timeout=5)
-        except asyncio.TimeoutError:
-            reminder_task.cancel()
-        except Exception:
-            logger.exception("due_reminder shutdown error")
+        for name, t in (("due_reminder", reminder_task), ("cron_runner", cron_task)):
+            try:
+                await asyncio.wait_for(t, timeout=5)
+            except asyncio.TimeoutError:
+                t.cancel()
+            except Exception:
+                logger.exception("%s shutdown error", name)
 
 
 app = FastAPI(title="Aimeeting Backend", version="0.2.0", lifespan=lifespan)
@@ -85,6 +89,7 @@ app.include_router(audit_router.router)
 app.include_router(team_router.router)
 app.include_router(knowledge_router.router)
 app.include_router(me_router.router)
+app.include_router(cron_rules_router.router)
 
 
 @app.get("/healthz")
