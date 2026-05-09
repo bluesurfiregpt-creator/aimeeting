@@ -609,6 +609,47 @@ export const CLASSIFICATION_BADGE_CLASSES: Record<DataClassification, string> = 
   public: "bg-emerald-500/20 text-emerald-300",
 };
 
+/** v22: dashboard 一次性聚合返回的所有 KPI / 图表数据. */
+export type DashboardOverview = {
+  // 顶部 4 KPI 卡
+  total_tasks: number;
+  pending_review: number;       // status='dispatched'
+  overdue_red_purple: number;   // 已逾期 + status 不在终态
+  completion_rate_this_month: number; // 0-1
+
+  // 中部 / 底部图表
+  by_status: { status: string; count: number }[];
+  by_source: { source_type: string; count: number }[];
+  workload: {
+    user_id: string;
+    name: string;
+    open_count: number;
+    overdue_count: number;
+  }[];
+  completion_30d: { date: string; completed: number; created: number }[];
+  creation_7d: { date: string; completed: number; created: number }[];
+  evaluations: {
+    user_id: string;
+    name: string;
+    completion_rate: number;
+    on_time_rate: number;
+    quality_score: number;
+    collaboration_score: number;
+    composite: number;
+  }[];
+
+  // 元
+  period: string;     // 'YYYY-MM'
+  role: "leader" | "expert" | "member";
+  scope_label: string;
+};
+
+export type SeedEvalResult = {
+  period: string;
+  inserted: number;
+  updated: number;
+};
+
 /** v21: 跨 AI 数据访问申请. */
 export type AccessRequest = {
   id: string;
@@ -831,6 +872,15 @@ export const api = {
     jpostVoid(`/api/me/upper-docs/${upperDocId}/discard`, {}),
   listMyUpperDocs: (limit = 20) =>
     jget<UpperDoc[]>(`/api/me/upper-docs?limit=${limit}`),
+
+  // v22: 看板
+  dashboardOverview: () =>
+    jget<DashboardOverview>(`/api/dashboard/overview`),
+  seedEvalData: (period?: string | null, overwrite = false) =>
+    jpost<SeedEvalResult>(`/api/dashboard/seed-eval-data`, {
+      period,
+      overwrite,
+    }),
 
   // v21: 跨 AI 数据访问申请
   createAccessRequest: (body: {

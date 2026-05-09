@@ -27,6 +27,7 @@ from .routers import agents as agents_router
 from .routers import audit as audit_router
 from .routers import auth as auth_router
 from .routers import cron_rules as cron_rules_router
+from .routers import dashboard as dashboard_router
 from .routers import knowledge as knowledge_router
 from .routers import me as me_router
 from .routers import meetings as meetings_router
@@ -92,6 +93,7 @@ app.include_router(knowledge_router.router)
 app.include_router(me_router.router)
 app.include_router(cron_rules_router.router)
 app.include_router(access_requests_router.router)
+app.include_router(dashboard_router.router)
 
 
 @app.get("/healthz")

@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v21）
+# Aimeeting · 测试用例（v22）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -310,7 +310,8 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v21** | 2026-05-09 | **政务安全基线:角色二分 + 数据 5 级分级 + 跨 AI 共享审批**:① 模型:`workspace_membership.bound_agent_id` FK 加上(`expert` role 必填,其他 NULL);角色枚举扩展为 owner/admin/leader/expert/member(leader=admin 别名);Task / KnowledgeDocument / LongTermMemory 各加 `data_classification` 列(默认 `general`,5 级 core/important/sensitive/general/public);新表 `data_access_request`(requester / target_resource_type / target_resource_id / target_owner / justification / status / expires_at / decided_*);② init_db 加 4 个 ALTER COLUMN 自动迁移现有数据(workspace_membership.bound_agent_id + 三个表的 data_classification);③ 新模块 `auth.py` 角色 helpers(`get_membership_role` / `is_leader_or_admin` / `is_expert` / `expert_bound_agent_id` / `require_leader_or_admin`);④ 新模块 `access_control.py` 中央化 `can_access()`(决策链:leader → owner → low-classification → expert in own range → active grant → 拒);⑤ 新 router `/api/me/access-requests`(create / list 两视角 / approve / reject;通知 owner + 申请人,3 个新 kind:`access_requested`/`approved`/`rejected`);⑥ 关键端点权限收紧:cron-rules CRUD + force-fire `require_leader_or_admin`;`POST /api/me/tasks/{tid}/dispatch` 同样 leader-only;⑦ team router 加 `PATCH /api/team/members/{user_id}`(改 role + bound_agent_id,自我编辑拒,owner 不可改);MemberOut 加 bound_agent_id + bound_agent_name 字段;⑧ 前端:api.ts 加 TeamRole / DataClassification / AccessRequest 类型 + CLASSIFICATION_LABELS/BADGE_CLASSES + 5 个新 API 方法;`/admin/team` 行内编辑 role(下拉 5 选)+ bound_agent(选 expert 时强制必填);`/me` Task 行 sensitive+ 分级显示彩色 badge(general/public 默认隐藏,避免视觉噪声);⑨ 测试:Cowork CC 系列 7 用例(team members shape / self-edit 400 / data_classification 字段 / bogus access target 404 / self-owned 拒 / list shape / owner 权限不被收紧拦截);两份 baseline.json 同步刷到 v21(总 78 用例,70 ✅ + 8 ⏭️);智慧住建文档准入要求 100% 满足(角色二分 ✅ + 数据分级 ✅ + 跨 AI 共享审批 ✅) |
+| **v22** | 2026-05-09 | **看板 Dashboard 雏形(精品交付) + T3 CI 落地**:① 模型:新表 `task_evaluation`(月度 4 维评价 + 累计指标 + (workspace, assignee, period) UNIQUE);② 新 router `/api/dashboard`:聚合 endpoint `/overview` 一次返回 7 个 KPI + 元信息(role + scope_label),含 expert scope 过滤(leader 看全局 / expert 看 bound agent / member 看自己 assignee);`/seed-eval-data` admin-only 智慧住建演示用 seed,deterministic random(同 user_id+period 多次跑结果稳定),含 inserted/updated/overwrite 语义;③ 前端:安装 `recharts` 依赖(~80KB),新页 `/dashboard`(7-segment 精品配色板:primary/warm/cool/green/rose/red/purple/amber);布局:顶部 4 KPI 卡(总任务/待签收/已逾期/本月完成率) + 中部 3 图(状态饼/工作量横条 stacked overdue/30d 完成vs创建折线) + 底部 3 图(触发源饼/7d 创建条/4 维评价雷达 top 3);精品 polish:配色统一、暗色 tooltip、加载/空/错误三态、admin 才显示 🌱 Seed 按钮、手动刷新(不自动轮询);④ AuthHeader 顶栏加 📊 入口,leader/admin/owner/expert 可见,member 隐藏(角色分化曝光);⑤ 测试 Cowork DD 系列 6 用例(overview shape / 30d&7d 点数补齐 / seed 接口 / seed 后 evaluations 非空 4 维 / seed 幂等 / seed overwrite 二次有效);两份 baseline.json 同步刷到 v22(总 84 用例,76 ✅ + 8 ⏭️);⑥ **T3 CI 落地**:`.github/workflows/lint.yml` 新增,PR / push to main 时跑:Python AST · JS 语法 · 两份 baseline.json 一致性 · 两份 cowork_suite.js 一致性 · JSON 合法 · TypeScript noEmit;故意不跑端到端 Cowork(需 headless 浏览器 / 真 prod,留 v23+) |
+| v21 | 2026-05-09 | **政务安全基线:角色二分 + 数据 5 级分级 + 跨 AI 共享审批**:① 模型:`workspace_membership.bound_agent_id` FK 加上(`expert` role 必填,其他 NULL);角色枚举扩展为 owner/admin/leader/expert/member(leader=admin 别名);Task / KnowledgeDocument / LongTermMemory 各加 `data_classification` 列(默认 `general`,5 级 core/important/sensitive/general/public);新表 `data_access_request`(requester / target_resource_type / target_resource_id / target_owner / justification / status / expires_at / decided_*);② init_db 加 4 个 ALTER COLUMN 自动迁移现有数据(workspace_membership.bound_agent_id + 三个表的 data_classification);③ 新模块 `auth.py` 角色 helpers(`get_membership_role` / `is_leader_or_admin` / `is_expert` / `expert_bound_agent_id` / `require_leader_or_admin`);④ 新模块 `access_control.py` 中央化 `can_access()`(决策链:leader → owner → low-classification → expert in own range → active grant → 拒);⑤ 新 router `/api/me/access-requests`(create / list 两视角 / approve / reject;通知 owner + 申请人,3 个新 kind:`access_requested`/`approved`/`rejected`);⑥ 关键端点权限收紧:cron-rules CRUD + force-fire `require_leader_or_admin`;`POST /api/me/tasks/{tid}/dispatch` 同样 leader-only;⑦ team router 加 `PATCH /api/team/members/{user_id}`(改 role + bound_agent_id,自我编辑拒,owner 不可改);MemberOut 加 bound_agent_id + bound_agent_name 字段;⑧ 前端:api.ts 加 TeamRole / DataClassification / AccessRequest 类型 + CLASSIFICATION_LABELS/BADGE_CLASSES + 5 个新 API 方法;`/admin/team` 行内编辑 role(下拉 5 选)+ bound_agent(选 expert 时强制必填);`/me` Task 行 sensitive+ 分级显示彩色 badge(general/public 默认隐藏,避免视觉噪声);⑨ 测试:Cowork CC 系列 7 用例(team members shape / self-edit 400 / data_classification 字段 / bogus access target 404 / self-owned 拒 / list shape / owner 权限不被收紧拦截);两份 baseline.json 同步刷到 v21(总 78 用例,70 ✅ + 8 ⏭️);智慧住建文档准入要求 100% 满足(角色二分 ✅ + 数据分级 ✅ + 跨 AI 共享审批 ✅) |
 | v20 | 2026-05-09 | **触发源扩展:上级文件 + 定期巡检 cron**:① 模型:新表 `upper_doc`(filename/mime_type/byte_size/extracted_text/parsed_drafts/status/committed_task_ids/parse_error)+ `cron_rule`(name/cron_expr/task_template_*/auto_dispatch/due_days_after/is_active/last_fired_at/fire_count);Task.source_type 扩展支持 `upper_doc` / `cron`(枚举占位 v17 已埋,v20 真正使用);② 上级文件:`POST /api/me/upper-docs`(multipart 上传)→ 复用 doc_parser 抽文本(PDF/DOCX/XLSX/TXT/MD/CSV/JSON/YAML)→ 截断 20K 字 → 复用 directive_parser LLM 拆解 → 返回 drafts;`/commit` 入库 Task(source_type='upper_doc',source_ref={upper_doc_id, filename}),可选 dispatch=true 直接派发;`/discard` 软丢弃;`GET /upper-docs` history;文件**不入 OSS、不入知识库**(纯一次性触发器);③ cron 巡检:新模块 `cron_runner.py`(lifespan loop,默认 60s tick,每分钟扫 is_active=true 的 cron_rule,匹配则 instantiate Task,1 分钟内防重 fire);**简化 cron 解析器**(不依赖 croniter):5 段 `分 时 日 月 周`,支持 数字/`*`/`*/N`/逗号列表;新 router `routers/cron_rules.py`:`GET/POST/PATCH/DELETE /api/cron-rules` + `POST /api/cron-rules/{id}/force-fire`(测试 + 调试用,绕过时间匹配);auto_dispatch + assignee 时,fire 直接进 dispatched 并通知;due_days_after 让模板带相对截止;④ 前端:DirectivePanel 加 mode tab(「文本指令」/「上级文件」),file mode 用 file picker + multipart 上传,后续 draft list / commit / discard 完全复用;新页 `/admin/cron-rules`(列表 + 创建表单 + 行内停用/启用/立即触发/删除,4 个 cron 表达式预设 chip);api.ts 加 UpperDoc / CronRule 类型 + 9 个新方法;⑤ 测试:Cowork BB 系列 7 用例(BB-1 上传 .txt + LLM 拆解 / BB-2 commit 入库 + source_ref 校验 / BB-3 discard + 409 / BB-4 cron CRUD / BB-5 force-fire 入库为 open / BB-6 auto_dispatch + due_days_after / BB-7 非法 cron_expr 400);两份 baseline.json 同步刷到 v20(总 71 用例,63 ✅ + 8 ⏭️);触发源覆盖率从 33% (2/6) → **67% (4/6)** |
 | v19 | 2026-05-09 | **领导指令(自然语言→Task)+ 7 态状态机收尾 + /me 状态 tab UI**:① 模型:新表 `leader_directive`(content / parsed_drafts(JSON) / status(draft\|committed\|discarded) / committed_task_ids / parse_error);Task.status 枚举扩展加 `submitted` / `archived`(8 态完整闭环);② 新模块 `directive_parser.py`:复用 action_extractor 的 LLM 调用基建 + `_match_user` + `_parse_due`,prompt 重写为"公文/指令拆解助手"(含 3 个 few-shot,负向规则禁止拆"研究/学习/重视"空话);同步调用,5-15s,失败时 row 仍写入并带 parse_error;③ task_state.py 加 4 个新动作 `submit/approve/reject/archive`,状态机扩展:in_progress→submitted (assignee 上报)、submitted→done (审核通过)、submitted→in_progress (驳回返工)、done→archived (归档)、各活跃态→cancelled;④ 5 个新端点:`POST /api/me/directives` (同步 LLM 拆解返回 drafts) / `POST /directives/{did}/commit` (批量入库 Task,可选 dispatch=true 直接转 dispatched) / `POST /directives/{did}/discard` (软丢弃) / `GET /directives` (history) / `POST /tasks/{tid}/submit|approve|reject|archive` 4 个 lifecycle;权限模型:approve/reject 允许 dispatcher / creator / workspace owner|admin;⑤ `/api/me/tasks` 加 `role=assignee\|reviewer` 参数,reviewer 视角拿到「待我审核」队列(过滤 submitted + 我是 dispatcher 或 creator);status 过滤补 submitted/archived/review;⑥ Notification 加 3 个新 kind:`task_submitted` / `task_approved` / `task_rejected`;⑦ 前端:新建 `DirectivePanel.tsx`(全屏 modal,文本框 → 解析按钮 → draft 列表逐条编辑/选 assignee/选 due/勾选派发 → 全部入库 + toast 反馈),顶栏加 `+` 按钮入口;`/me` 页**重写**:左列任务面板 5 个状态 tab(待签收/办理中/待审核/已完成/全部)+ state-aware action 按钮(签收/退回/开始办理/上报办结/归档,各按 Task.status 动态显示),「待我审核」单独区(reviewer 视角,通过/驳回 inline);⑧ 测试:Cowork AA 系列 8 个用例(指令拆解 / 批量入库 / dispatch=true / discard+409 / 上报办结 / 审核通过 / 驳回返工 / 归档+非法转换 422);两份 baseline.json 同步刷到 v19(总 64 用例,56 ✅ + 8 ⏭️);docs/test-cases.md 头部 v19 + 版本日志 + AA 系列章节 + 报告模板版本号 |
 | v18 | 2026-05-09 | **Task 状态机 + 派发签收 + 三级催办**:① 模型扩展:Task 增 `dispatched_at`/`dispatched_by_user_id`/`accepted_at`/`started_at` 时间戳列;状态枚举从 `open|done|cancelled` 扩到 6 态(open / dispatched / accepted / in_progress / done / cancelled),`submitted` 和 `archived` 留给 v19;Notification 增 `severity` 列(normal / yellow / red / purple);② 新模块 `task_state.py`:合法转换表 + `transition()` 把守 + `mirror_to_action_status()`(Task → ActionItem 状态映射,新增 dispatched/accepted/in_progress 全部映射成 ActionItem='open',旧 UI 完全不用改);③ 新端点 `POST /api/me/tasks/{tid}/{dispatch,accept,return,start,complete,cancel}`,各自校验权限(dispatch:同 workspace · accept/start/complete:必须是 assignee · cancel:assignee/dispatcher/creator 任一)、走状态机、镜像到 ActionItem、发对应 kind 通知(`task_dispatched`/`task_accepted`/`task_returned`/`task_completed`,self-* 抑制);④ `due_reminder.py` severity-aware 重写:黄(≤3d 距截止,48h dedup)/红(超时<3d,24h dedup)/紫(超时≥3d,24h dedup,**额外**通知 workspace owner+admin);⑤ `notify.py` 新增 `severity` 参数,dedup 窗口按 severity 不同;⑥ `/api/me/tasks` status 过滤扩展:加 `active`(=open|dispatched|accepted|in_progress,默认值)/ `pending`(=dispatched 待签收) / `working`(=accepted|in_progress 办理中);响应增加 `assignee_user_id` + 4 个状态机时间戳字段;⑦ `/api/me/notifications` 响应增加 `max_unread_severity` 字段(purple > red > yellow > normal),驱动铃铛 badge 颜色;⑧ 前端轻量适配:NotificationBell badge 颜色随 severity 变(rose/amber/red/purple),drawer 内行点颜色同步;api.ts 加 MyTask 类型 + 6 个 lifecycle 方法 + Notification 类型加 4 个新 kind 和 severity 字段;⑨ 测试 Z-6..Z-12(共 7 个新用例:派发 / 签收 / 办理+办结 / 退回 / 非法转换拒绝 / severity 字段稳定 / self-dispatch 抑制),Z-5 重定义为 active/pending/working/all 四种过滤生效校验;baseline 刷到 v18(总 56 用例,48 ✅ + 8 ⏭️) |
@@ -1217,6 +1218,49 @@ INFO app.due_reminder :: due_reminder tick: yellow=N red=M purple=K purple_admin
 
 ---
 
+## DD 系列 · v22 看板 Dashboard
+
+> 智慧住建文档「四.5 看板」要求.领导首屏 — 一打开就看到全局.精品交付:7-segment 配色 / 6 图 / 加载/空/错误三态 / 角色 scope 过滤.
+
+| 用例 | 操作 | 预期 | 状态 |
+|---|---|---|---|
+| DD-1 | GET `/api/dashboard/overview` | 13 个字段全有(total_tasks / pending_review / overdue_red_purple / completion_rate / by_status[] / by_source[] / workload[] / completion_30d[] / creation_7d[] / evaluations[] / period / role / scope_label),关键字段类型正确 | ✅ |
+| DD-2 | overview.completion_30d / creation_7d 长度 | 31 点(0..30 inclusive)/ 8 点;空天补齐为 0(便于折线连续) | ✅ |
+| DD-3 | POST `/api/dashboard/seed-eval-data` { overwrite: false } | 200,返回 period + inserted/updated 数字 | ✅ |
+| DD-4 | seed 后再 GET overview,看 evaluations | 非空,每条含 4 维 + composite,值在 [0,1] | ✅ |
+| DD-5 | seed 第二次调用(overwrite=false) | inserted=0 + updated=0(幂等) | ✅ |
+| DD-6 | seed 调用(overwrite=true) | updated > 0 | ✅ |
+
+**手测点(单浏览器无法验证的部分)**:
+- 顶栏新增 📊 按钮,owner/admin/leader/expert 可见;以 expert 角色登录,只能看到 bound agent 范围数据(scope_label='我绑定的 AI 专家')
+- /dashboard 加载 → KPI 卡精品配色:总任务白 / 待签收琥珀 / 已逾期红 / 本月完成率(>80% 翠绿 / 50-80% 中性 / <50% 琥珀)
+- 状态饼图 8 态用统一调色板;工作量横条把 overdue 部分标红 stacked
+- 30d 折线:绿=完成、青虚线=创建,鼠标悬停看每天数字
+- 4 维雷达:0-100% 量纲,top 3 用户三色叠加显示(蓝 / 绿 / 紫)
+- 「🌱 Seed 评价」按钮只在 leader 角色看到;点了之后会 confirm 一次,然后 toast 反馈 +N/M
+- 手动刷新按钮(↻),不自动轮询(避免打扰)
+
+**v22 后端启动日志预期**:
+```
+INFO app.init_db :: DB schema ensured                  ← task_evaluation 表自动建,无 ALTER 需要
+INFO app.due_reminder :: due_reminder_loop starting
+INFO app.cron_runner  :: cron_runner_loop starting
+```
+
+**v22 同时落地了 T3 CI**(`.github/workflows/lint.yml`):
+- 触发:push to main + PR
+- 检查项:Python AST、JS 语法(两份 cowork_suite)、JSON 合法、两份 baseline 一致、两份 cowork_suite 一致、TypeScript noEmit
+- 故意不跑端到端 Cowork(需 headless 浏览器 / 真 prod,留 v23+)
+
+**架构演进**(v17 → v22 累积):
+- v17-v20:Task / 状态机 / 触发源 / 三级催办 / 上报审核
+- v21:政务安全基线(角色 + 分级 + 审批)
+- **v22**:**视图层 1/3 ✅ 看板 + 考核评价 4 维 + T3 CI**(智慧住建文档「四.5」首次落地)
+- 接下来 (v22.5):多 AI 协作主责/协办(对 v22 看板的「协作评分」给真数据)
+- 接下来 (v23+):剩余触发源(异常预警 + 问题上报)+ 触达扩展(企微/飞书/邮件)+ SSO
+
+---
+
 ## 测试报告模板
 
 测完后请把这一段填给我：
@@ -1224,7 +1268,7 @@ INFO app.due_reminder :: due_reminder tick: yellow=N red=M purple=K purple_admin
 ```
 测试人:
 测试时间:
-测试用例版本: v21
+测试用例版本: v22
 浏览器/系统:
 默认账号是否生效: 是 / 否
 

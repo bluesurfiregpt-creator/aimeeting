@@ -657,6 +657,55 @@ class CronRule(Base):
     )
 
 
+class TaskEvaluation(Base):
+    """
+    v22 — 月度任务评价归档.
+
+    智慧住建文档「四.5 考核评价」要求的 4 维评价:
+      - completion_rate (30%)  完成率:已 done / 总分配
+      - on_time_rate    (30%)  及时率:done 时 ≤ due_at / 总 done
+      - quality_score   (20%)  质量评分:领导对 done Task 的打分(1-5)平均
+      - collaboration_score (20%) 协作评分:协办方对主责打分(1-5)平均(v22.5 多 AI 协作上线后才有真数据)
+
+    每月一行 per (workspace, assignee_user_id, period='YYYY-MM').
+    定时任务(v23+ 加 cron)月底自动算并 insert/update;v22 提供
+    `seed-eval-data` admin endpoint 让运营生成测试数据.
+
+    四个分数都是 0.0-1.0 浮点,总分 = 0.3*c + 0.3*o + 0.2*q + 0.2*col.
+    """
+    __tablename__ = "task_evaluation"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "assignee_user_id", "period",
+            name="uq_eval_ws_user_period",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    assignee_user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    # 'YYYY-MM' 形式的周期 key,便于 ORDER BY 时间排序 + UNIQUE 约束.
+    period: Mapped[str] = mapped_column(String(7), index=True)
+    completion_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    on_time_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    quality_score: Mapped[float] = mapped_column(Float, default=0.0)
+    collaboration_score: Mapped[float] = mapped_column(Float, default=0.0)
+    # 累计指标,跑评价时一起算 + 缓存,避免每次看板请求都重算
+    total_assigned: Mapped[int] = mapped_column(Integer, default=0)
+    total_done: Mapped[int] = mapped_column(Integer, default=0)
+    total_overdue: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class DataAccessRequest(Base):
     """
     v21 — 跨 AI 数据访问申请.

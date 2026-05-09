@@ -286,6 +286,7 @@
       ["AA", "v19 领导指令 + 状态机收尾"],
       ["BB", "v20 上级文件 + 定期巡检"],
       ["CC", "v21 角色二分 + 数据分级 + 跨 AI 共享"],
+      ["DD", "v22 看板 Dashboard"],
     ];
     const counts = { pass: 0, fail: 0, skipped: 0 };
     for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
@@ -2288,6 +2289,142 @@
         // cleanup
         if (c.body?.id) await DEL(`/api/cron-rules/${c.body.id}`);
         return { ok: true, evidence: { _note: "owner 权限未被 v21 收紧拦截" } };
+      },
+    });
+
+    // ---------- DD series · v22 看板 Dashboard -------------------------------
+    R.register({
+      id: "DD-1",
+      series: "DD",
+      title: "GET /api/dashboard/overview shape 完整(7 项 KPI + 元信息)",
+      async run() {
+        const r = await GET("/api/dashboard/overview");
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        const required = [
+          "total_tasks", "pending_review", "overdue_red_purple",
+          "completion_rate_this_month", "by_status", "by_source",
+          "workload", "completion_30d", "creation_7d", "evaluations",
+          "period", "role", "scope_label",
+        ];
+        for (const k of required) {
+          if (!(k in r.body)) return { ok: false, error: `missing ${k}` };
+        }
+        if (typeof r.body.total_tasks !== "number") return { ok: false, error: "total_tasks not number" };
+        if (typeof r.body.completion_rate_this_month !== "number") {
+          return { ok: false, error: "completion_rate_this_month not number" };
+        }
+        if (!Array.isArray(r.body.by_status)) return { ok: false, error: "by_status not array" };
+        return {
+          ok: true,
+          evidence: { _note: `${r.body.total_tasks} total, role=${r.body.role}` },
+        };
+      },
+    });
+
+    R.register({
+      id: "DD-2",
+      series: "DD",
+      title: "30d / 7d 折线点数正确(补齐空天)",
+      async run() {
+        const r = await GET("/api/dashboard/overview");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if (!Array.isArray(r.body.completion_30d) || r.body.completion_30d.length !== 31) {
+          return { ok: false, error: `completion_30d should have 31 points (0..30 inclusive), got ${r.body.completion_30d?.length}` };
+        }
+        if (!Array.isArray(r.body.creation_7d) || r.body.creation_7d.length !== 8) {
+          return { ok: false, error: `creation_7d should have 8 points, got ${r.body.creation_7d?.length}` };
+        }
+        // shape 检查
+        const p0 = r.body.completion_30d[0];
+        if (typeof p0.date !== "string" || typeof p0.completed !== "number" || typeof p0.created !== "number") {
+          return { ok: false, error: "point shape wrong" };
+        }
+        return { ok: true, evidence: { _note: "30d=31 points, 7d=8 points" } };
+      },
+    });
+
+    R.register({
+      id: "DD-3",
+      series: "DD",
+      title: "POST /api/dashboard/seed-eval-data (admin) 生成本月评价",
+      async run() {
+        const r = await POST("/api/dashboard/seed-eval-data", { overwrite: false });
+        if (!r.ok) {
+          return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        }
+        if (typeof r.body.period !== "string") {
+          return { ok: false, error: "period not string" };
+        }
+        if (typeof r.body.inserted !== "number" || typeof r.body.updated !== "number") {
+          return { ok: false, error: "inserted/updated not number" };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `period=${r.body.period}, +${r.body.inserted}/${r.body.updated}` },
+        };
+      },
+    });
+
+    R.register({
+      id: "DD-4",
+      series: "DD",
+      title: "Seed 后 dashboard.evaluations 非空 + 4 维完整",
+      async run() {
+        const r = await GET("/api/dashboard/overview");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const evals = r.body.evaluations;
+        if (!Array.isArray(evals) || evals.length === 0) {
+          return { ok: false, error: "evaluations empty after seed" };
+        }
+        const e = evals[0];
+        const dims = ["completion_rate", "on_time_rate", "quality_score", "collaboration_score"];
+        for (const d of dims) {
+          if (typeof e[d] !== "number") return { ok: false, error: `${d} not number` };
+          if (e[d] < 0 || e[d] > 1) return { ok: false, error: `${d} out of [0,1]: ${e[d]}` };
+        }
+        if (typeof e.composite !== "number" || e.composite < 0 || e.composite > 1) {
+          return { ok: false, error: `composite out of range: ${e.composite}` };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `${evals.length} evaluations; top composite=${e.composite}` },
+        };
+      },
+    });
+
+    R.register({
+      id: "DD-5",
+      series: "DD",
+      title: "Seed overwrite=false 幂等(二次调用不重复插)",
+      async run() {
+        // 调用两次,第二次 inserted 应该是 0 或者远小于第一次
+        const r1 = await POST("/api/dashboard/seed-eval-data", { overwrite: false });
+        const r2 = await POST("/api/dashboard/seed-eval-data", { overwrite: false });
+        if (!r1.ok || !r2.ok) return { ok: false, error: "seed failed" };
+        if (r2.body.inserted !== 0) {
+          return { ok: false, error: `expected 2nd run inserted=0, got ${r2.body.inserted}` };
+        }
+        if (r2.body.updated !== 0) {
+          return { ok: false, error: `expected 2nd run updated=0 (no overwrite), got ${r2.body.updated}` };
+        }
+        return { ok: true, evidence: { _note: "seed idempotent OK" } };
+      },
+    });
+
+    R.register({
+      id: "DD-6",
+      series: "DD",
+      title: "Seed overwrite=true 二次调用 updated > 0",
+      async run() {
+        const r = await POST("/api/dashboard/seed-eval-data", { overwrite: true });
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if (r.body.updated <= 0 && r.body.inserted <= 0) {
+          return { ok: false, error: "neither inserted nor updated, no active assignees?" };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `updated=${r.body.updated}, inserted=${r.body.inserted}` },
+        };
       },
     });
 

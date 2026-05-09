@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "frozen_at": "2026-05-09T04:00:00Z",
-  "frozen_against": "v21 (角色二分 + 数据 5 级分级 + 跨 AI 共享审批)",
+  "frozen_at": "2026-05-09T05:00:00Z",
+  "frozen_against": "v22 (看板 Dashboard + 4 维评价 seed)",
   "_note": "Deterministic per-case status snapshot. T2 diff: any case whose status differs from this baseline is a regression (or, for ⏭️→✅, a new pass to celebrate). evidence/error/timing intentionally excluded — those are non-deterministic.",
   "summary": {
-    "total": 78,
-    "pass": 70,
+    "total": 84,
+    "pass": 76,
     "fail": 0,
     "skipped": 8
   },
@@ -87,6 +87,12 @@
     { "id": "CC-4", "series": "CC", "status": "pass" },
     { "id": "CC-5", "series": "CC", "status": "pass" },
     { "id": "CC-6", "series": "CC", "status": "pass" },
-    { "id": "CC-7", "series": "CC", "status": "pass" }
+    { "id": "CC-7", "series": "CC", "status": "pass" },
+    { "id": "DD-1", "series": "DD", "status": "pass" },
+    { "id": "DD-2", "series": "DD", "status": "pass" },
+    { "id": "DD-3", "series": "DD", "status": "pass" },
+    { "id": "DD-4", "series": "DD", "status": "pass" },
+    { "id": "DD-5", "series": "DD", "status": "pass" },
+    { "id": "DD-6", "series": "DD", "status": "pass" }
   ]
 }

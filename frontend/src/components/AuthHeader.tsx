@@ -52,9 +52,40 @@ export default function AuthHeader() {
 
   if (loading || PUBLIC_PATHS.has(pathname || "") || !me) return null;
 
+  // v22: 看板入口给 leader/admin/owner/expert 看到;member 隐藏
+  const showDashboardBtn =
+    me.role === "owner" ||
+    me.role === "admin" ||
+    me.role === "leader" ||
+    me.role === "expert";
+
   return (
     <>
       <div className="fixed right-4 top-3 z-30 flex items-center gap-2">
+        {showDashboardBtn && (
+          <Link
+            href="/dashboard"
+            data-testid="dashboard-open-btn"
+            title="数据看板"
+            aria-label="数据看板"
+            className="grid h-8 w-8 place-items-center rounded-full border border-ink-700 bg-ink-900/90 text-zinc-300 hover:text-zinc-100"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 3v18h18" />
+              <path d="M7 14l3-3 4 4 5-7" />
+            </svg>
+          </Link>
+        )}
         <button
           type="button"
           data-testid="directive-open-btn"

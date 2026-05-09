@@ -1,0 +1,87 @@
+name: lint
+
+# v22 — T3 lite CI:静态检查 + 一致性 gate.故意不跑端到端 Cowork(那需要
+# headless 浏览器或真 prod,留 v23+).这版只确保:
+#   - Python AST 语法正确
+#   - TypeScript 编译通过
+#   - JS 语法正确(cowork_suite)
+#   - 两份 baseline.json 互相一致(tests/ vs frontend/public/)
+#   - 两份 cowork_suite.js 互相一致(tests/ vs frontend/public/)
+#   - 两份 baseline.json 都是合法 JSON
+#
+# 触发:每次 push 到 main + 每次 PR.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # ---- Python AST ----
+      - name: Python AST check (backend/app/**.py)
+        run: |
+          set -e
+          for f in $(find backend/app -name '*.py' -type f); do
+            python3 -c "import ast; ast.parse(open('$f').read())" || { echo "AST FAIL: $f"; exit 1; }
+          done
+          echo "Python AST OK"
+
+      # ---- JS 语法 ----
+      - name: JS syntax check (cowork_suite.js)
+        run: |
+          node --check tests/cowork_suite.js
+          node --check frontend/public/cowork_suite.js
+          echo "JS syntax OK"
+
+      # ---- 文件一致性 ----
+      - name: Baseline consistency (tests vs frontend/public)
+        run: |
+          if ! diff -q tests/baseline.json frontend/public/baseline.json; then
+            echo "❌ tests/baseline.json 和 frontend/public/baseline.json 不一致;请同步"
+            diff tests/baseline.json frontend/public/baseline.json | head -50
+            exit 1
+          fi
+          echo "Baseline consistency OK"
+
+      - name: Cowork suite consistency (tests vs frontend/public)
+        run: |
+          if ! diff -q tests/cowork_suite.js frontend/public/cowork_suite.js; then
+            echo "❌ tests/cowork_suite.js 和 frontend/public/cowork_suite.js 不一致;请同步"
+            diff tests/cowork_suite.js frontend/public/cowork_suite.js | head -50
+            exit 1
+          fi
+          echo "Cowork suite consistency OK"
+
+      # ---- JSON 合法性 ----
+      - name: Baseline JSON validity
+        run: |
+          node -e "JSON.parse(require('fs').readFileSync('tests/baseline.json'))"
+          node -e "JSON.parse(require('fs').readFileSync('frontend/public/baseline.json'))"
+          echo "Baseline JSON OK"
+
+      # ---- 前端 TS ----
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: TypeScript noEmit check
+        working-directory: frontend
+        run: npx tsc --noEmit
