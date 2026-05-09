@@ -2538,44 +2538,21 @@
     R.register({
       id: "EE-4",
       series: "EE",
-      title: "非协办者调 co-submit → 403",
+      title: "非协办者调 co-submit → 403(主责自己也不算协办)",
       async run(ctx) {
         if (!ctx.EE1_task) {
           return { ok: false, error: "SKIP_DEP_FAILED:EE-1", evidence: { _skipped: true } };
         }
-        // 创一个 task 主责=me 但 co_assignees 不含 me;然后 me 调 co-submit
-        // 因为 caller=master,master 不在 co_assignees 里 → 403
-        const me = (await GET("/api/auth/me")).body;
-        const users = await GET("/api/users");
-        const otherUser = (users.body || []).find((u) => u.id !== me.user_id);
-        if (!otherUser) {
-          return { ok: false, error: "no other user" };
-        }
-        const m = await POST("/api/meetings", { title: `${PREFIX}_EE4`, attendee_user_ids: [] });
-        created("meeting", m.body.id, "EE4");
-        await POST(`/api/meetings/${m.body.id}/actions`, {
-          content: `${PREFIX}_EE4_t`,
-          assignee_user_id: otherUser.id, // 主责另一用户(让 me 不能 co-submit)
+        // EE-1 的 task: 主责=me,协办=[otherUser].
+        // me 是主责,不在 co_assignees 里 → 调 co-submit 应当 403.
+        // (智慧住建语义:主责通过 submit 而非 co-submit 来汇总.)
+        const r = await POST(`/api/me/tasks/${ctx.EE1_task}/co-submit`, {
+          content: "should be rejected",
         });
-        const allTasks = await GET("/api/me/tasks?status=all");
-        // 这个 task assignee=otherUser, me 看不到。直接拿 meeting actions
-        const actions = await GET(`/api/meetings/${m.body.id}/actions`);
-        const a = (actions.body || []).find((x) => x.content === `${PREFIX}_EE4_t`);
-        if (!a) return { ok: false, error: "action not found" };
-        // 找它的 task_id 通过 source_ref(可能要从 assignee=otherUser 的列表借,改用 action.task_id)
-        const taskId = a.task_id || null;
-        if (!taskId) return { ok: false, error: "no task_id on action(v17 dual-write 应有)" };
-        // 先 dispatch (master 可以 dispatch):assignee=otherUser, no co
-        const d = await POST(`/api/me/tasks/${taskId}/dispatch`, {
-          assignee_user_id: otherUser.id,
-        });
-        if (!d.ok) return { ok: false, error: `dispatch ${d.status} ${JSON.stringify(d.body)}` };
-        // 现在 me 不在协办列表(co_assignees=null),me 调 co-submit → 403
-        const r = await POST(`/api/me/tasks/${taskId}/co-submit`, {});
         if (r.ok || r.status !== 403) {
-          return { ok: false, error: `expected 403, got ${r.status}` };
+          return { ok: false, error: `expected 403, got ${r.status} ${JSON.stringify(r.body)}` };
         }
-        return { ok: true, evidence: { _note: "non-co caller → 403" } };
+        return { ok: true, evidence: { _note: "主责不能 co-submit (only co_assignees can)" } };
       },
     });
 
