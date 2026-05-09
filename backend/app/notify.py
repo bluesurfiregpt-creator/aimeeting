@@ -35,6 +35,13 @@ Notification kinds:
   - 'access_approved'  — your request was approved (notify requester, with expires_at)
   - 'access_rejected'  — your request was rejected (notify requester, with reason)
 
+  v22.5 (多 AI 协作):
+  - 'task_co_assigned'         — 你被指派为协办(notify each co-assignee)
+  - 'task_co_submitted'        — 协办交付了(notify 主责)
+  - 'task_co_withdrawn'        — 协办主动退出了(notify 主责)
+  - 'task_collaboration_rated' — 你被打分了(notify ratee, payload includes
+                                  dimension + score + rater_name)
+
 Severity (v18):
   normal — default, all event-driven kinds
   yellow — due_soon (≤3d to due) — bell + (later) WeChat work

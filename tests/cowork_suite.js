@@ -287,6 +287,7 @@
       ["BB", "v20 上级文件 + 定期巡检"],
       ["CC", "v21 角色二分 + 数据分级 + 跨 AI 共享"],
       ["DD", "v22 看板 Dashboard"],
+      ["EE", "v22.5 多 AI 协作(主责 + 协办)"],
     ];
     const counts = { pass: 0, fail: 0, skipped: 0 };
     for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
@@ -2425,6 +2426,235 @@
           ok: true,
           evidence: { _note: `updated=${r.body.updated}, inserted=${r.body.inserted}` },
         };
+      },
+    });
+
+    // ---------- EE series · v22.5 多 AI 协作(主责 + 协办)------------------
+    R.register({
+      id: "EE-1",
+      series: "EE",
+      title: "dispatch 接受 co_assignees(主责=me + 协办=另一用户)→ task 上有协办列表",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        if (!me?.user_id) return { ok: false, error: "no caller user_id" };
+        // 找一个非自己的真实用户作 co_assignee
+        const users = await GET("/api/users");
+        const otherUser = (users.body || []).find((u) => u.id !== me.user_id);
+        if (!otherUser) {
+          return { ok: false, error: "需要 workspace 至少 2 个 user 才能测协办" };
+        }
+        // 创 meeting + open task
+        const m = await POST("/api/meetings", { title: `${PREFIX}_EE1`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `create meeting ${m.status}` };
+        created("meeting", m.body.id, "EE1");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_EE1_co_task`,
+          assignee_user_id: me.user_id,
+        });
+        // 找到 task id
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_EE1_co_task`);
+        if (!t) return { ok: false, error: "task not visible" };
+        // dispatch 含 co_assignees
+        const r = await POST(`/api/me/tasks/${t.id}/dispatch`, {
+          assignee_user_id: me.user_id,
+          co_assignees: [otherUser.id],
+        });
+        if (!r.ok) return { ok: false, error: `dispatch ${r.status} ${JSON.stringify(r.body)}` };
+        if (!Array.isArray(r.body.co_assignees) || r.body.co_assignees.length !== 1) {
+          return { ok: false, error: `co_assignees not in response: ${JSON.stringify(r.body.co_assignees)}` };
+        }
+        if (r.body.co_assignees[0] !== otherUser.id) {
+          return { ok: false, error: "co_assignees member mismatch" };
+        }
+        ctx.EE1_task = t.id;
+        ctx.EE1_co_user = otherUser.id;
+        ctx.EE1_meeting = m.body.id;
+        return { ok: true, evidence: { _note: `co=[${otherUser.name}]` } };
+      },
+    });
+
+    R.register({
+      id: "EE-2",
+      series: "EE",
+      title: "co_assignees 超过 5 个 → 400",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        const users = await GET("/api/users");
+        const others = (users.body || []).filter((u) => u.id !== me.user_id);
+        if (others.length < 6) {
+          // 不够 6 个 user, 用伪造 uuid 凑
+          while (others.length < 6) {
+            others.push({ id: `00000000-0000-0000-0000-${(others.length + 1).toString().padStart(12, "0")}` });
+          }
+        }
+        const m = await POST("/api/meetings", { title: `${PREFIX}_EE2`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `meeting ${m.status}` };
+        created("meeting", m.body.id, "EE2");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_EE2_t`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_EE2_t`);
+        if (!t) return { ok: false, error: "task not visible" };
+        const r = await POST(`/api/me/tasks/${t.id}/dispatch`, {
+          assignee_user_id: me.user_id,
+          co_assignees: others.slice(0, 6).map((u) => u.id),
+        });
+        if (r.ok || r.status !== 400) {
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "max 5 协办限额生效" } };
+      },
+    });
+
+    R.register({
+      id: "EE-3",
+      series: "EE",
+      title: "co_assignees 含主责自己 → 400",
+      async run() {
+        const me = (await GET("/api/auth/me")).body;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_EE3`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `meeting ${m.status}` };
+        created("meeting", m.body.id, "EE3");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_EE3_t`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_EE3_t`);
+        const r = await POST(`/api/me/tasks/${t.id}/dispatch`, {
+          assignee_user_id: me.user_id,
+          co_assignees: [me.user_id], // 主责自己
+        });
+        if (r.ok || r.status !== 400) {
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "主责不能在协办列表" } };
+      },
+    });
+
+    R.register({
+      id: "EE-4",
+      series: "EE",
+      title: "非协办者调 co-submit → 403",
+      async run(ctx) {
+        if (!ctx.EE1_task) {
+          return { ok: false, error: "SKIP_DEP_FAILED:EE-1", evidence: { _skipped: true } };
+        }
+        // 创一个 task 主责=me 但 co_assignees 不含 me;然后 me 调 co-submit
+        // 因为 caller=master,master 不在 co_assignees 里 → 403
+        const me = (await GET("/api/auth/me")).body;
+        const users = await GET("/api/users");
+        const otherUser = (users.body || []).find((u) => u.id !== me.user_id);
+        if (!otherUser) {
+          return { ok: false, error: "no other user" };
+        }
+        const m = await POST("/api/meetings", { title: `${PREFIX}_EE4`, attendee_user_ids: [] });
+        created("meeting", m.body.id, "EE4");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_EE4_t`,
+          assignee_user_id: otherUser.id, // 主责另一用户(让 me 不能 co-submit)
+        });
+        const allTasks = await GET("/api/me/tasks?status=all");
+        // 这个 task assignee=otherUser, me 看不到。直接拿 meeting actions
+        const actions = await GET(`/api/meetings/${m.body.id}/actions`);
+        const a = (actions.body || []).find((x) => x.content === `${PREFIX}_EE4_t`);
+        if (!a) return { ok: false, error: "action not found" };
+        // 找它的 task_id 通过 source_ref(可能要从 assignee=otherUser 的列表借,改用 action.task_id)
+        const taskId = a.task_id || null;
+        if (!taskId) return { ok: false, error: "no task_id on action(v17 dual-write 应有)" };
+        // 先 dispatch (master 可以 dispatch):assignee=otherUser, no co
+        const d = await POST(`/api/me/tasks/${taskId}/dispatch`, {
+          assignee_user_id: otherUser.id,
+        });
+        if (!d.ok) return { ok: false, error: `dispatch ${d.status} ${JSON.stringify(d.body)}` };
+        // 现在 me 不在协办列表(co_assignees=null),me 调 co-submit → 403
+        const r = await POST(`/api/me/tasks/${taskId}/co-submit`, {});
+        if (r.ok || r.status !== 403) {
+          return { ok: false, error: `expected 403, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "non-co caller → 403" } };
+      },
+    });
+
+    R.register({
+      id: "EE-5",
+      series: "EE",
+      title: "submit 未交协办 → 422; force=true 强制通过",
+      async run(ctx) {
+        if (!ctx.EE1_task) {
+          return { ok: false, error: "SKIP_DEP_FAILED:EE-1", evidence: { _skipped: true } };
+        }
+        // EE-1 的 task 现在是 dispatched 主责=me + 协办=otherUser(还没 co-submit)
+        // 路径:accept → start → submit (no force) → 422
+        const a = await POST(`/api/me/tasks/${ctx.EE1_task}/accept`, {});
+        if (!a.ok) return { ok: false, error: `accept ${a.status}` };
+        const s = await POST(`/api/me/tasks/${ctx.EE1_task}/start`, {});
+        if (!s.ok) return { ok: false, error: `start ${s.status}` };
+        const r1 = await POST(`/api/me/tasks/${ctx.EE1_task}/submit`, { note: "test" });
+        if (r1.ok || r1.status !== 422) {
+          return { ok: false, error: `expected 422, got ${r1.status}` };
+        }
+        // 再 force=true
+        const r2 = await POST(`/api/me/tasks/${ctx.EE1_task}/submit`, { note: "test", force: true });
+        if (!r2.ok) {
+          return { ok: false, error: `force submit ${r2.status} ${JSON.stringify(r2.body)}` };
+        }
+        if (r2.body.status !== "submitted") {
+          return { ok: false, error: `expected submitted, got ${r2.body.status}` };
+        }
+        return { ok: true, evidence: { _note: "force submit OK" } };
+      },
+    });
+
+    R.register({
+      id: "EE-6",
+      series: "EE",
+      title: "rate 给自己 → 400",
+      async run(ctx) {
+        if (!ctx.EE1_task) {
+          return { ok: false, error: "SKIP_DEP_FAILED:EE-1", evidence: { _skipped: true } };
+        }
+        const me = (await GET("/api/auth/me")).body;
+        const r = await POST(`/api/me/tasks/${ctx.EE1_task}/rate`, {
+          ratee_user_id: me.user_id,
+          dimension: "quality",
+          score: 4,
+        });
+        if (r.ok || r.status !== 400) {
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "self-rating 400" } };
+      },
+    });
+
+    R.register({
+      id: "EE-7",
+      series: "EE",
+      title: "rate 维度无效 → 400; score 越界 → 400",
+      async run(ctx) {
+        if (!ctx.EE1_task || !ctx.EE1_co_user) {
+          return { ok: false, error: "SKIP_DEP_FAILED:EE-1", evidence: { _skipped: true } };
+        }
+        const r1 = await POST(`/api/me/tasks/${ctx.EE1_task}/rate`, {
+          ratee_user_id: ctx.EE1_co_user,
+          dimension: "wrong",
+          score: 4,
+        });
+        if (r1.ok || r1.status !== 400) {
+          return { ok: false, error: `bad dimension expected 400, got ${r1.status}` };
+        }
+        const r2 = await POST(`/api/me/tasks/${ctx.EE1_task}/rate`, {
+          ratee_user_id: ctx.EE1_co_user,
+          dimension: "collaboration",
+          score: 99,
+        });
+        if (r2.ok || r2.status !== 400) {
+          return { ok: false, error: `bad score expected 400, got ${r2.status}` };
+        }
+        return { ok: true, evidence: { _note: "bad dimension + bad score 400" } };
       },
     });
 

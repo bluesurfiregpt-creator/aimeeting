@@ -422,7 +422,11 @@ export type Notification = {
     | "task_rejected"
     | "access_requested"
     | "access_approved"
-    | "access_rejected";
+    | "access_rejected"
+    | "task_co_assigned"
+    | "task_co_submitted"
+    | "task_co_withdrawn"
+    | "task_collaboration_rated";
   severity: "normal" | "yellow" | "red" | "purple";
   payload: Record<string, unknown> | null;
   read_at: string | null;
@@ -462,6 +466,10 @@ export type MyTask = {
   started_at: string | null;
   /** v21: 数据 5 级分级 */
   data_classification: DataClassification;
+  /** v22.5: 协办列表(主责 = assignee_user_id) */
+  co_assignees: string[];
+  /** v22.5: 已 co-submit 的协办子集(可与 co_assignees 算 diff 找未交) */
+  co_submitted_user_ids: string[];
   source_type:
     | "meeting"
     | "manual"
@@ -503,6 +511,8 @@ export type DirectiveCommitTask = {
   assignee_user_id?: string | null;
   due_at?: string | null;  // ISO datetime
   dispatch?: boolean;
+  /** v22.5: 协办列表(只在 dispatch=true 时有效;最多 5 人) */
+  co_assignees?: string[] | null;
 };
 
 export type DirectiveCommitResult = {
@@ -810,7 +820,7 @@ export const api = {
       | "pending"
       | "working"
       | "review" = "active",
-    role: "assignee" | "reviewer" = "assignee",
+    role: "assignee" | "reviewer" | "coassignee" = "assignee",
   ) => jget<MyTask[]>(`/api/me/tasks?status=${status}&role=${role}`),
   dispatchTask: (
     taskId: string,
@@ -818,6 +828,7 @@ export const api = {
       assignee_user_id: string;
       due_at?: string | null;
       note?: string | null;
+      co_assignees?: string[] | null;
     },
   ) => jpost<MyTask>(`/api/me/tasks/${taskId}/dispatch`, body),
   acceptTask: (taskId: string) =>
@@ -832,14 +843,30 @@ export const api = {
     jpost<MyTask>(`/api/me/tasks/${taskId}/cancel`, { reason }),
 
   // v19: 上报办结申请 + 领导审核 + 归档
-  submitTask: (taskId: string, note?: string | null) =>
-    jpost<MyTask>(`/api/me/tasks/${taskId}/submit`, { note }),
+  // v22.5: 加 force 参数 — 当未交协办存在时,默认 422 警告;前端 confirm 后带 force=true 重试.
+  submitTask: (taskId: string, note?: string | null, force = false) =>
+    jpost<MyTask>(`/api/me/tasks/${taskId}/submit`, { note, force }),
   approveTask: (taskId: string) =>
     jpost<MyTask>(`/api/me/tasks/${taskId}/approve`, {}),
   rejectTask: (taskId: string, reason?: string | null) =>
     jpost<MyTask>(`/api/me/tasks/${taskId}/reject`, { reason }),
   archiveTask: (taskId: string) =>
     jpost<MyTask>(`/api/me/tasks/${taskId}/archive`, {}),
+
+  // v22.5: 多 AI 协作 — co-submit / co-withdraw / rate
+  coSubmitTask: (taskId: string, content?: string | null) =>
+    jpost<MyTask>(`/api/me/tasks/${taskId}/co-submit`, { content }),
+  coWithdrawTask: (taskId: string) =>
+    jpost<MyTask>(`/api/me/tasks/${taskId}/co-withdraw`, {}),
+  rateTaskCollaboration: (
+    taskId: string,
+    body: {
+      ratee_user_id: string;
+      dimension: "quality" | "collaboration";
+      score: number; // 1-5
+      comment?: string | null;
+    },
+  ) => jpost<{ ok: boolean }>(`/api/me/tasks/${taskId}/rate`, body),
 
   // v19: 领导指令(自然语言)→ Task 草稿 → 批量入库
   createDirective: (content: string) =>

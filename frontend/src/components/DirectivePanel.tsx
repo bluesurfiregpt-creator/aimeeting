@@ -28,7 +28,12 @@ type SourceObject =
 
 type Mode = "text" | "file";
 
-type DraftRow = DirectiveDraft & { _key: string; _dispatch: boolean };
+type DraftRow = DirectiveDraft & {
+  _key: string;
+  _dispatch: boolean;
+  /** v22.5: per-draft 协办列表(最多 5 人,不能含主责) */
+  _co_assignees: string[];
+};
 
 function uid() {
   return Math.random().toString(36).slice(2, 9);
@@ -39,8 +44,11 @@ function draftsToRows(drafts: DirectiveDraft[]): DraftRow[] {
     ...d,
     _key: uid(),
     _dispatch: !!d.assignee_user_id,
+    _co_assignees: [],
   }));
 }
+
+const MAX_CO_ASSIGNEES = 5;
 
 const MODE_LABELS: Record<Mode, string> = {
   text: "文本指令",
@@ -148,13 +156,23 @@ export default function DirectivePanel({
     if (!source || committing) return;
     const cleaned: DirectiveCommitTask[] = drafts
       .filter((d) => (d.content || "").trim().length > 0)
-      .map((d) => ({
-        content: d.content,
-        title: d.title || null,
-        assignee_user_id: d.assignee_user_id || null,
-        due_at: d.due_at ? `${d.due_at}T00:00:00Z` : null,
-        dispatch: d._dispatch && !!d.assignee_user_id,
-      }));
+      .map((d) => {
+        const willDispatch = d._dispatch && !!d.assignee_user_id;
+        // 协办去重 + 排除主责自己(防御性,UI 也应该不出现这种情况)
+        const co = willDispatch
+          ? Array.from(new Set(d._co_assignees)).filter(
+              (u) => u !== d.assignee_user_id,
+            )
+          : [];
+        return {
+          content: d.content,
+          title: d.title || null,
+          assignee_user_id: d.assignee_user_id || null,
+          due_at: d.due_at ? `${d.due_at}T00:00:00Z` : null,
+          dispatch: willDispatch,
+          co_assignees: co.length > 0 ? co : null,
+        };
+      });
     if (cleaned.length === 0) {
       toast.warn("草稿为空,请至少留一条任务");
       return;
@@ -215,6 +233,7 @@ export default function DirectivePanel({
       {
         _key: uid(),
         _dispatch: false,
+        _co_assignees: [],
         content: "",
         title: null,
         assignee_name: null,
@@ -223,6 +242,27 @@ export default function DirectivePanel({
       },
     ]);
   }, []);
+
+  // v22.5: 切换协办勾选状态(toggle)
+  const toggleCoAssignee = useCallback(
+    (key: string, userId: string) => {
+      setDrafts((rows) =>
+        rows.map((r) => {
+          if (r._key !== key) return r;
+          const isOn = r._co_assignees.includes(userId);
+          if (isOn) {
+            return { ...r, _co_assignees: r._co_assignees.filter((x) => x !== userId) };
+          }
+          if (r._co_assignees.length >= MAX_CO_ASSIGNEES) {
+            toast.warn(`协办最多 ${MAX_CO_ASSIGNEES} 人`);
+            return r;
+          }
+          return { ...r, _co_assignees: [...r._co_assignees, userId] };
+        }),
+      );
+    },
+    [],
+  );
 
   if (!open) return null;
 
@@ -449,6 +489,37 @@ export default function DirectivePanel({
                         删除
                       </button>
                     </div>
+                    {/* v22.5: 协办多选 — 仅在选了主责 + 勾了「立即派发」时显示 */}
+                    {d._dispatch && d.assignee_user_id ? (
+                      <div className="mt-2 rounded-md border border-ink-800 bg-ink-950/50 px-2 py-1.5">
+                        <div className="text-[10px] text-zinc-500 mb-1">
+                          协办(可选,最多 {MAX_CO_ASSIGNEES} 人;协办方收到通知后可独立提交进度)
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {users
+                            .filter((u) => u.id !== d.assignee_user_id)
+                            .map((u) => {
+                              const checked = d._co_assignees.includes(u.id);
+                              return (
+                                <button
+                                  type="button"
+                                  key={u.id}
+                                  onClick={() => toggleCoAssignee(d._key, u.id)}
+                                  data-testid={`directive-draft-co-${u.id}`}
+                                  className={`rounded px-2 py-0.5 text-[10px] border transition ${
+                                    checked
+                                      ? "border-cyan-500/60 bg-cyan-500/15 text-cyan-200"
+                                      : "border-ink-700 bg-ink-900 text-zinc-400 hover:bg-ink-800"
+                                  }`}
+                                >
+                                  {checked ? "✓ " : "+ "}
+                                  {u.name}
+                                </button>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>

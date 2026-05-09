@@ -43,12 +43,15 @@ from ..auth import (
 from ..db import get_session
 from ..directive_parser import parse_directive
 from ..doc_parser import extract_text, kind_from_filename
+from ..evaluation import recompute_for_task_participants, recompute_user_evaluation
 from ..models import (
     LeaderDirective,
     Meeting,
     MeetingActionItem,
     Notification,
     Task,
+    TaskCoProgress,
+    TaskCollaborationRating,
     UpperDoc,
     User,
     WorkspaceMembership,
@@ -158,6 +161,9 @@ class MyTaskOut(BaseModel):
     started_at: Optional[datetime] = None
     # v21: 数据 5 级分级 (core | important | sensitive | general | public)
     data_classification: str = "general"
+    # v22.5: 协办列表 + 已交协办进度(协办视角和主责视角都用得上)
+    co_assignees: list[uuid.UUID] = []
+    co_submitted_user_ids: list[uuid.UUID] = []  # 协办里已 co-submit 的子集
     source_type: str
     # When source_type='meeting', source_ref carries the originating
     # meeting + action_item ids so the FE can deeplink. Other source
@@ -176,7 +182,7 @@ async def list_my_tasks(
         "active",
         regex="^(open|all|done|in_progress|dispatched|accepted|submitted|archived|cancelled|active|pending|working|review)$",
     ),
-    role: str = Query("assignee", regex="^(assignee|reviewer)$"),
+    role: str = Query("assignee", regex="^(assignee|reviewer|coassignee)$"),
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
@@ -190,6 +196,8 @@ async def list_my_tasks(
                            created_by == caller (used for /me 待我审核 tab;
                            pair with status=review to get exactly the
                            pending-review queue)
+      coassignee         — v22.5: Tasks where caller is in co_assignees array
+                           (用于 /me 「我的协办」 tab)
 
     Status filter — atomic + composite:
       Atomic   : open | dispatched | accepted | in_progress | submitted |
@@ -213,6 +221,16 @@ async def list_my_tasks(
             # 不展示自己派给自己的(避免和 assignee 视角重复)
             (Task.assignee_user_id != auth.user.id)
             | Task.assignee_user_id.is_(None),
+        )
+    elif role == "coassignee":
+        # v22.5: 我作为协办的任务.JSONB 数组里包含我的 user_id 字符串.
+        # 用 PG 的 @> 操作符:co_assignees @> '["<my-uuid>"]'
+        from sqlalchemy import text
+        q = select(Task).where(
+            Task.workspace_id == auth.workspace.id,
+            text("(task.co_assignees @> :me)").bindparams(
+                me=f'["{auth.user.id}"]'
+            ),
         )
     else:
         q = select(Task).where(
@@ -267,6 +285,21 @@ async def list_my_tasks(
         ).all()
         title_by_id = {r[0]: r[1] for r in rows}
 
+    # v22.5: 批量取所有相关 task 的 co_submitted users(避免 N+1)
+    task_ids_with_co = [t.id for t in tasks if t.co_assignees]
+    co_submitted_map: dict[uuid.UUID, list[uuid.UUID]] = {}
+    if task_ids_with_co:
+        co_rows = (
+            await session.execute(
+                select(
+                    TaskCoProgress.task_id,
+                    TaskCoProgress.co_assignee_user_id,
+                ).where(TaskCoProgress.task_id.in_(task_ids_with_co))
+            )
+        ).all()
+        for tid, uid in co_rows:
+            co_submitted_map.setdefault(tid, []).append(uid)
+
     out: list[MyTaskOut] = []
     for t in tasks:
         meeting_id: Optional[uuid.UUID] = None
@@ -292,6 +325,8 @@ async def list_my_tasks(
                 accepted_at=t.accepted_at,
                 started_at=t.started_at,
                 data_classification=t.data_classification or "general",
+                co_assignees=_parse_co_assignees(t),
+                co_submitted_user_ids=co_submitted_map.get(t.id, []),
                 source_type=t.source_type,
                 source_ref=t.source_ref,
                 meeting_id=meeting_id,
@@ -310,6 +345,9 @@ class DispatchIn(BaseModel):
     assignee_user_id: uuid.UUID
     due_at: Optional[datetime] = None
     note: Optional[str] = None  # optional context line for the assignee
+    # v22.5: 协办列表(最多 5 人,不能含主责自己,所有都必须在 workspace).
+    # None = 退化到单 assignee 模式,与 v18-v22 完全兼容.
+    co_assignees: Optional[list[uuid.UUID]] = None
 
 
 class ReturnIn(BaseModel):
@@ -318,6 +356,10 @@ class ReturnIn(BaseModel):
 
 class CancelIn(BaseModel):
     reason: Optional[str] = None
+
+
+# v22.5 上限:每个 Task 最多 5 个协办(per Q5)
+_MAX_CO_ASSIGNEES = 5
 
 
 async def _load_task_in_workspace(
@@ -403,6 +445,40 @@ async def dispatch_task(
     if not u:
         raise HTTPException(400, "assignee_user_id not in this workspace")
 
+    # v22.5: 验证协办列表
+    co_uuids: list[uuid.UUID] = []
+    if payload.co_assignees:
+        if len(payload.co_assignees) > _MAX_CO_ASSIGNEES:
+            raise HTTPException(
+                400, f"协办最多 {_MAX_CO_ASSIGNEES} 人,当前 {len(payload.co_assignees)}"
+            )
+        # 去重 + 不能含主责自己
+        seen: set[uuid.UUID] = set()
+        for cid in payload.co_assignees:
+            if cid == payload.assignee_user_id:
+                raise HTTPException(400, "协办不能包含主责自己")
+            if cid in seen:
+                continue
+            seen.add(cid)
+            co_uuids.append(cid)
+        # 验证全部在 workspace
+        if co_uuids:
+            valid = (
+                await session.execute(
+                    select(User.id).where(
+                        User.id.in_(co_uuids),
+                        User.workspace_id == auth.workspace.id,
+                    )
+                )
+            ).all()
+            valid_set = {v[0] for v in valid}
+            missing = set(co_uuids) - valid_set
+            if missing:
+                raise HTTPException(
+                    400,
+                    f"co_assignee 不在本工作空间:{', '.join(str(x) for x in missing)}",
+                )
+
     now = datetime.now(timezone.utc)
     t.assignee_user_id = payload.assignee_user_id
     if payload.due_at is not None:
@@ -410,15 +486,19 @@ async def dispatch_task(
     t.status = new_status
     t.dispatched_at = now
     t.dispatched_by_user_id = auth.user.id
+    t.co_assignees = [str(x) for x in co_uuids] if co_uuids else None
 
     await _mirror_status_to_action(session, t)
 
+    # 通知主责
     if payload.assignee_user_id != auth.user.id:
         notify_payload = _task_to_meeting_payload(t)
         notify_payload["due_at"] = t.due_at.isoformat() if t.due_at else None
         notify_payload["dispatched_by"] = auth.user.name
         if payload.note:
             notify_payload["note"] = payload.note[:200]
+        if co_uuids:
+            notify_payload["co_assignees_count"] = len(co_uuids)
         await emit_notification(
             session,
             workspace_id=auth.workspace.id,
@@ -427,9 +507,28 @@ async def dispatch_task(
             payload=notify_payload,
         )
 
+    # v22.5: 通知所有协办
+    for co_uid in co_uuids:
+        if co_uid == auth.user.id:
+            continue  # self-notify 抑制
+        co_payload = _task_to_meeting_payload(t)
+        co_payload["due_at"] = t.due_at.isoformat() if t.due_at else None
+        co_payload["dispatched_by"] = auth.user.name
+        co_payload["coordinator_user_id"] = str(payload.assignee_user_id)
+        co_payload["coordinator_name"] = u.name
+        if payload.note:
+            co_payload["note"] = payload.note[:200]
+        await emit_notification(
+            session,
+            workspace_id=auth.workspace.id,
+            user_id=co_uid,
+            kind="task_co_assigned",
+            payload=co_payload,
+        )
+
     await session.commit()
     await session.refresh(t)
-    return _task_to_my_out(t, await _meeting_title_for(session, t))
+    return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
 
 
 @router.post("/tasks/{task_id}/accept", response_model=MyTaskOut)
@@ -466,7 +565,7 @@ async def accept_task(
 
     await session.commit()
     await session.refresh(t)
-    return _task_to_my_out(t, await _meeting_title_for(session, t))
+    return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
 
 
 @router.post("/tasks/{task_id}/return", response_model=MyTaskOut)
@@ -507,7 +606,7 @@ async def return_task(
 
     await session.commit()
     await session.refresh(t)
-    return _task_to_my_out(t, await _meeting_title_for(session, t))
+    return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
 
 
 @router.post("/tasks/{task_id}/start", response_model=MyTaskOut)
@@ -531,7 +630,7 @@ async def start_task(
     await _mirror_status_to_action(session, t)
     await session.commit()
     await session.refresh(t)
-    return _task_to_my_out(t, await _meeting_title_for(session, t))
+    return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
 
 
 @router.post("/tasks/{task_id}/complete", response_model=MyTaskOut)
@@ -566,7 +665,7 @@ async def complete_task(
 
     await session.commit()
     await session.refresh(t)
-    return _task_to_my_out(t, await _meeting_title_for(session, t))
+    return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
 
 
 @router.post("/tasks/{task_id}/cancel", response_model=MyTaskOut)
@@ -592,7 +691,7 @@ async def cancel_task(
     await _mirror_status_to_action(session, t)
     await session.commit()
     await session.refresh(t)
-    return _task_to_my_out(t, await _meeting_title_for(session, t))
+    return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
 
 
 # v19: 上报办结申请 + 领导审核 + 归档 -----------------------------------------
@@ -600,6 +699,9 @@ async def cancel_task(
 
 class SubmitIn(BaseModel):
     note: Optional[str] = None  # 阶段汇报简述,可选
+    # v22.5: 若有未交协办,默认返回 422 让 UI 警告;客户端确认后带 force=true
+    # 再调一次硬过.
+    force: bool = False
 
 
 class RejectIn(BaseModel):
@@ -632,11 +734,37 @@ async def submit_task(
     v19: assignee 上报办结申请. in_progress → submitted.
     通知 dispatcher(如有);若没有 dispatcher,通知 creator(领导指令场景下
     creator 就是发指令的领导).
+
+    v22.5: 若 task.co_assignees 不为空,检查每个协办是否已在 task_co_progress
+    里有提交记录.未交时:
+      - force=false (默认) → 422 + 返回未交列表给 UI 弹警告
+      - force=true → 通过(主责说了算)
     """
     t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
     if t.assignee_user_id != auth.user.id:
         raise HTTPException(403, "only the assignee can submit this task")
     new_status = transition(TASK_ACTION_SUBMIT, t.status)
+
+    # v22.5: 协办未交检查
+    unsubmitted: list[uuid.UUID] = []
+    if t.co_assignees and not payload.force:
+        co_uids = [uuid.UUID(s) for s in t.co_assignees if isinstance(s, str)]
+        submitted_rows = (
+            await session.execute(
+                select(TaskCoProgress.co_assignee_user_id).where(
+                    TaskCoProgress.task_id == t.id,
+                    TaskCoProgress.co_assignee_user_id.in_(co_uids),
+                )
+            )
+        ).all()
+        submitted_set = {r[0] for r in submitted_rows}
+        unsubmitted = [u for u in co_uids if u not in submitted_set]
+        if unsubmitted:
+            raise HTTPException(
+                422,
+                f"还有 {len(unsubmitted)} 个协办方未提交;如确认强制汇总,请带 force=true 重试",
+            )
+
     t.status = new_status
 
     await _mirror_status_to_action(session, t)
@@ -657,7 +785,7 @@ async def submit_task(
 
     await session.commit()
     await session.refresh(t)
-    return _task_to_my_out(t, await _meeting_title_for(session, t))
+    return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
 
 
 @router.post("/tasks/{task_id}/approve", response_model=MyTaskOut)
@@ -696,9 +824,12 @@ async def approve_task(
             payload=notify_payload,
         )
 
+    # v22.5: 任务办结后,实时重算主责 + 所有协办的本月评价(真数据覆盖 seed)
+    await recompute_for_task_participants(session, t)
+
     await session.commit()
     await session.refresh(t)
-    return _task_to_my_out(t, await _meeting_title_for(session, t))
+    return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
 
 
 @router.post("/tasks/{task_id}/reject", response_model=MyTaskOut)
@@ -739,7 +870,7 @@ async def reject_task(
 
     await session.commit()
     await session.refresh(t)
-    return _task_to_my_out(t, await _meeting_title_for(session, t))
+    return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
 
 
 @router.post("/tasks/{task_id}/archive", response_model=MyTaskOut)
@@ -765,7 +896,247 @@ async def archive_task(
     await _mirror_status_to_action(session, t)
     await session.commit()
     await session.refresh(t)
-    return _task_to_my_out(t, await _meeting_title_for(session, t))
+    return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
+
+
+# v22.5: 多 AI 协作端点 ---------------------------------------------------------
+
+
+class CoSubmitIn(BaseModel):
+    content: Optional[str] = None  # 简短交付说明
+
+
+class RateIn(BaseModel):
+    ratee_user_id: uuid.UUID
+    dimension: str  # 'quality' | 'collaboration'
+    score: int  # 1-5
+    comment: Optional[str] = None
+
+
+_VALID_DIMENSIONS: frozenset[str] = frozenset({"quality", "collaboration"})
+
+
+def _co_uuids_of(task: Task) -> list[uuid.UUID]:
+    """Parse task.co_assignees JSON list back to UUID list."""
+    out: list[uuid.UUID] = []
+    if not task.co_assignees:
+        return out
+    for s in task.co_assignees:
+        try:
+            out.append(uuid.UUID(s))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+@router.post("/tasks/{task_id}/co-submit", response_model=MyTaskOut)
+async def co_submit_task(
+    task_id: str,
+    payload: CoSubmitIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v22.5: 协办方提交自己的成果.UPSERT 一行 task_co_progress.
+    通知主责 task_co_submitted.
+    Task.status 不变(只主责能驱动状态机).
+    """
+    t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
+    co_uids = _co_uuids_of(t)
+    if auth.user.id not in co_uids:
+        raise HTTPException(403, "您不在该任务的协办列表里")
+
+    body = (payload.content or "").strip()[:2000] or None
+
+    # UPSERT: 找现有,有就更新,没有就插
+    existing = (
+        await session.execute(
+            select(TaskCoProgress).where(
+                TaskCoProgress.task_id == t.id,
+                TaskCoProgress.co_assignee_user_id == auth.user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        existing.content = body
+        existing.submitted_at = datetime.now(timezone.utc)
+    else:
+        session.add(
+            TaskCoProgress(
+                task_id=t.id,
+                co_assignee_user_id=auth.user.id,
+                content=body,
+            )
+        )
+
+    # 通知主责
+    if t.assignee_user_id and t.assignee_user_id != auth.user.id:
+        notify_payload = _task_to_meeting_payload(t)
+        notify_payload["co_assignee_name"] = auth.user.name
+        if body:
+            notify_payload["preview"] = body[:80] + ("…" if len(body) > 80 else "")
+        await emit_notification(
+            session,
+            workspace_id=auth.workspace.id,
+            user_id=t.assignee_user_id,
+            kind="task_co_submitted",
+            payload=notify_payload,
+        )
+
+    await session.commit()
+    await session.refresh(t)
+    return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
+
+
+@router.post("/tasks/{task_id}/co-withdraw", response_model=MyTaskOut)
+async def co_withdraw_task(
+    task_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v22.5 (per Q1): 协办方退出协办.
+    - 从 task.co_assignees 数组里移除自己
+    - 删除自己的 task_co_progress(若有)
+    - 通知主责 task_co_withdrawn
+    """
+    t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
+    co_uids = _co_uuids_of(t)
+    if auth.user.id not in co_uids:
+        raise HTTPException(403, "您不在该任务的协办列表里")
+
+    # 移除自己
+    new_list = [s for s in (t.co_assignees or []) if s != str(auth.user.id)]
+    t.co_assignees = new_list if new_list else None
+
+    # 删自己的进度行(若有)
+    from sqlalchemy import delete as sql_delete
+    await session.execute(
+        sql_delete(TaskCoProgress).where(
+            TaskCoProgress.task_id == t.id,
+            TaskCoProgress.co_assignee_user_id == auth.user.id,
+        )
+    )
+
+    if t.assignee_user_id and t.assignee_user_id != auth.user.id:
+        notify_payload = _task_to_meeting_payload(t)
+        notify_payload["co_assignee_name"] = auth.user.name
+        await emit_notification(
+            session,
+            workspace_id=auth.workspace.id,
+            user_id=t.assignee_user_id,
+            kind="task_co_withdrawn",
+            payload=notify_payload,
+        )
+
+    await session.commit()
+    await session.refresh(t)
+    return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
+
+
+@router.post("/tasks/{task_id}/rate")
+async def rate_task_collaboration(
+    task_id: str,
+    payload: RateIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v22.5 (per Q4 双向): 对 Task 上某个相关人打分.
+
+    谁能给谁打:
+      - 主责 → 协办们(dimension='collaboration')
+      - 协办 → 主责(dimension='collaboration')
+      - dispatcher / leader → 主责(dimension='quality')
+    score: 1-5;UPSERT 同 (task, rater, ratee, dimension) 唯一.
+    每次写都触发 ratee 月度评价重算(真数据覆盖 seed).
+    """
+    if payload.dimension not in _VALID_DIMENSIONS:
+        raise HTTPException(400, f"dimension must be one of {sorted(_VALID_DIMENSIONS)}")
+    if not (1 <= payload.score <= 5):
+        raise HTTPException(400, "score 必须在 1-5 之间")
+    if payload.ratee_user_id == auth.user.id:
+        raise HTTPException(400, "不能给自己打分")
+
+    t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
+    co_uids = _co_uuids_of(t)
+    rater_is_assignee = t.assignee_user_id == auth.user.id
+    rater_is_co = auth.user.id in co_uids
+    rater_is_dispatcher = t.dispatched_by_user_id == auth.user.id
+    rater_is_admin = await is_leader_or_admin(session, auth)
+
+    # 权限矩阵:rater -> 允许 ratee 范围
+    allowed_ratees: set[uuid.UUID] = set()
+    if rater_is_assignee:
+        # 主责给协办打 collaboration
+        if payload.dimension == "collaboration":
+            allowed_ratees.update(co_uids)
+    if rater_is_co:
+        # 协办给主责打 collaboration
+        if payload.dimension == "collaboration" and t.assignee_user_id:
+            allowed_ratees.add(t.assignee_user_id)
+    if rater_is_dispatcher or rater_is_admin:
+        # dispatcher/admin 给主责打 quality
+        if payload.dimension == "quality" and t.assignee_user_id:
+            allowed_ratees.add(t.assignee_user_id)
+    if payload.ratee_user_id not in allowed_ratees:
+        raise HTTPException(
+            403,
+            f"您没有权限对该用户打 {payload.dimension} 分(角色不匹配)",
+        )
+
+    # UPSERT
+    existing = (
+        await session.execute(
+            select(TaskCollaborationRating).where(
+                TaskCollaborationRating.task_id == t.id,
+                TaskCollaborationRating.rater_user_id == auth.user.id,
+                TaskCollaborationRating.ratee_user_id == payload.ratee_user_id,
+                TaskCollaborationRating.dimension == payload.dimension,
+            )
+        )
+    ).scalar_one_or_none()
+    cmt = (payload.comment or "").strip()[:500] or None
+    if existing is not None:
+        existing.score = payload.score
+        existing.comment = cmt
+        existing.created_at = datetime.now(timezone.utc)
+    else:
+        session.add(
+            TaskCollaborationRating(
+                task_id=t.id,
+                workspace_id=auth.workspace.id,
+                rater_user_id=auth.user.id,
+                ratee_user_id=payload.ratee_user_id,
+                dimension=payload.dimension,
+                score=payload.score,
+                comment=cmt,
+            )
+        )
+
+    # 通知 ratee
+    if payload.ratee_user_id != auth.user.id:
+        notify_payload = _task_to_meeting_payload(t)
+        notify_payload["dimension"] = payload.dimension
+        notify_payload["score"] = payload.score
+        notify_payload["rater_name"] = auth.user.name
+        await emit_notification(
+            session,
+            workspace_id=auth.workspace.id,
+            user_id=payload.ratee_user_id,
+            kind="task_collaboration_rated",
+            payload=notify_payload,
+        )
+
+    # 评价重算(只重算被评的人,不动其他人)
+    await recompute_user_evaluation(
+        session,
+        workspace_id=auth.workspace.id,
+        user_id=payload.ratee_user_id,
+    )
+
+    await session.commit()
+    return {"ok": True}
 
 
 # v19: 领导指令(自然语言 → Task 拆解)----------------------------------------
@@ -877,6 +1248,8 @@ class DirectiveCommitTaskIn(BaseModel):
     assignee_user_id: Optional[uuid.UUID] = None
     due_at: Optional[datetime] = None
     dispatch: bool = False  # if True + assignee set, transition to dispatched immediately
+    # v22.5: 一并选协办(只在 dispatch=true 时生效;最多 5 个;不能含主责)
+    co_assignees: Optional[list[uuid.UUID]] = None
 
 
 class DirectiveCommitIn(BaseModel):
@@ -954,6 +1327,40 @@ async def commit_directive(
             continue
         # Default 'open'; if dispatch+assignee, jump to dispatched.
         wants_dispatch = tspec.dispatch and tspec.assignee_user_id is not None
+
+        # v22.5: 协办列表(只在 dispatch 时启用 + 验证)
+        co_uuids: list[uuid.UUID] = []
+        if wants_dispatch and tspec.co_assignees:
+            if len(tspec.co_assignees) > _MAX_CO_ASSIGNEES:
+                raise HTTPException(
+                    400, f"协办最多 {_MAX_CO_ASSIGNEES} 人"
+                )
+            seen: set[uuid.UUID] = set()
+            for cid in tspec.co_assignees:
+                if cid == tspec.assignee_user_id:
+                    raise HTTPException(400, "协办不能包含主责自己")
+                if cid in seen:
+                    continue
+                seen.add(cid)
+                co_uuids.append(cid)
+            # workspace 校验:tspec.co_assignees 是 v22.5 新加,不在前文的批量
+            # validation 里;这里单独验证
+            valid = (
+                await session.execute(
+                    select(User.id).where(
+                        User.id.in_(co_uuids),
+                        User.workspace_id == auth.workspace.id,
+                    )
+                )
+            ).all()
+            valid_set = {v[0] for v in valid}
+            missing = set(co_uuids) - valid_set
+            if missing:
+                raise HTTPException(
+                    400,
+                    f"co_assignee 不在本工作空间:{', '.join(str(x) for x in missing)}",
+                )
+
         new_task = Task(
             workspace_id=auth.workspace.id,
             title=(tspec.title.strip()[:255] if tspec.title else None) or None,
@@ -964,6 +1371,7 @@ async def commit_directive(
             status="dispatched" if wants_dispatch else "open",
             source_type="leader_directive",
             source_ref={"directive_id": str(row.id)},
+            co_assignees=[str(x) for x in co_uuids] if co_uuids else None,
         )
         if wants_dispatch:
             new_task.dispatched_at = now
@@ -980,6 +1388,8 @@ async def commit_directive(
                 "dispatched_by": auth.user.name,
                 "directive_id": str(row.id),
             }
+            if co_uuids:
+                notify_payload["co_assignees_count"] = len(co_uuids)
             await emit_notification(
                 session,
                 workspace_id=auth.workspace.id,
@@ -988,6 +1398,25 @@ async def commit_directive(
                 payload=notify_payload,
             )
             dispatched_count += 1
+
+        # v22.5: 通知所有协办
+        for co_uid in co_uuids:
+            if co_uid == auth.user.id:
+                continue
+            await emit_notification(
+                session,
+                workspace_id=auth.workspace.id,
+                user_id=co_uid,
+                kind="task_co_assigned",
+                payload={
+                    "task_id": str(new_task.id),
+                    "content": new_task.content,
+                    "due_at": new_task.due_at.isoformat() if new_task.due_at else None,
+                    "dispatched_by": auth.user.name,
+                    "directive_id": str(row.id),
+                    "coordinator_user_id": str(tspec.assignee_user_id) if tspec.assignee_user_id else None,
+                },
+            )
 
     row.status = "committed"
     row.committed_task_ids = [str(x) for x in committed_ids]
@@ -1343,8 +1772,51 @@ async def _meeting_title_for(
     return (mid, title) if title else (mid, "")
 
 
+async def _co_submitted_for(
+    session: AsyncSession, task_id: uuid.UUID
+) -> list[uuid.UUID]:
+    """返回该 Task 已 co-submit 的协办 user id 列表."""
+    rows = (
+        await session.execute(
+            select(TaskCoProgress.co_assignee_user_id).where(
+                TaskCoProgress.task_id == task_id
+            )
+        )
+    ).all()
+    return [r[0] for r in rows]
+
+
+def _parse_co_assignees(t: Task) -> list[uuid.UUID]:
+    out: list[uuid.UUID] = []
+    if not t.co_assignees:
+        return out
+    for s in t.co_assignees:
+        try:
+            out.append(uuid.UUID(s))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+async def _task_to_my_out_with_lookup(
+    session: AsyncSession,
+    t: Task,
+    meeting_pair: Optional[tuple[uuid.UUID, str]],
+) -> MyTaskOut:
+    """
+    Convenience for single-task endpoints (state-machine transitions etc.)
+    that always want full hydration including co_submitted_user_ids.
+    """
+    co_submitted = (
+        await _co_submitted_for(session, t.id) if t.co_assignees else []
+    )
+    return _task_to_my_out(t, meeting_pair, co_submitted=co_submitted)
+
+
 def _task_to_my_out(
-    t: Task, meeting_pair: Optional[tuple[uuid.UUID, str]]
+    t: Task,
+    meeting_pair: Optional[tuple[uuid.UUID, str]],
+    co_submitted: Optional[list[uuid.UUID]] = None,
 ) -> MyTaskOut:
     return MyTaskOut(
         id=t.id,
@@ -1358,6 +1830,8 @@ def _task_to_my_out(
         accepted_at=t.accepted_at,
         started_at=t.started_at,
         data_classification=t.data_classification or "general",
+        co_assignees=_parse_co_assignees(t),
+        co_submitted_user_ids=co_submitted or [],
         source_type=t.source_type,
         source_ref=t.source_ref,
         meeting_id=meeting_pair[0] if meeting_pair else None,

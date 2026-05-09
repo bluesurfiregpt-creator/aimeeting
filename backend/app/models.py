@@ -488,6 +488,12 @@ class Task(Base):
     )
     accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # v22.5: 多 AI 协作 — 协办用户 id 列表(最多 5 个,validated in routers).
+    # assignee_user_id 仍是「主责」语义.协办收到 task_co_assigned 通知,可调
+    # /co-submit 提交进度;主责 submit 时若有协办未交,默认 422 警告(可
+    # force=true 硬过).Empty list / None 时退化为 v22 单 assignee 流程.
+    # 用 JSON 而不是关联表换简洁性(协办最多 5 个,N+1 查询不是问题).
+    co_assignees: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
     source_type: Mapped[str] = mapped_column(String(32), default="manual", index=True)
     # JSON pointer back to the originating object — schema varies by
     # source_type (see class docstring). Always set, never NULL: even
@@ -703,6 +709,88 @@ class TaskEvaluation(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class TaskCoProgress(Base):
+    """
+    v22.5 — 协办方提交的进度 / 最终交付.
+
+    简化:每个协办对每个 Task 最多一行(最新的覆盖之前的 — 通过 UPSERT
+    on UNIQUE).不区分「中间进度」和「最终交付」,统一作为「我交了」标记.
+    主责 submit 检查时只看是否有这一行就行.
+
+    生命周期:
+      - 协办 POST /tasks/{tid}/co-submit { content }
+        → INSERT or UPDATE 一行(content 是简短交付说明)
+        → 通知主责 task_co_submitted
+      - 协办 POST /tasks/{tid}/co-withdraw
+        → DELETE 该行(若存在)+ Task.co_assignees 数组里移除该 user_id
+        → 通知主责 task_co_withdrawn
+    """
+    __tablename__ = "task_co_progress"
+    __table_args__ = (
+        UniqueConstraint(
+            "task_id", "co_assignee_user_id",
+            name="uq_co_progress_task_user",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("task.id", ondelete="CASCADE"), index=True
+    )
+    co_assignee_user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class TaskCollaborationRating(Base):
+    """
+    v22.5 — 协作评分(原子事件).
+
+    场景:approve_task 后,主责 / 领导 弹出评分对话框,对 Task 上每个
+    相关人(主责自己 + 协办们 + dispatcher)打分.分数维度:
+      - quality       质量分(1-5,通常领导→主责)
+      - collaboration 协作分(1-5,主责↔协办 双向)
+
+    对每个 (task, rater, ratee, dimension) 组合最多一条 — UPSERT.
+
+    每次写入触发 task_evaluation 月度重算(见 services/evaluation.py).
+    Q4 决策:双向评分 — 主责 / 协办都能给对方打协作分,看板雷达数据
+    更立体.
+    """
+    __tablename__ = "task_collaboration_rating"
+    __table_args__ = (
+        UniqueConstraint(
+            "task_id", "rater_user_id", "ratee_user_id", "dimension",
+            name="uq_rating_task_rater_ratee_dim",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("task.id", ondelete="CASCADE"), index=True
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    rater_user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    ratee_user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    # 'quality' | 'collaboration'
+    dimension: Mapped[str] = mapped_column(String(16), index=True)
+    score: Mapped[int] = mapped_column(Integer)  # 1-5
+    comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
     )
 
 

@@ -71,6 +71,9 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("task", "data_classification", "VARCHAR(16) NOT NULL DEFAULT 'general'"),
     ("knowledge_document", "data_classification", "VARCHAR(16) NOT NULL DEFAULT 'general'"),
     ("long_term_memory", "data_classification", "VARCHAR(16) NOT NULL DEFAULT 'general'"),
+    # v22.5 (多 AI 协作):task.co_assignees JSONB 数组(协办列表,UUID strings).
+    # 默认 NULL = 退化为单 assignee 流程.
+    ("task", "co_assignees", "JSONB"),
 ]
 
 # Drop the legacy unique-on-provider constraint so the new
