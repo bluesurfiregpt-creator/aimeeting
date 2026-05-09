@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v18）
+# Aimeeting · 测试用例（v19）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -310,7 +310,8 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v18** | 2026-05-09 | **Task 状态机 + 派发签收 + 三级催办**:① 模型扩展:Task 增 `dispatched_at`/`dispatched_by_user_id`/`accepted_at`/`started_at` 时间戳列;状态枚举从 `open|done|cancelled` 扩到 6 态(open / dispatched / accepted / in_progress / done / cancelled),`submitted` 和 `archived` 留给 v19;Notification 增 `severity` 列(normal / yellow / red / purple);② 新模块 `task_state.py`:合法转换表 + `transition()` 把守 + `mirror_to_action_status()`(Task → ActionItem 状态映射,新增 dispatched/accepted/in_progress 全部映射成 ActionItem='open',旧 UI 完全不用改);③ 新端点 `POST /api/me/tasks/{tid}/{dispatch,accept,return,start,complete,cancel}`,各自校验权限(dispatch:同 workspace · accept/start/complete:必须是 assignee · cancel:assignee/dispatcher/creator 任一)、走状态机、镜像到 ActionItem、发对应 kind 通知(`task_dispatched`/`task_accepted`/`task_returned`/`task_completed`,self-* 抑制);④ `due_reminder.py` severity-aware 重写:黄(≤3d 距截止,48h dedup)/红(超时<3d,24h dedup)/紫(超时≥3d,24h dedup,**额外**通知 workspace owner+admin);⑤ `notify.py` 新增 `severity` 参数,dedup 窗口按 severity 不同;⑥ `/api/me/tasks` status 过滤扩展:加 `active`(=open|dispatched|accepted|in_progress,默认值)/ `pending`(=dispatched 待签收) / `working`(=accepted|in_progress 办理中);响应增加 `assignee_user_id` + 4 个状态机时间戳字段;⑦ `/api/me/notifications` 响应增加 `max_unread_severity` 字段(purple > red > yellow > normal),驱动铃铛 badge 颜色;⑧ 前端轻量适配:NotificationBell badge 颜色随 severity 变(rose/amber/red/purple),drawer 内行点颜色同步;api.ts 加 MyTask 类型 + 6 个 lifecycle 方法 + Notification 类型加 4 个新 kind 和 severity 字段;⑨ 测试 Z-6..Z-12(共 7 个新用例:派发 / 签收 / 办理+办结 / 退回 / 非法转换拒绝 / severity 字段稳定 / self-dispatch 抑制),Z-5 重定义为 active/pending/working/all 四种过滤生效校验;baseline 刷到 v18(总 56 用例,48 ✅ + 8 ⏭️) |
+| **v19** | 2026-05-09 | **领导指令(自然语言→Task)+ 7 态状态机收尾 + /me 状态 tab UI**:① 模型:新表 `leader_directive`(content / parsed_drafts(JSON) / status(draft\|committed\|discarded) / committed_task_ids / parse_error);Task.status 枚举扩展加 `submitted` / `archived`(8 态完整闭环);② 新模块 `directive_parser.py`:复用 action_extractor 的 LLM 调用基建 + `_match_user` + `_parse_due`,prompt 重写为"公文/指令拆解助手"(含 3 个 few-shot,负向规则禁止拆"研究/学习/重视"空话);同步调用,5-15s,失败时 row 仍写入并带 parse_error;③ task_state.py 加 4 个新动作 `submit/approve/reject/archive`,状态机扩展:in_progress→submitted (assignee 上报)、submitted→done (审核通过)、submitted→in_progress (驳回返工)、done→archived (归档)、各活跃态→cancelled;④ 5 个新端点:`POST /api/me/directives` (同步 LLM 拆解返回 drafts) / `POST /directives/{did}/commit` (批量入库 Task,可选 dispatch=true 直接转 dispatched) / `POST /directives/{did}/discard` (软丢弃) / `GET /directives` (history) / `POST /tasks/{tid}/submit|approve|reject|archive` 4 个 lifecycle;权限模型:approve/reject 允许 dispatcher / creator / workspace owner|admin;⑤ `/api/me/tasks` 加 `role=assignee\|reviewer` 参数,reviewer 视角拿到「待我审核」队列(过滤 submitted + 我是 dispatcher 或 creator);status 过滤补 submitted/archived/review;⑥ Notification 加 3 个新 kind:`task_submitted` / `task_approved` / `task_rejected`;⑦ 前端:新建 `DirectivePanel.tsx`(全屏 modal,文本框 → 解析按钮 → draft 列表逐条编辑/选 assignee/选 due/勾选派发 → 全部入库 + toast 反馈),顶栏加 `+` 按钮入口;`/me` 页**重写**:左列任务面板 5 个状态 tab(待签收/办理中/待审核/已完成/全部)+ state-aware action 按钮(签收/退回/开始办理/上报办结/归档,各按 Task.status 动态显示),「待我审核」单独区(reviewer 视角,通过/驳回 inline);⑧ 测试:Cowork AA 系列 8 个用例(指令拆解 / 批量入库 / dispatch=true / discard+409 / 上报办结 / 审核通过 / 驳回返工 / 归档+非法转换 422);两份 baseline.json 同步刷到 v19(总 64 用例,56 ✅ + 8 ⏭️);docs/test-cases.md 头部 v19 + 版本日志 + AA 系列章节 + 报告模板版本号 |
+| v18 | 2026-05-09 | **Task 状态机 + 派发签收 + 三级催办**:① 模型扩展:Task 增 `dispatched_at`/`dispatched_by_user_id`/`accepted_at`/`started_at` 时间戳列;状态枚举从 `open|done|cancelled` 扩到 6 态(open / dispatched / accepted / in_progress / done / cancelled),`submitted` 和 `archived` 留给 v19;Notification 增 `severity` 列(normal / yellow / red / purple);② 新模块 `task_state.py`:合法转换表 + `transition()` 把守 + `mirror_to_action_status()`(Task → ActionItem 状态映射,新增 dispatched/accepted/in_progress 全部映射成 ActionItem='open',旧 UI 完全不用改);③ 新端点 `POST /api/me/tasks/{tid}/{dispatch,accept,return,start,complete,cancel}`,各自校验权限(dispatch:同 workspace · accept/start/complete:必须是 assignee · cancel:assignee/dispatcher/creator 任一)、走状态机、镜像到 ActionItem、发对应 kind 通知(`task_dispatched`/`task_accepted`/`task_returned`/`task_completed`,self-* 抑制);④ `due_reminder.py` severity-aware 重写:黄(≤3d 距截止,48h dedup)/红(超时<3d,24h dedup)/紫(超时≥3d,24h dedup,**额外**通知 workspace owner+admin);⑤ `notify.py` 新增 `severity` 参数,dedup 窗口按 severity 不同;⑥ `/api/me/tasks` status 过滤扩展:加 `active`(=open|dispatched|accepted|in_progress,默认值)/ `pending`(=dispatched 待签收) / `working`(=accepted|in_progress 办理中);响应增加 `assignee_user_id` + 4 个状态机时间戳字段;⑦ `/api/me/notifications` 响应增加 `max_unread_severity` 字段(purple > red > yellow > normal),驱动铃铛 badge 颜色;⑧ 前端轻量适配:NotificationBell badge 颜色随 severity 变(rose/amber/red/purple),drawer 内行点颜色同步;api.ts 加 MyTask 类型 + 6 个 lifecycle 方法 + Notification 类型加 4 个新 kind 和 severity 字段;⑨ 测试 Z-6..Z-12(共 7 个新用例:派发 / 签收 / 办理+办结 / 退回 / 非法转换拒绝 / severity 字段稳定 / self-dispatch 抑制),Z-5 重定义为 active/pending/working/all 四种过滤生效校验;baseline 刷到 v18(总 56 用例,48 ✅ + 8 ⏭️) |
 | v17 | 2026-05-09 | **Task 一级对象立项(智慧住建翻译层骨架)**:① 新表 `task`(id / workspace_id / title / content / assignee_user_id / created_by_user_id / due_at / status / source_type / source_ref(JSON) / 时间戳),状态 v17 只用 `open|done|cancelled`,`in_progress` 留给 v18 状态机;② 新建 `task_sync.py` helper:`add_action_with_task` / `mirror_patch_to_task` / `delete_task_for_action` / `delete_tasks_for_meeting_summary_actions`,client-side UUID 让 ActionItem ↔ Task 一笔事务交叉指 ID;③ `meeting_action_item.task_id` FK 列加上,`init_db.py` 启动时 backfill 现有所有 ActionItem 一对一映射 Task(source_type='meeting');④ `workspace.preset` JSON 列加上,默认 NULL=「general」,预留 'smart_construction' 等键;⑤ 双写接入:`POST/PATCH/DELETE /api/meetings/{m}/actions` 和 `action_extractor` 自动抽取都同步维护 Task;⑥ 新读端 `GET /api/me/tasks?status=(open|all|done|in_progress)` 返回 Task 列表 + 自动注水 `meeting_id`/`meeting_title`(source_type='meeting' 行);⑦ Notification payload 新增 `task_id` 字段(`action_id` 保留兼容),due_reminder cron / action_assigned / action_comment 都带上;⑧ 测试:Cowork Z 系列 5 用例(Z-1 dual-write 一致 / Z-2 PATCH 镜像 / Z-3 DELETE 级联 / Z-4 meeting_title 注水 / Z-5 in_progress v17 为空);两份 baseline.json 同步刷到 v17(总 49 用例,41 ✅ + 8 ⏭️);⑨ 前端零变更,Y 系列保持绿 |
 | v16 | 2026-05-08 | **主题 1 · P0 行动项协作闭环**:① 后端新建表 `meeting_action_item_comment` + `notification`(in-app);② 新 router `/api/me`(`GET /actions`、`GET /notifications`、`POST /notifications/{id}/read`、`POST /notifications/read-all`);③ 行动项评论 CRUD(`/api/meetings/{mid}/actions/{aid}/comments`,作者可删不可改);④ 创建 / 改派行动项时给 assignee 写 `action_assigned`(self-notify 抑制);⑤ FastAPI lifespan 内挂后台 loop(默认 1h tick)生成 `action_due_soon` / `action_overdue`,helper `notify.py` 内 24h 去重;⑥ 前端:顶栏 🔔 NotificationBell + 抽屉(60s 轮询、未读红点、全部已读)、`/me` 个人页(我的待办 open/done 切换 + 通知列表)、ActionItemsCard 每行加可折叠评论线程(💬 计数 / lazy fetch / Cmd+Enter 发送);⑦ 测试:cowork_suite 新增 Y 系列 7 用例(Y-1..Y-7,自动列表 / done 过滤 / 评论 CRUD / 作者-only delete / 通知 shape / self-notify 抑制 / mark-all-read);两份 baseline.json(repo + frontend/public)同步刷到 v16(总 44 用例,36 ✅ + 8 ⏭️)|
 | v15 | 2026-05-08 | **P1 · T1 + T2 落地**:① **T1** Cowork 全自动套件(`tests/cowork_suite.js`,29 用例 + 8 expected skip,84-105s 全跑完);套件挂在 `/cowork_suite.js`,任何登录浏览器一句 `runCoworkSuite()` 就能跑 ② **T2** baseline diff:`tests/baseline.json` 是 v14 节点的 frozen 快照,套件运行时**自动 fetch + diff**,5 个分类桶(regressions / fixed / new_passes / new_cases / missing);`r.json.summary.passed_baseline` 是 CI gate 关心的布尔值;markdown 顶部「✅ 与 baseline 一致」/「⚠️ 与 baseline 有偏差」横幅 ③ 套件 fixture 强化:G-1 行长 ≥ 18 字 / 总 ≥ 80 字以避开 backend `MIN_TRANSCRIPT_CHARS=60` 的 skipped 短路;poll 现在识别所有 terminal status(包括 skipped);依赖失败用 `SKIP_DEP_FAILED:<id>` 表示,自动归入 ⏭️ 而不是 ❌ |
@@ -1122,6 +1123,35 @@ INFO app.due_reminder :: due_reminder tick: yellow=N red=M purple=K purple_admin
 
 ---
 
+## AA 系列 · v19 领导指令 + 状态机收尾
+
+> 让 Task 不再只来自会议 ── 用自然语言下达指令 → LLM 拆解 → 用户确认 → 批量入库;同时把 7 态(open / dispatched / accepted / in_progress / submitted / done / archived) + 一个 cancelled 的完整生命周期跑通。
+
+| 用例 | 操作 | 预期 | 状态 |
+|---|---|---|---|
+| AA-1 | POST `/api/me/directives` { content: "请王科长在本周五前提交…" } | 200 + status='draft' + drafts 数组非空 + 无 parse_error | ✅ |
+| AA-2 | POST `/api/me/directives/{did}/commit` { tasks: [...] } | 入库 N 条 Task,source_type='leader_directive',source_ref.directive_id 反指 | ✅ |
+| AA-3 | commit 时某条带 `dispatch:true` | Task 直接进 status='dispatched',dispatched_at 已写 | ✅ |
+| AA-4 | POST `/discard` 一条 draft 指令,再 commit | discard 后状态='discarded',再 commit 返回 409 | ✅ |
+| AA-5 | dispatched → accept → start → submit | status 链路完整,最终 status='submitted' | ✅ |
+| AA-6 | submitted → POST `/approve`(creator/dispatcher) | status='done',触发 task_approved 通知 | ✅ |
+| AA-7 | submitted → POST `/reject` { reason } | status='in_progress',携带 reason,触发 task_rejected 通知 | ✅ |
+| AA-8 | done → POST `/archive`,以及 open → POST `/approve`(非法) | archive 200 + status='archived';非法 approve 422 | ✅ |
+
+**手测点(单浏览器无法验证的部分)**:
+- 顶栏 `+` 按钮 → 打开 DirectivePanel modal → 输入「李主任,5月15日前完成下半年预算初稿;张科长同步起草招标公告」→ 看到 LLM 拆出 2 条任务草稿,assignee 已自动匹配
+- `/me` 页 5 个 tab(待签收/办理中/待审核/已完成/全部),不同状态的 Task 显示不同动作按钮(签收/退回/开始办理/上报办结/归档/等待审核)
+- 派发给别人的 Task,在对方账号下铃铛收到 task_dispatched(severity=normal);对方 submit 后,我账号铃铛收到 task_submitted;`/me` 「待我审核」区出现这条任务,可点「通过/驳回」
+- 后端启动日志期望出现 `app.init_db :: DB schema ensured`(新表 leader_directive 自动创建,无 ALTER 需要,因为本身是新表)
+
+**架构演进**(v17 → v19 累积):
+- v17:Task 升为一级对象(智慧住建翻译层骨架)
+- v18:6 态状态机(open / dispatched / accepted / in_progress / done / cancelled) + 派发签收 + 三级催办
+- **v19**:8 态状态机(加 submitted / archived) + 第二个触发源「领导指令」(`source_type='leader_directive'`)+ 简化版上报审核流
+- 接下来 (v20+):上级文件触发源 + cron 巡检触发源 + 多 AI 协作主责/协办 + 数据 5 级分级 + 角色二分(领导/专家)+ 考核评价 + 看板 + SSO + 触达扩展
+
+---
+
 ## 测试报告模板
 
 测完后请把这一段填给我：
@@ -1129,7 +1159,7 @@ INFO app.due_reminder :: due_reminder tick: yellow=N red=M purple=K purple_admin
 ```
 测试人:
 测试时间:
-测试用例版本: v18
+测试用例版本: v19
 浏览器/系统:
 默认账号是否生效: 是 / 否
 

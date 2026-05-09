@@ -399,26 +399,31 @@ class Task(Base):
     cross-source dashboards) should query this table; legacy paths still
     use ActionItem until v18 cuts them over.
 
-    State machine (v18 · 6 states active, 2 reserved):
+    State machine (v19 · 8 states, full lifecycle):
 
         open ──dispatch──▶ dispatched ──accept──▶ accepted ──start──▶ in_progress
                                 │                                          │
-                                │ return                                   │ complete
+                                │ return                                   │ submit
                                 ▼                                          ▼
-                              open                                       done
+                              open                                    submitted
                                                                           │
-                                                                          │ archive (v19+)
-                                                                          ▼
-                                                                       archived
+                                                                ┌─────────┴────────┐
+                                                              approve            reject
+                                                                │                  │
+                                                                ▼                  ▼
+                                                              done            in_progress
+                                                                │
+                                                                │ archive
+                                                                ▼
+                                                             archived
 
-      Plus universal `cancelled` from any active state, and a future
-      `submitted` state (in_progress → submitted → done) reserved for
-      v19 when 「办结申请」上报审核流程上线.
+      Plus universal `cancelled` from any active state.
 
-    The legacy ActionItem mirror only uses {open, done, cancelled} —
-    when Task moves through dispatched / accepted / in_progress, the
-    paired ActionItem stays at 'open' (its UI doesn't know these
-    states). Mirror logic lives in task_state.py.
+    The legacy ActionItem mirror collapses Task states down to
+    {open, done, cancelled} — when Task moves through dispatched /
+    accepted / in_progress / submitted, the paired ActionItem stays
+    at 'open' (its UI doesn't know these states); archived collapses
+    to 'done'. Mirror logic lives in task_state.py.
 
     `source_type`:
       meeting           — extracted from a meeting (action_extractor) or
@@ -468,6 +473,65 @@ class Task(Base):
     # source_type='manual' has source_ref={"created_via": "..."} so we
     # can audit how a Task got created.
     source_ref: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class LeaderDirective(Base):
+    """
+    v19 — 领导指令(自然语言指令).
+
+    Workflow:
+      1. POST /api/me/directives {content}
+         → directive_parser.py LLM-parses → returns draft Tasks (cached)
+         → row written with status='draft', parsed_drafts=[...]
+
+      2. User reviews / edits / deletes drafts in the UI.
+
+      3. POST /api/me/directives/{did}/commit {tasks: [...]}
+         → for each Task, write a Task row (source_type='leader_directive',
+           source_ref={directive_id})
+         → optionally dispatch immediately if `dispatch=true`
+         → directive.status='committed', committed_task_ids=[...]
+
+      4. POST /api/me/directives/{did}/discard
+         → directive.status='discarded'; no Tasks created.
+
+    Why a separate table (vs just creating Tasks directly):
+      - We want a **traceable audit** of "this Task came from this指令";
+        the user can later ask "show me everything from 王科长 last week"
+      - The LLM parse is non-trivial (5-15s) and worth caching to skip
+        if the user navigates away and comes back to the draft modal
+      - Drafts let the user edit/discard without polluting Task table
+        with rows they later regret
+    """
+    __tablename__ = "leader_directive"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    # The raw natural-language directive the user typed.
+    content: Mapped[str] = mapped_column(Text)
+    # LLM-parsed Task drafts, cached to avoid re-parsing on revisit. Each
+    # element: {content, title?, assignee_name?, assignee_user_id?, due_at?}.
+    # ISO date strings, not datetime objects (JSON-serializable).
+    parsed_drafts: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, nullable=True)
+    # draft (LLM parsed, awaiting user) | committed (Tasks written) | discarded (user dropped)
+    status: Mapped[str] = mapped_column(String(16), default="draft", index=True)
+    # After commit, the Task ids that were created (for traceability and "show
+    # me what this directive produced" queries).
+    committed_task_ids: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
+    # If the LLM parse fails we still write the row so the UI can show an
+    # error state — store the message here.
+    parse_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

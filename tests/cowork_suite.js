@@ -282,7 +282,8 @@
       ["V", "v8/9/12 回归"],
       ["X", "M3.0 自动主持人"],
       ["Y", "Theme 1 协作闭环"],
-      ["Z", "v17 Task 一级对象"],
+      ["Z", "v17/v18 Task 一级对象 + 状态机"],
+      ["AA", "v19 领导指令 + 状态机收尾"],
     ];
     const counts = { pass: 0, fail: 0, skipped: 0 };
     for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
@@ -1659,6 +1660,265 @@
           };
         }
         return { ok: true, evidence: { _note: "self-dispatch 抑制 OK" } };
+      },
+    });
+
+    // ---------- AA series · v19 领导指令 + 状态机收尾 ---------------------
+    R.register({
+      id: "AA-1",
+      series: "AA",
+      title: "POST /directives 同步 LLM 拆解,返回 drafts 列表",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        if (!me?.user_id) return { ok: false, error: "no caller user_id" };
+        // 一条标准政务风指令,期望拆出 1-2 条任务
+        const text = `${PREFIX}_AA1_directive: 请王科长在本周五前提交一份小散工程上半年安全检查报告。`;
+        const r = await POST("/api/me/directives", { content: text });
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        if (!r.body?.id) return { ok: false, error: "no directive id" };
+        if (r.body.status !== "draft") {
+          return { ok: false, error: `expected status=draft, got ${r.body.status}` };
+        }
+        if (!Array.isArray(r.body.drafts)) {
+          return { ok: false, error: "drafts not array" };
+        }
+        if (r.body.parse_error) {
+          // LLM unavailable — surface but do not fail (AA-2..5 will cascade skip)
+          return { ok: false, error: `parse_error: ${r.body.parse_error}` };
+        }
+        if (r.body.drafts.length === 0) {
+          return { ok: false, error: "0 drafts (LLM 未识别出任务)" };
+        }
+        ctx.AA1_directive = r.body.id;
+        ctx.AA1_drafts = r.body.drafts;
+        return {
+          ok: true,
+          evidence: {
+            _note: `${r.body.drafts.length} draft(s),example: ${(r.body.drafts[0].content || "").slice(0, 30)}`,
+          },
+        };
+      },
+    });
+
+    R.register({
+      id: "AA-2",
+      series: "AA",
+      title: "POST /directives/{did}/commit 批量入库 Task(source_type=leader_directive)",
+      async run(ctx) {
+        if (!ctx.AA1_directive || !ctx.AA1_drafts) {
+          return { ok: false, error: "SKIP_DEP_FAILED:AA-1", evidence: { _skipped: true } };
+        }
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        // 把 LLM 草稿全部派给自己 + 不直接派发(dispatch=false)以保 status=open
+        const tasks = ctx.AA1_drafts.map((d) => ({
+          content: d.content,
+          title: d.title || null,
+          assignee_user_id: me.user_id,
+          due_at: null,
+          dispatch: false,
+        }));
+        const r = await POST(`/api/me/directives/${ctx.AA1_directive}/commit`, { tasks });
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        if (!Array.isArray(r.body.committed_task_ids)) {
+          return { ok: false, error: "committed_task_ids not array" };
+        }
+        if (r.body.committed_task_ids.length !== tasks.length) {
+          return { ok: false, error: `expected ${tasks.length} ids, got ${r.body.committed_task_ids.length}` };
+        }
+        if (r.body.dispatched_count !== 0) {
+          return { ok: false, error: `expected dispatched=0, got ${r.body.dispatched_count}` };
+        }
+        // 校验入库的 Task 在 /me/tasks 里能找到,source_type=leader_directive
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const found = (myTasks.body || []).filter((t) => r.body.committed_task_ids.includes(t.id));
+        if (found.length !== tasks.length) {
+          return { ok: false, error: `not all tasks visible in /me/tasks (${found.length}/${tasks.length})` };
+        }
+        for (const t of found) {
+          if (t.source_type !== "leader_directive") {
+            return { ok: false, error: `wrong source_type ${t.source_type}` };
+          }
+          if (!t.source_ref || t.source_ref.directive_id !== ctx.AA1_directive) {
+            return { ok: false, error: `source_ref.directive_id missing` };
+          }
+        }
+        ctx.AA2_task_ids = r.body.committed_task_ids;
+        return { ok: true, evidence: { _note: `${tasks.length} tasks, all source_type=leader_directive` } };
+      },
+    });
+
+    R.register({
+      id: "AA-3",
+      series: "AA",
+      title: "commit 带 dispatch=true → Task 直接进 dispatched 状态",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        // 先创第二条指令(已知 LLM 工作就跳过 LLM 用空草稿 + 自定义 task)
+        const txt = `${PREFIX}_AA3_directive: 测试派发立即生效场景。`;
+        const dr = await POST("/api/me/directives", { content: txt });
+        if (!dr.ok) return { ok: false, error: `create dir ${dr.status}` };
+        if (dr.body.parse_error) {
+          return { ok: false, error: `LLM error: ${dr.body.parse_error}` };
+        }
+        // 用我们自定义的 task 列表(不依赖 LLM 解析结果),需要 assignee_user_id≠我以触发通知
+        // 但单浏览器场景下 self-dispatch 是抑制通知的,所以这里只验证状态
+        const cr = await POST(`/api/me/directives/${dr.body.id}/commit`, {
+          tasks: [
+            {
+              content: `${PREFIX}_AA3_dispatched_task`,
+              assignee_user_id: me.user_id,
+              dispatch: true,
+            },
+          ],
+        });
+        if (!cr.ok) return { ok: false, error: `commit ${cr.status} ${JSON.stringify(cr.body)}` };
+        if (cr.body.committed_task_ids.length !== 1) {
+          return { ok: false, error: `expected 1 task` };
+        }
+        const taskId = cr.body.committed_task_ids[0];
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.id === taskId);
+        if (!t) return { ok: false, error: "task not found" };
+        if (t.status !== "dispatched") {
+          return { ok: false, error: `expected status=dispatched, got ${t.status}` };
+        }
+        if (!t.dispatched_at) return { ok: false, error: "dispatched_at not stamped" };
+        ctx.AA3_task = taskId;
+        return { ok: true, evidence: { _note: `task ${taskId.slice(0, 8)}… directly dispatched` } };
+      },
+    });
+
+    R.register({
+      id: "AA-4",
+      series: "AA",
+      title: "POST /directives/{did}/discard → status=discarded 不入库 Task",
+      async run() {
+        const txt = `${PREFIX}_AA4_to_discard: 此指令将被丢弃。`;
+        const dr = await POST("/api/me/directives", { content: txt });
+        if (!dr.ok) return { ok: false, error: `create ${dr.status}` };
+        const did = dr.body.id;
+        const r = await POST(`/api/me/directives/${did}/discard`, {});
+        if (!r.ok && r.status !== 204) {
+          return { ok: false, error: `discard ${r.status}` };
+        }
+        // 再 commit 应当 409
+        const c2 = await POST(`/api/me/directives/${did}/commit`, {
+          tasks: [{ content: "foo" }],
+        });
+        if (c2.ok || c2.status !== 409) {
+          return { ok: false, error: `expected 409 on commit-after-discard, got ${c2.status}` };
+        }
+        return { ok: true, evidence: { _note: "discard + commit-after-discard 409" } };
+      },
+    });
+
+    R.register({
+      id: "AA-5",
+      series: "AA",
+      title: "上报办结申请: in_progress → submitted",
+      async run(ctx) {
+        if (!ctx.AA3_task) {
+          return { ok: false, error: "SKIP_DEP_FAILED:AA-3", evidence: { _skipped: true } };
+        }
+        // AA-3 task 当前 dispatched, 走 accept → start → submit
+        const a = await POST(`/api/me/tasks/${ctx.AA3_task}/accept`, {});
+        if (!a.ok) return { ok: false, error: `accept ${a.status}` };
+        const s = await POST(`/api/me/tasks/${ctx.AA3_task}/start`, {});
+        if (!s.ok) return { ok: false, error: `start ${s.status}` };
+        const sub = await POST(`/api/me/tasks/${ctx.AA3_task}/submit`, { note: "AA-5 test note" });
+        if (!sub.ok) return { ok: false, error: `submit ${sub.status} ${JSON.stringify(sub.body)}` };
+        if (sub.body.status !== "submitted") {
+          return { ok: false, error: `expected status=submitted, got ${sub.body.status}` };
+        }
+        return { ok: true, evidence: { _note: "in_progress → submitted" } };
+      },
+    });
+
+    R.register({
+      id: "AA-6",
+      series: "AA",
+      title: "审核通过: submitted → done(creator/dispatcher 通过)",
+      async run(ctx) {
+        if (!ctx.AA3_task) {
+          return { ok: false, error: "SKIP_DEP_FAILED:AA-3", evidence: { _skipped: true } };
+        }
+        // caller 同时是 creator(via directive)和 assignee — approve 应被允许
+        // (workflow:领导自己派给自己的简化场景,我们允许 creator 自审)
+        const r = await POST(`/api/me/tasks/${ctx.AA3_task}/approve`, {});
+        if (!r.ok) return { ok: false, error: `approve ${r.status} ${JSON.stringify(r.body)}` };
+        if (r.body.status !== "done") {
+          return { ok: false, error: `expected done, got ${r.body.status}` };
+        }
+        return { ok: true, evidence: { _note: "submitted → done" } };
+      },
+    });
+
+    R.register({
+      id: "AA-7",
+      series: "AA",
+      title: "审核驳回返工: submitted → in_progress + 携带 reason",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        // 新建一条指令 + dispatch=true + 走完到 submitted
+        const dr = await POST("/api/me/directives", {
+          content: `${PREFIX}_AA7_directive: 跑驳回路径用例。`,
+        });
+        if (!dr.ok) return { ok: false, error: `dir ${dr.status}` };
+        const cr = await POST(`/api/me/directives/${dr.body.id}/commit`, {
+          tasks: [
+            {
+              content: `${PREFIX}_AA7_task`,
+              assignee_user_id: me.user_id,
+              dispatch: true,
+            },
+          ],
+        });
+        if (!cr.ok) return { ok: false, error: `commit ${cr.status}` };
+        const tid = cr.body.committed_task_ids[0];
+        await POST(`/api/me/tasks/${tid}/accept`, {});
+        await POST(`/api/me/tasks/${tid}/start`, {});
+        await POST(`/api/me/tasks/${tid}/submit`, {});
+        const r = await POST(`/api/me/tasks/${tid}/reject`, {
+          reason: "AA-7 驳回原因测试",
+        });
+        if (!r.ok) return { ok: false, error: `reject ${r.status} ${JSON.stringify(r.body)}` };
+        if (r.body.status !== "in_progress") {
+          return { ok: false, error: `expected in_progress, got ${r.body.status}` };
+        }
+        return { ok: true, evidence: { _note: "rejected → in_progress" } };
+      },
+    });
+
+    R.register({
+      id: "AA-8",
+      series: "AA",
+      title: "归档: done → archived; 非法转换(open → approve)被拒 422",
+      async run(ctx) {
+        if (!ctx.AA3_task) {
+          return { ok: false, error: "SKIP_DEP_FAILED:AA-3", evidence: { _skipped: true } };
+        }
+        // AA-3 task 已经 done(在 AA-6 approve 后),归档
+        const arc = await POST(`/api/me/tasks/${ctx.AA3_task}/archive`, {});
+        if (!arc.ok) return { ok: false, error: `archive ${arc.status} ${JSON.stringify(arc.body)}` };
+        if (arc.body.status !== "archived") {
+          return { ok: false, error: `expected archived, got ${arc.body.status}` };
+        }
+        // 新建一个 open 状态 task,直接 approve 应当 422
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_AA8_setup`, attendee_user_ids: [] });
+        created("meeting", m.body.id, "AA8");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_AA8_open_task`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const tt = (myTasks.body || []).find((x) => x.content === `${PREFIX}_AA8_open_task`);
+        if (!tt) return { ok: false, error: "setup task not found" };
+        const r = await POST(`/api/me/tasks/${tt.id}/approve`, {});
+        if (r.ok || r.status !== 422) {
+          return { ok: false, error: `expected 422 on illegal approve from open, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "archive OK + illegal transition 422" } };
       },
     });
 

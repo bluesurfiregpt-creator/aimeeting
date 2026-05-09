@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { api, type Me } from "@/lib/api";
+import DirectivePanel from "./DirectivePanel";
 import NotificationBell from "./NotificationBell";
 
 const PUBLIC_PATHS = new Set(["/login", "/register"]);
@@ -18,6 +19,7 @@ export default function AuthHeader() {
   const pathname = usePathname();
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
+  const [directiveOpen, setDirectiveOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -51,25 +53,54 @@ export default function AuthHeader() {
   if (loading || PUBLIC_PATHS.has(pathname || "") || !me) return null;
 
   return (
-    <div className="fixed right-4 top-3 z-30 flex items-center gap-2">
-      <NotificationBell />
-      <div className="flex items-center gap-3 rounded-full border border-ink-700 bg-ink-900/90 px-3 py-1.5 backdrop-blur">
-        <span className="text-xs text-zinc-500">{me.workspace_name}</span>
-        <span className="text-zinc-700">·</span>
-        <Link
-          href="/me"
-          className="text-xs text-zinc-300 hover:text-zinc-100"
-          title="我的待办"
-        >
-          {me.name}
-        </Link>
+    <>
+      <div className="fixed right-4 top-3 z-30 flex items-center gap-2">
         <button
-          onClick={logout}
-          className="ml-1 text-xs text-zinc-500 hover:text-rose-400"
+          type="button"
+          data-testid="directive-open-btn"
+          onClick={() => setDirectiveOpen(true)}
+          title="下达指令(自然语言 → 任务)"
+          className="grid h-8 w-8 place-items-center rounded-full border border-ink-700 bg-ink-900/90 text-zinc-300 hover:text-zinc-100"
+          aria-label="下达指令"
         >
-          登出
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 5v14" />
+            <path d="M5 12h14" />
+          </svg>
         </button>
+        <NotificationBell />
+        <div className="flex items-center gap-3 rounded-full border border-ink-700 bg-ink-900/90 px-3 py-1.5 backdrop-blur">
+          <span className="text-xs text-zinc-500">{me.workspace_name}</span>
+          <span className="text-zinc-700">·</span>
+          <Link
+            href="/me"
+            className="text-xs text-zinc-300 hover:text-zinc-100"
+            title="我的待办"
+          >
+            {me.name}
+          </Link>
+          <button
+            onClick={logout}
+            className="ml-1 text-xs text-zinc-500 hover:text-rose-400"
+          >
+            登出
+          </button>
+        </div>
       </div>
-    </div>
+      <DirectivePanel
+        open={directiveOpen}
+        onClose={() => setDirectiveOpen(false)}
+      />
+    </>
   );
 }

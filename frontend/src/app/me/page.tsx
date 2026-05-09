@@ -4,27 +4,41 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   api,
-  type MyAction,
+  type MyTask,
   type Notification,
   type NotificationList,
 } from "@/lib/api";
+import { toast } from "@/lib/toast";
 
 /**
- * Theme 1 (P0): personal dashboard.
+ * v19: personal dashboard, now Task-centric (was MyAction in v16-v18).
  *
- * Two columns on desktop, stacked on mobile:
- *   - 我的待办 — open action items across the workspace, grouped by meeting
- *     so the user can see "this came from《产品周会》" without clicking
- *     through. Tab-toggle to "已完成" for closure history.
- *   - 通知 — same dataset as the bell drawer but rendered with full text
- *     instead of preview, and with a "全部已读" affordance.
- *
- * Both sections re-fetch when the page mounts; we don't poll here because
- * the bell already polls and a personal dashboard doesn't need realtime.
- * A "刷新" button gives the user explicit control on long-lived tabs.
+ * Layout:
+ *   Left  · 我的任务 — 5 tabs (待签收 / 办理中 / 待审核 / 已完成 / 全部),
+ *           each row has state-aware action buttons (签收 / 退回 / 开始 /
+ *           上报 / 归档 etc.) driven by Task.status.
+ *   Left  · 待我审核(submitted) — separate section listing tasks where the
+ *           caller is dispatcher/creator and assignee submitted办结申请,
+ *           with 通过/驳回 inline actions.
+ *   Right · 通知 — bell drawer's full-text view + 全部已读.
  */
 
-type ActionTab = "open" | "done";
+type TaskTab =
+  | "pending"   // 待签收 (dispatched)
+  | "working"   // 办理中 (accepted | in_progress)
+  | "review"    // 待审核 (submitted)
+  | "done"      // 已完成
+  | "all";      // 全部 (active + done — excludes archived/cancelled by default)
+
+const TAB_LABELS: Record<TaskTab, string> = {
+  pending: "待签收",
+  working: "办理中",
+  review: "待审核",
+  done: "已完成",
+  all: "全部",
+};
+
+const TAB_ORDER: TaskTab[] = ["pending", "working", "review", "done", "all"];
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "";
@@ -53,6 +67,28 @@ function fmtRelative(iso: string): string {
   }
 }
 
+const STATUS_LABEL: Record<string, string> = {
+  open: "未派发",
+  dispatched: "待签收",
+  accepted: "已签收",
+  in_progress: "办理中",
+  submitted: "待审核",
+  done: "已完成",
+  archived: "已归档",
+  cancelled: "已取消",
+};
+
+const STATUS_COLOR: Record<string, string> = {
+  open: "bg-zinc-700 text-zinc-300",
+  dispatched: "bg-amber-500/20 text-amber-300",
+  accepted: "bg-cyan-500/20 text-cyan-300",
+  in_progress: "bg-sky-500/20 text-sky-300",
+  submitted: "bg-violet-500/20 text-violet-300",
+  done: "bg-emerald-500/20 text-emerald-300",
+  archived: "bg-zinc-800 text-zinc-500",
+  cancelled: "bg-zinc-800 text-zinc-500 line-through",
+};
+
 function describeNotification(n: Notification): string {
   const p = (n.payload || {}) as Record<string, unknown>;
   const meetingTitle =
@@ -80,15 +116,49 @@ function describeNotification(n: Notification): string {
         typeof p.action_content === "string" ? p.action_content : "";
       return `${titlePrefix}${author} 在“${action}”下留言：${preview}`;
     }
+    case "task_dispatched": {
+      const by = typeof p.dispatched_by === "string" ? p.dispatched_by : "";
+      return `${titlePrefix}${by ? `${by} 派发给你：` : "新任务："}${content}`;
+    }
+    case "task_accepted": {
+      const by = typeof p.accepted_by === "string" ? p.accepted_by : "";
+      return `${by} 已签收任务：${content}`;
+    }
+    case "task_returned": {
+      const by = typeof p.returned_by === "string" ? p.returned_by : "";
+      const reason = typeof p.reason === "string" ? p.reason : "";
+      return `${by} 退回任务：${content}${reason ? `（${reason}）` : ""}`;
+    }
+    case "task_completed": {
+      const by = typeof p.completed_by === "string" ? p.completed_by : "";
+      return `${by} 已办结：${content}`;
+    }
+    case "task_submitted": {
+      const by = typeof p.submitted_by === "string" ? p.submitted_by : "";
+      return `${by} 上报办结申请：${content}`;
+    }
+    case "task_approved": {
+      const by = typeof p.approved_by === "string" ? p.approved_by : "";
+      return `${by} 通过审核：${content}`;
+    }
+    case "task_rejected": {
+      const by = typeof p.rejected_by === "string" ? p.rejected_by : "";
+      const reason = typeof p.reason === "string" ? p.reason : "";
+      return `${by} 驳回:${content}${reason ? `（原因:${reason}）` : ""}`;
+    }
     default:
       return n.kind;
   }
 }
 
 export default function MePage() {
-  const [actionsTab, setActionsTab] = useState<ActionTab>("open");
-  const [actions, setActions] = useState<MyAction[]>([]);
-  const [actionsLoading, setActionsLoading] = useState(true);
+  const [tab, setTab] = useState<TaskTab>("pending");
+  const [tasks, setTasks] = useState<MyTask[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
+
+  const [reviewQueue, setReviewQueue] = useState<MyTask[]>([]);
+  const [reviewLoading, setReviewLoading] = useState(true);
+
   const [notifs, setNotifs] = useState<NotificationList>({
     items: [],
     unread_count: 0,
@@ -97,15 +167,27 @@ export default function MePage() {
   const [notifsLoading, setNotifsLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  const loadActions = useCallback(async (tab: ActionTab) => {
-    setActionsLoading(true);
+  const loadTasks = useCallback(async (t: TaskTab) => {
+    setTasksLoading(true);
     try {
-      const r = await api.listMyActions(tab);
-      setActions(r);
+      const r = await api.listMyTasks(t, "assignee");
+      setTasks(r);
     } catch {
-      setActions([]);
+      setTasks([]);
     } finally {
-      setActionsLoading(false);
+      setTasksLoading(false);
+    }
+  }, []);
+
+  const loadReviewQueue = useCallback(async () => {
+    setReviewLoading(true);
+    try {
+      const r = await api.listMyTasks("review", "reviewer");
+      setReviewQueue(r);
+    } catch {
+      setReviewQueue([]);
+    } finally {
+      setReviewLoading(false);
     }
   }, []);
 
@@ -122,32 +204,122 @@ export default function MePage() {
   }, []);
 
   useEffect(() => {
-    void loadActions(actionsTab);
-  }, [actionsTab, loadActions]);
+    void loadTasks(tab);
+  }, [tab, loadTasks]);
+
+  useEffect(() => {
+    void loadReviewQueue();
+  }, [loadReviewQueue]);
 
   useEffect(() => {
     void loadNotifs();
   }, [loadNotifs]);
 
-  const onToggleAction = useCallback(
-    async (a: MyAction) => {
-      const next = a.status === "done" ? "open" : "done";
-      // Optimistic — fall back on failure.
-      setActions((prev) =>
-        prev.map((x) => (x.id === a.id ? { ...x, status: next } : x)),
-      );
+  // ---- task action handlers ------------------------------------------------
+
+  const reload = useCallback(() => {
+    void loadTasks(tab);
+    void loadReviewQueue();
+  }, [tab, loadTasks, loadReviewQueue]);
+
+  const onAccept = useCallback(
+    async (t: MyTask) => {
       try {
-        await api.patchActionItem(a.meeting_id, a.id, { status: next });
-        // Re-load: when the user toggles in the "open" tab, the row should
-        // disappear (and vice versa for "done"). Cheap re-fetch is simpler
-        // than maintaining two lists.
-        await loadActions(actionsTab);
-      } catch {
-        await loadActions(actionsTab);
+        await api.acceptTask(t.id);
+        toast.success("已签收");
+        reload();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "签收失败");
       }
     },
-    [actionsTab, loadActions],
+    [reload],
   );
+
+  const onReturn = useCallback(
+    async (t: MyTask) => {
+      const reason = window.prompt("退回原因(可选):", "");
+      if (reason === null) return;
+      try {
+        await api.returnTask(t.id, reason);
+        toast.success("已退回");
+        reload();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "退回失败");
+      }
+    },
+    [reload],
+  );
+
+  const onStart = useCallback(
+    async (t: MyTask) => {
+      try {
+        await api.startTask(t.id);
+        toast.success("已开始办理");
+        reload();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "开始失败");
+      }
+    },
+    [reload],
+  );
+
+  const onSubmit = useCallback(
+    async (t: MyTask) => {
+      const note = window.prompt("阶段汇报(可选):", "");
+      if (note === null) return;
+      try {
+        await api.submitTask(t.id, note);
+        toast.success("已上报办结申请");
+        reload();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "上报失败");
+      }
+    },
+    [reload],
+  );
+
+  const onArchive = useCallback(
+    async (t: MyTask) => {
+      try {
+        await api.archiveTask(t.id);
+        toast.success("已归档");
+        reload();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "归档失败");
+      }
+    },
+    [reload],
+  );
+
+  const onApprove = useCallback(
+    async (t: MyTask) => {
+      try {
+        await api.approveTask(t.id);
+        toast.success("已通过");
+        reload();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "审核失败");
+      }
+    },
+    [reload],
+  );
+
+  const onReject = useCallback(
+    async (t: MyTask) => {
+      const reason = window.prompt("驳回原因:", "");
+      if (reason === null) return;
+      try {
+        await api.rejectTask(t.id, reason);
+        toast.success("已驳回返工");
+        reload();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "驳回失败");
+      }
+    },
+    [reload],
+  );
+
+  // ---- notification handlers (unchanged from v18) -------------------------
 
   const onMarkAll = useCallback(async () => {
     if (busy || notifs.unread_count === 0) return;
@@ -182,122 +354,229 @@ export default function MePage() {
     }
   }, []);
 
+  // ---- render --------------------------------------------------------------
+
+  function renderTaskRow(t: MyTask, asReviewer: boolean) {
+    const isOverdue =
+      t.status !== "done" &&
+      t.status !== "archived" &&
+      t.status !== "cancelled" &&
+      t.due_at &&
+      new Date(t.due_at) < new Date();
+    const meetingId = t.meeting_id;
+    return (
+      <li
+        key={t.id}
+        data-testid={`me-task-${t.id}`}
+        data-status={t.status}
+        className="py-3"
+      >
+        <div className="flex items-start gap-2">
+          <span
+            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+              STATUS_COLOR[t.status] ?? "bg-zinc-700 text-zinc-300"
+            }`}
+          >
+            {STATUS_LABEL[t.status] ?? t.status}
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm text-zinc-100 break-words">
+              {t.content}
+            </div>
+            <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-500">
+              {meetingId ? (
+                <Link
+                  href={`/meeting/${meetingId}`}
+                  className="hover:text-zinc-200"
+                >
+                  {t.meeting_title || "会议"}
+                </Link>
+              ) : (
+                <span className="text-zinc-600">
+                  {t.source_type === "leader_directive"
+                    ? "📋 领导指令"
+                    : t.source_type === "manual"
+                    ? "✍️ 手动添加"
+                    : t.source_type}
+                </span>
+              )}
+              {t.due_at ? (
+                <span className={isOverdue ? "text-rose-400" : "text-zinc-500"}>
+                  📅 {fmtDate(t.due_at)}
+                  {isOverdue ? "（已逾期）" : ""}
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {asReviewer ? (
+                <>
+                  <button
+                    onClick={() => onApprove(t)}
+                    data-testid={`me-task-approve-${t.id}`}
+                    className="rounded-md bg-emerald-500 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-400"
+                  >
+                    通过
+                  </button>
+                  <button
+                    onClick={() => onReject(t)}
+                    data-testid={`me-task-reject-${t.id}`}
+                    className="rounded-md border border-ink-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-ink-800"
+                  >
+                    驳回
+                  </button>
+                </>
+              ) : (
+                <>
+                  {t.status === "dispatched" && (
+                    <>
+                      <button
+                        onClick={() => onAccept(t)}
+                        data-testid={`me-task-accept-${t.id}`}
+                        className="rounded-md bg-accent-500 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-400"
+                      >
+                        签收
+                      </button>
+                      <button
+                        onClick={() => onReturn(t)}
+                        data-testid={`me-task-return-${t.id}`}
+                        className="rounded-md border border-ink-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-ink-800"
+                      >
+                        退回
+                      </button>
+                    </>
+                  )}
+                  {t.status === "accepted" && (
+                    <button
+                      onClick={() => onStart(t)}
+                      data-testid={`me-task-start-${t.id}`}
+                      className="rounded-md bg-sky-500 px-2.5 py-1 text-xs font-medium text-white hover:bg-sky-400"
+                    >
+                      开始办理
+                    </button>
+                  )}
+                  {t.status === "in_progress" && (
+                    <button
+                      onClick={() => onSubmit(t)}
+                      data-testid={`me-task-submit-${t.id}`}
+                      className="rounded-md bg-violet-500 px-2.5 py-1 text-xs font-medium text-white hover:bg-violet-400"
+                    >
+                      上报办结
+                    </button>
+                  )}
+                  {t.status === "submitted" && (
+                    <span className="text-xs text-violet-400">
+                      ⏳ 等待领导审核
+                    </span>
+                  )}
+                  {t.status === "done" && (
+                    <button
+                      onClick={() => onArchive(t)}
+                      data-testid={`me-task-archive-${t.id}`}
+                      className="rounded-md border border-ink-700 px-2.5 py-1 text-xs text-zinc-400 hover:bg-ink-800"
+                    >
+                      归档
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </li>
+    );
+  }
+
   return (
     <main className="mx-auto max-w-5xl px-4 py-12 pt-20">
-      <h1 className="text-xl font-medium text-white">我的待办</h1>
+      <h1 className="text-xl font-medium text-white">我的工作台</h1>
       <p className="mt-1 text-sm text-zinc-500">
-        分配给你的行动项，以及最近的通知。
+        我的任务、需我审核的工单,以及最近的通知。
       </p>
 
       <div className="mt-6 grid gap-6 md:grid-cols-2">
-        {/* 我的待办 */}
-        <section
-          data-testid="me-actions-section"
-          className="rounded-xl border border-ink-700 bg-ink-900 p-6"
-        >
-          <header className="flex items-center justify-between">
-            <h2 className="text-base font-medium text-white">行动项</h2>
-            <div className="flex gap-1 rounded-lg border border-ink-700 p-0.5 text-xs">
-              <button
-                type="button"
-                onClick={() => setActionsTab("open")}
-                data-testid="me-actions-tab-open"
-                className={`rounded-md px-2 py-1 ${
-                  actionsTab === "open"
-                    ? "bg-ink-800 text-zinc-100"
-                    : "text-zinc-500 hover:text-zinc-200"
-                }`}
-              >
-                未完成
-              </button>
-              <button
-                type="button"
-                onClick={() => setActionsTab("done")}
-                data-testid="me-actions-tab-done"
-                className={`rounded-md px-2 py-1 ${
-                  actionsTab === "done"
-                    ? "bg-ink-800 text-zinc-100"
-                    : "text-zinc-500 hover:text-zinc-200"
-                }`}
-              >
-                已完成
-              </button>
-            </div>
-          </header>
-
-          {actionsLoading ? (
-            <p className="mt-4 text-sm text-zinc-500">加载中…</p>
-          ) : actions.length === 0 ? (
-            <p
-              className="mt-4 text-sm text-zinc-500"
-              data-testid="me-actions-empty"
-            >
-              {actionsTab === "open"
-                ? "你目前没有待办的行动项 🎉"
-                : "暂无已完成的行动项"}
-            </p>
-          ) : (
-            <ul
-              className="mt-3 divide-y divide-ink-800"
-              data-testid="me-actions-list"
-            >
-              {actions.map((a) => {
-                const checked = a.status === "done";
-                const isOverdue =
-                  !checked && a.due_at && new Date(a.due_at) < new Date();
-                return (
-                  <li
-                    key={a.id}
-                    data-testid={`me-action-${a.id}`}
-                    className="flex items-start gap-3 py-2"
+        {/* 左:任务 */}
+        <div className="space-y-6">
+          <section
+            data-testid="me-tasks-section"
+            className="rounded-xl border border-ink-700 bg-ink-900 p-6"
+          >
+            <header>
+              <h2 className="text-base font-medium text-white">我的任务</h2>
+              <div className="mt-3 flex flex-wrap gap-1 rounded-lg border border-ink-700 p-0.5 text-xs">
+                {TAB_ORDER.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setTab(t)}
+                    data-testid={`me-tasks-tab-${t}`}
+                    className={`rounded-md px-2 py-1 ${
+                      tab === t
+                        ? "bg-ink-800 text-zinc-100"
+                        : "text-zinc-500 hover:text-zinc-200"
+                    }`}
                   >
-                    <input
-                      type="checkbox"
-                      data-testid={`me-action-checkbox-${a.id}`}
-                      checked={checked}
-                      onChange={() => onToggleAction(a)}
-                      className="mt-0.5 h-4 w-4 shrink-0 accent-accent-500"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div
-                        className={
-                          checked
-                            ? "text-sm line-through text-zinc-500"
-                            : "text-sm text-zinc-100"
-                        }
-                      >
-                        {a.content}
-                      </div>
-                      <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-500">
-                        <Link
-                          href={`/meeting/${a.meeting_id}`}
-                          className="hover:text-zinc-200"
-                        >
-                          {a.meeting_title || "未命名会议"}
-                        </Link>
-                        {a.due_at ? (
-                          <span
-                            className={
-                              isOverdue ? "text-rose-400" : "text-zinc-500"
-                            }
-                          >
-                            📅 {fmtDate(a.due_at)}
-                            {isOverdue ? "（已逾期）" : ""}
-                          </span>
-                        ) : null}
-                        <span className="text-zinc-700">
-                          {a.source_type === "summary" ? "自动" : "手动"}
-                        </span>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+                    {TAB_LABELS[t]}
+                  </button>
+                ))}
+              </div>
+            </header>
 
-        {/* 通知 */}
+            {tasksLoading ? (
+              <p className="mt-4 text-sm text-zinc-500">加载中…</p>
+            ) : tasks.length === 0 ? (
+              <p
+                className="mt-4 text-sm text-zinc-500"
+                data-testid="me-tasks-empty"
+              >
+                {tab === "pending"
+                  ? "没有待签收任务 🎉"
+                  : tab === "working"
+                  ? "没有办理中任务"
+                  : tab === "review"
+                  ? "没有等待审核的任务"
+                  : tab === "done"
+                  ? "暂无已完成任务"
+                  : "暂无任务"}
+              </p>
+            ) : (
+              <ul
+                className="mt-3 divide-y divide-ink-800"
+                data-testid="me-tasks-list"
+              >
+                {tasks.map((t) => renderTaskRow(t, false))}
+              </ul>
+            )}
+          </section>
+
+          {/* 待我审核 */}
+          {(reviewLoading || reviewQueue.length > 0) && (
+            <section
+              data-testid="me-review-section"
+              className="rounded-xl border border-violet-500/30 bg-ink-900 p-6"
+            >
+              <header className="flex items-center justify-between">
+                <h2 className="text-base font-medium text-white">
+                  待我审核
+                  <span className="ml-2 rounded-full bg-violet-500/20 px-2 py-0.5 text-xs text-violet-300">
+                    {reviewQueue.length}
+                  </span>
+                </h2>
+              </header>
+              {reviewLoading ? (
+                <p className="mt-4 text-sm text-zinc-500">加载中…</p>
+              ) : (
+                <ul
+                  className="mt-3 divide-y divide-ink-800"
+                  data-testid="me-review-list"
+                >
+                  {reviewQueue.map((t) => renderTaskRow(t, true))}
+                </ul>
+              )}
+            </section>
+          )}
+        </div>
+
+        {/* 右:通知(沿用 v18 形态) */}
         <section
           data-testid="me-notifications-section"
           className="rounded-xl border border-ink-700 bg-ink-900 p-6"

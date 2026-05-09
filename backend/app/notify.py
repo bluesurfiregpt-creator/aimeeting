@@ -25,6 +25,11 @@ Notification kinds:
   - 'task_returned'    — your dispatched task was returned (notify dispatcher)
   - 'task_completed'   — your dispatched task was completed (notify dispatcher)
 
+  v19 (上报办结申请审核):
+  - 'task_submitted'   — assignee submitted for review (notify dispatcher/creator)
+  - 'task_approved'    — reviewer approved the submission (notify assignee)
+  - 'task_rejected'    — reviewer rejected the submission (notify assignee with reason)
+
 Severity (v18):
   normal — default, all event-driven kinds
   yellow — due_soon (≤3d to due) — bell + (later) WeChat work

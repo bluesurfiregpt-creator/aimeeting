@@ -1,0 +1,354 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import {
+  api,
+  type DirectiveCommitTask,
+  type DirectiveDraft,
+  type LeaderDirective,
+  type User,
+} from "@/lib/api";
+import { toast } from "@/lib/toast";
+
+/**
+ * v19 — 领导指令(自然语言)→ Task 草稿 → 用户确认 → 批量入库
+ *
+ * 单次表单形态(per Q1 决策):
+ *   1. 输入框 → 「解析」按钮(同步调 LLM,5-15s,显示 loading)
+ *   2. 解析完成后,展示 draft 列表 — 每条可编辑 content / 选 assignee /
+ *      选 due_at / 切换是否「派发」(若派发,入库即转 dispatched 状态)
+ *   3. 「全部入库」按钮 → 批量提交
+ *   4. 用户也可「丢弃」整条指令(LeaderDirective.status='discarded')
+ *
+ * 由 AuthHeader 顶栏控制开/关。
+ */
+
+type DraftRow = DirectiveDraft & { _key: string; _dispatch: boolean };
+
+function uid() {
+  return Math.random().toString(36).slice(2, 9);
+}
+
+function draftsToRows(drafts: DirectiveDraft[]): DraftRow[] {
+  return drafts.map((d) => ({
+    ...d,
+    _key: uid(),
+    // 默认勾选派发 — 若 assignee 已被 LLM 匹配,直接走 dispatched 最快
+    _dispatch: !!d.assignee_user_id,
+  }));
+}
+
+export default function DirectivePanel({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const [directive, setDirective] = useState<LeaderDirective | null>(null);
+  const [drafts, setDrafts] = useState<DraftRow[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+
+  // Load workspace users for assignee dropdown.
+  useEffect(() => {
+    if (!open) return;
+    api.listUsers().then(setUsers).catch(() => {});
+  }, [open]);
+
+  // Reset state on close so re-open is clean.
+  useEffect(() => {
+    if (!open) {
+      setText("");
+      setDirective(null);
+      setDrafts([]);
+    }
+  }, [open]);
+
+  const onParse = useCallback(async () => {
+    const content = text.trim();
+    if (!content || parsing) return;
+    setParsing(true);
+    try {
+      const d = await api.createDirective(content);
+      setDirective(d);
+      if (d.parse_error) {
+        toast.warn("LLM 拆解失败", { detail: d.parse_error });
+      }
+      setDrafts(draftsToRows(d.drafts));
+      if (d.drafts.length === 0 && !d.parse_error) {
+        toast.warn("没有从指令里识别出可执行任务", {
+          detail: "试着重写指令,把负责人和截止日期写明确",
+        });
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "解析失败");
+    } finally {
+      setParsing(false);
+    }
+  }, [text, parsing]);
+
+  const onCommit = useCallback(async () => {
+    if (!directive || committing) return;
+    const cleaned: DirectiveCommitTask[] = drafts
+      .filter((d) => (d.content || "").trim().length > 0)
+      .map((d) => ({
+        content: d.content,
+        title: d.title || null,
+        assignee_user_id: d.assignee_user_id || null,
+        // due_at: drafts use ISO date string; backend wants datetime.
+        due_at: d.due_at ? `${d.due_at}T00:00:00Z` : null,
+        dispatch: d._dispatch && !!d.assignee_user_id,
+      }));
+    if (cleaned.length === 0) {
+      toast.warn("草稿为空,请至少留一条任务");
+      return;
+    }
+    setCommitting(true);
+    try {
+      const r = await api.commitDirective(directive.id, cleaned);
+      toast.success(
+        `已入库 ${r.committed_task_ids.length} 条任务`,
+        r.dispatched_count > 0
+          ? { detail: `其中 ${r.dispatched_count} 条已直接派发` }
+          : undefined,
+      );
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "入库失败");
+    } finally {
+      setCommitting(false);
+    }
+  }, [directive, drafts, committing, onClose]);
+
+  const onDiscard = useCallback(async () => {
+    if (!directive) {
+      onClose();
+      return;
+    }
+    try {
+      await api.discardDirective(directive.id);
+    } catch {
+      // ignore — close anyway
+    }
+    onClose();
+  }, [directive, onClose]);
+
+  const updateDraft = useCallback(
+    (key: string, patch: Partial<DraftRow>) => {
+      setDrafts((rows) =>
+        rows.map((r) => (r._key === key ? { ...r, ...patch } : r)),
+      );
+    },
+    [],
+  );
+
+  const removeDraft = useCallback((key: string) => {
+    setDrafts((rows) => rows.filter((r) => r._key !== key));
+  }, []);
+
+  const addBlankDraft = useCallback(() => {
+    setDrafts((rows) => [
+      ...rows,
+      {
+        _key: uid(),
+        _dispatch: false,
+        content: "",
+        title: null,
+        assignee_name: null,
+        assignee_user_id: null,
+        due_at: null,
+      },
+    ]);
+  }, []);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-4 py-8"
+      data-testid="directive-panel"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="w-full max-w-2xl max-h-full overflow-y-auto rounded-xl border border-ink-700 bg-ink-900 p-6 shadow-2xl">
+        <header className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-medium text-white">下达指令</h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              用自然语言描述,系统会拆解成结构化任务待你确认
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onDiscard}
+            className="text-xs text-zinc-500 hover:text-zinc-200"
+          >
+            关闭
+          </button>
+        </header>
+
+        {/* 输入区 */}
+        <div className="mt-4">
+          <textarea
+            data-testid="directive-input"
+            rows={4}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            disabled={parsing || directive !== null}
+            placeholder="例如:请王科长在本周五前提交一份小散工程上半年安全检查报告。"
+            className="w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none disabled:opacity-60"
+          />
+          {!directive && (
+            <div className="mt-2 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                data-testid="directive-parse"
+                onClick={onParse}
+                disabled={!text.trim() || parsing}
+                className="rounded-lg bg-accent-500 px-4 py-1.5 text-sm font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent-400 transition"
+              >
+                {parsing ? "解析中(约 5-15s)…" : "解析"}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 草稿列表 */}
+        {directive && (
+          <div className="mt-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm text-zinc-300">
+                拆解结果 · {drafts.length} 条任务
+              </h3>
+              <button
+                type="button"
+                onClick={addBlankDraft}
+                className="text-xs text-zinc-500 hover:text-zinc-200"
+              >
+                + 加一条
+              </button>
+            </div>
+
+            {drafts.length === 0 ? (
+              <p className="mt-3 text-xs text-zinc-500">
+                没有草稿。可以「+ 加一条」手动添加,或直接关闭。
+              </p>
+            ) : (
+              <ul
+                className="mt-3 divide-y divide-ink-800"
+                data-testid="directive-draft-list"
+              >
+                {drafts.map((d) => (
+                  <li
+                    key={d._key}
+                    className="py-3"
+                    data-testid="directive-draft-row"
+                  >
+                    <textarea
+                      rows={2}
+                      value={d.content}
+                      onChange={(e) =>
+                        updateDraft(d._key, { content: e.target.value })
+                      }
+                      className="w-full rounded-md border border-ink-700 bg-ink-950 px-2 py-1.5 text-sm text-zinc-100 focus:border-accent-500 focus:outline-none"
+                      data-testid="directive-draft-content"
+                    />
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                      <select
+                        value={d.assignee_user_id || ""}
+                        onChange={(e) =>
+                          updateDraft(d._key, {
+                            assignee_user_id: e.target.value || null,
+                            // assignee 没了,派发也跟着关
+                            _dispatch: e.target.value
+                              ? d._dispatch
+                              : false,
+                          })
+                        }
+                        className="rounded-md border border-ink-700 bg-ink-950 px-2 py-1 text-xs text-zinc-200 focus:border-accent-500 focus:outline-none"
+                        data-testid="directive-draft-assignee"
+                      >
+                        <option value="">未指定</option>
+                        {users.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name}
+                          </option>
+                        ))}
+                      </select>
+                      {d.assignee_name && !d.assignee_user_id ? (
+                        <span className="text-[10px] text-amber-400">
+                          ❓ LLM 识别到「{d.assignee_name}」但未匹配用户,请手选
+                        </span>
+                      ) : null}
+                      <input
+                        type="date"
+                        value={d.due_at || ""}
+                        onChange={(e) =>
+                          updateDraft(d._key, { due_at: e.target.value || null })
+                        }
+                        className="rounded-md border border-ink-700 bg-ink-950 px-2 py-1 text-xs text-zinc-200 focus:border-accent-500 focus:outline-none"
+                        data-testid="directive-draft-due"
+                      />
+                      <label
+                        className={`flex items-center gap-1 ${
+                          !d.assignee_user_id ? "opacity-40" : ""
+                        }`}
+                        title={
+                          d.assignee_user_id
+                            ? "勾选则入库时直接派发(状态 → dispatched),不勾则入库为 open"
+                            : "需要先选 assignee 才能派发"
+                        }
+                      >
+                        <input
+                          type="checkbox"
+                          checked={d._dispatch && !!d.assignee_user_id}
+                          disabled={!d.assignee_user_id}
+                          onChange={(e) =>
+                            updateDraft(d._key, { _dispatch: e.target.checked })
+                          }
+                          data-testid="directive-draft-dispatch"
+                          className="h-3 w-3 accent-accent-500"
+                        />
+                        <span>立即派发</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => removeDraft(d._key)}
+                        className="ml-auto text-[10px] text-zinc-600 hover:text-rose-400"
+                        data-testid="directive-draft-remove"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={onDiscard}
+                className="rounded-lg border border-ink-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-ink-800"
+              >
+                丢弃
+              </button>
+              <button
+                type="button"
+                data-testid="directive-commit"
+                onClick={onCommit}
+                disabled={committing || drafts.length === 0}
+                className="rounded-lg bg-accent-500 px-4 py-1.5 text-sm font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent-400 transition"
+              >
+                {committing ? "入库中…" : "全部入库"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

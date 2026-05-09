@@ -33,15 +33,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
-from ..models import Meeting, MeetingActionItem, Notification, Task, User
+from ..directive_parser import parse_directive
+from ..models import (
+    LeaderDirective,
+    Meeting,
+    MeetingActionItem,
+    Notification,
+    Task,
+    User,
+    WorkspaceMembership,
+)
 from ..notify import emit_notification
 from ..task_state import (
     TASK_ACTION_ACCEPT,
+    TASK_ACTION_APPROVE,
+    TASK_ACTION_ARCHIVE,
     TASK_ACTION_CANCEL,
     TASK_ACTION_COMPLETE,
     TASK_ACTION_DISPATCH,
+    TASK_ACTION_REJECT,
     TASK_ACTION_RETURN,
     TASK_ACTION_START,
+    TASK_ACTION_SUBMIT,
     mirror_to_action_status,
     transition,
 )
@@ -149,38 +162,73 @@ class MyTaskOut(BaseModel):
 async def list_my_tasks(
     status: str = Query(
         "active",
-        regex="^(open|all|done|in_progress|dispatched|accepted|cancelled|active|pending|working)$",
+        regex="^(open|all|done|in_progress|dispatched|accepted|submitted|archived|cancelled|active|pending|working|review)$",
     ),
+    role: str = Query("assignee", regex="^(assignee|reviewer)$"),
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
     """
-    Returns Tasks assigned to the caller in the active workspace, ordered
+    Returns Tasks the caller is involved with, ordered
     (due_at NULLS LAST, created_at desc).
 
+    `role`:
+      assignee (default) — Tasks where assignee_user_id == caller
+      reviewer           — Tasks where dispatched_by == caller OR
+                           created_by == caller (used for /me 待我审核 tab;
+                           pair with status=review to get exactly the
+                           pending-review queue)
+
     Status filter — atomic + composite:
-      Atomic   : open | dispatched | accepted | in_progress | done | cancelled | all
-      Composite: active   = open|dispatched|accepted|in_progress (default;
-                            "anything not yet finished")
+      Atomic   : open | dispatched | accepted | in_progress | submitted |
+                 done | archived | cancelled | all
+      Composite: active   = open|dispatched|accepted|in_progress|submitted
+                            (default; "anything not yet finished or cancelled")
                  pending  = dispatched (待签收 — UI tab on /me page)
                  working  = accepted|in_progress (办理中)
+                 review   = submitted (待审核)
 
     For source_type='meeting' rows we hydrate `meeting_id` and
     `meeting_title` from source_ref's meeting_id (one extra join).
     """
-    q = select(Task).where(
-        Task.assignee_user_id == auth.user.id,
-        Task.workspace_id == auth.workspace.id,
-    )
+    if role == "reviewer":
+        q = select(Task).where(
+            Task.workspace_id == auth.workspace.id,
+            (
+                (Task.dispatched_by_user_id == auth.user.id)
+                | (Task.created_by_user_id == auth.user.id)
+            ),
+            # 不展示自己派给自己的(避免和 assignee 视角重复)
+            (Task.assignee_user_id != auth.user.id)
+            | Task.assignee_user_id.is_(None),
+        )
+    else:
+        q = select(Task).where(
+            Task.assignee_user_id == auth.user.id,
+            Task.workspace_id == auth.workspace.id,
+        )
     if status == "active":
         q = q.where(
-            Task.status.in_(["open", "dispatched", "accepted", "in_progress"])
+            Task.status.in_(
+                ["open", "dispatched", "accepted", "in_progress", "submitted"]
+            )
         )
     elif status == "pending":
         q = q.where(Task.status == "dispatched")
     elif status == "working":
         q = q.where(Task.status.in_(["accepted", "in_progress"]))
-    elif status in ("open", "dispatched", "accepted", "in_progress", "done", "cancelled"):
+    elif status == "review":
+        q = q.where(Task.status == "submitted")
+    elif status in (
+        "open",
+        "dispatched",
+        "accepted",
+        "in_progress",
+        "submitted",
+        "done",
+        "archived",
+        "cancelled",
+    ):
         q = q.where(Task.status == status)
     # status == 'all' → no extra filter
     q = q.order_by(Task.due_at.asc().nullslast(), Task.created_at.desc())
@@ -530,6 +578,460 @@ async def cancel_task(
     await session.commit()
     await session.refresh(t)
     return _task_to_my_out(t, await _meeting_title_for(session, t))
+
+
+# v19: 上报办结申请 + 领导审核 + 归档 -----------------------------------------
+
+
+class SubmitIn(BaseModel):
+    note: Optional[str] = None  # 阶段汇报简述,可选
+
+
+class RejectIn(BaseModel):
+    reason: Optional[str] = None
+
+
+async def _is_workspace_admin(
+    session: AsyncSession, user_id: uuid.UUID, workspace_id: uuid.UUID
+) -> bool:
+    """v19: workspace owner/admin 可以代替 dispatcher 审核办结."""
+    role = (
+        await session.execute(
+            select(WorkspaceMembership.role).where(
+                WorkspaceMembership.user_id == user_id,
+                WorkspaceMembership.workspace_id == workspace_id,
+            )
+        )
+    ).scalar_one_or_none()
+    return role in ("owner", "admin")
+
+
+@router.post("/tasks/{task_id}/submit", response_model=MyTaskOut)
+async def submit_task(
+    task_id: str,
+    payload: SubmitIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v19: assignee 上报办结申请. in_progress → submitted.
+    通知 dispatcher(如有);若没有 dispatcher,通知 creator(领导指令场景下
+    creator 就是发指令的领导).
+    """
+    t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
+    if t.assignee_user_id != auth.user.id:
+        raise HTTPException(403, "only the assignee can submit this task")
+    new_status = transition(TASK_ACTION_SUBMIT, t.status)
+    t.status = new_status
+
+    await _mirror_status_to_action(session, t)
+
+    reviewer_id = t.dispatched_by_user_id or t.created_by_user_id
+    if reviewer_id and reviewer_id != auth.user.id:
+        notify_payload = _task_to_meeting_payload(t)
+        notify_payload["submitted_by"] = auth.user.name
+        if payload.note:
+            notify_payload["note"] = payload.note[:500]
+        await emit_notification(
+            session,
+            workspace_id=auth.workspace.id,
+            user_id=reviewer_id,
+            kind="task_submitted",
+            payload=notify_payload,
+        )
+
+    await session.commit()
+    await session.refresh(t)
+    return _task_to_my_out(t, await _meeting_title_for(session, t))
+
+
+@router.post("/tasks/{task_id}/approve", response_model=MyTaskOut)
+async def approve_task(
+    task_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v19: 领导审核通过. submitted → done.
+
+    谁可以批:dispatcher / creator(发指令的领导)/ workspace owner|admin.
+    通知 assignee(如非自己).
+    """
+    t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
+    is_dispatcher = t.dispatched_by_user_id == auth.user.id
+    is_creator = t.created_by_user_id == auth.user.id
+    is_admin = await _is_workspace_admin(session, auth.user.id, auth.workspace.id)
+    if not (is_dispatcher or is_creator or is_admin):
+        raise HTTPException(
+            403, "only the dispatcher / creator / workspace admin can approve"
+        )
+    new_status = transition(TASK_ACTION_APPROVE, t.status)
+    t.status = new_status
+
+    await _mirror_status_to_action(session, t)
+
+    if t.assignee_user_id and t.assignee_user_id != auth.user.id:
+        notify_payload = _task_to_meeting_payload(t)
+        notify_payload["approved_by"] = auth.user.name
+        await emit_notification(
+            session,
+            workspace_id=auth.workspace.id,
+            user_id=t.assignee_user_id,
+            kind="task_approved",
+            payload=notify_payload,
+        )
+
+    await session.commit()
+    await session.refresh(t)
+    return _task_to_my_out(t, await _meeting_title_for(session, t))
+
+
+@router.post("/tasks/{task_id}/reject", response_model=MyTaskOut)
+async def reject_task(
+    task_id: str,
+    payload: RejectIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v19: 领导审核驳回返工. submitted → in_progress.
+    """
+    t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
+    is_dispatcher = t.dispatched_by_user_id == auth.user.id
+    is_creator = t.created_by_user_id == auth.user.id
+    is_admin = await _is_workspace_admin(session, auth.user.id, auth.workspace.id)
+    if not (is_dispatcher or is_creator or is_admin):
+        raise HTTPException(
+            403, "only the dispatcher / creator / workspace admin can reject"
+        )
+    new_status = transition(TASK_ACTION_REJECT, t.status)
+    t.status = new_status
+
+    await _mirror_status_to_action(session, t)
+
+    if t.assignee_user_id and t.assignee_user_id != auth.user.id:
+        notify_payload = _task_to_meeting_payload(t)
+        notify_payload["rejected_by"] = auth.user.name
+        if payload.reason:
+            notify_payload["reason"] = payload.reason[:500]
+        await emit_notification(
+            session,
+            workspace_id=auth.workspace.id,
+            user_id=t.assignee_user_id,
+            kind="task_rejected",
+            payload=notify_payload,
+        )
+
+    await session.commit()
+    await session.refresh(t)
+    return _task_to_my_out(t, await _meeting_title_for(session, t))
+
+
+@router.post("/tasks/{task_id}/archive", response_model=MyTaskOut)
+async def archive_task(
+    task_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v19: 手动归档已完成任务. done → archived. 静默,不通知.
+
+    任何能取消的人都能归档(dispatcher / creator / assignee / workspace admin).
+    """
+    t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
+    allowed = {t.assignee_user_id, t.dispatched_by_user_id, t.created_by_user_id}
+    if auth.user.id not in allowed and not await _is_workspace_admin(
+        session, auth.user.id, auth.workspace.id
+    ):
+        raise HTTPException(403, "not authorized to archive this task")
+    new_status = transition(TASK_ACTION_ARCHIVE, t.status)
+    t.status = new_status
+
+    await _mirror_status_to_action(session, t)
+    await session.commit()
+    await session.refresh(t)
+    return _task_to_my_out(t, await _meeting_title_for(session, t))
+
+
+# v19: 领导指令(自然语言 → Task 拆解)----------------------------------------
+
+
+class DirectiveCreateIn(BaseModel):
+    content: str
+
+
+class DirectiveDraftOut(BaseModel):
+    content: str
+    title: Optional[str] = None
+    assignee_name: Optional[str] = None
+    assignee_user_id: Optional[uuid.UUID] = None
+    due_at: Optional[str] = None  # ISO date string
+
+
+class DirectiveOut(BaseModel):
+    id: uuid.UUID
+    content: str
+    status: str  # draft | committed | discarded
+    drafts: list[DirectiveDraftOut]
+    committed_task_ids: list[uuid.UUID] = []
+    parse_error: Optional[str] = None
+    created_at: datetime
+
+
+def _drafts_from_payload(p: Optional[list]) -> list[DirectiveDraftOut]:
+    out: list[DirectiveDraftOut] = []
+    if not isinstance(p, list):
+        return out
+    for d in p:
+        if not isinstance(d, dict):
+            continue
+        try:
+            uid_raw = d.get("assignee_user_id")
+            uid = uuid.UUID(uid_raw) if isinstance(uid_raw, str) else None
+        except ValueError:
+            uid = None
+        out.append(
+            DirectiveDraftOut(
+                content=str(d.get("content") or ""),
+                title=d.get("title"),
+                assignee_name=d.get("assignee_name"),
+                assignee_user_id=uid,
+                due_at=d.get("due_at"),
+            )
+        )
+    return out
+
+
+def _directive_to_out(row: LeaderDirective) -> DirectiveOut:
+    raw_ids = row.committed_task_ids or []
+    ids: list[uuid.UUID] = []
+    for s in raw_ids:
+        try:
+            ids.append(uuid.UUID(s))
+        except (TypeError, ValueError):
+            continue
+    return DirectiveOut(
+        id=row.id,
+        content=row.content,
+        status=row.status,
+        drafts=_drafts_from_payload(row.parsed_drafts),
+        committed_task_ids=ids,
+        parse_error=row.parse_error,
+        created_at=row.created_at,
+    )
+
+
+@router.post("/directives", response_model=DirectiveOut)
+async def create_directive(
+    payload: DirectiveCreateIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v19: 创建一条领导指令,**同步**触发 LLM 拆解,返回 draft 列表.
+
+    实测 5-15s. 若 LLM 失败,row 仍写入(status='draft', parse_error=...),
+    用户可基于错误信息调整文本后重试(下一次创建是新 row).
+    """
+    text = (payload.content or "").strip()
+    if not text:
+        raise HTTPException(400, "content required")
+    if len(text) > 4000:
+        raise HTTPException(400, "content too long (max 4000 chars)")
+
+    drafts, err = await parse_directive(
+        session, workspace_id=auth.workspace.id, content=text
+    )
+    row = LeaderDirective(
+        workspace_id=auth.workspace.id,
+        created_by_user_id=auth.user.id,
+        content=text[:4000],
+        parsed_drafts=drafts,
+        status="draft",
+        parse_error=err,
+    )
+    session.add(row)
+    await session.commit()
+    await session.refresh(row)
+    return _directive_to_out(row)
+
+
+class DirectiveCommitTaskIn(BaseModel):
+    content: str
+    title: Optional[str] = None
+    assignee_user_id: Optional[uuid.UUID] = None
+    due_at: Optional[datetime] = None
+    dispatch: bool = False  # if True + assignee set, transition to dispatched immediately
+
+
+class DirectiveCommitIn(BaseModel):
+    tasks: list[DirectiveCommitTaskIn]
+
+
+class DirectiveCommitOut(BaseModel):
+    directive_id: uuid.UUID
+    committed_task_ids: list[uuid.UUID]
+    dispatched_count: int
+
+
+@router.post(
+    "/directives/{directive_id}/commit", response_model=DirectiveCommitOut
+)
+async def commit_directive(
+    directive_id: str,
+    payload: DirectiveCommitIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v19: 把 draft 列表中用户确认的部分批量入库为 Task.
+    每条 task 可选 `dispatch=true` 直接走 open → dispatched 转换 + 通知 assignee.
+    """
+    try:
+        did = uuid.UUID(directive_id)
+    except ValueError:
+        raise HTTPException(400, "invalid directive id")
+    row = (
+        await session.execute(
+            select(LeaderDirective).where(
+                LeaderDirective.id == did,
+                LeaderDirective.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "directive not found")
+    if row.status == "committed":
+        raise HTTPException(409, "directive already committed")
+    if row.status == "discarded":
+        raise HTTPException(409, "directive was discarded")
+    if not payload.tasks:
+        raise HTTPException(400, "no tasks to commit")
+
+    now = datetime.now(timezone.utc)
+    committed_ids: list[uuid.UUID] = []
+    dispatched_count = 0
+
+    # Validate assignees up-front (single workspace check).
+    assignee_ids = {
+        t.assignee_user_id for t in payload.tasks if t.assignee_user_id
+    }
+    if assignee_ids:
+        valid = (
+            await session.execute(
+                select(User.id).where(
+                    User.id.in_(assignee_ids),
+                    User.workspace_id == auth.workspace.id,
+                )
+            )
+        ).all()
+        valid_set = {v[0] for v in valid}
+        missing = assignee_ids - valid_set
+        if missing:
+            raise HTTPException(
+                400,
+                f"assignee_user_id(s) not in workspace: {', '.join(str(x) for x in missing)}",
+            )
+
+    for tspec in payload.tasks:
+        c = (tspec.content or "").strip()
+        if not c:
+            continue
+        # Default 'open'; if dispatch+assignee, jump to dispatched.
+        wants_dispatch = tspec.dispatch and tspec.assignee_user_id is not None
+        new_task = Task(
+            workspace_id=auth.workspace.id,
+            title=(tspec.title.strip()[:255] if tspec.title else None) or None,
+            content=c[:1000],
+            assignee_user_id=tspec.assignee_user_id,
+            created_by_user_id=auth.user.id,
+            due_at=tspec.due_at,
+            status="dispatched" if wants_dispatch else "open",
+            source_type="leader_directive",
+            source_ref={"directive_id": str(row.id)},
+        )
+        if wants_dispatch:
+            new_task.dispatched_at = now
+            new_task.dispatched_by_user_id = auth.user.id
+        session.add(new_task)
+        await session.flush()
+        committed_ids.append(new_task.id)
+
+        if wants_dispatch and tspec.assignee_user_id != auth.user.id:
+            notify_payload = {
+                "task_id": str(new_task.id),
+                "content": new_task.content,
+                "due_at": new_task.due_at.isoformat() if new_task.due_at else None,
+                "dispatched_by": auth.user.name,
+                "directive_id": str(row.id),
+            }
+            await emit_notification(
+                session,
+                workspace_id=auth.workspace.id,
+                user_id=tspec.assignee_user_id,
+                kind="task_dispatched",
+                payload=notify_payload,
+            )
+            dispatched_count += 1
+
+    row.status = "committed"
+    row.committed_task_ids = [str(x) for x in committed_ids]
+    await session.commit()
+
+    return DirectiveCommitOut(
+        directive_id=row.id,
+        committed_task_ids=committed_ids,
+        dispatched_count=dispatched_count,
+    )
+
+
+@router.post("/directives/{directive_id}/discard", status_code=204)
+async def discard_directive(
+    directive_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v19: 丢弃一条未提交的指令(只改状态,不删除行,留 audit)."""
+    try:
+        did = uuid.UUID(directive_id)
+    except ValueError:
+        raise HTTPException(400, "invalid directive id")
+    row = (
+        await session.execute(
+            select(LeaderDirective).where(
+                LeaderDirective.id == did,
+                LeaderDirective.workspace_id == auth.workspace.id,
+                LeaderDirective.created_by_user_id == auth.user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "directive not found")
+    if row.status != "draft":
+        raise HTTPException(409, f"cannot discard a {row.status} directive")
+    row.status = "discarded"
+    await session.commit()
+
+
+@router.get("/directives", response_model=list[DirectiveOut])
+async def list_my_directives(
+    limit: int = Query(20, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v19: 当前用户最近的指令列表(history,默认 20 条)."""
+    rows = (
+        await session.execute(
+            select(LeaderDirective)
+            .where(
+                LeaderDirective.workspace_id == auth.workspace.id,
+                LeaderDirective.created_by_user_id == auth.user.id,
+            )
+            .order_by(LeaderDirective.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [_directive_to_out(r) for r in rows]
 
 
 async def _meeting_title_for(

@@ -416,7 +416,10 @@ export type Notification = {
     | "task_dispatched"
     | "task_accepted"
     | "task_returned"
-    | "task_completed";
+    | "task_completed"
+    | "task_submitted"
+    | "task_approved"
+    | "task_rejected";
   severity: "normal" | "yellow" | "red" | "purple";
   payload: Record<string, unknown> | null;
   read_at: string | null;
@@ -431,9 +434,10 @@ export type NotificationList = {
   max_unread_severity: "normal" | "yellow" | "red" | "purple";
 };
 
-/** v17 → v18: Task as workspace-level first-class object.
- *  Status enum extends to the 6-state machine; new state-machine
- *  timestamps stamp the corresponding transition. */
+/** v17 → v19: Task as workspace-level first-class object.
+ *  Status enum extends through the 8-state machine; v19 adds
+ *  `submitted` (assignee 上报办结申请,等待审核) and `archived`
+ *  (已办结归档). */
 export type MyTask = {
   id: string;
   title: string | null;
@@ -445,7 +449,9 @@ export type MyTask = {
     | "dispatched"
     | "accepted"
     | "in_progress"
+    | "submitted"
     | "done"
+    | "archived"
     | "cancelled";
   dispatched_at: string | null;
   dispatched_by_user_id: string | null;
@@ -464,6 +470,40 @@ export type MyTask = {
   meeting_title: string | null;
   created_at: string;
   updated_at: string;
+};
+
+/** v19: a leader directive (natural-language instruction) and the LLM-parsed
+ *  draft Tasks waiting for the user to confirm/edit/dispatch. */
+export type DirectiveDraft = {
+  content: string;
+  title: string | null;
+  assignee_name: string | null;
+  assignee_user_id: string | null;
+  due_at: string | null;  // ISO date YYYY-MM-DD
+};
+
+export type LeaderDirective = {
+  id: string;
+  content: string;
+  status: "draft" | "committed" | "discarded";
+  drafts: DirectiveDraft[];
+  committed_task_ids: string[];
+  parse_error: string | null;
+  created_at: string;
+};
+
+export type DirectiveCommitTask = {
+  content: string;
+  title?: string | null;
+  assignee_user_id?: string | null;
+  due_at?: string | null;  // ISO datetime
+  dispatch?: boolean;
+};
+
+export type DirectiveCommitResult = {
+  directive_id: string;
+  committed_task_ids: string[];
+  dispatched_count: number;
 };
 
 export type Me = {
@@ -607,7 +647,7 @@ export const api = {
   markAllNotificationsRead: () =>
     jpostVoid(`/api/me/notifications/read-all`, {}),
 
-  // v17 → v18: Task lifecycle (派发 / 签收 / 退回 / 办理 / 办结 / 取消)
+  // v17 → v19: Task lifecycle (派发 / 签收 / 退回 / 办理 / 上报 / 办结 / 归档 / 取消)
   listMyTasks: (
     status:
       | "active"
@@ -616,11 +656,15 @@ export const api = {
       | "dispatched"
       | "accepted"
       | "in_progress"
+      | "submitted"
       | "done"
+      | "archived"
       | "cancelled"
       | "pending"
-      | "working" = "active",
-  ) => jget<MyTask[]>(`/api/me/tasks?status=${status}`),
+      | "working"
+      | "review" = "active",
+    role: "assignee" | "reviewer" = "assignee",
+  ) => jget<MyTask[]>(`/api/me/tasks?status=${status}&role=${role}`),
   dispatchTask: (
     taskId: string,
     body: {
@@ -639,6 +683,32 @@ export const api = {
     jpost<MyTask>(`/api/me/tasks/${taskId}/complete`, {}),
   cancelTask: (taskId: string, reason?: string | null) =>
     jpost<MyTask>(`/api/me/tasks/${taskId}/cancel`, { reason }),
+
+  // v19: 上报办结申请 + 领导审核 + 归档
+  submitTask: (taskId: string, note?: string | null) =>
+    jpost<MyTask>(`/api/me/tasks/${taskId}/submit`, { note }),
+  approveTask: (taskId: string) =>
+    jpost<MyTask>(`/api/me/tasks/${taskId}/approve`, {}),
+  rejectTask: (taskId: string, reason?: string | null) =>
+    jpost<MyTask>(`/api/me/tasks/${taskId}/reject`, { reason }),
+  archiveTask: (taskId: string) =>
+    jpost<MyTask>(`/api/me/tasks/${taskId}/archive`, {}),
+
+  // v19: 领导指令(自然语言)→ Task 草稿 → 批量入库
+  createDirective: (content: string) =>
+    jpost<LeaderDirective>(`/api/me/directives`, { content }),
+  commitDirective: (
+    directiveId: string,
+    tasks: DirectiveCommitTask[],
+  ) =>
+    jpost<DirectiveCommitResult>(
+      `/api/me/directives/${directiveId}/commit`,
+      { tasks },
+    ),
+  discardDirective: (directiveId: string) =>
+    jpostVoid(`/api/me/directives/${directiveId}/discard`, {}),
+  listMyDirectives: (limit = 20) =>
+    jget<LeaderDirective[]>(`/api/me/directives?limit=${limit}`),
 
   // M3.0 agent message history (Cowork-friendly read-only)
   listAgentMessages: (meetingId: string) =>

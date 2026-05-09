@@ -30,6 +30,12 @@ TASK_ACTION_START = "start"
 TASK_ACTION_COMPLETE = "complete"
 TASK_ACTION_CANCEL = "cancel"
 
+# v19 新增:上报办结申请 + 领导审核
+TASK_ACTION_SUBMIT = "submit"      # in_progress → submitted (assignee 上报)
+TASK_ACTION_APPROVE = "approve"    # submitted → done (dispatcher/admin 通过)
+TASK_ACTION_REJECT = "reject"      # submitted → in_progress (dispatcher 退回返工)
+TASK_ACTION_ARCHIVE = "archive"    # done → archived (手动归档,可选)
+
 # 直接 status 修改(legacy 兼容,v17 ActionItem PATCH 走的就是这个)
 TASK_ACTION_LEGACY_PATCH = "legacy_patch"
 
@@ -58,11 +64,24 @@ _ALLOWED_TRANSITIONS: dict[tuple[str, str], str] = {
     (TASK_ACTION_COMPLETE, "open"): "done",
     (TASK_ACTION_COMPLETE, "accepted"): "done",
 
+    # v19 上报办结申请:in_progress → submitted
+    (TASK_ACTION_SUBMIT, "in_progress"): "submitted",
+
+    # v19 审核通过:submitted → done(领导/派发人/admin 触发)
+    (TASK_ACTION_APPROVE, "submitted"): "done",
+
+    # v19 退回返工:submitted → in_progress(领导驳回,带 reason)
+    (TASK_ACTION_REJECT, "submitted"): "in_progress",
+
+    # v19 归档:done → archived(可选,手动)
+    (TASK_ACTION_ARCHIVE, "done"): "archived",
+
     # 取消:任何活跃态都可以取消
     (TASK_ACTION_CANCEL, "open"): "cancelled",
     (TASK_ACTION_CANCEL, "dispatched"): "cancelled",
     (TASK_ACTION_CANCEL, "accepted"): "cancelled",
     (TASK_ACTION_CANCEL, "in_progress"): "cancelled",
+    (TASK_ACTION_CANCEL, "submitted"): "cancelled",
 }
 
 
