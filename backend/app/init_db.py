@@ -63,6 +63,14 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("task", "accepted_at", "TIMESTAMPTZ"),
     ("task", "started_at", "TIMESTAMPTZ"),
     ("notification", "severity", "VARCHAR(16) NOT NULL DEFAULT 'normal'"),
+    # v21 (角色二分 + 数据 5 级分级):
+    #   - workspace_membership.bound_agent_id (expert role 必填,其他 NULL)
+    #   - task / knowledge_document / long_term_memory 加 data_classification
+    #     默认 'general',现有数据全部归入「中度敏感」
+    ("workspace_membership", "bound_agent_id", "UUID"),
+    ("task", "data_classification", "VARCHAR(16) NOT NULL DEFAULT 'general'"),
+    ("knowledge_document", "data_classification", "VARCHAR(16) NOT NULL DEFAULT 'general'"),
+    ("long_term_memory", "data_classification", "VARCHAR(16) NOT NULL DEFAULT 'general'"),
 ]
 
 # Drop the legacy unique-on-provider constraint so the new

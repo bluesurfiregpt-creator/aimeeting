@@ -419,7 +419,10 @@ export type Notification = {
     | "task_completed"
     | "task_submitted"
     | "task_approved"
-    | "task_rejected";
+    | "task_rejected"
+    | "access_requested"
+    | "access_approved"
+    | "access_rejected";
   severity: "normal" | "yellow" | "red" | "purple";
   payload: Record<string, unknown> | null;
   read_at: string | null;
@@ -457,6 +460,8 @@ export type MyTask = {
   dispatched_by_user_id: string | null;
   accepted_at: string | null;
   started_at: string | null;
+  /** v21: 数据 5 级分级 */
+  data_classification: DataClassification;
   source_type:
     | "meeting"
     | "manual"
@@ -558,12 +563,66 @@ export type Me = {
   role: string;
 };
 
+/** v21: 角色枚举扩展.
+ *  - owner / admin — 「领导/管理员」
+ *  - leader — admin 的别名(智慧住建偏好)
+ *  - expert — 绑定单一 Agent 的「专家权限」(必填 bound_agent_id)
+ *  - member — legacy,默认值 */
+export type TeamRole =
+  | "owner"
+  | "admin"
+  | "leader"
+  | "expert"
+  | "member";
+
 export type TeamMember = {
   user_id: string;
   name: string;
   email: string | null;
-  role: "owner" | "admin" | "member";
+  role: TeamRole;
+  bound_agent_id: string | null;
+  bound_agent_name: string | null;
   joined_at: string;
+};
+
+/** v21: 数据 5 级分级值. */
+export type DataClassification =
+  | "core"        // 危害国家安全/公共利益
+  | "important"   // 影响公众权益
+  | "sensitive"   // 较敏感业务
+  | "general"     // 中度敏感(默认)
+  | "public";     // 内部/公开
+
+export const CLASSIFICATION_LABELS: Record<DataClassification, string> = {
+  core: "核心",
+  important: "重要",
+  sensitive: "敏感",
+  general: "一般",
+  public: "公开",
+};
+
+export const CLASSIFICATION_BADGE_CLASSES: Record<DataClassification, string> = {
+  core: "bg-red-500/20 text-red-300",
+  important: "bg-orange-500/20 text-orange-300",
+  sensitive: "bg-amber-500/20 text-amber-300",
+  general: "bg-zinc-700 text-zinc-300",
+  public: "bg-emerald-500/20 text-emerald-300",
+};
+
+/** v21: 跨 AI 数据访问申请. */
+export type AccessRequest = {
+  id: string;
+  requester_user_id: string;
+  target_resource_type: "task" | "kb_document" | "memory" | "agent";
+  target_resource_id: string;
+  target_owner_user_id: string | null;
+  justification: string | null;
+  status: "pending" | "approved" | "rejected" | "expired";
+  expires_at: string | null;
+  decided_at: string | null;
+  decided_by_user_id: string | null;
+  decision_reason: string | null;
+  created_at: string;
 };
 
 export type Invitation = {
@@ -608,6 +667,11 @@ export const api = {
   // Team
   listMembers: () => jget<TeamMember[]>("/api/team/members"),
   removeMember: (userId: string) => jdelete(`/api/team/members/${userId}`),
+  // v21: admin 改成员的 role + bound_agent_id
+  updateMember: (
+    userId: string,
+    body: { role?: TeamRole; bound_agent_id?: string | null },
+  ) => jpatch<TeamMember>(`/api/team/members/${userId}`, body),
   listInvitations: () => jget<Invitation[]>("/api/team/invitations"),
   createInvitation: (body: { email?: string; role: "admin" | "member" }) =>
     jpost<Invitation>("/api/team/invitations", body),
@@ -767,6 +831,30 @@ export const api = {
     jpostVoid(`/api/me/upper-docs/${upperDocId}/discard`, {}),
   listMyUpperDocs: (limit = 20) =>
     jget<UpperDoc[]>(`/api/me/upper-docs?limit=${limit}`),
+
+  // v21: 跨 AI 数据访问申请
+  createAccessRequest: (body: {
+    target_resource_type: "task" | "kb_document" | "memory" | "agent";
+    target_resource_id: string;
+    justification?: string | null;
+  }) => jpost<AccessRequest>(`/api/me/access-requests`, body),
+  listMyAccessRequests: (
+    role: "requester" | "reviewer" = "requester",
+    status: "all" | "pending" | "approved" | "rejected" | "expired" = "all",
+    limit = 50,
+  ) =>
+    jget<AccessRequest[]>(
+      `/api/me/access-requests?role=${role}&status=${status}&limit=${limit}`,
+    ),
+  approveAccessRequest: (
+    id: string,
+    approval_window_hours?: number | null,
+  ) =>
+    jpost<AccessRequest>(`/api/me/access-requests/${id}/approve`, {
+      approval_window_hours,
+    }),
+  rejectAccessRequest: (id: string, reason?: string | null) =>
+    jpost<AccessRequest>(`/api/me/access-requests/${id}/reject`, { reason }),
 
   // v20: 定期巡检触发源 cron 规则
   listCronRules: () => jget<CronRule[]>(`/api/cron-rules`),

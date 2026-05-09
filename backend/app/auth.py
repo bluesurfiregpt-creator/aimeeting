@@ -157,3 +157,80 @@ async def get_current_auth(
         raise HTTPException(403, "not a member of this workspace")
 
     return AuthContext(user=user, workspace=ws)
+
+
+# ----- v21: role + scope helpers ---------------------------------------------
+#
+# v17-v20 把权限模型保持在 owner/admin/member 三档.v21 引入「领导/专家」
+# 二分(智慧住建文档「二.1」),实现方式不破坏 legacy:
+#   - 旧的 owner/admin/member 全部继续工作(member ≈ general user)
+#   - 新增 'expert' role(必填 bound_agent_id,只能看 bound 的 Agent 范围)
+#   - 'leader' 暂作为 admin 别名(权限同 admin),以后语义分化时再独立
+#
+# 这些 helper 都是同步查询 workspace_membership 表,只触一行,可以放心
+# 在 hot path 调.
+
+_LEADER_ROLES: frozenset[str] = frozenset({"owner", "admin", "leader"})
+
+
+async def get_membership_role(
+    session: AsyncSession, user_id: uuid.UUID, workspace_id: uuid.UUID
+) -> Optional[str]:
+    """Returns the user's role in the workspace, or None if no membership."""
+    return (
+        await session.execute(
+            select(WorkspaceMembership.role).where(
+                WorkspaceMembership.user_id == user_id,
+                WorkspaceMembership.workspace_id == workspace_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def is_leader_or_admin(
+    session: AsyncSession, auth: AuthContext
+) -> bool:
+    """True if caller has a 「领导/管理员」 role (owner/admin/leader)."""
+    role = await get_membership_role(session, auth.user.id, auth.workspace.id)
+    return role in _LEADER_ROLES
+
+
+async def is_expert(session: AsyncSession, auth: AuthContext) -> bool:
+    role = await get_membership_role(session, auth.user.id, auth.workspace.id)
+    return role == "expert"
+
+
+async def expert_bound_agent_id(
+    session: AsyncSession, auth: AuthContext
+) -> Optional[uuid.UUID]:
+    """
+    For expert-role caller, returns their bound agent id (or None if not
+    expert / not bound). Other roles return None — caller decides what
+    that means (typically: full access).
+    """
+    row = (
+        await session.execute(
+            select(
+                WorkspaceMembership.role, WorkspaceMembership.bound_agent_id
+            ).where(
+                WorkspaceMembership.user_id == auth.user.id,
+                WorkspaceMembership.workspace_id == auth.workspace.id,
+            )
+        )
+    ).first()
+    if row is None:
+        return None
+    role, bound = row
+    if role != "expert":
+        return None
+    return bound
+
+
+async def require_leader_or_admin(
+    session: AsyncSession, auth: AuthContext
+) -> None:
+    """Raise 403 if caller is not a leader/owner/admin. Use as the first
+    line in any router that does workspace-level destructive / global ops
+    (cron rules, agent CRUD, team management, dispatch, approve, etc)."""
+    if not await is_leader_or_admin(session, auth):
+        raise HTTPException(403, "需要领导/管理员权限")

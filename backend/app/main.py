@@ -22,6 +22,7 @@ from .agent_router import invoke_agent_directly, maybe_invoke_agents
 from .agenda_monitor import maybe_check_agenda
 from .dissent_detector import maybe_detect_dissent
 from .auth import COOKIE_NAME, decode_token
+from .routers import access_requests as access_requests_router
 from .routers import agents as agents_router
 from .routers import audit as audit_router
 from .routers import auth as auth_router
@@ -90,6 +91,7 @@ app.include_router(team_router.router)
 app.include_router(knowledge_router.router)
 app.include_router(me_router.router)
 app.include_router(cron_rules_router.router)
+app.include_router(access_requests_router.router)
 
 
 @app.get("/healthz")

@@ -30,6 +30,11 @@ Notification kinds:
   - 'task_approved'    — reviewer approved the submission (notify assignee)
   - 'task_rejected'    — reviewer rejected the submission (notify assignee with reason)
 
+  v21 (跨 AI 数据访问申请):
+  - 'access_requested' — someone wants to read your data (notify owner)
+  - 'access_approved'  — your request was approved (notify requester, with expires_at)
+  - 'access_rejected'  — your request was rejected (notify requester, with reason)
+
 Severity (v18):
   normal — default, all event-driven kinds
   yellow — due_soon (≤3d to due) — bell + (later) WeChat work

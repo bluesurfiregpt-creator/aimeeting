@@ -85,7 +85,20 @@ class WorkspaceMembership(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
     )
-    role: Mapped[str] = mapped_column(String(16), default="member")  # owner|admin|member
+    # v21: role 枚举扩展.
+    #   owner / admin — 「领导权限」(全局俯瞰 + 调度,继承 v17 语义)
+    #   leader        — owner/admin 的别名,智慧住建偏好这个词;权限同 admin
+    #   expert        — 「专家权限」:操作范围限制在所绑定的单一 AI 专家
+    #                   (智慧住建 16 AI 集群里,一个科员对应一个 AI 专家);
+    #                   必须填 bound_agent_id
+    #   member        — legacy,默认值,保留向后兼容(v17-v20 用户都是这个)
+    role: Mapped[str] = mapped_column(String(16), default="member")
+    # v21: expert 角色的「绑定 AI 专家」.其他 role 应为 NULL.
+    # ondelete=SET NULL — agent 被删时不连带踢人,但 expert 会失去 scope,
+    # API 入口处会拦下并提示「请联系管理员重新绑定专家」.
+    bound_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("agent.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -457,6 +470,13 @@ class Task(Base):
     )
     due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(16), default="open", index=True)
+    # v21: 数据 5 级分级.决定谁能看 / 跨 AI 共享是否需审批.默认 'general'.
+    #   core      — 危害国家安全/公共利益;领导 + 核心管理员查看,一事一议审批
+    #   important — 影响公众权益;admin 以上查看,leader 审批
+    #   sensitive — 较敏感业务;本 AI 专家权限用户查看,跨 AI 需授权
+    #   general   — 中度敏感;局内人员可查看(默认)
+    #   public    — 内部/公开;无条件共享
+    data_classification: Mapped[str] = mapped_column(String(16), default="general", index=True)
     # v18 state-machine timestamps. Each is set when the corresponding
     # transition fires and never cleared (audit trail). NULL means
     # "transition hasn't happened yet". `dispatched_by_user_id` carries
@@ -637,6 +657,73 @@ class CronRule(Base):
     )
 
 
+class DataAccessRequest(Base):
+    """
+    v21 — 跨 AI 数据访问申请.
+
+    场景:智慧住建里,「房屋安全 AI 专家」想看「物业监管 AI 专家」的某条
+    敏感数据(data_classification ∈ {sensitive, important, core}).系统
+    不直接放行,而是包一个审批流:
+
+      1. expert A 发起 POST /api/me/access-requests
+         { target_resource_type, target_resource_id, justification }
+         → 写一行 DataAccessRequest(status='pending')
+         → 通知目标资源的 owner / workspace admin
+
+      2. 审批人(owner / admin / leader) POST /api/me/access-requests/{id}/approve
+         { approval_window_hours? }(默认 24h)
+         → status='approved', decided_at + decided_by 填上, expires_at 填上
+         → 通知申请人 access_approved
+
+      3. 申请人在 expires_at 之前再访问目标资源:
+         系统读 DataAccessRequest 找到这条 approved + 未过期记录, 放行
+         否则 403
+
+      4. 审批人也可 reject(必须填 reason),通知申请人 access_rejected
+
+    数据分级查询时的检查链(v21 简化版):
+      - expert 看自己 bound_agent 范围内的资源 → 全放行(只受分级垂直限制)
+      - expert 看 NOT 自己 bound 的资源:
+          public/general → 放行
+          sensitive/important/core → 必须有有效 access_request
+
+    访问决策点(中央化):services/access_control.py 的 `can_access()`
+    helper, 各 router 在拉资源后立刻调.
+    """
+    __tablename__ = "data_access_request"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    requester_user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    # 目标资源类型 + id.目前支持 'task' | 'kb_document' | 'memory' | 'agent'.
+    # 'agent' 用于「我想跨入 X AI 专家的整片数据范围」类粗粒度授权(v22+).
+    target_resource_type: Mapped[str] = mapped_column(String(32), index=True)
+    target_resource_id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), index=True)
+    # 资源所属人 / 该 Agent 的 owner.审批通知发给他.
+    target_owner_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    justification: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # pending | approved | rejected | expired
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    decided_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    decision_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Notification(Base):
     """
     Theme 1 (P0) in-app notification. Bell badge / drawer reads this table.
@@ -784,6 +871,8 @@ class KnowledgeDocument(Base):
     char_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     chunk_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # v21: 数据 5 级分级.同 Task.data_classification 的语义.
+    data_classification: Mapped[str] = mapped_column(String(16), default="general", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -830,5 +919,7 @@ class LongTermMemory(Base):
     source_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     importance: Mapped[float] = mapped_column(Float, default=0.5)
     embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(1536), nullable=True)
+    # v21: 数据 5 级分级.同 Task.data_classification 的语义.
+    data_classification: Mapped[str] = mapped_column(String(16), default="general", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

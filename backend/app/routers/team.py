@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..audit import audit_log
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
-from ..models import User, WorkspaceInvitation, WorkspaceMembership
+from ..models import Agent, User, WorkspaceInvitation, WorkspaceMembership
 
 router = APIRouter(prefix="/api/team", tags=["team"])
 
@@ -54,13 +54,32 @@ class MemberOut(BaseModel):
     user_id: uuid.UUID
     name: str
     email: Optional[str] = None
+    # v17-v20: owner | admin | member
+    # v21+: 加入 'leader' (admin 别名,智慧住建偏好)和 'expert' (绑定单一 Agent)
     role: str
+    bound_agent_id: Optional[uuid.UUID] = None
+    bound_agent_name: Optional[str] = None
     joined_at: datetime
+
+
+class MemberPatchIn(BaseModel):
+    role: Optional[str] = None  # owner | admin | leader | expert | member
+    bound_agent_id: Optional[uuid.UUID] = None  # required when role='expert'
 
 
 class InviteIn(BaseModel):
     email: Optional[EmailStr] = None  # optional hint; invite is token-based
     role: str = "member"
+
+
+# v21: workspace_membership.role 枚举(权限模型)
+_ALL_ROLES: frozenset[str] = frozenset(
+    {"owner", "admin", "leader", "expert", "member"}
+)
+# 谁能被 admin 改派 — 不能改 owner role
+_PATCHABLE_ROLES: frozenset[str] = frozenset(
+    {"admin", "leader", "expert", "member"}
+)
 
 
 class InviteOut(BaseModel):
@@ -91,16 +110,124 @@ async def list_members(
             .order_by(WorkspaceMembership.created_at)
         )
     ).all()
+    # v21: 批量取 expert 们 bound 的 Agent name(避免 N+1)
+    bound_ids = {m.bound_agent_id for (m, _) in rows if m.bound_agent_id}
+    name_by_agent: dict[uuid.UUID, str] = {}
+    if bound_ids:
+        agents = (
+            await session.execute(
+                select(Agent.id, Agent.name).where(Agent.id.in_(bound_ids))
+            )
+        ).all()
+        name_by_agent = {a[0]: a[1] for a in agents}
     return [
         MemberOut(
             user_id=u.id,
             name=u.name,
             email=u.email,
             role=m.role,
+            bound_agent_id=m.bound_agent_id,
+            bound_agent_name=name_by_agent.get(m.bound_agent_id) if m.bound_agent_id else None,
             joined_at=m.created_at,
         )
         for (m, u) in rows
     ]
+
+
+@router.patch("/members/{user_id}", response_model=MemberOut)
+async def update_member(
+    user_id: str,
+    payload: MemberPatchIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v21: admin 改某个成员的 role 和 / 或 bound_agent_id.
+
+    规则:
+      - 不能改自己(避免误降权);转移所有权走另外的端点(目前没做)
+      - 不能把别人改成 owner(owner 转让是单独动作)
+      - role='expert' 时必填 bound_agent_id;切其他 role 时清空 bound
+    """
+    try:
+        target_uuid = uuid.UUID(user_id.strip())
+    except (ValueError, AttributeError):
+        raise HTTPException(400, "invalid user id")
+    if auth.user.id == target_uuid:
+        raise HTTPException(400, "cannot change your own role")
+    await _require_admin(session, auth)
+
+    target = (
+        await session.execute(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == auth.workspace.id,
+                WorkspaceMembership.user_id == target_uuid,
+            )
+        )
+    ).scalar_one_or_none()
+    if not target:
+        raise HTTPException(404, "member not found")
+    if target.role == "owner":
+        raise HTTPException(403, "cannot modify the workspace owner; use transfer-ownership")
+
+    new_role = payload.role
+    new_bound = payload.bound_agent_id
+
+    # 没传 role 时,只改 bound;反之亦然.
+    final_role = new_role if new_role is not None else target.role
+    if new_role is not None and new_role not in _PATCHABLE_ROLES:
+        raise HTTPException(400, f"role must be one of {sorted(_PATCHABLE_ROLES)}")
+
+    # role='expert' 必须给 bound_agent_id (传入或已有).
+    if final_role == "expert":
+        bound_to_use = new_bound if new_bound is not None else target.bound_agent_id
+        if bound_to_use is None:
+            raise HTTPException(400, "expert role requires bound_agent_id")
+        # 验证 agent 在本 workspace
+        a = (
+            await session.execute(
+                select(Agent).where(
+                    Agent.id == bound_to_use,
+                    Agent.workspace_id == auth.workspace.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not a:
+            raise HTTPException(400, "bound_agent_id not in this workspace")
+        target.bound_agent_id = bound_to_use
+    else:
+        # 切到非 expert role 时,清掉 bound(留着没意义,徒增混淆)
+        target.bound_agent_id = None
+
+    if new_role is not None:
+        target.role = new_role
+
+    await session.commit()
+    await session.refresh(target)
+    await audit_log(
+        session, auth, "team.update_member",
+        target_type="user", target_id=str(target_uuid),
+        payload={"role": target.role, "bound_agent_id": str(target.bound_agent_id) if target.bound_agent_id else None},
+    )
+
+    # 取 user + agent name 拼回 MemberOut
+    u = (
+        await session.execute(select(User).where(User.id == target_uuid))
+    ).scalar_one()
+    bound_name: Optional[str] = None
+    if target.bound_agent_id:
+        bound_name = (
+            await session.execute(select(Agent.name).where(Agent.id == target.bound_agent_id))
+        ).scalar_one_or_none()
+    return MemberOut(
+        user_id=u.id,
+        name=u.name,
+        email=u.email,
+        role=target.role,
+        bound_agent_id=target.bound_agent_id,
+        bound_agent_name=bound_name,
+        joined_at=target.created_at,
+    )
 
 
 @router.delete("/members/{user_id}", status_code=204)

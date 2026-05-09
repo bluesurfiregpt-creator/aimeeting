@@ -1,35 +1,59 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type Invitation, type TeamMember } from "@/lib/api";
+import {
+  api,
+  type Agent,
+  type Invitation,
+  type TeamMember,
+  type TeamRole,
+} from "@/lib/api";
 import { toast } from "@/lib/toast";
 
 const ROLE_TONE: Record<string, string> = {
   owner: "bg-amber-500/15 text-amber-300",
   admin: "bg-violet-500/15 text-violet-300",
+  leader: "bg-violet-500/15 text-violet-300",
+  expert: "bg-cyan-500/15 text-cyan-300",
   member: "bg-zinc-700/40 text-zinc-300",
 };
+
+// v21: 角色中文标签 + 简短描述,UI 用
+const ROLE_OPTIONS: { value: TeamRole; label: string; desc: string }[] = [
+  { value: "admin", label: "admin / leader (领导)", desc: "全局俯瞰 + 调度,等同管理员" },
+  { value: "leader", label: "leader (别名)", desc: "同 admin,智慧住建场景偏好" },
+  { value: "expert", label: "expert (专家)", desc: "绑定一个 AI 专家,只能看 bound 范围" },
+  { value: "member", label: "member (普通)", desc: "默认权限,只看自己 assignee 的 Task" },
+];
 
 export default function TeamAdmin() {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [invites, setInvites] = useState<Invitation[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [me, setMe] = useState<{ user_id: string; role: string } | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"admin" | "member">("member");
   const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(true);
+  // v21: 行内编辑 role + bound_agent 的草稿
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editRole, setEditRole] = useState<TeamRole>("member");
+  const [editBoundAgent, setEditBoundAgent] = useState<string>("");
+  const [saving, setSaving] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [meRow, ms, ivs] = await Promise.all([
+      const [meRow, ms, ivs, ags] = await Promise.all([
         api.me(),
         api.listMembers(),
         api.listInvitations().catch(() => [] as Invitation[]),
+        api.listAgents().catch(() => [] as Agent[]),
       ]);
       setMe({ user_id: meRow.user_id, role: meRow.role });
       setMembers(ms);
       setInvites(ivs);
+      setAgents(ags);
     } finally {
       setLoading(false);
     }
@@ -74,6 +98,38 @@ export default function TeamAdmin() {
       return;
     await api.removeMember(userId);
     await refresh();
+  };
+
+  const startEdit = (m: TeamMember) => {
+    setEditingId(m.user_id);
+    setEditRole(m.role);
+    setEditBoundAgent(m.bound_agent_id || "");
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+  };
+
+  const saveEdit = async (userId: string) => {
+    if (saving) return;
+    if (editRole === "expert" && !editBoundAgent) {
+      toast.warn("请为专家用户选择 bound AI 专家");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.updateMember(userId, {
+        role: editRole,
+        bound_agent_id: editRole === "expert" ? editBoundAgent : null,
+      });
+      setEditingId(null);
+      await refresh();
+      toast.success("已更新");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "更新失败");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const copyLink = async (url: string) => {
@@ -148,33 +204,111 @@ export default function TeamAdmin() {
               {members.map((m) => {
                 const tone = ROLE_TONE[m.role] ?? ROLE_TONE.member;
                 const isMe = me?.user_id === m.user_id;
+                const isEditing = editingId === m.user_id;
                 return (
                   <li
                     key={m.user_id}
-                    className="flex items-center justify-between px-4 py-3 text-sm"
+                    className="px-4 py-3 text-sm"
+                    data-testid={`team-member-${m.user_id}`}
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-white">{m.name}</span>
-                        <span className={`rounded-full px-2 py-0.5 text-xs ${tone}`}>
-                          {m.role}
-                        </span>
-                        {isMe && (
-                          <span className="text-xs text-zinc-500">（你）</span>
-                        )}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-white">{m.name}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-xs ${tone}`}>
+                            {m.role}
+                          </span>
+                          {m.role === "expert" && m.bound_agent_name ? (
+                            <span className="rounded bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-400">
+                              👤 {m.bound_agent_name}
+                            </span>
+                          ) : null}
+                          {isMe && (
+                            <span className="text-xs text-zinc-500">（你）</span>
+                          )}
+                        </div>
+                        <div className="mt-0.5 text-xs text-zinc-500">
+                          {m.email ?? "—"} · 加入于{" "}
+                          {new Date(m.joined_at).toLocaleDateString("zh-CN")}
+                        </div>
                       </div>
-                      <div className="mt-0.5 text-xs text-zinc-500">
-                        {m.email ?? "—"} · 加入于{" "}
-                        {new Date(m.joined_at).toLocaleDateString("zh-CN")}
-                      </div>
+                      {canManage && !isMe && m.role !== "owner" && !isEditing && (
+                        <div className="flex flex-col items-end gap-1">
+                          <button
+                            onClick={() => startEdit(m)}
+                            data-testid={`team-member-edit-${m.user_id}`}
+                            className="text-xs text-zinc-400 hover:text-zinc-100"
+                          >
+                            修改角色
+                          </button>
+                          <button
+                            onClick={() => removeMember(m.user_id, m.name)}
+                            className="text-xs text-rose-400 hover:text-rose-300"
+                          >
+                            移出
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    {canManage && !isMe && m.role !== "owner" && (
-                      <button
-                        onClick={() => removeMember(m.user_id, m.name)}
-                        className="text-xs text-rose-400 hover:text-rose-300"
+                    {isEditing && (
+                      <div
+                        className="mt-3 grid gap-2 rounded-md border border-ink-700 bg-ink-950 p-3"
+                        data-testid={`team-member-edit-form-${m.user_id}`}
                       >
-                        移出
-                      </button>
+                        <label className="text-xs text-zinc-400">
+                          角色
+                          <select
+                            value={editRole}
+                            onChange={(e) =>
+                              setEditRole(e.target.value as TeamRole)
+                            }
+                            className="mt-1 w-full rounded-md border border-ink-700 bg-ink-950 px-2 py-1.5 text-sm text-zinc-100 focus:border-accent-500 focus:outline-none"
+                          >
+                            {ROLE_OPTIONS.map((r) => (
+                              <option key={r.value} value={r.value}>
+                                {r.label}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="mt-0.5 block text-[10px] text-zinc-600">
+                            {ROLE_OPTIONS.find((r) => r.value === editRole)?.desc}
+                          </span>
+                        </label>
+                        {editRole === "expert" && (
+                          <label className="text-xs text-zinc-400">
+                            绑定 AI 专家(必填)
+                            <select
+                              value={editBoundAgent}
+                              onChange={(e) => setEditBoundAgent(e.target.value)}
+                              className="mt-1 w-full rounded-md border border-ink-700 bg-ink-950 px-2 py-1.5 text-sm text-zinc-100 focus:border-accent-500 focus:outline-none"
+                            >
+                              <option value="">— 选择一个 Agent —</option>
+                              {agents.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  {a.name}
+                                  {a.role === "moderator" ? " (主持人)" : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                        <div className="mt-1 flex justify-end gap-2">
+                          <button
+                            onClick={cancelEdit}
+                            className="rounded-md border border-ink-700 px-2.5 py-1 text-xs text-zinc-400 hover:bg-ink-800"
+                          >
+                            取消
+                          </button>
+                          <button
+                            onClick={() => saveEdit(m.user_id)}
+                            disabled={saving}
+                            data-testid={`team-member-save-${m.user_id}`}
+                            className="rounded-md bg-accent-500 px-2.5 py-1 text-xs font-medium text-white shadow disabled:opacity-50 hover:bg-accent-400"
+                          >
+                            {saving ? "保存中…" : "保存"}
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </li>
                 );

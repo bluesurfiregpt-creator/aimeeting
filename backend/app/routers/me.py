@@ -33,7 +33,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fastapi import File, UploadFile
 
-from ..auth import AuthContext, get_current_auth
+from ..auth import (
+    AuthContext,
+    expert_bound_agent_id,
+    get_current_auth,
+    is_leader_or_admin,
+    require_leader_or_admin,
+)
 from ..db import get_session
 from ..directive_parser import parse_directive
 from ..doc_parser import extract_text, kind_from_filename
@@ -150,6 +156,8 @@ class MyTaskOut(BaseModel):
     dispatched_by_user_id: Optional[uuid.UUID] = None
     accepted_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
+    # v21: 数据 5 级分级 (core | important | sensitive | general | public)
+    data_classification: str = "general"
     source_type: str
     # When source_type='meeting', source_ref carries the originating
     # meeting + action_item ids so the FE can deeplink. Other source
@@ -283,6 +291,7 @@ async def list_my_tasks(
                 dispatched_by_user_id=t.dispatched_by_user_id,
                 accepted_at=t.accepted_at,
                 started_at=t.started_at,
+                data_classification=t.data_classification or "general",
                 source_type=t.source_type,
                 source_ref=t.source_ref,
                 meeting_id=meeting_id,
@@ -372,11 +381,13 @@ async def dispatch_task(
     """
     Set assignee + due + transition `open → dispatched`.
 
-    Anyone in the workspace can dispatch — v18 doesn't gate this on role.
-    The assignee must also be in this workspace. Notifies the assignee
-    (severity=normal, kind=task_dispatched). Self-dispatch is allowed but
-    suppresses the notification (no need to ping yourself).
+    v21: 派发是「领导/管理员」级动作(per 智慧住建文档「二.1.2 领导权限」),
+    expert / member 不能直接派发(可以通过 /commit upper_doc/directive
+    时申请 dispatch=true,由 commit 入口检查).
+
+    Self-dispatch 仍然合法但不通知自己(no self-notify).
     """
+    await require_leader_or_admin(session, auth)
     t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
     new_status = transition(TASK_ACTION_DISPATCH, t.status)
 
@@ -1346,6 +1357,7 @@ def _task_to_my_out(
         dispatched_by_user_id=t.dispatched_by_user_id,
         accepted_at=t.accepted_at,
         started_at=t.started_at,
+        data_classification=t.data_classification or "general",
         source_type=t.source_type,
         source_ref=t.source_ref,
         meeting_id=meeting_pair[0] if meeting_pair else None,

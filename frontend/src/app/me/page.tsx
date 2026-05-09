@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   api,
+  CLASSIFICATION_BADGE_CLASSES,
+  CLASSIFICATION_LABELS,
+  type DataClassification,
   type MyTask,
   type Notification,
   type NotificationList,
@@ -364,11 +367,13 @@ export default function MePage() {
       t.due_at &&
       new Date(t.due_at) < new Date();
     const meetingId = t.meeting_id;
+    const cls: DataClassification = (t.data_classification || "general") as DataClassification;
     return (
       <li
         key={t.id}
         data-testid={`me-task-${t.id}`}
         data-status={t.status}
+        data-classification={cls}
         className="py-3"
       >
         <div className="flex items-start gap-2">
@@ -379,6 +384,15 @@ export default function MePage() {
           >
             {STATUS_LABEL[t.status] ?? t.status}
           </span>
+          {/* v21: 数据分级 badge — 只在 sensitive 及以上时显示,避免每条都贴 'general'(默认值)的视觉噪声 */}
+          {cls !== "general" && cls !== "public" && (
+            <span
+              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${CLASSIFICATION_BADGE_CLASSES[cls]}`}
+              title={`数据分级:${CLASSIFICATION_LABELS[cls]}`}
+            >
+              {CLASSIFICATION_LABELS[cls]}
+            </span>
+          )}
           <div className="flex-1 min-w-0">
             <div className="text-sm text-zinc-100 break-words">
               {t.content}

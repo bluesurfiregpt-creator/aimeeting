@@ -285,6 +285,7 @@
       ["Z", "v17/v18 Task 一级对象 + 状态机"],
       ["AA", "v19 领导指令 + 状态机收尾"],
       ["BB", "v20 上级文件 + 定期巡检"],
+      ["CC", "v21 角色二分 + 数据分级 + 跨 AI 共享"],
     ];
     const counts = { pass: 0, fail: 0, skipped: 0 };
     for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
@@ -2139,6 +2140,154 @@
           return { ok: false, error: `expected 400, got ${c.status}` };
         }
         return { ok: true, evidence: { _note: "invalid cron rejected 400" } };
+      },
+    });
+
+    // ---------- CC series · v21 角色二分 + 数据分级 + 跨 AI 共享 -----------
+    R.register({
+      id: "CC-1",
+      series: "CC",
+      title: "GET /api/team/members 返回带 role + bound_agent_id 字段",
+      async run(ctx) {
+        const r = await GET("/api/team/members");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if (!Array.isArray(r.body) || r.body.length === 0) {
+          return { ok: false, error: "members empty/unknown shape" };
+        }
+        const sample = r.body[0];
+        // shape:必须有 role 字段;bound_agent_id 可为 null
+        if (!("role" in sample) || !("bound_agent_id" in sample)) {
+          return { ok: false, error: "missing role or bound_agent_id field" };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `${r.body.length} members; first.role=${sample.role}` },
+        };
+      },
+    });
+
+    R.register({
+      id: "CC-2",
+      series: "CC",
+      title: "PATCH /api/team/members/<self> → 400 (不能改自己)",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        if (!me?.user_id) return { ok: false, error: "no caller user_id" };
+        const r = await PATCH(`/api/team/members/${me.user_id}`, {
+          role: "member",
+        });
+        if (r.ok || r.status !== 400) {
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "self-edit blocked 400" } };
+      },
+    });
+
+    R.register({
+      id: "CC-3",
+      series: "CC",
+      title: "GET /api/me/tasks 行包含 data_classification 字段(默认 general)",
+      async run(ctx) {
+        // 创个 task 保证返回非空
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_CC3`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `meeting ${m.status}` };
+        created("meeting", m.body.id, "CC3");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_CC3_task`,
+          assignee_user_id: me.user_id,
+        });
+        const r = await GET("/api/me/tasks?status=all");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const t = (r.body || []).find((x) => x.content === `${PREFIX}_CC3_task`);
+        if (!t) return { ok: false, error: "newly created task not visible" };
+        if (typeof t.data_classification !== "string") {
+          return { ok: false, error: "data_classification not in response" };
+        }
+        if (t.data_classification !== "general") {
+          return { ok: false, error: `expected 'general' default, got ${t.data_classification}` };
+        }
+        return { ok: true, evidence: { _note: `data_classification='${t.data_classification}'` } };
+      },
+    });
+
+    R.register({
+      id: "CC-4",
+      series: "CC",
+      title: "POST /access-requests 用 bogus task uuid → 404",
+      async run() {
+        const bogus = "00000000-0000-0000-0000-000000000000";
+        const r = await POST("/api/me/access-requests", {
+          target_resource_type: "task",
+          target_resource_id: bogus,
+          justification: `${PREFIX}_CC4_test`,
+        });
+        if (r.ok || r.status !== 404) {
+          return { ok: false, error: `expected 404, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "bogus target → 404" } };
+      },
+    });
+
+    R.register({
+      id: "CC-5",
+      series: "CC",
+      title: "POST /access-requests 申请自己拥有的 task → 400",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_CC5`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `meeting ${m.status}` };
+        created("meeting", m.body.id, "CC5");
+        const a = await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_CC5_my_task`,
+          assignee_user_id: me.user_id,
+        });
+        // 找到对应 task id
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_CC5_my_task`);
+        if (!t) return { ok: false, error: "task not visible" };
+        const r = await POST("/api/me/access-requests", {
+          target_resource_type: "task",
+          target_resource_id: t.id,
+        });
+        if (r.ok || r.status !== 400) {
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "self-owned 400" } };
+      },
+    });
+
+    R.register({
+      id: "CC-6",
+      series: "CC",
+      title: "GET /access-requests?role=requester 返回数组,shape OK",
+      async run() {
+        const r = await GET("/api/me/access-requests?role=requester&status=all");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if (!Array.isArray(r.body)) return { ok: false, error: "not array" };
+        return { ok: true, evidence: { _note: `${r.body.length} requests` } };
+      },
+    });
+
+    R.register({
+      id: "CC-7",
+      series: "CC",
+      title: "Cron rule create 仍然 OK(owner 是 leader 角色,权限检查通过)",
+      async run() {
+        // v21 加了 require_leader_or_admin 守卫,master 是 owner 应当通过.
+        // 这是回归测试,确保 v21 的权限收紧不破坏 owner 默认权限.
+        const c = await POST("/api/cron-rules", {
+          name: `${PREFIX}_CC7_perm_check`,
+          cron_expr: "0 9 * * 1",
+          task_template_content: `${PREFIX}_CC7`,
+          is_active: false,
+        });
+        if (!c.ok) {
+          return { ok: false, error: `owner cron-rule create blocked: ${c.status} ${JSON.stringify(c.body)}` };
+        }
+        // cleanup
+        if (c.body?.id) await DEL(`/api/cron-rules/${c.body.id}`);
+        return { ok: true, evidence: { _note: "owner 权限未被 v21 收紧拦截" } };
       },
     });
 

@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import AuthContext, get_current_auth
+from ..auth import AuthContext, get_current_auth, require_leader_or_admin
 from ..cron_runner import fire_rule, validate_cron_expr_or_error
 from ..db import get_session
 from ..models import CronRule, User
@@ -125,6 +125,8 @@ async def create_cron_rule(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    # v21: cron 规则是 workspace 级编排,只有领导/管理员能 CRUD
+    await require_leader_or_admin(session, auth)
     if not payload.name.strip() or not payload.cron_expr.strip():
         raise HTTPException(400, "name + cron_expr required")
     if not payload.task_template_content.strip():
@@ -158,6 +160,7 @@ async def update_cron_rule(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    await require_leader_or_admin(session, auth)
     try:
         rid = uuid.UUID(rule_id)
     except ValueError:
@@ -203,6 +206,7 @@ async def delete_cron_rule(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    await require_leader_or_admin(session, auth)
     try:
         rid = uuid.UUID(rule_id)
     except ValueError:
@@ -237,7 +241,9 @@ async def force_fire_cron_rule(
     v20: 立即触发一次该规则,绕过 cron 表达式时间匹配.
     主要用途:Cowork 测试 + 用户调试时 sanity-check 模板.
     不要求 is_active=true.
+    v21: leader-only(实例化 Task 算编排动作).
     """
+    await require_leader_or_admin(session, auth)
     try:
         rid = uuid.UUID(rule_id)
     except ValueError:
