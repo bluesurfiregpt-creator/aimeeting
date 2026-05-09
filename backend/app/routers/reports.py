@@ -45,8 +45,13 @@ _XLSX_CT = (
 def _xlsx_response(wb: Workbook, filename: str) -> StreamingResponse:
     """openpyxl Workbook → StreamingResponse (utf-8 文件名).
 
-    用 RFC 5987 的 filename* 形式,保证中文 / 日期 / 特殊字符都能正确显示
-    在浏览器下载提示里.
+    Starlette 把 headers 强制 encode 成 latin-1,所以裸中文 filename 会爆
+    UnicodeEncodeError.正确做法:
+      - `filename=` 段必须 ASCII 安全(给老浏览器看)
+      - `filename*=UTF-8''<percent-encoded>` 段给 modern 浏览器(RFC 5987),
+        decode 后才是真正的中文文件名
+
+    实测 Chrome / Edge / Firefox / Safari 都优先取 filename*= 后呈现.
     """
     buf = io.BytesIO()
     wb.save(buf)
@@ -54,12 +59,14 @@ def _xlsx_response(wb: Workbook, filename: str) -> StreamingResponse:
     from urllib.parse import quote
 
     encoded = quote(filename)
+    # ASCII fallback — 把所有非 ASCII 字符替换成下划线,保证 latin-1 可编码
+    ascii_fallback = filename.encode("ascii", errors="replace").decode("ascii").replace("?", "_")
     return StreamingResponse(
         buf,
         media_type=_XLSX_CT,
         headers={
             "Content-Disposition": (
-                f"attachment; filename=\"{filename}\"; "
+                f"attachment; filename=\"{ascii_fallback}\"; "
                 f"filename*=UTF-8''{encoded}"
             ),
         },
