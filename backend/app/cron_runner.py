@@ -102,6 +102,34 @@ def _matches(cron_expr: str, now: datetime) -> bool:
     )
 
 
+def validate_cron_expr_or_error(cron_expr: str) -> Optional[str]:
+    """
+    Returns None if the expression parses to *something usable*, or a
+    short error message describing why it's invalid.
+
+    A segment is invalid if `_parse_segment` returns an empty set —
+    that means the user wrote something that isn't `*`, `*/N`, or a
+    valid number list, and would never match. We refuse such rules
+    early so the user sees the mistake at create-time.
+    """
+    parts = (cron_expr or "").strip().split()
+    if len(parts) != 5:
+        return "必须是 5 段(分 时 日 月 周)"
+    bounds = [
+        ("分", 0, 59),
+        ("时", 0, 23),
+        ("日", 1, 31),
+        ("月", 1, 12),
+        ("周", 0, 6),
+    ]
+    for seg, (label, lo, hi) in zip(parts, bounds):
+        result = _parse_segment(seg, lo, hi)
+        # `None` = wildcard '*', valid. Empty set = bad input.
+        if result is not None and len(result) == 0:
+            return f"{label}段无效:{seg!r}(应为数字、`*`、`*/N` 或逗号列表)"
+    return None
+
+
 def _truncate_to_minute(dt: datetime) -> datetime:
     return dt.replace(second=0, microsecond=0)
 

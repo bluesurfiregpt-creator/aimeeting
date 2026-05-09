@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import AuthContext, get_current_auth
-from ..cron_runner import _matches, fire_rule
+from ..cron_runner import fire_rule, validate_cron_expr_or_error
 from ..db import get_session
 from ..models import CronRule, User
 
@@ -82,17 +82,12 @@ def _to_out(r: CronRule) -> CronRuleOut:
 
 
 def _validate_cron_expr(expr: str) -> None:
-    """Reuse cron_runner._matches against a known time as a smoke test —
-    if the parser would reject the expression, _matches returns False
-    consistently. We just check that it doesn't blow up + has 5 segments."""
-    parts = (expr or "").strip().split()
-    if len(parts) != 5:
-        raise HTTPException(400, "cron_expr 必须是 5 段(分 时 日 月 周)")
-    try:
-        # Sample call against a fixed time;不在乎 True/False,只看会不会 raise
-        _matches(expr, datetime(2026, 1, 1, 0, 0, tzinfo=None))
-    except Exception as exc:
-        raise HTTPException(400, f"cron_expr 解析失败: {exc}")
+    """Reject invalid cron expressions at create/update time so the user sees
+    the mistake before the rule sits dormant.  Delegates to cron_runner so
+    the parser is single-source-of-truth."""
+    err = validate_cron_expr_or_error(expr)
+    if err:
+        raise HTTPException(400, f"cron_expr 不合法:{err}")
 
 
 async def _validate_assignee(
