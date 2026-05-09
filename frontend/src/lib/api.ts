@@ -140,6 +140,27 @@ async function jpostVoid(path: string, body: unknown): Promise<void> {
   }
 }
 
+/** v23: 把 Response 解析成 (blob, filename) 给前端 anchor click 触发下载用.
+ *  filename 优先取 Content-Disposition 的 RFC 5987 形式(filename*=UTF-8''…),
+ *  fallback 普通 filename=,再 fallback 调用方传的 default. */
+async function parseDownload(
+  r: Response,
+  defaultName: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const cd = r.headers.get("Content-Disposition") ?? "";
+  let filename = defaultName;
+  const star = cd.match(/filename\*=UTF-8''([^;]+)/i);
+  if (star) {
+    try {
+      filename = decodeURIComponent(star[1]);
+    } catch {}
+  } else {
+    const plain = cd.match(/filename="?([^";]+)"?/i);
+    if (plain) filename = plain[1];
+  }
+  return { blob: await r.blob(), filename };
+}
+
 async function jpostForm<T>(path: string, form: FormData): Promise<T> {
   const r = await fetch(backendBase() + path, {
     method: "POST",
@@ -660,6 +681,37 @@ export type SeedEvalResult = {
   updated: number;
 };
 
+/** v23: Kanban 卡片(Task 的 Kanban 视图变形) */
+export type KanbanCard = {
+  task_id: string;
+  content: string;
+  status: string;
+  due_at: string | null;
+  is_overdue: boolean;
+  assignee_user_id: string | null;
+  assignee_name: string | null;
+  co_assignee_count: number;
+  co_submitted_count: number;
+  source_type: string;
+  created_at: string;
+};
+
+export type KanbanColumn = {
+  column_id: string;
+  column_label: string;
+  summary: string;
+  cards: KanbanCard[];
+};
+
+export type KanbanOut = {
+  grouping: "agent" | "user";
+  columns: KanbanColumn[];
+  period_label: string;
+  role: "leader" | "expert" | "member";
+  scope_label: string;
+  include_closed: boolean;
+};
+
 /** v21: 跨 AI 数据访问申请. */
 export type AccessRequest = {
   id: string;
@@ -908,6 +960,44 @@ export const api = {
       period,
       overwrite,
     }),
+
+  // v23: 看板二期 — Kanban 视图
+  kanbanByAgent: (includeClosed = false) =>
+    jget<KanbanOut>(
+      `/api/dashboard/kanban-by-agent?include_closed=${includeClosed}`,
+    ),
+  kanbanByUser: (includeClosed = false) =>
+    jget<KanbanOut>(
+      `/api/dashboard/kanban-by-user?include_closed=${includeClosed}`,
+    ),
+
+  // v23: 报表导出 — 返回 (blob, 服务端文件名),前端 anchor.click 触发下载
+  downloadMonthlyEvaluation: async (period?: string | null) => {
+    const q = period ? `?period=${period}` : "";
+    const r = await fetch(backendBase() + `/api/reports/monthly-evaluation${q}`, {
+      credentials: "include",
+    });
+    if (!r.ok) {
+      handleAuthError(r.status);
+      const text = await r.text().catch(() => "");
+      handleNetworkError(`/api/reports/monthly-evaluation`, r.status, text);
+      throw makeError(`/api/reports/monthly-evaluation`, r.status, text);
+    }
+    return parseDownload(r, "monthly-evaluation.xlsx");
+  },
+  downloadStatusDistribution: async (days = 30) => {
+    const r = await fetch(
+      backendBase() + `/api/reports/status-distribution?days=${days}`,
+      { credentials: "include" },
+    );
+    if (!r.ok) {
+      handleAuthError(r.status);
+      const text = await r.text().catch(() => "");
+      handleNetworkError(`/api/reports/status-distribution`, r.status, text);
+      throw makeError(`/api/reports/status-distribution`, r.status, text);
+    }
+    return parseDownload(r, `status-distribution-${days}d.xlsx`);
+  },
 
   // v21: 跨 AI 数据访问申请
   createAccessRequest: (body: {

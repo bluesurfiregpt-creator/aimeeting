@@ -30,6 +30,7 @@ from .routers import cron_rules as cron_rules_router
 from .routers import dashboard as dashboard_router
 from .routers import knowledge as knowledge_router
 from .routers import me as me_router
+from .routers import reports as reports_router
 from .routers import meetings as meetings_router
 from .routers import memory as memory_router
 from .routers import model_providers as model_providers_router
@@ -94,6 +95,7 @@ app.include_router(me_router.router)
 app.include_router(cron_rules_router.router)
 app.include_router(access_requests_router.router)
 app.include_router(dashboard_router.router)
+app.include_router(reports_router.router)
 
 
 @app.get("/healthz")

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Bar,
   BarChart,
@@ -619,6 +620,76 @@ export default function DashboardPage() {
         </div>
       ) : data ? (
         <>
+          {/* v23: 看板二期 + 报表入口 — 三张精品卡片,leader/admin 全可见,
+              expert/member 只看到 Kanban(报表 leader-only) */}
+          <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Link
+              href="/dashboard/kanban-agents"
+              data-testid="entry-kanban-agents"
+              className="group rounded-xl border border-ink-700 bg-ink-900 p-4 hover:border-cyan-500/40 hover:bg-ink-800/50 transition"
+            >
+              <div className="flex items-start gap-3">
+                <span className="text-2xl" aria-hidden>🤖</span>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-zinc-100 group-hover:text-cyan-200 transition">
+                    AI 专家 Kanban
+                  </div>
+                  <div className="mt-0.5 text-xs text-zinc-500">
+                    每个 AI 专家一列,看 16 集群 谁忙谁闲
+                  </div>
+                </div>
+              </div>
+            </Link>
+            <Link
+              href="/dashboard/kanban-users"
+              data-testid="entry-kanban-users"
+              className="group rounded-xl border border-ink-700 bg-ink-900 p-4 hover:border-emerald-500/40 hover:bg-ink-800/50 transition"
+            >
+              <div className="flex items-start gap-3">
+                <span className="text-2xl" aria-hidden>👥</span>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-zinc-100 group-hover:text-emerald-200 transition">
+                    科长 Kanban
+                  </div>
+                  <div className="mt-0.5 text-xs text-zinc-500">
+                    按 assignee 分列,管事的人一目了然
+                  </div>
+                </div>
+              </div>
+            </Link>
+            {isLeader ? (
+              <Link
+                href="/dashboard/reports"
+                data-testid="entry-reports"
+                className="group rounded-xl border border-ink-700 bg-ink-900 p-4 hover:border-amber-500/40 hover:bg-ink-800/50 transition"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl" aria-hidden>📊</span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-zinc-100 group-hover:text-amber-200 transition">
+                      报表中心
+                    </div>
+                    <div className="mt-0.5 text-xs text-zinc-500">
+                      月度评价 / 状态分布 一键导出 Excel
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            ) : (
+              <div className="rounded-xl border border-ink-800 bg-ink-950/50 p-4 opacity-50">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl" aria-hidden>📊</span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-zinc-500">报表中心</div>
+                    <div className="mt-0.5 text-[10px] text-zinc-600">
+                      仅领导/管理员可访问
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* 顶部 4 KPI 卡 */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard

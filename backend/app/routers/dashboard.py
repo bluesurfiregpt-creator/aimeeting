@@ -36,7 +36,7 @@ from ..auth import (
     require_leader_or_admin,
 )
 from ..db import get_session
-from ..models import Task, TaskEvaluation, User
+from ..models import Agent, Task, TaskEvaluation, User, WorkspaceMembership
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -498,3 +498,263 @@ async def seed_eval_data(
 
     await session.commit()
     return SeedEvalOut(period=period, inserted=inserted, updated=updated)
+
+
+# ---- v23: 看板二期 — AI 专家 Kanban + 科长 Kanban -------------------------
+
+
+# Kanban 默认只展示活跃任务(不含 done/archived/cancelled),保持视图聚焦
+_KANBAN_ACTIVE_STATUSES = (
+    "open",
+    "dispatched",
+    "accepted",
+    "in_progress",
+    "submitted",
+)
+
+
+class KanbanCard(BaseModel):
+    task_id: uuid.UUID
+    content: str
+    status: str
+    due_at: Optional[datetime] = None
+    is_overdue: bool = False
+    assignee_user_id: Optional[uuid.UUID] = None
+    assignee_name: Optional[str] = None
+    co_assignee_count: int = 0
+    co_submitted_count: int = 0  # 协办进度 N/M 用
+    source_type: str
+    created_at: datetime
+
+
+class KanbanColumn(BaseModel):
+    # 列的标识 — 取决于 grouping 维度
+    column_id: str
+    column_label: str
+    # 列的子标题(比如 Agent 列下显示「8 项 · 2 逾期」)
+    summary: str
+    cards: list[KanbanCard]
+
+
+class KanbanOut(BaseModel):
+    grouping: str  # 'agent' | 'user'
+    columns: list[KanbanColumn]
+    period_label: str  # '本月' / 显示给用户的时间范围标签
+    role: str  # leader / expert / member
+    scope_label: str
+    include_closed: bool
+
+
+def _task_to_card(
+    t: Task, name_by_id: dict[uuid.UUID, str], now: datetime
+) -> KanbanCard:
+    overdue = bool(
+        t.due_at
+        and t.due_at < now
+        and t.status not in ("done", "archived", "cancelled")
+    )
+    co_count = len(t.co_assignees) if t.co_assignees else 0
+    return KanbanCard(
+        task_id=t.id,
+        content=t.content,
+        status=t.status,
+        due_at=t.due_at,
+        is_overdue=overdue,
+        assignee_user_id=t.assignee_user_id,
+        assignee_name=name_by_id.get(t.assignee_user_id) if t.assignee_user_id else None,
+        co_assignee_count=co_count,
+        co_submitted_count=0,  # 后面 batch fill
+        source_type=t.source_type,
+        created_at=t.created_at,
+    )
+
+
+async def _fetch_kanban_tasks(
+    session: AsyncSession, auth: AuthContext, include_closed: bool
+) -> tuple[list[Task], dict[uuid.UUID, str], str, str]:
+    """统一的 Kanban 数据拉取 — 跟 /overview 共享 scope 过滤."""
+    scope_filters, role_label, scope_label = await _scope_filter_clauses(
+        session, auth
+    )
+    q = select(Task).where(*scope_filters)
+    if not include_closed:
+        q = q.where(Task.status.in_(_KANBAN_ACTIVE_STATUSES))
+    q = q.order_by(Task.due_at.asc().nullslast(), Task.created_at.desc())
+    tasks = (await session.execute(q)).scalars().all()
+
+    # 批量取 user name
+    user_ids = {t.assignee_user_id for t in tasks if t.assignee_user_id}
+    name_by_id: dict[uuid.UUID, str] = {}
+    if user_ids:
+        rows = (
+            await session.execute(
+                select(User.id, User.name).where(User.id.in_(user_ids))
+            )
+        ).all()
+        name_by_id = {r[0]: r[1] for r in rows}
+    return tasks, name_by_id, role_label, scope_label
+
+
+def _agent_id_for_task(
+    t: Task, agent_by_user: dict[uuid.UUID, uuid.UUID]
+) -> Optional[uuid.UUID]:
+    """
+    推断 Task 应当归到哪个 Agent 列:
+      1. assignee 有 bound_agent → 用 bound
+      2. source_ref.agent_id → 用 source_ref
+      3. 否则 → None(归入「未分配」列)
+    """
+    if t.assignee_user_id and t.assignee_user_id in agent_by_user:
+        return agent_by_user[t.assignee_user_id]
+    if isinstance(t.source_ref, dict):
+        aid = t.source_ref.get("agent_id")
+        if isinstance(aid, str):
+            try:
+                return uuid.UUID(aid)
+            except ValueError:
+                return None
+    return None
+
+
+@router.get("/kanban-by-agent", response_model=KanbanOut)
+async def kanban_by_agent(
+    include_closed: bool = Query(False),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    AI 专家视角 Kanban — 每个 Agent 一列,水平滚动.
+
+    Task → 列归属判断:assignee 的 bound_agent_id 优先,然后 source_ref.agent_id,
+    都没有的归入「未分配」列(只在该列非空时显示).
+    """
+    tasks, name_by_id, role_label, scope_label = await _fetch_kanban_tasks(
+        session, auth, include_closed
+    )
+    now = datetime.now(timezone.utc)
+
+    # 取 workspace 所有 Agent + bound_agent_id 映射
+    agents = (
+        await session.execute(
+            select(Agent).where(Agent.workspace_id == auth.workspace.id).order_by(
+                Agent.name
+            )
+        )
+    ).scalars().all()
+    bound_rows = (
+        await session.execute(
+            select(
+                WorkspaceMembership.user_id, WorkspaceMembership.bound_agent_id
+            ).where(
+                WorkspaceMembership.workspace_id == auth.workspace.id,
+                WorkspaceMembership.bound_agent_id.is_not(None),
+            )
+        )
+    ).all()
+    agent_by_user = {r[0]: r[1] for r in bound_rows}
+
+    # 列容器
+    cols_by_agent: dict[uuid.UUID, list[KanbanCard]] = {a.id: [] for a in agents}
+    unassigned: list[KanbanCard] = []
+
+    for t in tasks:
+        card = _task_to_card(t, name_by_id, now)
+        agent_id = _agent_id_for_task(t, agent_by_user)
+        if agent_id is not None and agent_id in cols_by_agent:
+            cols_by_agent[agent_id].append(card)
+        else:
+            unassigned.append(card)
+
+    # 装配输出 — 始终展示所有 Agent 列(空列也展示,UI 显示「暂无任务」),让 16 AI 一目了然
+    columns: list[KanbanColumn] = []
+    for a in agents:
+        cards = cols_by_agent.get(a.id, [])
+        overdue_n = sum(1 for c in cards if c.is_overdue)
+        columns.append(
+            KanbanColumn(
+                column_id=str(a.id),
+                column_label=a.name,
+                summary=f"{len(cards)} 项 · {overdue_n} 逾期" if cards else "暂无任务",
+                cards=cards,
+            )
+        )
+    if unassigned:
+        overdue_n = sum(1 for c in unassigned if c.is_overdue)
+        columns.append(
+            KanbanColumn(
+                column_id="__unassigned__",
+                column_label="未分配 Agent",
+                summary=f"{len(unassigned)} 项 · {overdue_n} 逾期",
+                cards=unassigned,
+            )
+        )
+
+    return KanbanOut(
+        grouping="agent",
+        columns=columns,
+        period_label="活跃任务" if not include_closed else "全部任务",
+        role=role_label,
+        scope_label=scope_label,
+        include_closed=include_closed,
+    )
+
+
+@router.get("/kanban-by-user", response_model=KanbanOut)
+async def kanban_by_user(
+    include_closed: bool = Query(False),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    科长视角 Kanban — 按 assignee 分列,看「我手下谁忙谁闲」.
+    """
+    tasks, name_by_id, role_label, scope_label = await _fetch_kanban_tasks(
+        session, auth, include_closed
+    )
+    now = datetime.now(timezone.utc)
+
+    # 按 assignee 分桶;无 assignee 的归「未指派」列
+    cols_by_user: dict[uuid.UUID, list[KanbanCard]] = {}
+    unassigned: list[KanbanCard] = []
+    for t in tasks:
+        card = _task_to_card(t, name_by_id, now)
+        if t.assignee_user_id:
+            cols_by_user.setdefault(t.assignee_user_id, []).append(card)
+        else:
+            unassigned.append(card)
+
+    # 排序:按工作量(任务多的排前)
+    sorted_users = sorted(
+        cols_by_user.items(), key=lambda kv: len(kv[1]), reverse=True
+    )
+
+    columns: list[KanbanColumn] = []
+    for uid, cards in sorted_users:
+        overdue_n = sum(1 for c in cards if c.is_overdue)
+        columns.append(
+            KanbanColumn(
+                column_id=str(uid),
+                column_label=name_by_id.get(uid, "(未知用户)"),
+                summary=f"{len(cards)} 项 · {overdue_n} 逾期",
+                cards=cards,
+            )
+        )
+    if unassigned:
+        overdue_n = sum(1 for c in unassigned if c.is_overdue)
+        columns.append(
+            KanbanColumn(
+                column_id="__unassigned__",
+                column_label="未指派",
+                summary=f"{len(unassigned)} 项 · {overdue_n} 逾期",
+                cards=unassigned,
+            )
+        )
+
+    return KanbanOut(
+        grouping="user",
+        columns=columns,
+        period_label="活跃任务" if not include_closed else "全部任务",
+        role=role_label,
+        scope_label=scope_label,
+        include_closed=include_closed,
+    )

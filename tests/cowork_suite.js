@@ -288,6 +288,7 @@
       ["CC", "v21 角色二分 + 数据分级 + 跨 AI 共享"],
       ["DD", "v22 看板 Dashboard"],
       ["EE", "v22.5 多 AI 协作(主责 + 协办)"],
+      ["FF", "v23 看板二期 + 报表导出"],
     ];
     const counts = { pass: 0, fail: 0, skipped: 0 };
     for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
@@ -2632,6 +2633,138 @@
           return { ok: false, error: `bad score expected 400, got ${r2.status}` };
         }
         return { ok: true, evidence: { _note: "bad dimension + bad score 400" } };
+      },
+    });
+
+    // ---------- FF series · v23 看板二期 + 报表导出 -------------------------
+    R.register({
+      id: "FF-1",
+      series: "FF",
+      title: "GET /api/dashboard/kanban-by-agent shape OK + 列含所有 Agent",
+      async run() {
+        const r = await GET("/api/dashboard/kanban-by-agent");
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        if (r.body.grouping !== "agent") {
+          return { ok: false, error: `grouping should be 'agent', got ${r.body.grouping}` };
+        }
+        if (!Array.isArray(r.body.columns)) {
+          return { ok: false, error: "columns not array" };
+        }
+        // workspace 至少有 1 个 Agent(默认 workspace 应该有 4+)
+        if (r.body.columns.length === 0) {
+          return { ok: false, error: "no columns; workspace 应至少有 1 个 Agent" };
+        }
+        if (typeof r.body.role !== "string" || typeof r.body.scope_label !== "string") {
+          return { ok: false, error: "role/scope_label missing" };
+        }
+        return { ok: true, evidence: { _note: `${r.body.columns.length} columns, role=${r.body.role}` } };
+      },
+    });
+
+    R.register({
+      id: "FF-2",
+      series: "FF",
+      title: "GET /api/dashboard/kanban-by-user shape OK + 工作量降序",
+      async run() {
+        const r = await GET("/api/dashboard/kanban-by-user");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if (r.body.grouping !== "user") {
+          return { ok: false, error: `grouping should be 'user'` };
+        }
+        // 列(user)按 cards.length 降序;__unassigned__ 排末尾
+        const userCols = (r.body.columns || []).filter((c) => c.column_id !== "__unassigned__");
+        for (let i = 1; i < userCols.length; i++) {
+          if (userCols[i].cards.length > userCols[i - 1].cards.length) {
+            return {
+              ok: false,
+              error: `not in desc order: ${userCols[i - 1].column_label}=${userCols[i - 1].cards.length}, ${userCols[i].column_label}=${userCols[i].cards.length}`,
+            };
+          }
+        }
+        return { ok: true, evidence: { _note: `${userCols.length} user cols, descending` } };
+      },
+    });
+
+    R.register({
+      id: "FF-3",
+      series: "FF",
+      title: "include_closed=true 让 done/archived 出现在卡片里",
+      async run() {
+        const rOff = await GET("/api/dashboard/kanban-by-user?include_closed=false");
+        const rOn = await GET("/api/dashboard/kanban-by-user?include_closed=true");
+        if (!rOff.ok || !rOn.ok) return { ok: false, error: "list failed" };
+        const cardCountOff = (rOff.body.columns || []).reduce((acc, c) => acc + c.cards.length, 0);
+        const cardCountOn = (rOn.body.columns || []).reduce((acc, c) => acc + c.cards.length, 0);
+        if (cardCountOn < cardCountOff) {
+          return { ok: false, error: `include_closed=true 应当 ≥ include_closed=false (got ${cardCountOn} < ${cardCountOff})` };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `closed off=${cardCountOff}, on=${cardCountOn}` },
+        };
+      },
+    });
+
+    R.register({
+      id: "FF-4",
+      series: "FF",
+      title: "GET /api/reports/monthly-evaluation 返回 Excel(Content-Type)",
+      async run() {
+        // 直接 fetch 拿头看 content-type;不下载 blob 本身(浪费)
+        const r = await fetch("/api/reports/monthly-evaluation", {
+          credentials: "include",
+        });
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const ct = r.headers.get("Content-Type") || "";
+        if (!ct.includes("spreadsheet")) {
+          return { ok: false, error: `expected xlsx CT, got ${ct}` };
+        }
+        const cd = r.headers.get("Content-Disposition") || "";
+        if (!cd.includes("attachment")) {
+          return { ok: false, error: `expected attachment, CD=${cd}` };
+        }
+        // discard body
+        try { await r.body?.cancel(); } catch {}
+        return { ok: true, evidence: { _note: "Excel attachment OK" } };
+      },
+    });
+
+    R.register({
+      id: "FF-5",
+      series: "FF",
+      title: "GET /api/reports/status-distribution 多区间(7/30/90)各自 200",
+      async run() {
+        for (const days of [7, 30, 90]) {
+          const r = await fetch(`/api/reports/status-distribution?days=${days}`, {
+            credentials: "include",
+          });
+          if (!r.ok) return { ok: false, error: `days=${days} → ${r.status}` };
+          const ct = r.headers.get("Content-Type") || "";
+          if (!ct.includes("spreadsheet")) {
+            return { ok: false, error: `days=${days} bad CT: ${ct}` };
+          }
+          try { await r.body?.cancel(); } catch {}
+        }
+        return { ok: true, evidence: { _note: "7/30/90 days 都 200" } };
+      },
+    });
+
+    R.register({
+      id: "FF-6",
+      series: "FF",
+      title: "report status-distribution days 越界(<7 or >180) → 400/422",
+      async run() {
+        const r = await fetch("/api/reports/status-distribution?days=3", {
+          credentials: "include",
+        });
+        if (r.ok) {
+          try { await r.body?.cancel(); } catch {}
+          return { ok: false, error: `expected 422, got ${r.status}` };
+        }
+        if (r.status !== 422 && r.status !== 400) {
+          return { ok: false, error: `expected 4xx, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "days=3 拒绝" } };
       },
     });
 

@@ -1,0 +1,60 @@
+name: cowork-headless
+
+# v23 — T3 CI 升级:Playwright headless 真跑 Cowork 全套.
+#
+# 触发方式:**workflow_dispatch 手动**(不在每个 PR 跑)
+#   - 真端到端测试需要登录 prod / staging,Secrets 配置 + 流量考量,
+#     不适合每个 PR 自动触发
+#   - 手动触发场景:重大版本上线后 + 周末巡检 + 怀疑 prod 异常时
+#
+# 必需 secrets:
+#   AIMEETING_TEST_EMAIL    — 测试账号邮箱
+#   AIMEETING_TEST_PASSWORD — 测试账号密码
+#   AIMEETING_BASE_URL      — 默认 https://aimeeting.zhzjpt.cn
+#
+# 输出:
+#   - 全套 cowork_suite.js 的 markdown 报告 + json summary 作为 artifact
+#   - 失败时 step 红显;成功时绿显
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: '目标 prod / staging URL(默认从 secret 取)'
+        required: false
+        type: string
+
+jobs:
+  headless-cowork:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Playwright
+        run: |
+          npm init -y > /dev/null
+          npm install -D @playwright/test
+          npx playwright install --with-deps chromium
+
+      - name: Run Cowork suite via Playwright
+        env:
+          AIMEETING_BASE_URL: ${{ inputs.base_url || secrets.AIMEETING_BASE_URL || 'https://aimeeting.zhzjpt.cn' }}
+          AIMEETING_TEST_EMAIL: ${{ secrets.AIMEETING_TEST_EMAIL }}
+          AIMEETING_TEST_PASSWORD: ${{ secrets.AIMEETING_TEST_PASSWORD }}
+        run: node tests/playwright-runner.js
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cowork-report
+          path: |
+            tests/cowork-report.md
+            tests/cowork-report.json
+          retention-days: 30

@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v22.5）
+# Aimeeting · 测试用例（v23）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -310,7 +310,8 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
-| **v22.5** | 2026-05-09 | **多 AI 协作(主责 + 协办,精品 UI)+ 真评价数据回写**:① 模型:Task 加 `co_assignees` JSONB UUID 数组(最多 5 人,不含主责);新表 `task_co_progress`(协办进度报告,UNIQUE on task_id+user_id 防多次插)+ `task_collaboration_rating`(双向评分原子事件,UNIQUE on task+rater+ratee+dimension);② 新模块 `evaluation.py`:`recompute_user_evaluation` 从真实 Task / TaskCollaborationRating 算 4 维分(0-1 归一)→ UPSERT 月度 task_evaluation,真数据**覆盖** v22 seed;③ 端点:`POST /api/me/tasks/{tid}/co-submit`(协办交付,UPSERT 进度行 + 通知主责)/ `co-withdraw`(per Q1 移除自己 + 通知)/ `rate`(per Q4 双向评分,3 种合法 rater→ratee 矩阵:主责↔协办 collaboration / dispatcher→主责 quality);④ `dispatch_task` + `commit_directive` 都接受 `co_assignees`(per Q5 max 5 + workspace 校验 + 不能含主责)+ 给每个协办发 `task_co_assigned` 通知;⑤ `submit_task` per Q2 加 `force` 参数:有未交协办时默认 422 + 错误信息列出待交人,前端 confirm 后 force=true 重试硬过;⑥ `approve_task` 后实时 recompute 主责 + 所有协办的本月评价(真数据上线);⑦ `/api/me/tasks` 加 `role=coassignee` 视角;Task shape 加 `co_assignees` + `co_submitted_user_ids`(批量 join 防 N+1);⑧ Notification 加 4 个新 kind:`task_co_assigned/co_submitted/co_withdrawn/collaboration_rated`;⑨ 前端:DirectivePanel draft 行勾「立即派发」后展开协办多选 chip(按 user 切换,5 人上限 toast);`/me` 加「我的协办」section(青色边框,显示协办进度 N/M,「✓ 提交协办成果」+「退出协办」按钮);submit 422 自动弹 confirm 询问是否 force;**RateDialog 精品 modal**(approve 后弹出,5 分制按钮组 + 评论 + 「稍后再评」+ 「提交评分」);⑩ 测试 Cowork EE 系列 7 用例(dispatch+co_assignees / max 5 / 不含主责 / 非协办 co-submit 403 / submit 未交 422 + force / self-rate 400 / bad dimension+score 400);两份 baseline.json 刷到 v22.5(总 91 用例,83 ✅ + 8 ⏭️) |
+| **v23** | 2026-05-10 | **看板二期 + 报表 Excel 导出 + Playwright headless CI**:① 后端 `/api/dashboard/kanban-by-agent`(每 AI 一列;Task 归属判断:assignee 的 bound_agent → source_ref.agent_id → fallback「未分配」列)+ `/kanban-by-user`(按 assignee 工作量降序 + 「未指派」末尾);两 endpoint 都支持 `include_closed` 默认 false 只展示活跃;② 后端 `routers/reports.py`(全新):`/monthly-evaluation` + `/status-distribution` 用 openpyxl 生成 Excel,RFC 5987 中文文件名,leader-only;月度表带表头加粗 + 冻结首行 + 百分比格式 + 综合分排名;③ main.py 注册 reports router;④ 前端 api.ts 加 KanbanCard/Column/Out 类型 + 6 个新方法 + parseDownload helper(RFC 5987 文件名解析,refactor 旧 export 复用);⑤ 前端 `/dashboard` 主页加 3 张入口卡(AI 专家 Kanban / 科长 Kanban / 报表中心),报表中心仅 leader 可见(member 灰显);⑥ 新建共享组件 `components/KanbanView.tsx`(精品 polish:状态色边 / 截止日色 / 协办进度 chip / hover lift / 三态加载-空-错误);两个 Kanban 子页 thin wrapper 复用;⑦ `/dashboard/reports` 页:月度选择器(过去 12 月)+ 状态分布区间选择(7/14/30/60/90)+ 两个导出按钮(Excel only,精品交付);⑧ T3 CI 升级:`.github/workflows/cowork-headless.yml` workflow_dispatch 触发 + Playwright runner(`tests/playwright-runner.js`)登录 prod 跑全套 cowork_suite,失败时 step 红显;artifact 上传 markdown + json 报告;⑨ 测试 Cowork FF 系列 6 用例(Kanban shape / 工作量降序 / include_closed 切换 / Excel CT 校验 / 多区间 / days 越界拒绝);两份 baseline.json 刷到 v23(总 97 用例,89 ✅ + 8 ⏭️) |
+| v22.5 | 2026-05-09 | **多 AI 协作(主责 + 协办,精品 UI)+ 真评价数据回写**:① 模型:Task 加 `co_assignees` JSONB UUID 数组(最多 5 人,不含主责);新表 `task_co_progress`(协办进度报告,UNIQUE on task_id+user_id 防多次插)+ `task_collaboration_rating`(双向评分原子事件,UNIQUE on task+rater+ratee+dimension);② 新模块 `evaluation.py`:`recompute_user_evaluation` 从真实 Task / TaskCollaborationRating 算 4 维分(0-1 归一)→ UPSERT 月度 task_evaluation,真数据**覆盖** v22 seed;③ 端点:`POST /api/me/tasks/{tid}/co-submit`(协办交付,UPSERT 进度行 + 通知主责)/ `co-withdraw`(per Q1 移除自己 + 通知)/ `rate`(per Q4 双向评分,3 种合法 rater→ratee 矩阵:主责↔协办 collaboration / dispatcher→主责 quality);④ `dispatch_task` + `commit_directive` 都接受 `co_assignees`(per Q5 max 5 + workspace 校验 + 不能含主责)+ 给每个协办发 `task_co_assigned` 通知;⑤ `submit_task` per Q2 加 `force` 参数:有未交协办时默认 422 + 错误信息列出待交人,前端 confirm 后 force=true 重试硬过;⑥ `approve_task` 后实时 recompute 主责 + 所有协办的本月评价(真数据上线);⑦ `/api/me/tasks` 加 `role=coassignee` 视角;Task shape 加 `co_assignees` + `co_submitted_user_ids`(批量 join 防 N+1);⑧ Notification 加 4 个新 kind:`task_co_assigned/co_submitted/co_withdrawn/collaboration_rated`;⑨ 前端:DirectivePanel draft 行勾「立即派发」后展开协办多选 chip(按 user 切换,5 人上限 toast);`/me` 加「我的协办」section(青色边框,显示协办进度 N/M,「✓ 提交协办成果」+「退出协办」按钮);submit 422 自动弹 confirm 询问是否 force;**RateDialog 精品 modal**(approve 后弹出,5 分制按钮组 + 评论 + 「稍后再评」+ 「提交评分」);⑩ 测试 Cowork EE 系列 7 用例(dispatch+co_assignees / max 5 / 不含主责 / 非协办 co-submit 403 / submit 未交 422 + force / self-rate 400 / bad dimension+score 400);两份 baseline.json 刷到 v22.5(总 91 用例,83 ✅ + 8 ⏭️) |
 | v22 | 2026-05-09 | **看板 Dashboard 雏形(精品交付) + T3 CI 落地**:① 模型:新表 `task_evaluation`(月度 4 维评价 + 累计指标 + (workspace, assignee, period) UNIQUE);② 新 router `/api/dashboard`:聚合 endpoint `/overview` 一次返回 7 个 KPI + 元信息(role + scope_label),含 expert scope 过滤(leader 看全局 / expert 看 bound agent / member 看自己 assignee);`/seed-eval-data` admin-only 智慧住建演示用 seed,deterministic random(同 user_id+period 多次跑结果稳定),含 inserted/updated/overwrite 语义;③ 前端:安装 `recharts` 依赖(~80KB),新页 `/dashboard`(7-segment 精品配色板:primary/warm/cool/green/rose/red/purple/amber);布局:顶部 4 KPI 卡(总任务/待签收/已逾期/本月完成率) + 中部 3 图(状态饼/工作量横条 stacked overdue/30d 完成vs创建折线) + 底部 3 图(触发源饼/7d 创建条/4 维评价雷达 top 3);精品 polish:配色统一、暗色 tooltip、加载/空/错误三态、admin 才显示 🌱 Seed 按钮、手动刷新(不自动轮询);④ AuthHeader 顶栏加 📊 入口,leader/admin/owner/expert 可见,member 隐藏(角色分化曝光);⑤ 测试 Cowork DD 系列 6 用例(overview shape / 30d&7d 点数补齐 / seed 接口 / seed 后 evaluations 非空 4 维 / seed 幂等 / seed overwrite 二次有效);两份 baseline.json 同步刷到 v22(总 84 用例,76 ✅ + 8 ⏭️);⑥ **T3 CI 落地**:`.github/workflows/lint.yml` 新增,PR / push to main 时跑:Python AST · JS 语法 · 两份 baseline.json 一致性 · 两份 cowork_suite.js 一致性 · JSON 合法 · TypeScript noEmit;故意不跑端到端 Cowork(需 headless 浏览器 / 真 prod,留 v23+) |
 | v21 | 2026-05-09 | **政务安全基线:角色二分 + 数据 5 级分级 + 跨 AI 共享审批**:① 模型:`workspace_membership.bound_agent_id` FK 加上(`expert` role 必填,其他 NULL);角色枚举扩展为 owner/admin/leader/expert/member(leader=admin 别名);Task / KnowledgeDocument / LongTermMemory 各加 `data_classification` 列(默认 `general`,5 级 core/important/sensitive/general/public);新表 `data_access_request`(requester / target_resource_type / target_resource_id / target_owner / justification / status / expires_at / decided_*);② init_db 加 4 个 ALTER COLUMN 自动迁移现有数据(workspace_membership.bound_agent_id + 三个表的 data_classification);③ 新模块 `auth.py` 角色 helpers(`get_membership_role` / `is_leader_or_admin` / `is_expert` / `expert_bound_agent_id` / `require_leader_or_admin`);④ 新模块 `access_control.py` 中央化 `can_access()`(决策链:leader → owner → low-classification → expert in own range → active grant → 拒);⑤ 新 router `/api/me/access-requests`(create / list 两视角 / approve / reject;通知 owner + 申请人,3 个新 kind:`access_requested`/`approved`/`rejected`);⑥ 关键端点权限收紧:cron-rules CRUD + force-fire `require_leader_or_admin`;`POST /api/me/tasks/{tid}/dispatch` 同样 leader-only;⑦ team router 加 `PATCH /api/team/members/{user_id}`(改 role + bound_agent_id,自我编辑拒,owner 不可改);MemberOut 加 bound_agent_id + bound_agent_name 字段;⑧ 前端:api.ts 加 TeamRole / DataClassification / AccessRequest 类型 + CLASSIFICATION_LABELS/BADGE_CLASSES + 5 个新 API 方法;`/admin/team` 行内编辑 role(下拉 5 选)+ bound_agent(选 expert 时强制必填);`/me` Task 行 sensitive+ 分级显示彩色 badge(general/public 默认隐藏,避免视觉噪声);⑨ 测试:Cowork CC 系列 7 用例(team members shape / self-edit 400 / data_classification 字段 / bogus access target 404 / self-owned 拒 / list shape / owner 权限不被收紧拦截);两份 baseline.json 同步刷到 v21(总 78 用例,70 ✅ + 8 ⏭️);智慧住建文档准入要求 100% 满足(角色二分 ✅ + 数据分级 ✅ + 跨 AI 共享审批 ✅) |
 | v20 | 2026-05-09 | **触发源扩展:上级文件 + 定期巡检 cron**:① 模型:新表 `upper_doc`(filename/mime_type/byte_size/extracted_text/parsed_drafts/status/committed_task_ids/parse_error)+ `cron_rule`(name/cron_expr/task_template_*/auto_dispatch/due_days_after/is_active/last_fired_at/fire_count);Task.source_type 扩展支持 `upper_doc` / `cron`(枚举占位 v17 已埋,v20 真正使用);② 上级文件:`POST /api/me/upper-docs`(multipart 上传)→ 复用 doc_parser 抽文本(PDF/DOCX/XLSX/TXT/MD/CSV/JSON/YAML)→ 截断 20K 字 → 复用 directive_parser LLM 拆解 → 返回 drafts;`/commit` 入库 Task(source_type='upper_doc',source_ref={upper_doc_id, filename}),可选 dispatch=true 直接派发;`/discard` 软丢弃;`GET /upper-docs` history;文件**不入 OSS、不入知识库**(纯一次性触发器);③ cron 巡检:新模块 `cron_runner.py`(lifespan loop,默认 60s tick,每分钟扫 is_active=true 的 cron_rule,匹配则 instantiate Task,1 分钟内防重 fire);**简化 cron 解析器**(不依赖 croniter):5 段 `分 时 日 月 周`,支持 数字/`*`/`*/N`/逗号列表;新 router `routers/cron_rules.py`:`GET/POST/PATCH/DELETE /api/cron-rules` + `POST /api/cron-rules/{id}/force-fire`(测试 + 调试用,绕过时间匹配);auto_dispatch + assignee 时,fire 直接进 dispatched 并通知;due_days_after 让模板带相对截止;④ 前端:DirectivePanel 加 mode tab(「文本指令」/「上级文件」),file mode 用 file picker + multipart 上传,后续 draft list / commit / discard 完全复用;新页 `/admin/cron-rules`(列表 + 创建表单 + 行内停用/启用/立即触发/删除,4 个 cron 表达式预设 chip);api.ts 加 UpperDoc / CronRule 类型 + 9 个新方法;⑤ 测试:Cowork BB 系列 7 用例(BB-1 上传 .txt + LLM 拆解 / BB-2 commit 入库 + source_ref 校验 / BB-3 discard + 409 / BB-4 cron CRUD / BB-5 force-fire 入库为 open / BB-6 auto_dispatch + due_days_after / BB-7 非法 cron_expr 400);两份 baseline.json 同步刷到 v20(总 71 用例,63 ✅ + 8 ⏭️);触发源覆盖率从 33% (2/6) → **67% (4/6)** |
@@ -1297,6 +1298,46 @@ INFO app.cron_runner  :: cron_runner_loop starting
 
 ---
 
+## FF 系列 · v23 看板二期 + 报表 Excel 导出
+
+> 智慧住建文档「四.5 看板」视图层 2/3 + 报表导出.精品交付,Excel only(政务用户拿到后自己挑数据).
+
+| 用例 | 操作 | 预期 | 状态 |
+|---|---|---|---|
+| FF-1 | GET `/api/dashboard/kanban-by-agent` | grouping='agent',columns 非空,role / scope_label 字段就绪 | ✅ |
+| FF-2 | GET `/api/dashboard/kanban-by-user` | grouping='user',user 列按 cards 数降序,unassigned 末尾 | ✅ |
+| FF-3 | include_closed=false vs true 两次拉 | true 卡片数 ≥ false(终态显示) | ✅ |
+| FF-4 | GET `/api/reports/monthly-evaluation` | 200 + Content-Type 含 'spreadsheet' + Content-Disposition='attachment' | ✅ |
+| FF-5 | GET `/api/reports/status-distribution?days=7/30/90` | 三个区间各自 200 + Excel CT | ✅ |
+| FF-6 | days=3(<7 下限) | 422/400 拒绝 | ✅ |
+
+**手测点(单浏览器无法验证的部分)**:
+- /dashboard 顶部 3 张入口卡:AI 专家(青边)/ 科长(绿边)/ 报表中心(琥珀边),member 看到「报表中心」灰显「仅领导/管理员可访问」
+- /dashboard/kanban-agents:水平滚动展示 N 列(每列 ≤ 280px);卡片精品 polish:左侧 4px 状态色边、状态 chip、assignee 头像 / 姓名、due 日期(逾期红字)、协办进度 N/M chip
+- /dashboard/kanban-users:同样布局但按 assignee 分列;工作量大的排前;「未指派」永远末尾
+- /dashboard/reports:选择月份(默认本月)→ 「↓ 导出 Excel」→ 浏览器下载 `月度评价_{workspace}_{YYYY-MM}_{时间戳}.xlsx`,文件打开后:Excel 表头加粗暗灰背景、第 6 行冻结、综合分降序、3-7 列百分比格式
+- 状态分布报表:每天一行,8 个状态各自计数 + 当日新建 + 当日完成,2 列冻结
+- T3 CI:GitHub Actions 里手动触发 `cowork-headless.yml`(需先在 Settings → Secrets 配 `AIMEETING_TEST_EMAIL/PASSWORD`),Playwright headless 跑全套 97 用例,失败 step 红显 + artifact 上传 markdown 报告
+
+**Excel 文件结构(月度评价)**:
+```
+A1: 工作空间:{name} (粗体)
+A2: 周期:YYYY-MM
+A3: 导出时间:YYYY-MM-DD HH:MM
+A4: 综合分计算公式说明 (斜体灰)
+A6:J6: 表头 (粗体白字 + 暗灰填充 + 居中)
+A7+: 数据行,综合分降序;百分比列自动 0.0% 格式
+冻结:第 7 行起
+```
+
+**架构演进**(v17 → v23 累积):
+- v17-v22:Task 中心化 + 状态机 + 触发源 4/6 + 政务安全 + 多 AI 协作 + 看板 Dashboard
+- **v23**:**视图层 2/3 ✅ Kanban + 报表 Excel + Headless CI**(智慧住建文档「四.5」继续推进)
+- 接下来 (v23.5):消息中心 + 任务详情页(/task/{id}) + 会议追溯链
+- 接下来 (v24+):AI 数据分析(LLM eval + 问数 + 自动洞察)+ 任务做透(全局搜索 + 知识沉淀闭环)
+
+---
+
 ## 测试报告模板
 
 测完后请把这一段填给我：
@@ -1304,7 +1345,7 @@ INFO app.cron_runner  :: cron_runner_loop starting
 ```
 测试人:
 测试时间:
-测试用例版本: v22.5
+测试用例版本: v23
 浏览器/系统:
 默认账号是否生效: 是 / 否
 
