@@ -32,10 +32,13 @@ from typing import Awaitable, Callable, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fastapi import HTTPException
+
 from .db import SessionLocal
 from .dify_client import DifyClient, DifyError
 from .knowledge_retrieval import retrieve_chunks
 from .llm_direct import LlmError, get_active_provider, stream_chat
+from .llm_quota import check_quota_or_raise
 from .memory_retrieval import retrieve_relevant
 from .models import Agent, MeetingAgentMessage, MeetingAttendee, Meeting, MeetingTranscript, User
 from .orchestrator import recommend_next_speaker
@@ -203,6 +206,32 @@ async def _call_dify_and_stream(
 
     text_buf: list[str] = []
     use_dify = bool(agent.dify_api_key)
+
+    # v24.4 #1: LLM 配额 — agent 触发无 user_id (auto-trigger 来自任意发言人 ASR);
+    # 只用 workspace 配额(200/min) 兜底 防 buggy 客户端 / 攻击.
+    # 拿 workspace_id 必须 query DB(meeting.workspace_id),提前到此.
+    try:
+        async with SessionLocal() as _ws_db:
+            _meeting = (
+                await _ws_db.execute(
+                    select(Meeting).where(Meeting.id == meeting_id)
+                )
+            ).scalar_one_or_none()
+            _ws_id = _meeting.workspace_id if _meeting else None
+        await check_quota_or_raise(user_id=None, workspace_id=_ws_id)
+    except HTTPException as quota_exc:
+        # 429 → 给 FE 一个友好 chunk + end (不抛 exception)
+        await on_message(
+            {"type": "agent_message_chunk", "agent_id": str(agent.id),
+             "chunk": f"[配额超限: {quota_exc.detail}]"}
+        )
+        await on_message({
+            "type": "agent_message_end",
+            "agent_id": str(agent.id),
+            "text": f"[配额超限: {quota_exc.detail}]",
+            "citations": [],
+        })
+        return
 
     try:
         if use_dify:

@@ -45,6 +45,7 @@ from ..auth import (
 from ..db import get_session
 from ..directive_parser import parse_directive
 from ..doc_parser import extract_text, kind_from_filename
+from ..llm_quota import check_quota_or_raise
 from ..evaluation import recompute_for_task_participants, recompute_user_evaluation
 from ..models import (
     LeaderDirective,
@@ -1070,6 +1071,9 @@ async def audit_document_endpoint(
     if not text:
         raise HTTPException(400, "text required")
 
+    # v24.4 #1: LLM 配额检查 — 防 buggy 客户端 / 攻击 烧 DashScope token
+    await check_quota_or_raise(auth.user.id, auth.workspace.id)
+
     result = await audit_document(session, text)
     await audit_log(
         session, auth, "document.audit",
@@ -1129,6 +1133,9 @@ async def draft_submission_endpoint(
     )
     if not is_principal:
         raise HTTPException(403, "您不是该 task 的相关人,不能调起草助手")
+
+    # v24.4 #1: LLM 配额
+    await check_quota_or_raise(auth.user.id, auth.workspace.id)
 
     drafts, err = await draft_submission(session, workspace_id=auth.workspace.id, task=t)
     if err and not drafts:
@@ -2100,6 +2107,9 @@ async def create_directive(
     if len(text) > 4000:
         raise HTTPException(400, "content too long (max 4000 chars)")
 
+    # v24.4 #1: LLM 配额
+    await check_quota_or_raise(auth.user.id, auth.workspace.id)
+
     drafts, err = await parse_directive(
         session, workspace_id=auth.workspace.id, content=text
     )
@@ -2473,6 +2483,8 @@ async def create_upper_doc(
     # 2) LLM 拆解(只拿截断后的文本)
     drafts: list[dict[str, Any]] = []
     if not parse_err:
+        # v24.4 #1: LLM 配额(放在 LLM 调用前;解析失败的不算配额)
+        await check_quota_or_raise(auth.user.id, auth.workspace.id)
         send_text = extracted[:_UPPER_DOC_MAX_PARSE_CHARS]
         drafts, llm_err = await parse_directive(
             session, workspace_id=auth.workspace.id, content=send_text
@@ -2903,3 +2915,45 @@ async def mark_all_notifications_read(
         .values(read_at=func.now())
     )
     await session.commit()
+
+
+# --------- v24.4 #1: LLM rate limit 自检 / 测试入口 -------------------------
+
+
+class LlmQuotaStatusOut(BaseModel):
+    user_used: int
+    user_limit: int
+    workspace_used: int
+    workspace_limit: int
+    window_seconds: int
+
+
+@router.get("/llm-quota/status", response_model=LlmQuotaStatusOut)
+async def llm_quota_status(
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.4 #1: 当前用户 + workspace 的 LLM 配额使用.调试 / 前端提示用.
+
+    不消耗配额(只读).
+    """
+    from ..llm_quota import get_quota_status
+
+    status = get_quota_status(auth.user.id, auth.workspace.id)
+    return LlmQuotaStatusOut(**status)
+
+
+@router.post("/llm-quota/check", response_model=LlmQuotaStatusOut)
+async def llm_quota_check(
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.4 #1: 主动消耗一格配额(用 LLM 前 dry-run / Cowork 用例 burn 测试).
+
+    超限直接 429.成功返回新的 status.
+    """
+    from ..llm_quota import check_quota_or_raise, get_quota_status
+
+    await check_quota_or_raise(auth.user.id, auth.workspace.id)
+    status = get_quota_status(auth.user.id, auth.workspace.id)
+    return LlmQuotaStatusOut(**status)

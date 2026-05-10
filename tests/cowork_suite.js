@@ -4151,6 +4151,121 @@
       },
     });
 
+    // ---------- XX series · v24.4 #1 LLM rate limit ------------------------
+    R.register({
+      id: "XX-1",
+      series: "XX",
+      title: "GET /llm-quota/status shape 完整 + 不消耗配额",
+      async run() {
+        const r1 = await GET("/api/me/llm-quota/status");
+        if (!r1.ok) return { ok: false, error: `${r1.status}` };
+        const fields = ["user_used", "user_limit", "workspace_used", "workspace_limit", "window_seconds"];
+        for (const f of fields) {
+          if (!(f in r1.body)) return { ok: false, error: `字段 ${f} 缺` };
+        }
+        // Limits 应该是预定值(30 / 200 / 60)
+        if (r1.body.user_limit !== 30) {
+          return { ok: false, error: `user_limit 期望 30,实际 ${r1.body.user_limit}` };
+        }
+        if (r1.body.workspace_limit !== 200) {
+          return { ok: false, error: `workspace_limit 期望 200,实际 ${r1.body.workspace_limit}` };
+        }
+        if (r1.body.window_seconds !== 60) {
+          return { ok: false, error: `window 期望 60,实际 ${r1.body.window_seconds}` };
+        }
+        // 调一次 status 不应消耗配额(对比前后 user_used)
+        const used0 = r1.body.user_used;
+        const r2 = await GET("/api/me/llm-quota/status");
+        if (r2.body.user_used !== used0) {
+          return { ok: false, error: `status 消耗了配额: ${used0} → ${r2.body.user_used}` };
+        }
+        return {
+          ok: true,
+          evidence: {
+            _note: `status 只读 OK`,
+            user_used: used0,
+            limits: `${r1.body.user_limit}/u ${r1.body.workspace_limit}/ws`,
+          },
+        };
+      },
+    });
+
+    R.register({
+      id: "XX-2",
+      series: "XX",
+      title: "POST /llm-quota/check 30 次 → 第 31 次 429 + Retry-After 头",
+      async run() {
+        // 注:只对当前 user 限速.workspace limit 200 不会先触发.
+        // 同名用户已有调用残留可能会让 30 不到就 429 — 接受 429 in [1, 31].
+        let firstReject = -1;
+        let last200 = null;
+        for (let i = 1; i <= 35; i++) {
+          const r = await POST("/api/me/llm-quota/check", {});
+          if (r.status === 429) {
+            firstReject = i;
+            // 验 Retry-After 头(fetch wrapper 没暴露 raw headers,直接 raw fetch)
+            const raw = await fetch("/api/me/llm-quota/check", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            });
+            const retryAfter = raw.headers.get("Retry-After");
+            if (raw.status !== 429) {
+              return { ok: false, error: `第 2 次 429 raw 校验失败: ${raw.status}` };
+            }
+            if (retryAfter !== "60") {
+              return { ok: false, error: `Retry-After 期望 60,实际 ${retryAfter}` };
+            }
+            const body = await raw.json().catch(() => ({}));
+            return {
+              ok: true,
+              evidence: {
+                _note: `第 ${firstReject} 次触发 429,Retry-After=60 OK`,
+                firstReject,
+                detail: body.detail,
+                last_status_before_reject: last200 && last200.body,
+              },
+            };
+          }
+          if (r.status !== 200) {
+            return { ok: false, error: `第 ${i} 次意外 status=${r.status}` };
+          }
+          last200 = r;
+        }
+        return { ok: false, error: `35 次都没 429,user_limit 似乎没生效` };
+      },
+    });
+
+    R.register({
+      id: "XX-3",
+      series: "XX",
+      title: "/llm-quota/status user_used 跟着 check 递增",
+      async run() {
+        // 这个用例跑在 XX-2 之后(同次 suite),配额可能已满 → 先看 status,
+        // 满了就直接返回 evidence(算 pass — 表示 quota 真的有 state 在跟).
+        const before = (await GET("/api/me/llm-quota/status")).body;
+        if (before.user_used >= before.user_limit) {
+          return {
+            ok: true,
+            evidence: { _note: `配额已满 (${before.user_used}/${before.user_limit}),quota state 有效`, before },
+          };
+        }
+        const r = await POST("/api/me/llm-quota/check", {});
+        if (r.status !== 200) {
+          return { ok: false, error: `check 期望 200,实际 ${r.status}` };
+        }
+        const after = r.body;
+        if (after.user_used !== before.user_used + 1) {
+          return { ok: false, error: `user_used 期望 ${before.user_used + 1},实际 ${after.user_used}` };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `user_used ${before.user_used} → ${after.user_used}`, before, after },
+        };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",

@@ -38,6 +38,7 @@ from ..auth import (
 from ..alert_monitor import force_check_now
 from ..audit import audit_log
 from ..db import get_session
+from ..llm_quota import check_quota_or_raise
 from ..models import (
     Agent,
     KnowledgeBase,
@@ -839,6 +840,8 @@ async def chart_qa(
     q = (payload.question or "").strip()
     if len(q) > 500:
         raise HTTPException(400, "question too long (max 500 chars)")
+    # v24.4 #1: LLM 配额
+    await check_quota_or_raise(auth.user.id, auth.workspace.id)
     result = await answer_chart_question(session, auth.workspace.id, q)
     await audit_log(
         session, auth, "dashboard.chart_qa",
