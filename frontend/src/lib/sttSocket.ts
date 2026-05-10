@@ -39,6 +39,15 @@ export type AgentMessageEndEvent = {
   type: "agent_message_end";
   agent_id: string;
   text: string;
+  // v24.3 #1: RAG 命中的 KB chunks(可选 / 可空数组)
+  citations?: {
+    chunk_id: string;
+    document_id: string;
+    document_filename: string;
+    chunk_index: number;
+    snippet: string;
+    distance: number;
+  }[];
 };
 
 export type AgentRecommendationEvent = {

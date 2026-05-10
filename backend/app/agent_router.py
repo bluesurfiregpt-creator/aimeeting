@@ -235,6 +235,8 @@ async def _call_dify_and_stream(
         else:
             memory_lines: list[str] = []
             kb_snippets: list[tuple[str, str]] = []
+            # v24.3 #1: 收集 citations(给 FE 展示溯源 chip + 持久化到 DB)
+            citations: list[dict[str, Any]] = []
             async with SessionLocal() as db:
                 provider = await get_active_provider(db)
                 if provider is not None:
@@ -251,6 +253,18 @@ async def _call_dify_and_stream(
                             )
                             kb_snippets = [
                                 (r.document_filename, r.content) for r in kb_results
+                            ]
+                            # v24.3 #1: 同时把命中 chunks 收成 citations payload
+                            citations = [
+                                {
+                                    "chunk_id": r.chunk_id,
+                                    "document_id": r.document_id,
+                                    "document_filename": r.document_filename,
+                                    "chunk_index": r.chunk_index,
+                                    "snippet": (r.content or "").strip()[:240],
+                                    "distance": round(r.distance, 4),
+                                }
+                                for r in kb_results
                             ]
                         except Exception:
                             logger.exception("kb retrieval failed; continuing without")
@@ -330,6 +344,11 @@ async def _call_dify_and_stream(
         )
     finally:
         full = ("".join(text_buf))[:MAX_TEXT_LEN]
+        # v24.3 #1: citations 可能在 try 块里没初始化(early exception),safe default
+        try:
+            cits = citations  # type: ignore[name-defined]
+        except NameError:
+            cits = []
         if full:
             try:
                 async with SessionLocal() as db:
@@ -340,12 +359,18 @@ async def _call_dify_and_stream(
                             text=full,
                             trigger=trigger,
                             trigger_payload=trigger_payload,
+                            citations=cits or None,
                         )
                     )
                     await db.commit()
             except Exception:
                 logger.exception("persist agent message failed")
-        await on_message({"type": "agent_message_end", "agent_id": str(agent.id), "text": full})
+        await on_message({
+            "type": "agent_message_end",
+            "agent_id": str(agent.id),
+            "text": full,
+            "citations": cits,  # v24.3 #1: 给 FE chips 渲染
+        })
 
         # Sprint J: orchestrate next speaker. We run this async — the
         # current agent's bubble is already done from the user's POV;

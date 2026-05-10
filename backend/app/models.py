@@ -325,6 +325,11 @@ class MeetingAgentMessage(Base):
     text: Mapped[str] = mapped_column(Text)
     trigger: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # at_mention|keyword|manual
     trigger_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    # v24.3 #1: 引用溯源 — RAG 检索命中的 KB chunks(智慧住建文档 §3.1).
+    # 格式: [{chunk_id, document_id, document_filename, chunk_index,
+    #        snippet (<= 240 chars), distance}, ...]
+    # 长期记忆引用(LongTermMemory)留 v25 也并入此处.
+    citations: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

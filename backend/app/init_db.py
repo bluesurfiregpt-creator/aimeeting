@@ -74,6 +74,9 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     # v22.5 (多 AI 协作):task.co_assignees JSONB 数组(协办列表,UUID strings).
     # 默认 NULL = 退化为单 assignee 流程.
     ("task", "co_assignees", "JSONB"),
+    # v24.3 #1 (RAG 引用溯源 UI 强化):agent message 持久化引用的 KB chunks.
+    # 默认 NULL = 老消息没引用信息(只在新消息上有).
+    ("meeting_agent_message", "citations", "JSONB"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

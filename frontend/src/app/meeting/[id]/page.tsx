@@ -41,6 +41,8 @@ type LiveLine =
       agentColor: string;
       text: string;
       done: boolean;
+      // v24.3 #1: 该回答引用的 KB chunks(只在 done=true 时填,WS 末尾事件给)
+      citations: import("@/lib/api").AgentCitation[];
     };
 
 type Phase = "idle" | "live" | "ended";
@@ -428,6 +430,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           agentColor: e.agent_color,
           text: "",
           done: false,
+          citations: [],
         },
       ]);
       return;
@@ -458,7 +461,13 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         for (let i = draft.length - 1; i >= 0; i--) {
           const l = draft[i];
           if (l.kind === "agent" && l.agentId === e.agent_id && !l.done) {
-            draft[i] = { ...l, text: e.text || l.text, done: true };
+            draft[i] = {
+              ...l,
+              text: e.text || l.text,
+              done: true,
+              // v24.3 #1: 末尾事件带 citations,渲染 chips
+              citations: Array.isArray(e.citations) ? e.citations : [],
+            };
             return draft;
           }
         }
@@ -1194,6 +1203,26 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                   </span>
                   <span className="text-zinc-100 whitespace-pre-wrap">{l.text}</span>
                   {!l.done ? <span className="ml-1 animate-pulse">▌</span> : null}
+                  {/* v24.3 #1: RAG 引用溯源 chips */}
+                  {l.done && l.citations && l.citations.length > 0 && (
+                    <div
+                      className="mt-2 flex flex-wrap gap-1 border-t border-ink-800 pt-2"
+                      data-testid="agent-citations"
+                    >
+                      <span className="text-[10px] text-zinc-500">📚 引用</span>
+                      {l.citations.map((c, i) => (
+                        <span
+                          key={c.chunk_id}
+                          title={`${c.snippet}${c.snippet.length >= 240 ? "…" : ""}\n\n相关度: ${(1 - c.distance).toFixed(2)}`}
+                          className="cursor-help rounded-full border border-ink-700 bg-ink-900 px-2 py-0.5 text-[10px] text-zinc-400 hover:border-violet-500/40 hover:text-violet-200"
+                        >
+                          [{i + 1}] {c.document_filename.length > 24
+                            ? c.document_filename.slice(0, 22) + "…"
+                            : c.document_filename}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </li>
               ),
             )}

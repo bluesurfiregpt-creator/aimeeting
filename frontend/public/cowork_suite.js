@@ -3907,6 +3907,44 @@
       },
     });
 
+    // ---------- SS series · v24.3 #1 RAG 引用溯源 UI 强化 -------------------
+    R.register({
+      id: "SS-1",
+      series: "SS",
+      title: "GET /agent-messages 返回 shape 含 citations 字段(数组,可空)",
+      async run() {
+        // 找一个有 agent message 的会议(history 里很可能有);否则跳过
+        const meetings = await GET("/api/meetings");
+        if (!meetings.ok) return { ok: false, error: `meetings ${meetings.status}` };
+        let foundShape = false;
+        let checked = 0;
+        for (const m of (meetings.body || []).slice(0, 10)) {
+          const am = await GET(`/api/meetings/${m.id}/agent-messages`);
+          if (!am.ok) continue;
+          checked++;
+          if ((am.body || []).length === 0) continue;
+          // 任意一条消息验 citations 字段
+          const sample = am.body[0];
+          if (!Array.isArray(sample.citations)) {
+            return {
+              ok: false,
+              error: `meeting ${m.id} 的 agent message 缺 citations 字段(应为数组,实际 ${typeof sample.citations})`,
+            };
+          }
+          foundShape = true;
+          break;
+        }
+        if (!foundShape) {
+          // 没有任何会议有 agent message — 这不算 fail,只是 workspace 没历史
+          return {
+            ok: true,
+            evidence: { _note: `${checked} meetings checked, no agent message yet — shape pending` },
+          };
+        }
+        return { ok: true, evidence: { _note: "agent message citations 字段就绪" } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",

@@ -227,6 +227,16 @@ export type ActionItem = {
   updated_at: string;
 };
 
+/** v24.3 #1: 单条 RAG 引用(KB chunk)— 智慧住建文档 §3.1 引用溯源角标. */
+export type AgentCitation = {
+  chunk_id: string;
+  document_id: string;
+  document_filename: string;
+  chunk_index: number;
+  snippet: string;  // 命中片段前 240 字
+  distance: number; // 0-1 cosine distance(越小越相关)
+};
+
 /** M3.0: one persisted Agent reply in a meeting. Read-only post-hoc — for
  *  Cowork to verify keyword/@-mention triggers fired correctly without
  *  needing to subscribe to the live WS. */
@@ -235,6 +245,8 @@ export type AgentMessage = {
   agent_id: string;
   text: string;
   trigger: string | null;
+  /** v24.3 #1: 该回答引用的 KB chunks(0-4 条) */
+  citations: AgentCitation[];
   created_at: string;
 };
 

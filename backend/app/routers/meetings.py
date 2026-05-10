@@ -1249,11 +1249,22 @@ async def delete_action_comment(
 # --------- M3.0: Cowork-friendly Agent message reader -------------------------
 
 
+class AgentCitationOut(BaseModel):
+    """v24.3 #1: 单条 RAG 引用(KB chunk)."""
+    chunk_id: str
+    document_id: str
+    document_filename: str
+    chunk_index: int
+    snippet: str
+    distance: float
+
+
 class AgentMessageOut(BaseModel):
     id: int
     agent_id: uuid.UUID
     text: str
     trigger: Optional[str] = None
+    citations: list[AgentCitationOut] = []  # v24.3 #1
     created_at: datetime
 
 
@@ -1281,13 +1292,25 @@ async def list_agent_messages(
             .order_by(MeetingAgentMessage.id)
         )
     ).scalars().all()
-    return [
-        AgentMessageOut(
-            id=r.id,
-            agent_id=r.agent_id,
-            text=r.text,
-            trigger=r.trigger,
-            created_at=r.created_at,
+    out: list[AgentMessageOut] = []
+    for r in rows:
+        cits: list[AgentCitationOut] = []
+        if isinstance(r.citations, list):
+            for c in r.citations:
+                if not isinstance(c, dict):
+                    continue
+                try:
+                    cits.append(AgentCitationOut(**c))
+                except Exception:
+                    pass  # legacy / malformed shapes — skip
+        out.append(
+            AgentMessageOut(
+                id=r.id,
+                agent_id=r.agent_id,
+                text=r.text,
+                trigger=r.trigger,
+                citations=cits,
+                created_at=r.created_at,
+            )
         )
-        for r in rows
-    ]
+    return out
