@@ -3381,6 +3381,44 @@
       },
     });
 
+    // ---------- LL series · v24.1 #4 24h 签收超时催办 -----------------------
+    R.register({
+      id: "LL-1",
+      series: "LL",
+      title: "POST /api/dashboard/dispatch-overdue/force-check 200 + 字段全",
+      async run() {
+        const r = await POST("/api/dashboard/dispatch-overdue/force-check", {});
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        if (typeof r.body.notifications_emitted !== "number") {
+          return { ok: false, error: "notifications_emitted not number" };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `emitted ${r.body.notifications_emitted}` },
+        };
+      },
+    });
+
+    R.register({
+      id: "LL-2",
+      series: "LL",
+      title: "audit_log 含 dispatch_overdue.force_check 一行",
+      async run() {
+        // 先跑一次确保有 audit row
+        await POST("/api/dashboard/dispatch-overdue/force-check", {});
+        const a = await GET("/api/audit?action=dispatch_overdue.force_check&limit=10");
+        if (!a.ok) return { ok: false, error: `${a.status}` };
+        if ((a.body || []).length === 0) {
+          return { ok: false, error: "force_check audit row not found" };
+        }
+        const latest = a.body[0];
+        if (typeof latest.payload?.notifications_emitted !== "number") {
+          return { ok: false, error: "payload.notifications_emitted 缺" };
+        }
+        return { ok: true, evidence: { _note: `audit row id=${latest.id}` } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",

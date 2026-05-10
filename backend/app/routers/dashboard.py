@@ -748,6 +748,37 @@ async def seed_smart_construction_agents(
     )
 
 
+# ---- v24.1 #4 · 24h 签收超时催办手工触发 -----------------------------------
+
+
+class DispatchOverdueOut(BaseModel):
+    notifications_emitted: int
+
+
+@router.post("/dispatch-overdue/force-check", response_model=DispatchOverdueOut)
+async def dispatch_overdue_force_check(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.1 #4: 手工跑一次 24h 签收超时扫描.
+
+    平时由 due_reminder_loop 每 1h 自动跑.这个端点用于 demo / 调试.
+    Leader/admin only.返回这一轮 emit 的通知数(被 dedup 抑制的不算).
+    """
+    from ..due_reminder import _tick_dispatch_overdue
+    await require_leader_or_admin(session, auth)
+    n = await _tick_dispatch_overdue(session)
+    await audit_log(
+        session, auth, "dispatch_overdue.force_check",
+        target_type="workspace", target_id=str(auth.workspace.id),
+        payload={"notifications_emitted": n},
+        autocommit=False,
+    )
+    await session.commit()
+    return DispatchOverdueOut(notifications_emitted=n)
+
+
 # ---- v24.1 #2 · 异常预警手工触发 -------------------------------------------
 
 

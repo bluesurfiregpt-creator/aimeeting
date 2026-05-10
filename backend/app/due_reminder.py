@@ -30,7 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import SessionLocal
-from .models import Meeting, MeetingActionItem, WorkspaceMembership
+from .models import Meeting, MeetingActionItem, Task, WorkspaceMembership
 from .notify import emit_notification
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,8 @@ _TICK_SECONDS = int(os.getenv("DUE_REMINDER_TICK_SECONDS", "3600"))
 _DUE_SOON_WINDOW = timedelta(days=3)
 # Boundary between red and purple, in days.
 _PURPLE_THRESHOLD_DAYS = 3
+# v24.1 #4: 24h 签收超时催办 — dispatched 后 24h 内必须签收,否则催.
+_DISPATCH_TIMEOUT = timedelta(hours=24)
 
 
 def _classify(now: datetime, due_at: datetime) -> tuple[str, str, int]:
@@ -145,6 +147,70 @@ async def _tick_once(session: AsyncSession) -> dict[str, int]:
     return counts
 
 
+async def _tick_dispatch_overdue(session: AsyncSession) -> int:
+    """
+    v24.1 #4 — 24h 签收超时催办(智慧住建文档 §4.2).
+
+    扫所有 Task.status='dispatched' 且 dispatched_at < now - 24h 的行,
+    给 assignee 发 'task_dispatch_overdue'(red)+ dispatcher 发同 kind(yellow).
+    24h dedup(同 task 同 kind 内最多一次/24h),通过 task_id 作为 dedup key.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - _DISPATCH_TIMEOUT
+
+    rows = (
+        await session.execute(
+            select(Task).where(
+                Task.status == "dispatched",
+                Task.dispatched_at.is_not(None),
+                Task.dispatched_at < cutoff,
+                Task.assignee_user_id.is_not(None),
+            )
+        )
+    ).scalars().all()
+
+    fired = 0
+    for t in rows:
+        hours_overdue = int((now - t.dispatched_at).total_seconds() / 3600)
+        payload = {
+            "task_id": str(t.id),
+            "title": t.title or t.content[:40],
+            "content": t.content,
+            "dispatched_at": t.dispatched_at.isoformat(),
+            "hours_overdue": hours_overdue,
+        }
+        # 通知 assignee(必须签收的人)— red,催得重一点
+        emitted = await emit_notification(
+            session,
+            workspace_id=t.workspace_id,
+            user_id=t.assignee_user_id,
+            kind="task_dispatch_overdue",
+            severity="red",
+            payload={**payload, "to_role": "assignee"},
+            action_id_for_dedup=t.id,
+            dedup_key_field="task_id",
+        )
+        if emitted is not None:
+            fired += 1
+        # 通知 dispatcher(知道下属没签收)— yellow,提醒级
+        if t.dispatched_by_user_id and t.dispatched_by_user_id != t.assignee_user_id:
+            emitted2 = await emit_notification(
+                session,
+                workspace_id=t.workspace_id,
+                user_id=t.dispatched_by_user_id,
+                kind="task_dispatch_overdue",
+                severity="yellow",
+                payload={**payload, "to_role": "dispatcher", "assignee_user_id": str(t.assignee_user_id)},
+                action_id_for_dedup=t.id,
+                dedup_key_field="task_id",
+            )
+            if emitted2 is not None:
+                fired += 1
+
+    await session.commit()
+    return fired
+
+
 async def due_reminder_loop(stop_event: asyncio.Event) -> None:
     """
     Long-running loop wired into the FastAPI lifespan. Sleeps between
@@ -164,6 +230,13 @@ async def due_reminder_loop(stop_event: asyncio.Event) -> None:
                         counts.get("red", 0),
                         counts.get("purple", 0),
                         counts.get("purple_admins", 0),
+                    )
+                # v24.1 #4: 24h 签收超时催办 — 跟 due_at 维度的催办同 tick 跑
+                dispatch_overdue_n = await _tick_dispatch_overdue(session)
+                if dispatch_overdue_n:
+                    logger.info(
+                        "due_reminder dispatch-overdue tick: emitted %d notifications",
+                        dispatch_overdue_n,
                     )
         except Exception:  # belt + suspenders: never let a bad row kill the loop
             logger.exception("due_reminder tick failed")

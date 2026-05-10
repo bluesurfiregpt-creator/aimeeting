@@ -449,7 +449,8 @@ export type Notification = {
     | "task_co_withdrawn"
     | "task_collaboration_rated"
     | "report_submitted"
-    | "alert_fired";
+    | "alert_fired"
+    | "task_dispatch_overdue";
   severity: "normal" | "yellow" | "red" | "purple";
   payload: Record<string, unknown> | null;
   read_at: string | null;
@@ -1142,6 +1143,13 @@ export const api = {
   // v24.1 #2: 手工跑一次 3 条异常预警规则(跳 24h dedup),用于 demo / 调试
   alertsForceCheck: () =>
     jpost<AlertForceCheckResult>(`/api/dashboard/alerts/force-check`, {}),
+
+  // v24.1 #4: 手工跑一次 24h 签收超时扫描(平时 1h 自动)
+  dispatchOverdueForceCheck: () =>
+    jpost<{ notifications_emitted: number }>(
+      `/api/dashboard/dispatch-overdue/force-check`,
+      {},
+    ),
 
   // v24.1 #3: 4-维自动派发路由(任何 user 可 preview;leader/admin 可 auto-route)
   previewRoute: (taskId: string) =>

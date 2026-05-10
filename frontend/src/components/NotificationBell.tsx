@@ -126,6 +126,13 @@ function describe(n: Notification): { line: string; href: string | null } {
       const title = typeof p.title === "string" ? p.title : "异常预警";
       return { line: title, href };
     }
+    case "task_dispatch_overdue": {
+      const title = typeof p.title === "string" ? p.title : "";
+      const hours = typeof p.hours_overdue === "number" ? p.hours_overdue : 0;
+      const role = typeof p.to_role === "string" ? p.to_role : "";
+      const prefix = role === "dispatcher" ? "下属未签收" : "请尽快签收";
+      return { line: `⏰ ${prefix} (${hours}h):${title}`, href };
+    }
     default:
       return { line: n.kind, href };
   }

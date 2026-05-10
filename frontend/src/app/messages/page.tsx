@@ -197,6 +197,13 @@ function describeNotification(n: Notification): string {
       const ak = typeof p.alert_kind === "string" ? p.alert_kind : "";
       return `🚨 [${ak}] ${title}`;
     }
+    case "task_dispatch_overdue": {
+      const title = typeof p.title === "string" ? p.title : "";
+      const hours = typeof p.hours_overdue === "number" ? p.hours_overdue : 0;
+      const role = typeof p.to_role === "string" ? p.to_role : "";
+      const prefix = role === "dispatcher" ? "下属未签收" : "请尽快签收";
+      return `⏰ ${prefix} (派发 ${hours}h):${title}`;
+    }
     default:
       return n.kind;
   }

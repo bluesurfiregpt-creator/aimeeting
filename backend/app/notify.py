@@ -74,7 +74,13 @@ logger = logging.getLogger(__name__)
 
 # Kinds that are emitted by the cron tick and therefore must dedup so we
 # don't fill the bell with duplicates each time the worker wakes up.
-_DEDUP_KINDS: frozenset[str] = frozenset({"action_due_soon", "action_overdue"})
+# v24.1 #4: task_dispatch_overdue (24h 签收超时催办) 也走 dedup
+# (key 是 task_id 不是 action_id,见 emit_notification 的 dedup_key_field 参数).
+_DEDUP_KINDS: frozenset[str] = frozenset({
+    "action_due_soon",
+    "action_overdue",
+    "task_dispatch_overdue",
+})
 
 # v18: severity-aware dedup windows (smart_construction 三级催办).
 _DEDUP_WINDOWS: dict[str, timedelta] = {
@@ -94,6 +100,7 @@ async def emit_notification(
     severity: str = "normal",
     payload: Optional[dict[str, Any]] = None,
     action_id_for_dedup: Optional[uuid.UUID] = None,
+    dedup_key_field: str = "action_id",
 ) -> Optional[Notification]:
     """
     Insert a notification, applying severity-aware dedup for cron-style kinds.
@@ -102,10 +109,14 @@ async def emit_notification(
 
     The caller is responsible for `session.commit()` — we only stage the
     row + flush so the new id is available to the caller.
+
+    `dedup_key_field`: which key in payload to compare against
+    `action_id_for_dedup`.默认 'action_id'(老 action 催办用),v24.1 #4 的
+    24h 签收超时催办用 'task_id'(因为是按 task 维度去重).
     """
     if kind in _DEDUP_KINDS:
         if action_id_for_dedup is None:
-            # Cron-style kind without an action_id key would silently
+            # Cron-style kind without an dedup id would silently
             # spam — log loudly and skip.
             logger.warning(
                 "emit_notification(kind=%s) missing action_id_for_dedup; skipping",
@@ -128,7 +139,7 @@ async def emit_notification(
         for r in rows:
             if (
                 isinstance(r.payload, dict)
-                and r.payload.get("action_id") == str(action_id_for_dedup)
+                and r.payload.get(dedup_key_field) == str(action_id_for_dedup)
             ):
                 return None  # dedup hit — skip insert
 
