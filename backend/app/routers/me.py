@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import File, UploadFile
 
 from ..access_control import can_access_or_raise
+from ..audit import audit_log
 from ..auth import (
     AuthContext,
     expert_bound_agent_id,
@@ -528,6 +529,16 @@ async def dispatch_task(
             payload=co_payload,
         )
 
+    await audit_log(
+        session, auth, "task.dispatch",
+        target_type="task", target_id=str(t.id),
+        payload={
+            "assignee_user_id": str(payload.assignee_user_id),
+            "co_assignees_count": len(co_uuids),
+            "due_at": t.due_at.isoformat() if t.due_at else None,
+        },
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(t)
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
@@ -565,6 +576,11 @@ async def accept_task(
             payload=notify_payload,
         )
 
+    await audit_log(
+        session, auth, "task.accept",
+        target_type="task", target_id=str(t.id),
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(t)
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
@@ -606,6 +622,12 @@ async def return_task(
             payload=notify_payload,
         )
 
+    await audit_log(
+        session, auth, "task.return",
+        target_type="task", target_id=str(t.id),
+        payload={"reason": (payload.reason or "")[:300] or None},
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(t)
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
@@ -630,6 +652,11 @@ async def start_task(
     t.started_at = datetime.now(timezone.utc)
 
     await _mirror_status_to_action(session, t)
+    await audit_log(
+        session, auth, "task.start",
+        target_type="task", target_id=str(t.id),
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(t)
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
@@ -665,6 +692,11 @@ async def complete_task(
             payload=notify_payload,
         )
 
+    await audit_log(
+        session, auth, "task.complete",
+        target_type="task", target_id=str(t.id),
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(t)
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
@@ -691,6 +723,12 @@ async def cancel_task(
     t.status = new_status
 
     await _mirror_status_to_action(session, t)
+    await audit_log(
+        session, auth, "task.cancel",
+        target_type="task", target_id=str(t.id),
+        payload={"reason": (payload.reason or "")[:300] or None},
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(t)
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
@@ -785,6 +823,15 @@ async def submit_task(
             payload=notify_payload,
         )
 
+    await audit_log(
+        session, auth, "task.submit",
+        target_type="task", target_id=str(t.id),
+        payload={
+            "force": payload.force,
+            "note": (payload.note or "")[:500] or None,
+        },
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(t)
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
@@ -829,6 +876,12 @@ async def approve_task(
     # v22.5: 任务办结后,实时重算主责 + 所有协办的本月评价(真数据覆盖 seed)
     await recompute_for_task_participants(session, t)
 
+    await audit_log(
+        session, auth, "task.approve",
+        target_type="task", target_id=str(t.id),
+        payload={"assignee_user_id": str(t.assignee_user_id) if t.assignee_user_id else None},
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(t)
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
@@ -870,6 +923,12 @@ async def reject_task(
             payload=notify_payload,
         )
 
+    await audit_log(
+        session, auth, "task.reject",
+        target_type="task", target_id=str(t.id),
+        payload={"reason": (payload.reason or "")[:500] or None},
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(t)
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
@@ -896,6 +955,11 @@ async def archive_task(
     t.status = new_status
 
     await _mirror_status_to_action(session, t)
+    await audit_log(
+        session, auth, "task.archive",
+        target_type="task", target_id=str(t.id),
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(t)
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
@@ -985,6 +1049,12 @@ async def co_submit_task(
             payload=notify_payload,
         )
 
+    await audit_log(
+        session, auth, "task.co_submit",
+        target_type="task", target_id=str(t.id),
+        payload={"has_content": bool(body)},
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(t)
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
@@ -1031,6 +1101,11 @@ async def co_withdraw_task(
             payload=notify_payload,
         )
 
+    await audit_log(
+        session, auth, "task.co_withdraw",
+        target_type="task", target_id=str(t.id),
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(t)
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
@@ -1137,6 +1212,16 @@ async def rate_task_collaboration(
         user_id=payload.ratee_user_id,
     )
 
+    await audit_log(
+        session, auth, "task.rate",
+        target_type="task", target_id=str(t.id),
+        payload={
+            "ratee_user_id": str(payload.ratee_user_id),
+            "dimension": payload.dimension,
+            "score": payload.score,
+        },
+        autocommit=False,
+    )
     await session.commit()
     return {"ok": True}
 
@@ -1529,6 +1614,16 @@ async def create_directive(
         parse_error=err,
     )
     session.add(row)
+    await session.flush()
+    await audit_log(
+        session, auth, "directive.create",
+        target_type="leader_directive", target_id=str(row.id),
+        payload={
+            "draft_count": len(drafts) if drafts else 0,
+            "parse_error": err is not None,
+        },
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(row)
     return _directive_to_out(row)
@@ -1712,6 +1807,15 @@ async def commit_directive(
 
     row.status = "committed"
     row.committed_task_ids = [str(x) for x in committed_ids]
+    await audit_log(
+        session, auth, "directive.commit",
+        target_type="leader_directive", target_id=str(row.id),
+        payload={
+            "task_count": len(committed_ids),
+            "dispatched_count": dispatched_count,
+        },
+        autocommit=False,
+    )
     await session.commit()
 
     return DirectiveCommitOut(
@@ -1746,6 +1850,11 @@ async def discard_directive(
     if row.status != "draft":
         raise HTTPException(409, f"cannot discard a {row.status} directive")
     row.status = "discarded"
+    await audit_log(
+        session, auth, "directive.discard",
+        target_type="leader_directive", target_id=str(row.id),
+        autocommit=False,
+    )
     await session.commit()
 
 
@@ -1886,6 +1995,18 @@ async def create_upper_doc(
         parse_error=parse_err,
     )
     session.add(row)
+    await session.flush()
+    await audit_log(
+        session, auth, "upper_doc.create",
+        target_type="upper_doc", target_id=str(row.id),
+        payload={
+            "filename": row.filename,
+            "byte_size": row.byte_size,
+            "draft_count": len(drafts) if drafts else 0,
+            "parse_error": parse_err is not None,
+        },
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(row)
     return _upper_doc_to_out(row)
@@ -1989,6 +2110,15 @@ async def commit_upper_doc(
 
     row.status = "committed"
     row.committed_task_ids = [str(x) for x in committed_ids]
+    await audit_log(
+        session, auth, "upper_doc.commit",
+        target_type="upper_doc", target_id=str(row.id),
+        payload={
+            "task_count": len(committed_ids),
+            "dispatched_count": dispatched_count,
+        },
+        autocommit=False,
+    )
     await session.commit()
 
     return DirectiveCommitOut(
@@ -2022,6 +2152,11 @@ async def discard_upper_doc(
     if row.status not in ("draft", "failed"):
         raise HTTPException(409, f"cannot discard a {row.status} upper_doc")
     row.status = "discarded"
+    await audit_log(
+        session, auth, "upper_doc.discard",
+        target_type="upper_doc", target_id=str(row.id),
+        autocommit=False,
+    )
     await session.commit()
 
 

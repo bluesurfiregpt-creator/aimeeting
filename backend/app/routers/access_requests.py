@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..audit import audit_log
 from ..auth import AuthContext, get_current_auth, is_leader_or_admin
 from ..db import get_session
 from ..models import DataAccessRequest, KnowledgeDocument, LongTermMemory, Task
@@ -190,6 +191,17 @@ async def create_request(
             },
         )
 
+    await audit_log(
+        session, auth, "access_request.create",
+        target_type="data_access_request", target_id=str(row.id),
+        payload={
+            "target_resource_type": payload.target_resource_type,
+            "target_resource_id": str(payload.target_resource_id),
+            "target_owner_user_id": str(owner_id) if owner_id else None,
+            "data_classification": classification,
+        },
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(row)
     return _to_out(row)
@@ -287,6 +299,16 @@ async def approve_request(
                 "target_resource_id": str(r.target_resource_id),
             },
         )
+    await audit_log(
+        session, auth, "access_request.approve",
+        target_type="data_access_request", target_id=str(r.id),
+        payload={
+            "requester_user_id": str(r.requester_user_id),
+            "approval_window_hours": hours,
+            "target_resource_type": r.target_resource_type,
+        },
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(r)
     return _to_out(r)
@@ -321,6 +343,15 @@ async def reject_request(
                 "target_resource_id": str(r.target_resource_id),
             },
         )
+    await audit_log(
+        session, auth, "access_request.reject",
+        target_type="data_access_request", target_id=str(r.id),
+        payload={
+            "requester_user_id": str(r.requester_user_id),
+            "reason": r.decision_reason,
+        },
+        autocommit=False,
+    )
     await session.commit()
     await session.refresh(r)
     return _to_out(r)

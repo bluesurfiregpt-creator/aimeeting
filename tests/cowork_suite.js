@@ -2914,6 +2914,102 @@
       },
     });
 
+    // ---------- HH series · v24.0 audit_log 全覆盖 -------------------------
+    R.register({
+      id: "HH-1",
+      series: "HH",
+      title: "task.dispatch 写 audit_log + payload 含 assignee",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        // 创会议 + action(触发 task 1:1 mirror)
+        const m = await POST("/api/meetings", { title: `${PREFIX}_HH1`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `meeting ${m.status}` };
+        created("meeting", m.body.id, "HH1");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_HH1_t`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_HH1_t`);
+        if (!t) return { ok: false, error: "task not visible" };
+        ctx.HH1_task = t.id;
+        // dispatch
+        const d = await POST(`/api/me/tasks/${t.id}/dispatch`, {
+          assignee_user_id: me.user_id,
+        });
+        if (!d.ok) return { ok: false, error: `dispatch ${d.status}` };
+        // 看 audit
+        const a = await GET("/api/audit?action=task.dispatch&limit=50");
+        if (!a.ok) return { ok: false, error: `audit list ${a.status}` };
+        const row = (a.body || []).find((x) => x.target_id === t.id);
+        if (!row) {
+          return { ok: false, error: "task.dispatch audit row not found" };
+        }
+        if (!row.payload || row.payload.assignee_user_id !== me.user_id) {
+          return { ok: false, error: `payload missing assignee_user_id: ${JSON.stringify(row.payload)}` };
+        }
+        return { ok: true, evidence: { _note: `audit row id=${row.id}` } };
+      },
+    });
+
+    R.register({
+      id: "HH-2",
+      series: "HH",
+      title: "task lifecycle (accept/start/complete) 各写一行 audit",
+      async run(ctx) {
+        if (!ctx.HH1_task) {
+          return { ok: false, error: "SKIP_DEP_FAILED:HH-1", evidence: { _skipped: true } };
+        }
+        // HH-1 task 现在是 dispatched.走 accept → start → complete
+        const a1 = await POST(`/api/me/tasks/${ctx.HH1_task}/accept`, {});
+        if (!a1.ok) return { ok: false, error: `accept ${a1.status}` };
+        const a2 = await POST(`/api/me/tasks/${ctx.HH1_task}/start`, {});
+        if (!a2.ok) return { ok: false, error: `start ${a2.status}` };
+        const a3 = await POST(`/api/me/tasks/${ctx.HH1_task}/complete`, {});
+        if (!a3.ok) return { ok: false, error: `complete ${a3.status}` };
+        // 各看 audit(独立查询防止 limit 截断)
+        for (const action of ["task.accept", "task.start", "task.complete"]) {
+          const a = await GET(`/api/audit?action=${action}&limit=50`);
+          if (!a.ok) return { ok: false, error: `${action} audit ${a.status}` };
+          const row = (a.body || []).find((x) => x.target_id === ctx.HH1_task);
+          if (!row) {
+            return { ok: false, error: `${action} audit row not found for task ${ctx.HH1_task}` };
+          }
+        }
+        return { ok: true, evidence: { _note: "accept/start/complete 都有 audit" } };
+      },
+    });
+
+    R.register({
+      id: "HH-3",
+      series: "HH",
+      title: "task.cancel 写 audit + payload 含 reason",
+      async run() {
+        const me = (await GET("/api/auth/me")).body;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_HH3`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `meeting ${m.status}` };
+        created("meeting", m.body.id, "HH3");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_HH3_t`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_HH3_t`);
+        if (!t) return { ok: false, error: "task not visible" };
+        const reason = "测试取消_HH3_" + Date.now();
+        const c = await POST(`/api/me/tasks/${t.id}/cancel`, { reason });
+        if (!c.ok) return { ok: false, error: `cancel ${c.status}` };
+        const a = await GET("/api/audit?action=task.cancel&limit=50");
+        if (!a.ok) return { ok: false, error: `audit ${a.status}` };
+        const row = (a.body || []).find((x) => x.target_id === t.id);
+        if (!row) return { ok: false, error: "task.cancel audit row not found" };
+        if (!row.payload || row.payload.reason !== reason) {
+          return { ok: false, error: `reason mismatch: got ${row.payload?.reason}` };
+        }
+        return { ok: true, evidence: { _note: "cancel + reason in audit OK" } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",

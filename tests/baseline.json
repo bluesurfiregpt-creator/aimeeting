@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "frozen_at": "2026-05-10T00:00:00Z",
-  "frozen_against": "v23.5 (消息中心 + 任务详情页 + 会议追溯链)",
+  "frozen_against": "v24.0 sprint 0 (audit_log 全覆盖 + KB hotfix + .env 备份)",
   "_note": "Deterministic per-case status snapshot. T2 diff: any case whose status differs from this baseline is a regression (or, for ⏭️→✅, a new pass to celebrate). evidence/error/timing intentionally excluded — those are non-deterministic.",
   "summary": {
-    "total": 103,
-    "pass": 95,
+    "total": 106,
+    "pass": 98,
     "fail": 0,
     "skipped": 8
   },
@@ -112,6 +112,9 @@
     { "id": "GG-3", "series": "GG", "status": "pass" },
     { "id": "GG-4", "series": "GG", "status": "pass" },
     { "id": "GG-5", "series": "GG", "status": "pass" },
-    { "id": "GG-6", "series": "GG", "status": "pass" }
+    { "id": "GG-6", "series": "GG", "status": "pass" },
+    { "id": "HH-1", "series": "HH", "status": "pass" },
+    { "id": "HH-2", "series": "HH", "status": "pass" },
+    { "id": "HH-3", "series": "HH", "status": "pass" }
   ]
 }
