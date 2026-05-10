@@ -43,14 +43,15 @@ logger = logging.getLogger(__name__)
 
 
 def _fmt_dt(dt: Optional[datetime]) -> str:
+    """格式化时间为 北京时区 yyyy-mm-dd HH:MM."""
     if not dt:
         return "—"
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    # 转北京时间显示
-    bj = dt.astimezone(timezone(timezone.utc.utcoffset(dt) if False else None))
-    # 简化:直接 ISO 格式 yyyy-mm-dd HH:MM
-    return dt.strftime("%Y-%m-%d %H:%M")
+    # 转 北京时间(UTC+8)显示 — 政务公文场景下读者预期本地时间
+    from datetime import timedelta
+    beijing = timezone(timedelta(hours=8))
+    return dt.astimezone(beijing).strftime("%Y-%m-%d %H:%M")
 
 
 def _fmt_duration(start: Optional[datetime], end: Optional[datetime]) -> str:

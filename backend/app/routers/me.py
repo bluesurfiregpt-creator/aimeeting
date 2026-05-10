@@ -228,11 +228,13 @@ async def list_my_tasks(
         )
     elif role == "coassignee":
         # v22.5: 我作为协办的任务.JSONB 数组里包含我的 user_id 字符串.
-        # 用 PG 的 @> 操作符:co_assignees @> '["<my-uuid>"]'
+        # 用 PG 的 @> 操作符:co_assignees @> '["<my-uuid>"]'.
+        # 注意:必须显式 CAST(:me AS jsonb),否则 asyncpg 把它当 varchar
+        # 传过去,PG 报「operator does not exist: jsonb @> character varying」.
         from sqlalchemy import text
         q = select(Task).where(
             Task.workspace_id == auth.workspace.id,
-            text("(task.co_assignees @> :me)").bindparams(
+            text("(task.co_assignees @> CAST(:me AS jsonb))").bindparams(
                 me=f'["{auth.user.id}"]'
             ),
         )

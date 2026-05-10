@@ -429,9 +429,9 @@ export default function DirectivePanel({
                         onChange={(e) =>
                           updateDraft(d._key, {
                             assignee_user_id: e.target.value || null,
-                            _dispatch: e.target.value
-                              ? d._dispatch
-                              : false,
+                            // v25 fix: 选 assignee 默认勾派发(用户预期);
+                            // 取消 assignee 才关闭派发.
+                            _dispatch: e.target.value ? true : false,
                           })
                         }
                         className="rounded-md border border-ink-700 bg-ink-950 px-2 py-1 text-xs text-zinc-200 focus:border-accent-500 focus:outline-none"

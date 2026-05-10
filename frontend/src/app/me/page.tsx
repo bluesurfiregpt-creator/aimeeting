@@ -7,9 +7,11 @@ import {
   CLASSIFICATION_BADGE_CLASSES,
   CLASSIFICATION_LABELS,
   type DataClassification,
+  type LeaderDirective,
   type MyTask,
   type Notification,
   type NotificationList,
+  type UpperDoc,
 } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import SubmitDialog from "@/components/SubmitDialog";
@@ -28,11 +30,13 @@ import SubmitDialog from "@/components/SubmitDialog";
  */
 
 type TaskTab =
-  | "pending"   // 待签收 (dispatched)
-  | "working"   // 办理中 (accepted | in_progress)
-  | "review"    // 待审核 (submitted)
-  | "done"      // 已完成
-  | "all";      // 全部 (active + done — excludes archived/cancelled by default)
+  | "pending"     // 待签收 (dispatched)
+  | "working"     // 办理中 (accepted | in_progress)
+  | "review"      // 待审核 (submitted)
+  | "done"        // 已完成
+  | "all"         // 全部 (active + done — excludes archived/cancelled)
+  | "directives"  // v25 fix #4: 领导指令(过往拆解记录 + 当前 draft)
+  | "upper_docs"; // v25 fix #4: 上级文件(过往上传 + 当前 draft)
 
 const TAB_LABELS: Record<TaskTab, string> = {
   pending: "待签收",
@@ -40,9 +44,28 @@ const TAB_LABELS: Record<TaskTab, string> = {
   review: "待审核",
   done: "已完成",
   all: "全部",
+  directives: "领导指令",
+  upper_docs: "上级文件",
 };
 
-const TAB_ORDER: TaskTab[] = ["pending", "working", "review", "done", "all"];
+const TAB_ORDER: TaskTab[] = [
+  "pending", "working", "review", "done", "all",
+  "directives", "upper_docs",
+];
+
+// v25 fix #4: directives + upper_docs 状态 → 中文 + 颜色
+const DIRECTIVE_STATUS_LABEL: Record<string, string> = {
+  draft: "草稿",
+  committed: "已入库",
+  discarded: "已丢弃",
+  failed: "失败",
+};
+const DIRECTIVE_STATUS_TONE: Record<string, string> = {
+  draft: "bg-amber-500/15 text-amber-300",
+  committed: "bg-emerald-500/15 text-emerald-300",
+  discarded: "bg-zinc-700/40 text-zinc-400",
+  failed: "bg-rose-500/15 text-rose-300",
+};
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "";
@@ -163,6 +186,12 @@ export default function MePage() {
   const [reviewQueue, setReviewQueue] = useState<MyTask[]>([]);
   const [reviewLoading, setReviewLoading] = useState(true);
 
+  // v25 fix #4: 领导指令 + 上级文件 列表
+  const [directives, setDirectives] = useState<LeaderDirective[]>([]);
+  const [directivesLoading, setDirectivesLoading] = useState(false);
+  const [upperDocs, setUpperDocs] = useState<UpperDoc[]>([]);
+  const [upperDocsLoading, setUpperDocsLoading] = useState(false);
+
   // v22.5: 我的协办任务 + 评分对话框状态 + caller user_id(用于检查 co-submit 状态)
   const [coTasks, setCoTasks] = useState<MyTask[]>([]);
   const [coLoading, setCoLoading] = useState(true);
@@ -183,6 +212,8 @@ export default function MePage() {
   const [busy, setBusy] = useState(false);
 
   const loadTasks = useCallback(async (t: TaskTab) => {
+    // 非任务 tab 不调用 listMyTasks
+    if (t === "directives" || t === "upper_docs") return;
     setTasksLoading(true);
     try {
       const r = await api.listMyTasks(t, "assignee");
@@ -191,6 +222,31 @@ export default function MePage() {
       setTasks([]);
     } finally {
       setTasksLoading(false);
+    }
+  }, []);
+
+  // v25 fix #4: 切到 directives / upper_docs 时按需加载
+  const loadDirectives = useCallback(async () => {
+    setDirectivesLoading(true);
+    try {
+      const r = await api.listMyDirectives(50);
+      setDirectives(r);
+    } catch {
+      setDirectives([]);
+    } finally {
+      setDirectivesLoading(false);
+    }
+  }, []);
+
+  const loadUpperDocs = useCallback(async () => {
+    setUpperDocsLoading(true);
+    try {
+      const r = await api.listMyUpperDocs(50);
+      setUpperDocs(r);
+    } catch {
+      setUpperDocs([]);
+    } finally {
+      setUpperDocsLoading(false);
     }
   }, []);
 
@@ -232,7 +288,9 @@ export default function MePage() {
 
   useEffect(() => {
     void loadTasks(tab);
-  }, [tab, loadTasks]);
+    if (tab === "directives") void loadDirectives();
+    if (tab === "upper_docs") void loadUpperDocs();
+  }, [tab, loadTasks, loadDirectives, loadUpperDocs]);
 
   useEffect(() => {
     void loadReviewQueue();
@@ -608,7 +666,133 @@ export default function MePage() {
               </div>
             </header>
 
-            {tasksLoading ? (
+            {tab === "directives" ? (
+              // v25 fix #4: 领导指令 列表
+              directivesLoading ? (
+                <p className="mt-4 text-sm text-zinc-500">加载中…</p>
+              ) : directives.length === 0 ? (
+                <div
+                  className="mt-4 text-sm text-zinc-500"
+                  data-testid="me-directives-empty"
+                >
+                  暂无领导指令.
+                  <p className="mt-1 text-xs text-zinc-600">
+                    点右上角 ➕ 「下达指令」 按钮新建,LLM 会自动拆解成任务草稿.
+                  </p>
+                </div>
+              ) : (
+                <ul
+                  className="mt-3 divide-y divide-ink-800"
+                  data-testid="me-directives-list"
+                >
+                  {directives.map((d) => (
+                    <li
+                      key={d.id}
+                      className="py-3"
+                      data-testid={`me-directive-${d.id}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                DIRECTIVE_STATUS_TONE[d.status] || "bg-zinc-700/40 text-zinc-300"
+                              }`}
+                            >
+                              {DIRECTIVE_STATUS_LABEL[d.status] || d.status}
+                            </span>
+                            <span className="text-xs text-zinc-500">
+                              {fmtDate(d.created_at)}
+                            </span>
+                            {d.committed_task_ids && d.committed_task_ids.length > 0 && (
+                              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                                生成 {d.committed_task_ids.length} 任务
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-1 line-clamp-2 text-sm text-zinc-300">
+                            {d.content}
+                          </p>
+                          {d.parse_error && (
+                            <p className="mt-1 text-xs text-rose-400">
+                              ⚠️ {d.parse_error}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )
+            ) : tab === "upper_docs" ? (
+              // v25 fix #4: 上级文件 列表
+              upperDocsLoading ? (
+                <p className="mt-4 text-sm text-zinc-500">加载中…</p>
+              ) : upperDocs.length === 0 ? (
+                <div
+                  className="mt-4 text-sm text-zinc-500"
+                  data-testid="me-upper-docs-empty"
+                >
+                  暂无上级文件.
+                  <p className="mt-1 text-xs text-zinc-600">
+                    点右上角 ➕ 「下达指令」 → 「上级文件」 tab 上传 PDF / 图片 / 扫描件.
+                  </p>
+                </div>
+              ) : (
+                <ul
+                  className="mt-3 divide-y divide-ink-800"
+                  data-testid="me-upper-docs-list"
+                >
+                  {upperDocs.map((u) => (
+                    <li
+                      key={u.id}
+                      className="py-3"
+                      data-testid={`me-upper-doc-${u.id}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                DIRECTIVE_STATUS_TONE[u.status] || "bg-zinc-700/40 text-zinc-300"
+                              }`}
+                            >
+                              {DIRECTIVE_STATUS_LABEL[u.status] || u.status}
+                            </span>
+                            <span className="text-xs text-zinc-500">
+                              {fmtDate(u.created_at)}
+                            </span>
+                            {u.committed_task_ids && u.committed_task_ids.length > 0 && (
+                              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                                生成 {u.committed_task_ids.length} 任务
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-1 truncate text-sm font-medium text-zinc-200">
+                            📄 {u.filename}
+                          </p>
+                          {u.byte_size && (
+                            <p className="mt-0.5 text-xs text-zinc-500">
+                              {(u.byte_size / 1024).toFixed(1)} KB
+                            </p>
+                          )}
+                          {u.extracted_text_preview && (
+                            <p className="mt-1 line-clamp-2 text-xs text-zinc-400">
+                              {u.extracted_text_preview}
+                            </p>
+                          )}
+                          {u.parse_error && (
+                            <p className="mt-1 text-xs text-rose-400">
+                              ⚠️ {u.parse_error}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )
+            ) : tasksLoading ? (
               <p className="mt-4 text-sm text-zinc-500">加载中…</p>
             ) : tasks.length === 0 ? (
               <p
