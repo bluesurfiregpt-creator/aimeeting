@@ -748,6 +748,70 @@ async def seed_smart_construction_agents(
     )
 
 
+# ---- v24.2 #2 · 自然语言图表生成 -------------------------------------------
+
+
+class ChartQAIn(BaseModel):
+    question: str
+
+
+class ChartDataPoint(BaseModel):
+    name: str
+    value: float
+
+
+class ChartQAOut(BaseModel):
+    template: str
+    title: str
+    chart_type: str  # 'pie' | 'bar' | 'line'
+    data: list[ChartDataPoint]
+    params: dict
+    rationale: Optional[str] = None
+    fallback_used: bool = False
+
+
+@router.post("/chart-qa", response_model=ChartQAOut)
+async def chart_qa(
+    payload: ChartQAIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.2 #2: 自然语言问数 → 图表(智慧住建文档 §3.3 图表生成).
+
+    LLM 选 7 个预设模板之一(防 SQL 注入 + 演示稳定),返回 chart_type +
+    数据点 + 标题.前端用 recharts 渲染.
+
+    Leader/admin only — 看 workspace 全局数据.
+    """
+    from ..chart_qa import answer_chart_question
+    await require_leader_or_admin(session, auth)
+    q = (payload.question or "").strip()
+    if len(q) > 500:
+        raise HTTPException(400, "question too long (max 500 chars)")
+    result = await answer_chart_question(session, auth.workspace.id, q)
+    await audit_log(
+        session, auth, "dashboard.chart_qa",
+        target_type="workspace", target_id=str(auth.workspace.id),
+        payload={
+            "question": q[:200],
+            "template": result["template"],
+            "fallback": result.get("fallback_used"),
+        },
+        autocommit=False,
+    )
+    await session.commit()
+    return ChartQAOut(
+        template=result["template"],
+        title=result["title"],
+        chart_type=result["chart_type"],
+        data=[ChartDataPoint(**p) for p in result["data"]],
+        params=result["params"],
+        rationale=result.get("rationale"),
+        fallback_used=result.get("fallback_used", False),
+    )
+
+
 # ---- v24.1 #4 · 24h 签收超时催办手工触发 -----------------------------------
 
 

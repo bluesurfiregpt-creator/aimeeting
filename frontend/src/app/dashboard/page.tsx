@@ -656,9 +656,8 @@ export default function DashboardPage() {
         </div>
       ) : data ? (
         <>
-          {/* v23: 看板二期 + 报表入口 — 三张精品卡片,leader/admin 全可见,
-              expert/member 只看到 Kanban(报表 leader-only) */}
-          <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {/* v23+v24.2 #2: 4 张精品入口卡片 — leader/admin 全可见 */}
+          <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Link
               href="/dashboard/kanban-agents"
               data-testid="entry-kanban-agents"
@@ -717,6 +716,43 @@ export default function DashboardPage() {
                   <span className="text-2xl" aria-hidden>📊</span>
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-zinc-500">报表中心</div>
+                    <div className="mt-0.5 text-[10px] text-zinc-600">
+                      仅领导/管理员可访问
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {/* v24.2 #2: AI 问数 — 自然语言出图(leader/admin) */}
+            {isLeader ? (
+              <Link
+                href="/dashboard/ask"
+                data-testid="entry-chart-qa"
+                className="group rounded-xl border border-ink-700 bg-ink-900 p-4 hover:border-violet-500/40 hover:bg-ink-800/50 transition"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl" aria-hidden>✨</span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium text-zinc-100 group-hover:text-violet-200 transition">
+                        AI 问数
+                      </span>
+                      <span className="rounded-full bg-violet-500/20 px-1.5 py-0.5 text-[9px] text-violet-200">
+                        v24.2
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-xs text-zinc-500">
+                      自然语言问任务/会议数据,自动出图
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            ) : (
+              <div className="rounded-xl border border-ink-800 bg-ink-950/50 p-4 opacity-50">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl" aria-hidden>✨</span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-zinc-500">AI 问数</div>
                     <div className="mt-0.5 text-[10px] text-zinc-600">
                       仅领导/管理员可访问
                     </div>

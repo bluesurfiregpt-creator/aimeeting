@@ -1171,6 +1171,18 @@ export const api = {
       {},
     ),
 
+  // v24.2 #2: 自然语言问数(LLM 选 7 个预设模板 + recharts 渲染)
+  chartQA: (question: string) =>
+    jpost<{
+      template: string;
+      title: string;
+      chart_type: "pie" | "bar" | "line";
+      data: { name: string; value: number }[];
+      params: { window_days?: number; top_n?: number };
+      rationale: string | null;
+      fallback_used: boolean;
+    }>(`/api/dashboard/chart-qa`, { question }),
+
   // v24.1 #3: 4-维自动派发路由(任何 user 可 preview;leader/admin 可 auto-route)
   previewRoute: (taskId: string) =>
     jget<RoutePreview>(`/api/me/tasks/${taskId}/route-preview`),

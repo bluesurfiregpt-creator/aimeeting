@@ -3718,6 +3718,63 @@
       },
     });
 
+    // ---------- PP series · v24.2 #2 自然语言图表问数 ----------------------
+    R.register({
+      id: "PP-1",
+      series: "PP",
+      title: "POST /chart-qa 简单问题 → 200 + chart_type/data/title",
+      async run() {
+        const r = await POST("/api/dashboard/chart-qa", {
+          question: "近 7 天每天新建多少任务",
+        });
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        for (const k of ["template", "title", "chart_type", "data", "params", "fallback_used"]) {
+          if (!(k in r.body)) return { ok: false, error: `missing ${k}` };
+        }
+        if (!["pie", "bar", "line"].includes(r.body.chart_type)) {
+          return { ok: false, error: `bad chart_type: ${r.body.chart_type}` };
+        }
+        if (!Array.isArray(r.body.data)) return { ok: false, error: "data not array" };
+        return {
+          ok: true,
+          evidence: {
+            _note: `${r.body.template} · ${r.body.chart_type} · ${r.body.data.length} 点 · fallback=${r.body.fallback_used}`,
+          },
+        };
+      },
+    });
+
+    R.register({
+      id: "PP-2",
+      series: "PP",
+      title: "chart-qa question 超 500 字 → 400",
+      async run() {
+        const longQ = "请问".repeat(300);  // 600 chars
+        const r = await POST("/api/dashboard/chart-qa", { question: longQ });
+        if (r.ok || r.status !== 400) {
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "超长 question 拒绝 OK" } };
+      },
+    });
+
+    R.register({
+      id: "PP-3",
+      series: "PP",
+      title: "chart-qa 空 question → fallback 默认模板 + fallback_used=true",
+      async run() {
+        const r = await POST("/api/dashboard/chart-qa", { question: "" });
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if (!r.body.fallback_used) {
+          return { ok: false, error: "空问题应当 fallback_used=true" };
+        }
+        if (r.body.template !== "task_by_status") {
+          return { ok: false, error: `空问题 fallback 应是 task_by_status, 实际 ${r.body.template}` };
+        }
+        return { ok: true, evidence: { _note: "空问题 fallback OK" } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",
