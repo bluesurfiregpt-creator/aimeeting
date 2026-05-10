@@ -80,6 +80,9 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     # v24.3 #3 (扣分 + 暂停派单):user.suspended_until.
     # NULL = 未暂停;过去时间 = 已恢复.
     ('"user"', "suspended_until", "TIMESTAMPTZ"),
+    # v24.3 #5 (ABAC 雏形):user.department + attributes JSONB.
+    ('"user"', "department", "VARCHAR(128)"),
+    ('"user"', "attributes", "JSONB"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

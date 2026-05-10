@@ -4103,6 +4103,54 @@
       },
     });
 
+    // ---------- WW series · v24.3 #5 ABAC 雏形 -----------------------------
+    R.register({
+      id: "WW-1",
+      series: "WW",
+      title: "GET /team/members shape 含 department + attributes 字段",
+      async run() {
+        const r = await GET("/api/team/members");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const members = r.body || [];
+        if (members.length === 0) return { ok: false, error: "no members" };
+        const m = members[0];
+        if (!("department" in m)) return { ok: false, error: "department 字段缺" };
+        if (!("attributes" in m)) return { ok: false, error: "attributes 字段缺" };
+        return { ok: true, evidence: { _note: "department + attributes 就绪" } };
+      },
+    });
+
+    R.register({
+      id: "WW-2",
+      series: "WW",
+      title: "PATCH /team/members 设 department → 回读同值",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        // 找一个非 owner 的 member 修(owner 不能改自己)
+        const members = (await GET("/api/team/members")).body || [];
+        const target = members.find((m) => m.user_id !== me.user_id && m.role !== "owner");
+        if (!target) {
+          return { ok: false, error: "没有可改的非 owner 成员", evidence: { _skipped: true } };
+        }
+        const newDept = `${PREFIX}_WW2_dept`;
+        const r = await fetch(`/api/team/members/${target.user_id}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ department: newDept }),
+        });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          return { ok: false, error: `PATCH ${r.status} ${JSON.stringify(body)}` };
+        }
+        const got = await r.json();
+        if (got.department !== newDept) {
+          return { ok: false, error: `expected dept=${newDept}, got ${got.department}` };
+        }
+        return { ok: true, evidence: { _note: `dept=${newDept} 写入成功` } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",

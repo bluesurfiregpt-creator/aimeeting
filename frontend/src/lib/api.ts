@@ -729,6 +729,9 @@ export type TeamMember = {
   bound_agent_name: string | null;
   /** v24.3 #3: 暂停派单截止时间(NULL=未暂停;过去时间=已自动恢复) */
   suspended_until: string | null;
+  /** v24.3 #5: ABAC 雏形 — 科室名 + 自定义属性 */
+  department: string | null;
+  attributes: Record<string, unknown> | null;
   joined_at: string;
 };
 
@@ -948,10 +951,14 @@ export const api = {
   // Team
   listMembers: () => jget<TeamMember[]>("/api/team/members"),
   removeMember: (userId: string) => jdelete(`/api/team/members/${userId}`),
-  // v21: admin 改成员的 role + bound_agent_id
+  // v21+v24.3 #5: admin 改成员的 role + bound_agent_id + 科室
   updateMember: (
     userId: string,
-    body: { role?: TeamRole; bound_agent_id?: string | null },
+    body: {
+      role?: TeamRole;
+      bound_agent_id?: string | null;
+      department?: string | null;
+    },
   ) => jpatch<TeamMember>(`/api/team/members/${userId}`, body),
   listInvitations: () => jget<Invitation[]>("/api/team/invitations"),
   createInvitation: (body: { email?: string; role: "admin" | "member" }) =>

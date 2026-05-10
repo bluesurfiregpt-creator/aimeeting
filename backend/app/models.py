@@ -168,6 +168,12 @@ class User(Base):
     suspended_until: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # v24.3 #5 — ABAC 雏形(智慧住建文档 §5):用户属性,供未来基于属性的访问控制使用.
+    # department:科室名(房屋安全管理与整治科 / 物业监管科 ...),目前只是显示 + 入
+    # audit_log 上下文,未来 access_control.can_access 可据此判定(如核心数据
+    # 只允许同科室访问).level / location 等可后续加进 attributes JSON.
+    department: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    attributes: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     # Convenience pointer to the user's primary workspace (the one they see
     # by default after login). Real authorization is via workspace_membership.
     workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(

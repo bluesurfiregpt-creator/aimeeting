@@ -39,6 +39,7 @@ export default function TeamAdmin() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editRole, setEditRole] = useState<TeamRole>("member");
   const [editBoundAgent, setEditBoundAgent] = useState<string>("");
+  const [editDepartment, setEditDepartment] = useState<string>(""); // v24.3 #5
   const [saving, setSaving] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -104,6 +105,7 @@ export default function TeamAdmin() {
     setEditingId(m.user_id);
     setEditRole(m.role);
     setEditBoundAgent(m.bound_agent_id || "");
+    setEditDepartment(m.department || ""); // v24.3 #5
   };
 
   const cancelEdit = () => {
@@ -121,6 +123,7 @@ export default function TeamAdmin() {
       await api.updateMember(userId, {
         role: editRole,
         bound_agent_id: editRole === "expert" ? editBoundAgent : null,
+        department: editDepartment.trim() || null, // v24.3 #5
       });
       setEditingId(null);
       await refresh();
@@ -237,6 +240,15 @@ export default function TeamAdmin() {
                                 🚫 暂停派单
                               </span>
                             )}
+                          {/* v24.3 #5: 科室徽章 */}
+                          {m.department && (
+                            <span
+                              data-testid={`team-dept-${m.user_id}`}
+                              className="rounded bg-zinc-700/40 px-1.5 py-0.5 text-[10px] text-zinc-300"
+                            >
+                              🏢 {m.department}
+                            </span>
+                          )}
                         </div>
                         <div className="mt-0.5 text-xs text-zinc-500">
                           {m.email ?? "—"} · 加入于{" "}
@@ -303,6 +315,19 @@ export default function TeamAdmin() {
                             </select>
                           </label>
                         )}
+                        {/* v24.3 #5: ABAC 雏形 — 科室 */}
+                        <label className="text-xs text-zinc-400">
+                          科室(可选,ABAC 用)
+                          <input
+                            type="text"
+                            value={editDepartment}
+                            onChange={(e) => setEditDepartment(e.target.value)}
+                            placeholder="如:房屋安全管理与整治科"
+                            maxLength={128}
+                            data-testid={`team-edit-dept-${m.user_id}`}
+                            className="mt-1 w-full rounded-md border border-ink-700 bg-ink-950 px-2 py-1.5 text-sm text-zinc-100 focus:border-accent-500 focus:outline-none"
+                          />
+                        </label>
                         <div className="mt-1 flex justify-end gap-2">
                           <button
                             onClick={cancelEdit}

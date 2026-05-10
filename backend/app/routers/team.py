@@ -61,12 +61,19 @@ class MemberOut(BaseModel):
     bound_agent_name: Optional[str] = None
     # v24.3 #3: 暂停派单截止时间(NULL = 未暂停;过去时间 = 已自动恢复)
     suspended_until: Optional[datetime] = None
+    # v24.3 #5: ABAC 雏形 — 科室名 + 自定义属性
+    department: Optional[str] = None
+    attributes: Optional[dict] = None
     joined_at: datetime
 
 
 class MemberPatchIn(BaseModel):
     role: Optional[str] = None  # owner | admin | leader | expert | member
     bound_agent_id: Optional[uuid.UUID] = None  # required when role='expert'
+    # v24.3 #5: ABAC 雏形 — 可改科室
+    department: Optional[str] = None
+    # 显式 None vs 不传:用 sentinel 区分清空;Pydantic 不传 = 字段缺失,
+    # 传 None = 显式清空.我们简化:None 视为「不改」.
 
 
 class InviteIn(BaseModel):
@@ -131,6 +138,8 @@ async def list_members(
             bound_agent_id=m.bound_agent_id,
             bound_agent_name=name_by_agent.get(m.bound_agent_id) if m.bound_agent_id else None,
             suspended_until=u.suspended_until,
+            department=u.department,
+            attributes=u.attributes,
             joined_at=m.created_at,
         )
         for (m, u) in rows
@@ -205,12 +214,24 @@ async def update_member(
     if new_role is not None:
         target.role = new_role
 
+    # v24.3 #5: ABAC 雏形 — 同步改 user.department(若非 None / 空字符串)
+    u_for_dept = (
+        await session.execute(select(User).where(User.id == target_uuid))
+    ).scalar_one()
+    if payload.department is not None:
+        d = payload.department.strip()
+        u_for_dept.department = d[:128] if d else None
+
     await session.commit()
     await session.refresh(target)
     await audit_log(
         session, auth, "team.update_member",
         target_type="user", target_id=str(target_uuid),
-        payload={"role": target.role, "bound_agent_id": str(target.bound_agent_id) if target.bound_agent_id else None},
+        payload={
+            "role": target.role,
+            "bound_agent_id": str(target.bound_agent_id) if target.bound_agent_id else None,
+            "department": u_for_dept.department,
+        },
     )
 
     # 取 user + agent name 拼回 MemberOut
@@ -230,6 +251,8 @@ async def update_member(
         bound_agent_id=target.bound_agent_id,
         bound_agent_name=bound_name,
         suspended_until=u.suspended_until,
+        department=u.department,
+        attributes=u.attributes,
         joined_at=target.created_at,
     )
 
