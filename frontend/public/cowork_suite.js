@@ -3775,6 +3775,77 @@
       },
     });
 
+    // ---------- QQ series · v24.2 #3 公文智能审核 --------------------------
+    R.register({
+      id: "QQ-1",
+      series: "QQ",
+      title: "POST /documents/audit 简单公文 → 200 + issues + overall",
+      async run() {
+        // 含明显问题的样本(口语化 + 数字格式 + 政策引用模糊)
+        const sample = `关于沙头街道老旧小区幕墙安全整治的通知。
+经研究决定从 2025-1-1 起开展大排查,大概有 30 户重点检查,
+按规定推进,搞好这项工作。请相关单位务必重视,确保 3 月底前完成。`;
+        const r = await POST("/api/me/documents/audit", { text: sample });
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        for (const k of ["issues", "overall", "audited_chars", "truncated", "fallback_used"]) {
+          if (!(k in r.body)) return { ok: false, error: `missing ${k}` };
+        }
+        if (!Array.isArray(r.body.issues)) return { ok: false, error: "issues not array" };
+        // 抽样验 issue shape
+        if (r.body.issues.length > 0) {
+          const it = r.body.issues[0];
+          for (const k of ["severity", "category", "issue", "suggestion"]) {
+            if (typeof it[k] !== "string") {
+              return { ok: false, error: `issue 缺 ${k}` };
+            }
+          }
+          if (!["high", "medium", "low"].includes(it.severity)) {
+            return { ok: false, error: `bad severity: ${it.severity}` };
+          }
+          if (!["format", "wording", "policy"].includes(it.category)) {
+            return { ok: false, error: `bad category: ${it.category}` };
+          }
+        }
+        return {
+          ok: true,
+          evidence: {
+            _note: `${r.body.issues.length} 条问题,fallback=${r.body.fallback_used}`,
+          },
+        };
+      },
+    });
+
+    R.register({
+      id: "QQ-2",
+      series: "QQ",
+      title: "audit 空 text → 400",
+      async run() {
+        const r = await POST("/api/me/documents/audit", { text: "" });
+        if (r.ok || r.status !== 400) {
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "空 text 拒绝 OK" } };
+      },
+    });
+
+    R.register({
+      id: "QQ-3",
+      series: "QQ",
+      title: "audit 超长(>20000)文稿 → truncated=true",
+      async run() {
+        const longText = "测".repeat(21000);
+        const r = await POST("/api/me/documents/audit", { text: longText });
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if (!r.body.truncated) {
+          return { ok: false, error: "truncated 应当 true" };
+        }
+        if (r.body.audited_chars > 20000) {
+          return { ok: false, error: `audited_chars ${r.body.audited_chars} > 20000` };
+        }
+        return { ok: true, evidence: { _note: `truncated to ${r.body.audited_chars}` } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",

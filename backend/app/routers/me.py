@@ -1017,6 +1017,76 @@ async def archive_task(
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
 
 
+# v24.2 #3: 公文智能审核 ----------------------------------------------------
+
+
+class DocumentAuditIn(BaseModel):
+    text: str
+    # 可选:基于哪个 KB 文档(只用于 audit 写记录,不影响逻辑)
+    source_kb_doc_id: Optional[uuid.UUID] = None
+
+
+class AuditIssueOut(BaseModel):
+    severity: str  # high | medium | low
+    category: str  # format | wording | policy
+    location: str
+    issue: str
+    suggestion: str
+
+
+class AuditOut(BaseModel):
+    issues: list[AuditIssueOut]
+    overall: str
+    audited_chars: int
+    truncated: bool
+    fallback_used: bool
+    error: Optional[str] = None
+
+
+@router.post("/documents/audit", response_model=AuditOut)
+async def audit_document_endpoint(
+    payload: DocumentAuditIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.2 #3: 公文智能审核(智慧住建文档 §3.3).
+
+    LLM 三维审核(format / wording / policy),返回 issues 列表 + 整体评价.
+    任何 workspace 成员都可调,但应当鼓励 leader/admin 用(政务文稿审核场景).
+
+    长文 > 20K 字符截断;LLM 失败兜底返回空 issues + error 字段.
+    """
+    from ..document_audit import audit_document
+
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(400, "text required")
+
+    result = await audit_document(session, text)
+    await audit_log(
+        session, auth, "document.audit",
+        target_type="kb_document" if payload.source_kb_doc_id else "ad_hoc_text",
+        target_id=str(payload.source_kb_doc_id) if payload.source_kb_doc_id else None,
+        payload={
+            "audited_chars": result["audited_chars"],
+            "truncated": result["truncated"],
+            "issue_count": len(result["issues"]),
+            "fallback": result["fallback_used"],
+        },
+        autocommit=False,
+    )
+    await session.commit()
+    return AuditOut(
+        issues=[AuditIssueOut(**i) for i in result["issues"]],
+        overall=result["overall"],
+        audited_chars=result["audited_chars"],
+        truncated=result["truncated"],
+        fallback_used=result["fallback_used"],
+        error=result.get("error"),
+    )
+
+
 # v24.1 #6: AI 辅助起草汇报 ---------------------------------------------------
 
 

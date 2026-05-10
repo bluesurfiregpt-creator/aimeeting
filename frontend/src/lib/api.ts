@@ -1084,6 +1084,26 @@ export const api = {
       next_steps: string;
       error: string | null;
     }>(`/api/me/tasks/${taskId}/draft-submission`, {}),
+
+  // v24.2 #3: 公文智能审核(LLM 三维:format / wording / policy)
+  auditDocument: (text: string, sourceKbDocId?: string | null) =>
+    jpost<{
+      issues: {
+        severity: "high" | "medium" | "low";
+        category: "format" | "wording" | "policy";
+        location: string;
+        issue: string;
+        suggestion: string;
+      }[];
+      overall: string;
+      audited_chars: number;
+      truncated: boolean;
+      fallback_used: boolean;
+      error: string | null;
+    }>(`/api/me/documents/audit`, {
+      text,
+      ...(sourceKbDocId ? { source_kb_doc_id: sourceKbDocId } : {}),
+    }),
   approveTask: (taskId: string) =>
     jpost<MyTask>(`/api/me/tasks/${taskId}/approve`, {}),
   rejectTask: (taskId: string, reason?: string | null) =>
