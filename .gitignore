@@ -47,3 +47,9 @@ tests/cowork-results/
 tests/cowork-multi-report.md
 tests/cowork-report.md
 tests/cowork-report.json
+
+# Editor / framework artifacts that shouldn't be in repo
+.claude/
+docs/*.pdf
+frontend/next-env.d.ts
+frontend/tsconfig.tsbuildinfo
