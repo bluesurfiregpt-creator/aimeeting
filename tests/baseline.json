@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "frozen_at": "2026-05-10T00:00:00Z",
-  "frozen_against": "v24.0 sprint 0 (audit_log 全覆盖 + KB hotfix + .env 备份)",
+  "frozen_against": "v24.1 #1 (智慧住建 16 AI 专家 seed)",
   "_note": "Deterministic per-case status snapshot. T2 diff: any case whose status differs from this baseline is a regression (or, for ⏭️→✅, a new pass to celebrate). evidence/error/timing intentionally excluded — those are non-deterministic.",
   "summary": {
-    "total": 106,
-    "pass": 98,
+    "total": 111,
+    "pass": 103,
     "fail": 0,
     "skipped": 8
   },
@@ -115,6 +115,11 @@
     { "id": "GG-6", "series": "GG", "status": "pass" },
     { "id": "HH-1", "series": "HH", "status": "pass" },
     { "id": "HH-2", "series": "HH", "status": "pass" },
-    { "id": "HH-3", "series": "HH", "status": "pass" }
+    { "id": "HH-3", "series": "HH", "status": "pass" },
+    { "id": "II-1", "series": "II", "status": "pass" },
+    { "id": "II-2", "series": "II", "status": "pass" },
+    { "id": "II-3", "series": "II", "status": "pass" },
+    { "id": "II-4", "series": "II", "status": "pass" },
+    { "id": "II-5", "series": "II", "status": "pass" }
   ]
 }

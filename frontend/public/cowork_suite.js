@@ -3010,6 +3010,148 @@
       },
     });
 
+    // ---------- II series · v24.1 #1 智慧住建 16 AI 专家 seed ---------------
+    R.register({
+      id: "II-1",
+      series: "II",
+      title: "POST /api/dashboard/seed-smart-construction-agents 200 + 字段全",
+      async run() {
+        const r = await POST("/api/dashboard/seed-smart-construction-agents", {});
+        if (!r.ok) {
+          return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        }
+        const b = r.body || {};
+        for (const k of ["agents_created", "agents_skipped", "kbs_created", "kbs_skipped", "preset_set"]) {
+          if (!(k in b)) return { ok: false, error: `missing field: ${k}` };
+        }
+        // 第一次或后续都行,但 created+skipped 加起来必 = 16
+        const total = (b.agents_created || 0) + (b.agents_skipped || 0);
+        if (total !== 16) {
+          return { ok: false, error: `agents_created + skipped 应当 = 16,实际 ${total}` };
+        }
+        const kbTotal = (b.kbs_created || 0) + (b.kbs_skipped || 0);
+        if (kbTotal !== 16) {
+          return { ok: false, error: `kb total 应当 = 16,实际 ${kbTotal}` };
+        }
+        return {
+          ok: true,
+          evidence: {
+            _note: `agents +${b.agents_created}/skip ${b.agents_skipped} · kbs +${b.kbs_created}/skip ${b.kbs_skipped}`,
+          },
+        };
+      },
+    });
+
+    R.register({
+      id: "II-2",
+      series: "II",
+      title: "seed 第二次跑必幂等(agents_skipped >= 16 + 0 created)",
+      async run() {
+        // 假设 II-1 跑过了(seed 已存在);这里再跑一次
+        const r = await POST("/api/dashboard/seed-smart-construction-agents", {});
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const b = r.body || {};
+        if ((b.agents_created || 0) !== 0) {
+          return { ok: false, error: `第二次跑不应再创建 Agent,实际 created=${b.agents_created}` };
+        }
+        if ((b.agents_skipped || 0) < 16) {
+          return { ok: false, error: `agents_skipped 应当 ≥ 16,实际 ${b.agents_skipped}` };
+        }
+        // KB 同理
+        if ((b.kbs_created || 0) !== 0) {
+          return { ok: false, error: `第二次不应再建 KB,实际 created=${b.kbs_created}` };
+        }
+        return { ok: true, evidence: { _note: "幂等 ✅" } };
+      },
+    });
+
+    R.register({
+      id: "II-3",
+      series: "II",
+      title: "GET /api/agents 后 16 个智慧住建 AI 全部存在 + 关键 keywords 命中",
+      async run() {
+        const r = await GET("/api/agents");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const list = r.body || [];
+        const expectedNames = [
+          "综合事务AI专家", "法制政务AI专家", "房地产与租赁AI专家",
+          "公共住房建设AI专家", "住房保障AI专家", "建筑业管理AI专家",
+          "房屋安全AI专家", "物业监管AI专家", "建设科技与燃气AI专家",
+          "消防人防AI专家", "城市更新规划AI专家", "土地整备AI专家",
+          "城市更新项目AI专家", "建设工程质量安全AI专家",
+          "住房建设与土地整备AI专家", "住建智脑(全局AI专家)",
+        ];
+        const haveNames = new Set(list.map((a) => a.name));
+        const missing = expectedNames.filter((n) => !haveNames.has(n));
+        if (missing.length > 0) {
+          return { ok: false, error: `缺 ${missing.length} 个 AI:${missing.join(", ")}` };
+        }
+        // 抽查:房屋安全 keywords 应含「房屋安全」
+        const housing = list.find((a) => a.name === "房屋安全AI专家");
+        if (!housing.keywords || !housing.keywords.includes("房屋安全")) {
+          return {
+            ok: false,
+            error: `房屋安全AI专家 keywords 不含「房屋安全」: ${JSON.stringify(housing.keywords)}`,
+          };
+        }
+        return { ok: true, evidence: { _note: `16/16 ✅,abs ${list.length} agents in workspace` } };
+      },
+    });
+
+    R.register({
+      id: "II-4",
+      series: "II",
+      title: "GET /api/knowledge-bases 后 16 个 'KB · *' 全部存在 + Agent 已绑定",
+      async run() {
+        const [kbR, agentR] = await Promise.all([
+          GET("/api/knowledge-bases"),
+          GET("/api/agents"),
+        ]);
+        if (!kbR.ok) return { ok: false, error: `kb list ${kbR.status}` };
+        if (!agentR.ok) return { ok: false, error: `agent list ${agentR.status}` };
+        const kbs = kbR.body || [];
+        const scKbs = kbs.filter((k) => (k.name || "").startsWith("KB · "));
+        if (scKbs.length < 16) {
+          return { ok: false, error: `'KB · *' KB 数 ${scKbs.length} < 16` };
+        }
+        // 找一个智慧住建 Agent,验它的 knowledge_base_ids 含至少 1 个 KB
+        const housing = (agentR.body || []).find((a) => a.name === "房屋安全AI专家");
+        if (!housing) return { ok: false, error: "房屋安全AI专家 not found" };
+        if (!housing.knowledge_base_ids || housing.knowledge_base_ids.length === 0) {
+          return { ok: false, error: "房屋安全AI专家 未绑定任何 KB" };
+        }
+        const kbBound = kbs.find((k) => k.id === housing.knowledge_base_ids[0]);
+        if (!kbBound || !kbBound.name.startsWith("KB · ")) {
+          return { ok: false, error: "绑定的不是智慧住建 KB" };
+        }
+        return {
+          ok: true,
+          evidence: {
+            _note: `${scKbs.length} 个智慧住建 KB,Agent ↔ KB 1:1 绑定 ✅`,
+          },
+        };
+      },
+    });
+
+    R.register({
+      id: "II-5",
+      series: "II",
+      title: "audit_log 含 workspace.seed_smart_construction 一行",
+      async run() {
+        const r = await GET("/api/audit?action=workspace.seed_smart_construction&limit=10");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const rows = r.body || [];
+        if (rows.length === 0) {
+          return { ok: false, error: "未找到 workspace.seed_smart_construction audit 行" };
+        }
+        const latest = rows[0];
+        if (!latest.payload || typeof latest.payload.agents_created !== "number") {
+          return { ok: false, error: `payload 缺 agents_created: ${JSON.stringify(latest.payload)}` };
+        }
+        return { ok: true, evidence: { _note: `audit row id=${latest.id}` } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",
