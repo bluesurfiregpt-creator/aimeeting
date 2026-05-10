@@ -1191,6 +1191,25 @@ export const api = {
       {},
     ),
 
+  // v24.2 #4: 3 个指标的趋势分析(mean/std/z-score/slope/forecast/anomaly)
+  trends: (days = 30) =>
+    jget<{
+      days: number;
+      metrics: Record<string, {
+        label: string;
+        unit: string;
+        series: { name: string; value: number }[];
+        mean: number;
+        std: number;
+        current: number;
+        z_score: number;
+        slope_per_day: number;
+        forecast_7d: number;
+        anomaly: boolean;
+        trend_label: string;
+      }>;
+    }>(`/api/dashboard/trends?days=${days}`),
+
   // v24.2 #2: 自然语言问数(LLM 选 7 个预设模板 + recharts 渲染)
   chartQA: (question: string) =>
     jpost<{

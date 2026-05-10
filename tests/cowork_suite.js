@@ -3846,6 +3846,67 @@
       },
     });
 
+    // ---------- RR series · v24.2 #4 趋势分析 + 异常检测 -------------------
+    R.register({
+      id: "RR-1",
+      series: "RR",
+      title: "GET /trends 200 + 3 指标 + 各 metric 字段全",
+      async run() {
+        const r = await GET("/api/dashboard/trends?days=30");
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        if (typeof r.body.days !== "number") return { ok: false, error: "days not number" };
+        const m = r.body.metrics;
+        const expected = ["task_creation_daily", "task_completion_daily", "task_overdue_rate"];
+        for (const k of expected) {
+          if (!(k in m)) return { ok: false, error: `metric ${k} missing` };
+          const s = m[k];
+          for (const f of ["label", "unit", "series", "mean", "std", "current",
+                           "z_score", "slope_per_day", "forecast_7d", "anomaly", "trend_label"]) {
+            if (!(f in s)) return { ok: false, error: `metric ${k} 缺字段 ${f}` };
+          }
+          if (!Array.isArray(s.series)) return { ok: false, error: `${k}.series not array` };
+        }
+        return {
+          ok: true,
+          evidence: {
+            _note: `3 指标返回,creation 趋势=${m.task_creation_daily.trend_label}, anomaly=${m.task_creation_daily.anomaly}`,
+          },
+        };
+      },
+    });
+
+    R.register({
+      id: "RR-2",
+      series: "RR",
+      title: "GET /trends days 越界(<7 / >90)→ 422",
+      async run() {
+        const r1 = await GET("/api/dashboard/trends?days=3");
+        if (r1.ok || r1.status !== 422) {
+          return { ok: false, error: `days=3 expected 422, got ${r1.status}` };
+        }
+        const r2 = await GET("/api/dashboard/trends?days=200");
+        if (r2.ok || r2.status !== 422) {
+          return { ok: false, error: `days=200 expected 422, got ${r2.status}` };
+        }
+        return { ok: true, evidence: { _note: "days 边界 OK" } };
+      },
+    });
+
+    R.register({
+      id: "RR-3",
+      series: "RR",
+      title: "trends series 长度 = days + 1(today inclusive)",
+      async run() {
+        const r = await GET("/api/dashboard/trends?days=14");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const s = r.body.metrics.task_creation_daily.series;
+        if (s.length !== 15) {
+          return { ok: false, error: `series length ${s.length} != 15(days+1)` };
+        }
+        return { ok: true, evidence: { _note: `series 15 点 ✅` } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",

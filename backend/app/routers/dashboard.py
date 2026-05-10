@@ -748,6 +748,56 @@ async def seed_smart_construction_agents(
     )
 
 
+# ---- v24.2 #4 · AI 数据分析趋势预警 ----------------------------------------
+
+
+class TrendStat(BaseModel):
+    label: str
+    unit: str
+    series: list[dict]  # [{name: 'YYYY-MM-DD', value: number}]
+    mean: float
+    std: float
+    current: float
+    z_score: float
+    slope_per_day: float
+    forecast_7d: float
+    anomaly: bool
+    trend_label: str  # 上升 / 下降 / 平稳 / 样本不足
+
+
+class TrendsOut(BaseModel):
+    days: int
+    metrics: dict[str, TrendStat]
+
+
+@router.get("/trends", response_model=TrendsOut)
+async def trends(
+    days: int = Query(30, ge=7, le=90),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.2 #4: 3 个内置指标的趋势 + 异常检测(智慧住建文档 §3.3 数据分析).
+
+    指标:
+      task_creation_daily   每日新建数
+      task_completion_daily 每日完成数
+      task_overdue_rate     每日逾期率
+
+    每个指标返回:series(N+1 个点) + mean/std/current/z_score/slope/
+    forecast_7d/anomaly/trend_label.前端 sparkline + 大字 + 异常红框.
+
+    Leader/admin only.
+    """
+    from ..trend_analysis import compute_trends
+    await require_leader_or_admin(session, auth)
+    result = await compute_trends(session, auth.workspace.id, days)
+    return TrendsOut(
+        days=result["days"],
+        metrics={k: TrendStat(**v) for k, v in result["metrics"].items()},
+    )
+
+
 # ---- v24.2 #2 · 自然语言图表生成 -------------------------------------------
 
 

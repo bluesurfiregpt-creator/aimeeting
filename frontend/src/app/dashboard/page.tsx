@@ -760,6 +760,43 @@ export default function DashboardPage() {
                 </div>
               </div>
             )}
+            {/* v24.2 #4: 趋势分析 + 异常检测(leader/admin) */}
+            {isLeader ? (
+              <Link
+                href="/dashboard/trends"
+                data-testid="entry-trends"
+                className="group rounded-xl border border-ink-700 bg-ink-900 p-4 hover:border-violet-500/40 hover:bg-ink-800/50 transition"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl" aria-hidden>📈</span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium text-zinc-100 group-hover:text-violet-200 transition">
+                        趋势分析
+                      </span>
+                      <span className="rounded-full bg-violet-500/20 px-1.5 py-0.5 text-[9px] text-violet-200">
+                        v24.2
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-xs text-zinc-500">
+                      创建/完成/逾期率 趋势 + 异常 + 7 日预测
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            ) : (
+              <div className="rounded-xl border border-ink-800 bg-ink-950/50 p-4 opacity-50">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl" aria-hidden>📈</span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-zinc-500">趋势分析</div>
+                    <div className="mt-0.5 text-[10px] text-zinc-600">
+                      仅领导/管理员可访问
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 顶部 4 KPI 卡 */}
