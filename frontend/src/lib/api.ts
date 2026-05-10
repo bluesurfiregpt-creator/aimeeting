@@ -1076,6 +1076,14 @@ export const api = {
       force?: boolean;
     },
   ) => jpost<MyTask>(`/api/me/tasks/${taskId}/submit`, body),
+  // v24.1 #6: AI 辅助起草汇报 — 5-15s LLM 调用,返回 3 段草稿给 SubmitDialog
+  draftSubmission: (taskId: string) =>
+    jpost<{
+      completed: string;
+      problems: string;
+      next_steps: string;
+      error: string | null;
+    }>(`/api/me/tasks/${taskId}/draft-submission`, {}),
   approveTask: (taskId: string) =>
     jpost<MyTask>(`/api/me/tasks/${taskId}/approve`, {}),
   rejectTask: (taskId: string, reason?: string | null) =>

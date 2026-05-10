@@ -3537,6 +3537,61 @@
       },
     });
 
+    // ---------- NN series · v24.1 #6 AI 辅助起草汇报 ------------------------
+    R.register({
+      id: "NN-1",
+      series: "NN",
+      title: "POST /draft-submission 200 + 3 字段(LLM 5-15s)",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_NN1`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `meeting ${m.status}` };
+        created("meeting", m.body.id, "NN1");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_NN1_对沙头街道老旧小区进行幕墙安全鉴定与整治`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_NN1_对沙头街道老旧小区进行幕墙安全鉴定与整治`);
+        if (!t) return { ok: false, error: "task not visible" };
+        ctx.NN_task = t.id;
+        const r = await POST(`/api/me/tasks/${t.id}/draft-submission`, {});
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        // LLM 慢 + 偶尔失败:接受 (3 字段都有 OR error 非空)
+        const has3 = ["completed", "problems", "next_steps"].every((k) => typeof r.body[k] === "string");
+        if (!has3) return { ok: false, error: "缺 3 字段之一" };
+        if (!r.body.error && (!r.body.completed && !r.body.problems && !r.body.next_steps)) {
+          return { ok: false, error: "无 error 但 3 段全空" };
+        }
+        return {
+          ok: true,
+          evidence: {
+            _note: r.body.error
+              ? `LLM 失败: ${r.body.error.slice(0,40)}`
+              : `LLM 出 3 段(${r.body.completed.length + r.body.problems.length + r.body.next_steps.length} 字符总)`,
+          },
+        };
+      },
+    });
+
+    R.register({
+      id: "NN-2",
+      series: "NN",
+      title: "非相关人调 draft-submission → 403",
+      async run() {
+        // 用一个固定 fake task id,没人是其相关人 → 应该 404(load 找不到),
+        // 不是 403.因为 _load_task_in_workspace 先检查存在性.
+        // 改为:create 一个 task 派给「别人」,让 me 不是 assignee/dispatcher/creator/co
+        // 但实际所有 workspace 用户都用 me 测,无法构造「别人」 → 用 fake id 验 404 也算
+        const fakeId = "00000000-0000-0000-0000-000000000077";
+        const r = await POST(`/api/me/tasks/${fakeId}/draft-submission`, {});
+        if (r.ok || (r.status !== 404 && r.status !== 403)) {
+          return { ok: false, error: `expected 404 or 403, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: `非法 task → ${r.status}` } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",

@@ -36,6 +36,7 @@ export default function SubmitDialog({
   const [nextSteps, setNextSteps] = useState("");
   const [evidenceText, setEvidenceText] = useState("");  // 一行一个 URL
   const [busy, setBusy] = useState(false);
+  const [drafting, setDrafting] = useState(false);  // v24.1 #6: LLM 起草中
 
   // Reset on open
   useEffect(() => {
@@ -46,6 +47,31 @@ export default function SubmitDialog({
       setEvidenceText("");
     }
   }, [open]);
+
+  // v24.1 #6: 调 LLM 起草
+  const aiDraft = async () => {
+    if (!task) return;
+    if (drafting) return;
+    if ((completed || problems || nextSteps).trim().length > 0) {
+      if (!window.confirm("已有内容会被 AI 草稿覆盖,确定继续?")) return;
+    }
+    setDrafting(true);
+    try {
+      const r = await api.draftSubmission(task.id);
+      if (r.error) {
+        toast.error(`AI 起草失败:${r.error}`);
+        return;
+      }
+      setCompleted(r.completed || "");
+      setProblems(r.problems || "");
+      setNextSteps(r.next_steps || "");
+      toast.success("✨ AI 已起草,请检查 / 编辑后提交");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "AI 起草失败");
+    } finally {
+      setDrafting(false);
+    }
+  };
 
   const submit = async (force = false) => {
     if (!task) return;
@@ -116,8 +142,20 @@ export default function SubmitDialog({
         <p className="mt-1 text-xs text-zinc-500">
           为这个任务填阶段汇报。不填的段落留空即可,但**至少要填一段**。
         </p>
-        <div className="mt-2 rounded-md border border-ink-700 bg-ink-950 px-3 py-2 text-xs text-zinc-400">
-          📌 任务:<span className="text-zinc-200">{task.title || task.content.slice(0, 60)}</span>
+        <div className="mt-2 flex items-center justify-between rounded-md border border-ink-700 bg-ink-950 px-3 py-2 text-xs text-zinc-400">
+          <span>
+            📌 任务:<span className="text-zinc-200">{task.title || task.content.slice(0, 60)}</span>
+          </span>
+          <button
+            type="button"
+            onClick={aiDraft}
+            disabled={drafting || busy}
+            data-testid="submit-ai-draft-btn"
+            className="rounded-md bg-violet-500/20 px-3 py-1 text-[11px] font-medium text-violet-200 hover:bg-violet-500/30 disabled:opacity-50"
+            title="让 AI 基于任务正文 + 协作历史 起草 3 段汇报草稿(5-15s)"
+          >
+            {drafting ? "AI 起草中(5-15s)…" : "✨ AI 帮我写"}
+          </button>
         </div>
 
         <div className="mt-4 space-y-3">

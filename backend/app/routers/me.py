@@ -835,15 +835,17 @@ async def submit_task(
         submission_payload["note"] = payload.note[:500]
 
     if submission_payload:
-        # 把 submission_payload 写到 source_ref(JSONB)的子键,不破坏原 source_ref
-        existing_ref = t.source_ref if isinstance(t.source_ref, dict) else {}
-        existing_ref["submission_payload"] = {
+        # 把 submission_payload 写到 source_ref(JSONB)的子键,不破坏原 source_ref.
+        # 关键:必须 dict() 拷贝出新对象,不能直接 mutate 原 dict — SQLAlchemy
+        # 用 identity 比较检测 JSON 列变化,同对象 reassign 视为「无变化」.
+        new_ref = dict(t.source_ref) if isinstance(t.source_ref, dict) else {}
+        new_ref["submission_payload"] = {
             **submission_payload,
             "submitted_at": datetime.now(timezone.utc).isoformat(),
             "submitted_by_user_id": str(auth.user.id),
             "submitted_by_name": auth.user.name,
         }
-        t.source_ref = existing_ref
+        t.source_ref = new_ref
 
     await _mirror_status_to_action(session, t)
 
@@ -1005,6 +1007,56 @@ async def archive_task(
     await session.commit()
     await session.refresh(t)
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
+
+
+# v24.1 #6: AI 辅助起草汇报 ---------------------------------------------------
+
+
+class DraftSubmissionOut(BaseModel):
+    completed: str
+    problems: str
+    next_steps: str
+    error: Optional[str] = None  # LLM 失败时填
+
+
+@router.post("/tasks/{task_id}/draft-submission", response_model=DraftSubmissionOut)
+async def draft_submission_endpoint(
+    task_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.1 #6: 给 assignee 一个 LLM 起草的阶段汇报草稿(3 段).
+
+    LLM 调用同步 5-15s,前端 SubmitDialog 里点「🤖 AI 起草」触发,拿到后
+    填入 3 个 textarea,用户可继续编辑再 submit.
+    """
+    from ..submission_drafter import draft_submission
+
+    t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
+    # 任何相关人都能起草(不限 assignee — 协办 / dispatcher 也可帮 assignee 起草)
+    co_uids = _co_uuids_of(t)
+    is_principal = (
+        t.assignee_user_id == auth.user.id
+        or t.dispatched_by_user_id == auth.user.id
+        or t.created_by_user_id == auth.user.id
+        or auth.user.id in co_uids
+    )
+    if not is_principal:
+        raise HTTPException(403, "您不是该 task 的相关人,不能调起草助手")
+
+    drafts, err = await draft_submission(session, workspace_id=auth.workspace.id, task=t)
+    if err and not drafts:
+        return DraftSubmissionOut(
+            completed="", problems="", next_steps="",
+            error=err,
+        )
+    return DraftSubmissionOut(
+        completed=drafts.get("completed", "") if drafts else "",
+        problems=drafts.get("problems", "") if drafts else "",
+        next_steps=drafts.get("next_steps", "") if drafts else "",
+        error=None,
+    )
 
 
 # v24.1 #3: 4-维 自动派发路由 -------------------------------------------------
