@@ -40,3 +40,10 @@ logs/
 data/
 uploads/
 *.sqlite
+
+# v24.1: Cowork multi-account local credentials + report output
+tests/accounts.json
+tests/cowork-results/
+tests/cowork-multi-report.md
+tests/cowork-report.md
+tests/cowork-report.json
