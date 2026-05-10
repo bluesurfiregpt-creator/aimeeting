@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     jwt_ttl_days: int = 14
     cookie_secure: bool = True
 
+    # v24.4 #2 Sentry (DSN 不填 → init no-op,完全不上报;线上配上 DSN 即激活)
+    sentry_dsn: str = ""
+    sentry_environment: str = ""        # 默认走 app_env
+    sentry_traces_sample_rate: float = 0.1  # 性能 trace 采样 10%
+    sentry_send_default_pii: bool = False   # 安全默认:不带用户 IP / cookies
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]

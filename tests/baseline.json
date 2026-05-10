@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "frozen_at": "2026-05-10T00:00:00Z",
-  "frozen_against": "v24.4 #1 (LLM rate limit — v24.4 防御层 第 1 项)",
+  "frozen_against": "v24.4 #2 (Sentry 观测 — v24.4 防御层 #1+#2)",
   "_note": "Deterministic per-case status snapshot. T2 diff: any case whose status differs from this baseline is a regression (or, for ⏭️→✅, a new pass to celebrate). evidence/error/timing intentionally excluded — those are non-deterministic.",
   "summary": {
-    "total": 153,
-    "pass": 145,
+    "total": 154,
+    "pass": 146,
     "fail": 0,
     "skipped": 8
   },
@@ -162,6 +162,7 @@
     { "id": "WW-2", "series": "WW", "status": "pass" },
     { "id": "XX-1", "series": "XX", "status": "pass" },
     { "id": "XX-2", "series": "XX", "status": "pass" },
-    { "id": "XX-3", "series": "XX", "status": "pass" }
+    { "id": "XX-3", "series": "XX", "status": "pass" },
+    { "id": "XX-4", "series": "XX", "status": "pass" }
   ]
 }

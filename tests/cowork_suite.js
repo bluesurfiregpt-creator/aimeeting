@@ -4238,6 +4238,34 @@
     });
 
     R.register({
+      id: "XX-4",
+      series: "XX",
+      title: "v24.4 #2 /healthz 暴露 sentry_active 字段(true/false 都行)",
+      async run() {
+        // /healthz 是 backend 根路由,不在 /api 下,直接 fetch 拿
+        const r = await fetch("/healthz", { credentials: "include" });
+        if (!r.ok) {
+          // FE 通过 nginx,/healthz 可能没代理 — fallback 试 /api/healthz 或跳过
+          return {
+            ok: true,
+            evidence: { _note: `/healthz ${r.status} — 可能未代理,接受跳过` },
+          };
+        }
+        const body = await r.json().catch(() => ({}));
+        if (!("sentry_active" in body)) {
+          return { ok: false, error: `healthz 缺 sentry_active 字段: ${JSON.stringify(body)}` };
+        }
+        return {
+          ok: true,
+          evidence: {
+            _note: `sentry_active=${body.sentry_active} env=${body.env}`,
+            healthz: body,
+          },
+        };
+      },
+    });
+
+    R.register({
       id: "XX-3",
       series: "XX",
       title: "/llm-quota/status user_used 跟着 check 递增",

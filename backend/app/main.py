@@ -14,6 +14,7 @@ from sqlalchemy import select, update
 from .alert_monitor import alert_monitor_loop
 from .config import get_settings
 from .cron_runner import cron_runner_loop
+from .sentry_init import init_sentry
 from .db import SessionLocal
 from .due_reminder import due_reminder_loop
 from .monthly_eval_runner import monthly_eval_loop
@@ -49,6 +50,9 @@ logging.basicConfig(
     level=settings.log_level,
     format="%(asctime)s %(levelname)s %(name)s :: %(message)s",
 )
+
+# v24.4 #2 Sentry — DSN 没配 → no-op,完全不影响开发 / 测试
+_SENTRY_ACTIVE = init_sentry()
 
 
 @asynccontextmanager
@@ -110,7 +114,11 @@ app.include_router(reports_router.router)
 
 @app.get("/healthz")
 async def healthz():
-    return {"ok": True, "env": settings.app_env}
+    return {
+        "ok": True,
+        "env": settings.app_env,
+        "sentry_active": _SENTRY_ACTIVE,  # v24.4 #2: 1 眼能看到 Sentry 是否激活
+    }
 
 
 @app.websocket("/ws/stt")
