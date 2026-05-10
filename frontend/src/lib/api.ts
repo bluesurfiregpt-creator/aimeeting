@@ -447,7 +447,9 @@ export type Notification = {
     | "task_co_assigned"
     | "task_co_submitted"
     | "task_co_withdrawn"
-    | "task_collaboration_rated";
+    | "task_collaboration_rated"
+    | "report_submitted"
+    | "alert_fired";
   severity: "normal" | "yellow" | "red" | "purple";
   payload: Record<string, unknown> | null;
   read_at: string | null;
