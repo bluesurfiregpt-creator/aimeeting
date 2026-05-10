@@ -115,6 +115,17 @@ function describe(n: Notification): { line: string; href: string | null } {
       const content = typeof p.content === "string" ? p.content : "";
       return { line: `${by} 已办结：${content}`.trim(), href };
     }
+    case "report_submitted": {
+      const by = typeof p.reporter_name === "string" ? p.reporter_name : "";
+      const sev = typeof p.severity === "string" ? p.severity : "";
+      const sevTag = sev === "high" ? "[严重]" : sev === "medium" ? "[一般]" : "[轻微]";
+      const title = typeof p.title === "string" ? p.title : "";
+      return { line: `${by} 上报问题 ${sevTag}:${title}`.trim(), href };
+    }
+    case "alert_fired": {
+      const title = typeof p.title === "string" ? p.title : "异常预警";
+      return { line: title, href };
+    }
     default:
       return { line: n.kind, href };
   }

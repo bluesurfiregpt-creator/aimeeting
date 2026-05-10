@@ -35,6 +35,7 @@ from ..auth import (
     is_leader_or_admin,
     require_leader_or_admin,
 )
+from ..alert_monitor import force_check_now
 from ..audit import audit_log
 from ..db import get_session
 from ..models import (
@@ -744,6 +745,50 @@ async def seed_smart_construction_agents(
         kbs_created=kbs_created,
         kbs_skipped=kbs_skipped,
         preset_set=preset_set,
+    )
+
+
+# ---- v24.1 #2 · 异常预警手工触发 -------------------------------------------
+
+
+class AlertCheckOut(BaseModel):
+    """每条规则的判定结果(skip / would_fire / 触发的 task_id)."""
+    overdue_rate: dict
+    assignee_overload: dict
+    agent_low_completion: dict
+
+
+@router.post("/alerts/force-check", response_model=AlertCheckOut)
+async def alerts_force_check(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.1 #2: 手工跑一次 3 条异常预警规则(跳 24h dedup).
+
+    用途:
+    - 演示 / 客户 demo 时即时看效果(不用等 1h tick)
+    - 调试规则阈值
+
+    Leader/admin only.返回每条规则的判定 + 是否真触发了 Task.
+    """
+    await require_leader_or_admin(session, auth)
+    out = await force_check_now(session, auth.workspace.id)
+    await audit_log(
+        session, auth, "alert.force_check",
+        target_type="workspace", target_id=str(auth.workspace.id),
+        payload={"results": out},
+        autocommit=False,
+    )
+    await session.commit()
+    return AlertCheckOut(
+        overdue_rate=out.get("overdue_rate", {"would_fire": False, "reason": "n/a"}),
+        assignee_overload=out.get(
+            "assignee_overload", {"would_fire": False, "reason": "n/a"}
+        ),
+        agent_low_completion=out.get(
+            "agent_low_completion", {"would_fire": False, "reason": "n/a"}
+        ),
     )
 
 

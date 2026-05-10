@@ -551,6 +551,30 @@ export default function DashboardPage() {
     }
   }, [seeding, refresh]);
 
+  // v24.1 #2: 立即检测异常预警(跳 24h dedup)— demo / 调试用
+  const [alertChecking, setAlertChecking] = useState(false);
+  const onAlertCheck = useCallback(async () => {
+    if (alertChecking) return;
+    setAlertChecking(true);
+    try {
+      const r = await api.alertsForceCheck();
+      const fired: string[] = [];
+      for (const [kind, res] of Object.entries(r)) {
+        if (res.would_fire) fired.push(`${kind}: ⚠️ 已触发 (${res.observed} vs ${res.threshold})`);
+      }
+      if (fired.length === 0) {
+        toast.success("✅ 3 条规则全部通过(本工作空间无异常)");
+      } else {
+        toast.success(`触发 ${fired.length} 条预警:` + fired.join(" / "), { detail: "已建对应 Task,见消息中心" });
+      }
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "检测失败");
+    } finally {
+      setAlertChecking(false);
+    }
+  }, [alertChecking, refresh]);
+
   const isLeader = data?.role === "leader";
 
   // 派生:总 active = 全状态分布扣掉终态
@@ -589,6 +613,18 @@ export default function DashboardPage() {
               title="为本月生成评价 seed 数据(智慧住建演示)"
             >
               {seeding ? "生成中…" : "🌱 Seed 评价"}
+            </button>
+          ) : null}
+          {isLeader ? (
+            <button
+              type="button"
+              onClick={onAlertCheck}
+              disabled={alertChecking}
+              data-testid="dashboard-alert-check"
+              className="rounded-lg border border-ink-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-ink-800 disabled:opacity-50"
+              title="立即跑 3 条异常预警规则(逾期率 / 工作量 / Agent 完成率)"
+            >
+              {alertChecking ? "检测中…" : "🚨 检测异常"}
             </button>
           ) : null}
           <button

@@ -184,6 +184,19 @@ function describeNotification(n: Notification): string {
       const dimLabel = dim === "quality" ? "质量" : "协作";
       return `${rater} 给你打了 ${dimLabel} 分 ${score}/5:${content}`;
     }
+    case "report_submitted": {
+      const by = typeof p.reporter_name === "string" ? p.reporter_name : "";
+      const sev = typeof p.severity === "string" ? p.severity : "";
+      const sevTag = sev === "high" ? "[严重]" : sev === "medium" ? "[一般]" : "[轻微]";
+      const title = typeof p.title === "string" ? p.title : "";
+      const preview = typeof p.preview === "string" ? p.preview : "";
+      return `📢 ${by} 上报问题 ${sevTag}:${title}${preview ? ` — ${preview}` : ""}`;
+    }
+    case "alert_fired": {
+      const title = typeof p.title === "string" ? p.title : "异常预警";
+      const ak = typeof p.alert_kind === "string" ? p.alert_kind : "";
+      return `🚨 [${ak}] ${title}`;
+    }
     default:
       return n.kind;
   }

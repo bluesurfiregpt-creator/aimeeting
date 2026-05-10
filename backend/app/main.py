@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select, update
 
+from .alert_monitor import alert_monitor_loop
 from .config import get_settings
 from .cron_runner import cron_runner_loop
 from .db import SessionLocal
@@ -55,14 +56,20 @@ async def lifespan(_app: FastAPI):
     # 后台 loop 们都共用一个 stop_event,shutdown 时一齐退.
     #   due_reminder_loop  — Theme 1 (P0): 黄/红/紫 催办通知
     #   cron_runner_loop   — v20: 定期巡检触发源,每分钟 tick scan cron_rule
+    #   alert_monitor_loop — v24.1 #2: 异常预警触发源,每小时 tick scan 3 条规则
     stop_event = asyncio.Event()
     reminder_task = asyncio.create_task(due_reminder_loop(stop_event))
     cron_task = asyncio.create_task(cron_runner_loop(stop_event))
+    alert_task = asyncio.create_task(alert_monitor_loop(stop_event))
     try:
         yield
     finally:
         stop_event.set()
-        for name, t in (("due_reminder", reminder_task), ("cron_runner", cron_task)):
+        for name, t in (
+            ("due_reminder", reminder_task),
+            ("cron_runner", cron_task),
+            ("alert_monitor", alert_task),
+        ):
             try:
                 await asyncio.wait_for(t, timeout=5)
             except asyncio.TimeoutError:

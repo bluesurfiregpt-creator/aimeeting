@@ -781,6 +781,26 @@ export type SeedSCAgentsResult = {
   preset_set: boolean;
 };
 
+/** v24.1 #2: 异常预警 force-check 单条结果. */
+export type AlertCheckResult = {
+  would_fire: boolean;
+  /** 触发了的话:新建的 task_id */
+  task_id?: string;
+  /** 触发了的话:实际观测值 */
+  observed?: number;
+  /** 触发了的话:阈值 */
+  threshold?: number;
+  /** 没触发的话:原因(样本不足 / 未达阈值) */
+  reason?: string;
+  error?: string;
+};
+
+export type AlertForceCheckResult = {
+  overdue_rate: AlertCheckResult;
+  assignee_overload: AlertCheckResult;
+  agent_low_completion: AlertCheckResult;
+};
+
 export type SeedEvalResult = {
   period: string;
   inserted: number;
@@ -1084,6 +1104,9 @@ export const api = {
       `/api/dashboard/seed-smart-construction-agents`,
       {},
     ),
+  // v24.1 #2: 手工跑一次 3 条异常预警规则(跳 24h dedup),用于 demo / 调试
+  alertsForceCheck: () =>
+    jpost<AlertForceCheckResult>(`/api/dashboard/alerts/force-check`, {}),
 
   // v23: 看板二期 — Kanban 视图
   kanbanByAgent: (includeClosed = false) =>

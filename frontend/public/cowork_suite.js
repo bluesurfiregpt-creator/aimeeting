@@ -3152,6 +3152,115 @@
       },
     });
 
+    // ---------- JJ series · v24.1 #2 问题上报 + 异常预警 -----------------
+    R.register({
+      id: "JJ-1",
+      series: "JJ",
+      title: "POST /api/me/reports 创建 source_type='report' Task",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        const r = await POST("/api/me/reports", {
+          title: `${PREFIX}_JJ1`,
+          content: `${PREFIX}_JJ1_某楼宇瓷砖松动测试报告内容`,
+          severity: "medium",
+        });
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        if (!r.body.task_id) return { ok: false, error: "no task_id in response" };
+        ctx.JJ1_task = r.body.task_id;
+        // 验 Task 有 source_type='report'
+        const t = await GET(`/api/me/tasks/${r.body.task_id}/detail`);
+        if (!t.ok) return { ok: false, error: `task detail ${t.status}` };
+        if (t.body.source_type !== "report") {
+          return { ok: false, error: `expected source_type=report, got ${t.body.source_type}` };
+        }
+        if (t.body.assignee_user_id !== null) {
+          return { ok: false, error: "report task assignee 应当为 null(待派发)" };
+        }
+        if (!t.body.source_ref || t.body.source_ref.severity !== "medium") {
+          return { ok: false, error: "source_ref.severity 不对" };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `notified ${r.body.notified_leaders} leaders` },
+        };
+      },
+    });
+
+    R.register({
+      id: "JJ-2",
+      series: "JJ",
+      title: "POST /api/me/reports content 太短(<5字)→ 400",
+      async run() {
+        const r = await POST("/api/me/reports", {
+          content: "短",
+          severity: "low",
+        });
+        if (r.ok || r.status !== 400) {
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "短内容拒绝 OK" } };
+      },
+    });
+
+    R.register({
+      id: "JJ-3",
+      series: "JJ",
+      title: "POST /api/me/reports severity 非法 → 400",
+      async run() {
+        const r = await POST("/api/me/reports", {
+          content: `${PREFIX}_JJ3_合法长度的内容`,
+          severity: "critical",  // 非法值
+        });
+        if (r.ok || r.status !== 400) {
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "非法 severity 拒绝 OK" } };
+      },
+    });
+
+    R.register({
+      id: "JJ-4",
+      series: "JJ",
+      title: "POST /api/dashboard/alerts/force-check 200 + 3 规则字段全",
+      async run() {
+        const r = await POST("/api/dashboard/alerts/force-check", {});
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const expected = ["overdue_rate", "assignee_overload", "agent_low_completion"];
+        for (const k of expected) {
+          if (!(k in r.body)) {
+            return { ok: false, error: `缺规则 ${k}: ${JSON.stringify(r.body)}` };
+          }
+          if (typeof r.body[k].would_fire !== "boolean") {
+            return { ok: false, error: `${k}.would_fire 不是 boolean` };
+          }
+        }
+        const fired = expected.filter((k) => r.body[k].would_fire);
+        return {
+          ok: true,
+          evidence: { _note: `3 规则跑过,${fired.length} 触发: ${fired.join(", ") || "无"}` },
+        };
+      },
+    });
+
+    R.register({
+      id: "JJ-5",
+      series: "JJ",
+      title: "audit_log 含 report.create 一行(JJ-1 触发的)",
+      async run(ctx) {
+        if (!ctx.JJ1_task) {
+          return { ok: false, error: "SKIP_DEP_FAILED:JJ-1", evidence: { _skipped: true } };
+        }
+        const r = await GET("/api/audit?action=report.create&limit=20");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const row = (r.body || []).find((x) => x.target_id === ctx.JJ1_task);
+        if (!row) return { ok: false, error: "report.create audit row not found" };
+        if (!row.payload || row.payload.severity !== "medium") {
+          return { ok: false, error: `payload.severity 不对: ${JSON.stringify(row.payload)}` };
+        }
+        return { ok: true, evidence: { _note: `audit row id=${row.id}` } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",
