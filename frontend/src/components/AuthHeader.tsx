@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { api, type Me } from "@/lib/api";
 import DirectivePanel from "./DirectivePanel";
 import NotificationBell from "./NotificationBell";
+import ReportPanel from "./ReportPanel";
 
 const PUBLIC_PATHS = new Set(["/login", "/register"]);
 
@@ -20,6 +21,7 @@ export default function AuthHeader() {
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
   const [directiveOpen, setDirectiveOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -88,6 +90,28 @@ export default function AuthHeader() {
         )}
         <button
           type="button"
+          data-testid="report-open-btn"
+          onClick={() => setReportOpen(true)}
+          title="上报问题(任何成员可发起)"
+          aria-label="上报问题"
+          className="grid h-8 w-8 place-items-center rounded-full border border-ink-700 bg-ink-900/90 text-zinc-300 hover:text-zinc-100"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M3 11l18-7-7 18-2-8-9-3z" />
+          </svg>
+        </button>
+        <button
+          type="button"
           data-testid="directive-open-btn"
           onClick={() => setDirectiveOpen(true)}
           title="下达指令(自然语言 → 任务)"
@@ -152,6 +176,10 @@ export default function AuthHeader() {
       <DirectivePanel
         open={directiveOpen}
         onClose={() => setDirectiveOpen(false)}
+      />
+      <ReportPanel
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
       />
     </>
   );

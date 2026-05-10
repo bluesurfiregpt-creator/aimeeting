@@ -623,6 +623,22 @@ export type DirectiveCommitResult = {
   dispatched_count: number;
 };
 
+/** v24.1 #2: 用户主动上报问题 → Task(source_type='report'). */
+export type ReportSeverity = "low" | "medium" | "high";
+
+export type CreateReportIn = {
+  title?: string | null;
+  content: string;
+  severity: ReportSeverity;
+  /** 可选:这个问题源自哪场会议(让 trace 链路完整) */
+  source_meeting_id?: string | null;
+};
+
+export type CreateReportOut = {
+  task_id: string;
+  notified_leaders: number;
+};
+
 /** v20: 上级文件触发源 — 上传文件 → 解析 → LLM 拆 Task 草稿. */
 export type UpperDoc = {
   id: string;
@@ -1017,6 +1033,10 @@ export const api = {
   // v23.5: Task 详情页 — 一次拉全(基本+时间线+协办+评分+评论)
   getTaskDetail: (taskId: string) =>
     jget<TaskDetail>(`/api/me/tasks/${taskId}/detail`),
+
+  // v24.1 #2: 用户主动上报问题(任何成员可发起,通知 leader/admin)
+  createReport: (body: CreateReportIn) =>
+    jpost<CreateReportOut>(`/api/me/reports`, body),
 
   // v19: 领导指令(自然语言)→ Task 草稿 → 批量入库
   createDirective: (content: string) =>

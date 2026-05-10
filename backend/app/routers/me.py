@@ -1516,6 +1516,146 @@ async def get_task_detail(
     )
 
 
+# v24.1 #2: 问题上报 触发源 ---------------------------------------------------
+#
+# 智慧住建文档 §4.1 触发源 6:用户/AI 主动上报「我看到一个问题,请处理」.
+# 任何 workspace member 都可以发起,直接生成一个 source_type='report' 的
+# Task(status='open',待 leader 派发).审核流留 v25(D 级目前用「leader
+# 觉得不靠谱直接 cancel」兜底).
+#
+# 通知所有 leader/admin/owner,kind='report_submitted'(severity 跟随
+# 用户选的 severity 字段:high → red / medium → yellow / low → normal).
+
+
+_REPORT_SEVERITY_TO_NOTI: dict[str, str] = {
+    "low": "normal",
+    "medium": "yellow",
+    "high": "red",
+}
+
+
+class ReportCreateIn(BaseModel):
+    title: Optional[str] = None  # 可选;不填则取 content 前 40 字
+    content: str
+    severity: str = "medium"  # low | medium | high
+    # 可选:这个问题源自哪场会议(让 trace 链路完整)
+    source_meeting_id: Optional[uuid.UUID] = None
+
+
+class ReportCreateOut(BaseModel):
+    task_id: uuid.UUID
+    notified_leaders: int
+
+
+@router.post("/reports", response_model=ReportCreateOut)
+async def create_report(
+    payload: ReportCreateIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.1 #2: 用户主动上报问题 → Task(source_type='report').
+
+    任何 workspace 成员可发起.创建出来的 Task assignee 留空 (status='open'),
+    等 leader/admin 在「待我审核 / 待派发」队列里派发给具体 AI 专家或人.
+
+    severity:
+      - low    → 通知 normal
+      - medium → 通知 yellow
+      - high   → 通知 red
+    """
+    content = (payload.content or "").strip()
+    if not content:
+        raise HTTPException(400, "content required")
+    if len(content) > 2000:
+        raise HTTPException(400, "content too long (max 2000 chars)")
+    if payload.severity not in _REPORT_SEVERITY_TO_NOTI:
+        raise HTTPException(
+            400,
+            f"severity must be one of {sorted(_REPORT_SEVERITY_TO_NOTI.keys())}",
+        )
+
+    # 校验 source_meeting_id(若有)同 workspace
+    if payload.source_meeting_id:
+        m = (
+            await session.execute(
+                select(Meeting).where(
+                    Meeting.id == payload.source_meeting_id,
+                    Meeting.workspace_id == auth.workspace.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not m:
+            raise HTTPException(400, "source_meeting_id 不在本工作空间")
+
+    title = (payload.title or "").strip()[:255] or content[:40]
+
+    source_ref: dict = {
+        "reporter_user_id": str(auth.user.id),
+        "reporter_name": auth.user.name,
+        "severity": payload.severity,
+    }
+    if payload.source_meeting_id:
+        source_ref["meeting_id"] = str(payload.source_meeting_id)
+
+    new_task = Task(
+        workspace_id=auth.workspace.id,
+        title=title,
+        content=content,
+        assignee_user_id=None,  # 待 leader 派发
+        created_by_user_id=auth.user.id,
+        status="open",
+        source_type="report",
+        source_ref=source_ref,
+    )
+    session.add(new_task)
+    await session.flush()
+
+    # 通知所有 leader/admin/owner(收件方在 workspace_membership 里 role 命中)
+    leader_rows = (
+        await session.execute(
+            select(WorkspaceMembership.user_id).where(
+                WorkspaceMembership.workspace_id == auth.workspace.id,
+                WorkspaceMembership.role.in_(("owner", "admin", "leader")),
+            )
+        )
+    ).all()
+    leader_ids = [r[0] for r in leader_rows if r[0] != auth.user.id]
+    severity = _REPORT_SEVERITY_TO_NOTI[payload.severity]
+    for lid in leader_ids:
+        await emit_notification(
+            session,
+            workspace_id=auth.workspace.id,
+            user_id=lid,
+            kind="report_submitted",
+            severity=severity,
+            payload={
+                "task_id": str(new_task.id),
+                "title": title,
+                "severity": payload.severity,
+                "reporter_name": auth.user.name,
+                "preview": content[:120] + ("…" if len(content) > 120 else ""),
+            },
+        )
+
+    await audit_log(
+        session, auth, "report.create",
+        target_type="task", target_id=str(new_task.id),
+        payload={
+            "severity": payload.severity,
+            "notified_leaders": len(leader_ids),
+            "source_meeting_id": str(payload.source_meeting_id) if payload.source_meeting_id else None,
+        },
+        autocommit=False,
+    )
+    await session.commit()
+    await session.refresh(new_task)
+    return ReportCreateOut(
+        task_id=new_task.id,
+        notified_leaders=len(leader_ids),
+    )
+
+
 # v19: 领导指令(自然语言 → Task 拆解)----------------------------------------
 
 
