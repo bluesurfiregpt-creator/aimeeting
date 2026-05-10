@@ -866,6 +866,30 @@ async def seed_demo_scenario(
             due = now + timedelta(days=rng.randint(14, 45))
 
         source_type = "meeting" if i < 10 else ("leader_directive" if i < 20 else "upper_doc")
+        # v25-bug-fix W-5: submitted/done/archived 任务 给 source_ref.submission_payload
+        # 让 任务详情页 「阶段汇报」 4 段能展开,演示更完整.
+        source_ref: dict[str, Any] = {"_demo_seed": True, "index": i}
+        if status in ("submitted", "done", "archived"):
+            assignee_name = assignee.name if assignee else "(未指派)"
+            submitted_at = now - timedelta(days=rng.randint(1, 10))
+            source_ref["submission_payload"] = {
+                "completed": (
+                    f"已完成 {title} 主体工作.具体进展:1) 现场情况已摸排;"
+                    f"2) 责任主体已明确;3) 整改方案已与相关单位沟通."
+                ),
+                "problems": (
+                    "推进中遇到 个别业主配合度低 / 部分历史资料缺失 等问题,"
+                    "已通过协调会议解决.建议后续此类工作前置 30 天通知."
+                ),
+                "next_steps": (
+                    "1) 本周完成最终整改;2) 下周组织验收;3) 整理经验沉淀到 KB,"
+                    "供同类任务参考."
+                ),
+                "evidence_urls": [],
+                "submitted_at": submitted_at.isoformat(),
+                "submitted_by_name": assignee_name,
+            }
+
         t = Task(
             workspace_id=workspace_id,
             created_by_user_id=caller_user_id,
@@ -879,7 +903,7 @@ async def seed_demo_scenario(
             due_at=due,
             status=status,
             source_type=source_type,
-            source_ref={"_demo_seed": True, "index": i},
+            source_ref=source_ref,
         )
         session.add(t)
         tasks_created += 1

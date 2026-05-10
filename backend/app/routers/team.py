@@ -39,8 +39,10 @@ async def _require_admin(
             )
         )
     ).scalar_one_or_none()
-    if not m or m.role not in ("owner", "admin"):
-        raise HTTPException(403, "owner or admin required")
+    # v25-bug-fix W-2: 智慧住建文档 §2.1.2 — leader 等同于 admin 权限.
+    # 之前漏了 leader,leader 用户进 /admin/team 弹 403 toast.
+    if not m or m.role not in ("owner", "admin", "leader"):
+        raise HTTPException(403, "owner / admin / leader required")
     return m
 
 

@@ -1174,6 +1174,16 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                       : "text-base leading-relaxed text-zinc-400"
                   }
                 >
+                  {/* v25-bug-fix W-4: 实录显示 [mm:ss] 时间戳 */}
+                  {l.startMs != null && (
+                    <span
+                      className="mr-2 font-mono text-xs text-zinc-500"
+                      title={`从会议开始 ${l.startMs}ms`}
+                    >
+                      [{Math.floor(l.startMs / 60000).toString().padStart(2, "0")}:
+                      {Math.floor((l.startMs % 60000) / 1000).toString().padStart(2, "0")}]
+                    </span>
+                  )}
                   <SpeakerLabel
                     line={l}
                     canEdit={l.final && l.serverLineId !== null}
