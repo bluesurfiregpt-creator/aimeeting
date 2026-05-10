@@ -756,6 +756,15 @@ export type DashboardOverview = {
   scope_label: string;
 };
 
+/** v24.1: 智慧住建 16 AI 专家 seed 结果. */
+export type SeedSCAgentsResult = {
+  agents_created: number;
+  agents_skipped: number;
+  kbs_created: number;
+  kbs_skipped: number;
+  preset_set: boolean;
+};
+
 export type SeedEvalResult = {
   period: string;
   inserted: number;
@@ -1049,6 +1058,12 @@ export const api = {
       period,
       overwrite,
     }),
+  // v24.1: 智慧住建 16 AI 专家 + 1:1 KB seed(幂等)
+  seedSmartConstructionAgents: () =>
+    jpost<SeedSCAgentsResult>(
+      `/api/dashboard/seed-smart-construction-agents`,
+      {},
+    ),
 
   // v23: 看板二期 — Kanban 视图
   kanbanByAgent: (includeClosed = false) =>

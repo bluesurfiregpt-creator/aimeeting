@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Agent, type KnowledgeBase } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { toast } from "@/lib/toast";
 
 type Form = {
   name: string;
@@ -117,12 +118,69 @@ export default function AgentsAdmin() {
     }
   };
 
+  // v24.1: 智慧住建 16 AI 专家 + 1:1 KB 一键 seed(幂等)
+  const [seedingSC, setSeedingSC] = useState(false);
+  const seedSmartConstruction = async () => {
+    if (seedingSC) return;
+    if (
+      !confirm(
+        "将为本工作空间一键 seed 智慧住建 16 AI 专家(15 业务 + 1 住建智脑)+ 1:1 知识库。\n" +
+        "已存在的同名 Agent / KB 会跳过(幂等)。\n继续?",
+      )
+    )
+      return;
+    setSeedingSC(true);
+    try {
+      const r = await api.seedSmartConstructionAgents();
+      toast.success(
+        `🏗️ 已 seed:Agent ${r.agents_created} 新增 / ${r.agents_skipped} 跳过 · ` +
+          `KB ${r.kbs_created} 新增 / ${r.kbs_skipped} 跳过` +
+          (r.preset_set ? "(workspace.preset 已设为 smart_construction)" : ""),
+      );
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "seed 失败");
+    } finally {
+      setSeedingSC(false);
+    }
+  };
+
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-      <section className="rounded-xl border border-ink-700 bg-ink-900 p-5">
-        <h2 className="text-sm font-medium text-zinc-300">
-          {editing ? "编辑 Agent" : "新建 Agent"}
-        </h2>
+    <div className="space-y-6">
+      {/* v24.1: 智慧住建一键 seed banner */}
+      <section
+        className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4"
+        data-testid="sc-agents-seed-banner"
+      >
+        <div className="flex items-start gap-3">
+          <span className="text-2xl" aria-hidden>🏗️</span>
+          <div className="flex-1">
+            <h3 className="text-sm font-medium text-amber-200">
+              智慧住建场景 · 一键 seed 16 AI 专家
+            </h3>
+            <p className="mt-0.5 text-xs text-zinc-400">
+              福田区住建局 16 节点 — 15 业务 AI(综合事务/法制/房地产/公共住房/保障/建筑业/房屋安全/物业/建设科技/消防人防/城市更新规划/土地整备/城市更新项目/质量安全/住建土地)+ 1 住建智脑.
+              <br />
+              幂等可重跑,不会覆盖现有同名 Agent / KB.
+            </p>
+            <button
+              type="button"
+              onClick={seedSmartConstruction}
+              disabled={seedingSC}
+              data-testid="sc-agents-seed-btn"
+              className="mt-3 rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-medium text-amber-950 shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-amber-400 transition"
+            >
+              {seedingSC ? "正在 seed…" : "一键 seed 智慧住建 16 AI"}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+        <section className="rounded-xl border border-ink-700 bg-ink-900 p-5">
+          <h2 className="text-sm font-medium text-zinc-300">
+            {editing ? "编辑 Agent" : "新建 Agent"}
+          </h2>
         <div className="mt-4 space-y-3">
           <Field label="名称（会议中用 @<名称> 召唤）" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="产品专家" />
           <Field label="领域" value={form.domain} onChange={(v) => setForm({ ...form, domain: v })} placeholder="产品 / 法务 / 架构 ..." />
@@ -285,20 +343,21 @@ export default function AgentsAdmin() {
         )}
       </section>
 
-      <ConfirmDialog
-        open={confirmDelete !== null}
-        title="确认删除 Agent？"
-        body={
-          <>
-            将删除「<span className="text-white">{confirmDelete?.name}</span>」。
-            该 Agent 在所有会议中的历史发言记录会保留，但今后无法再被召唤。
-          </>
-        }
-        confirmLabel="删除"
-        danger
-        onConfirm={performDelete}
-        onCancel={() => setConfirmDelete(null)}
-      />
+        <ConfirmDialog
+          open={confirmDelete !== null}
+          title="确认删除 Agent？"
+          body={
+            <>
+              将删除「<span className="text-white">{confirmDelete?.name}</span>」。
+              该 Agent 在所有会议中的历史发言记录会保留，但今后无法再被召唤。
+            </>
+          }
+          confirmLabel="删除"
+          danger
+          onConfirm={performDelete}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      </div>
     </div>
   );
 }

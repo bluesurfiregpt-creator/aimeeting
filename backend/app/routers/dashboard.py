@@ -35,8 +35,17 @@ from ..auth import (
     is_leader_or_admin,
     require_leader_or_admin,
 )
+from ..audit import audit_log
 from ..db import get_session
-from ..models import Agent, Task, TaskEvaluation, User, WorkspaceMembership
+from ..models import (
+    Agent,
+    KnowledgeBase,
+    Task,
+    TaskEvaluation,
+    User,
+    Workspace,
+    WorkspaceMembership,
+)
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -498,6 +507,244 @@ async def seed_eval_data(
 
     await session.commit()
     return SeedEvalOut(period=period, inserted=inserted, updated=updated)
+
+
+# ---- v24.1 · 智慧住建 16 AI 专家 seed --------------------------------------
+#
+# 智慧住建文档 §1 项目概述 + §2.2 业务 AI 专家画像(16 节点):
+# 15 个业务 AI(对应福田区住建局各科室/单位)+ 1 个全局「住建智脑」.
+#
+# 每个 AI 配:
+#   - Agent 行(name + persona + 默认 keywords + 颜色)
+#   - 1 个 KnowledgeBase(空,客户后续填)
+#   - Agent.knowledge_base_ids 自动绑定该 KB
+#
+# 幂等:Agent.name 已存在时 skip(不会重复创建).
+# 同时设置 workspace.preset='smart_construction'(若尚未设置).
+
+# (序号, 名称, 科室/单位, 角色定位, 默认 keywords)
+_SMART_CONSTRUCTION_AGENTS: list[tuple[str, str, str, str, list[str]]] = [
+    (
+        "AI-01", "综合事务AI专家", "机关党委(办公室)",
+        "全局统筹与督办 — 文电会务、绩效考核、督查督办、人事管理",
+        ["综合事务", "文电", "会务", "绩效考核", "督查督办", "人事", "公文", "通知"],
+    ),
+    (
+        "AI-02", "法制政务AI专家", "法制与政务服务科",
+        "法制审查与政务 — 规范性文件审查、合同备案、审批标准化",
+        ["法制", "政务", "合同", "备案", "审批", "规范性文件", "法律审查"],
+    ),
+    (
+        "AI-03", "房地产与租赁AI专家", "房地产与租赁管理科",
+        "房产与租赁监管 — 商品房预售监管、市场检查、租赁监管",
+        ["房地产", "租赁", "商品房", "预售", "市场检查", "中介", "租房"],
+    ),
+    (
+        "AI-04", "公共住房建设AI专家", "公共住房建设管理科",
+        "住房筹集与建设 — 筹集政策、项目全流程管理、棚户区改造",
+        ["公共住房", "筹集", "棚户区改造", "棚改", "项目管理"],
+    ),
+    (
+        "AI-05", "住房保障AI专家", "住房改革与保障科",
+        "住房保障与房改 — 公租房租售管理、补贴发放、房改补贴审核",
+        ["住房保障", "公租房", "保障房", "补贴", "房改"],
+    ),
+    (
+        "AI-06", "建筑业管理AI专家", "建筑业管理科",
+        "建筑行业与市场 — 质量安全监管、招投标监督、施工许可",
+        ["建筑业", "质量安全", "招标", "投标", "招投标", "施工许可"],
+    ),
+    (
+        "AI-07", "房屋安全AI专家", "房屋安全管理与整治科",
+        "房屋安全与整治 — 结构鉴定监管、老旧小区整治、安全库",
+        ["房屋安全", "鉴定", "老旧小区", "整治", "结构安全"],
+    ),
+    (
+        "AI-08", "物业监管AI专家", "物业监管科",
+        "物业与维修资金 — 物业行业指导、维修资金审批、小散工程",
+        ["物业", "维修资金", "小散工程", "业委会", "物业管理"],
+    ),
+    (
+        "AI-09", "建设科技与燃气AI专家", "建设科技与燃气科",
+        "建筑节能与燃气 — 绿色建筑监管、BIM 推广、海绵城市、燃气",
+        ["建设科技", "BIM", "绿色建筑", "海绵城市", "燃气", "节能"],
+    ),
+    (
+        "AI-10", "消防人防AI专家", "消防人防管理科",
+        "消防审验与人防 — 消防设计审核、竣工验收、人防报建",
+        ["消防", "人防", "消防审核", "竣工验收", "人防报建"],
+    ),
+    (
+        "AI-11", "城市更新规划AI专家", "城市更新规划科",
+        "城市更新规划 — 更新目标研究、片区统筹、城中村改造",
+        ["城市更新", "更新规划", "城中村", "片区", "改造"],
+    ),
+    (
+        "AI-12", "土地整备AI专家", "土地整备科",
+        "土地整备与征收 — 征收审查、资金管理、储备地管理",
+        ["土地整备", "征收", "储备地", "土地"],
+    ),
+    (
+        "AI-13", "城市更新项目AI专家", "城市更新项目管理科",
+        "城市更新实施 — 实施主体审查、搬迁补偿、违建核实",
+        ["城市更新项目", "实施主体", "搬迁补偿", "违建"],
+    ),
+    (
+        "AI-14", "建设工程质量安全AI专家", "区建设工程质量安全中心",
+        "质量安全监督 — 工程质量安全监督、拆除安全、造价监管",
+        ["工程质量", "工程安全", "拆除", "造价", "质量监督"],
+    ),
+    (
+        "AI-15", "住房建设与土地整备AI专家", "区住房建设和土地整备事务中心",
+        "保障性住房事务 — 保障房建设管理、申请审核、房源分配",
+        ["保障性住房", "保障房建设", "申请审核", "房源分配"],
+    ),
+    (
+        "AI-16", "住建智脑(全局AI专家)", "—",
+        "全局决策与派发 — 全局一屏统揽、跨 AI 查询、政策分析、派发",
+        ["住建智脑", "全局", "统揽", "跨 AI 查询", "政策分析"],
+    ),
+]
+
+# 16 个区分度高的 Tailwind 暗色友好色卡(Kanban / 头像条用)
+_AGENT_COLORS = [
+    "sky", "emerald", "violet", "rose", "amber", "cyan",
+    "lime", "fuchsia", "blue", "green", "orange", "red",
+    "teal", "indigo", "pink", "yellow",
+]
+
+
+class SeedSCAgentsOut(BaseModel):
+    agents_created: int
+    agents_skipped: int  # 已存在(name 重复)→ 跳过
+    kbs_created: int
+    kbs_skipped: int
+    preset_set: bool  # 这次是否把 workspace.preset 改成了 smart_construction
+
+
+@router.post(
+    "/seed-smart-construction-agents", response_model=SeedSCAgentsOut
+)
+async def seed_smart_construction_agents(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.1 — 智慧住建 16 AI 专家(15 业务 + 1 住建智脑)+ 1:1 知识库 seed.
+
+    幂等:Agent.name 已存在 skip;KB.name 已存在 skip.重跑只补缺.
+    同时把 workspace.preset 设成 'smart_construction'(若尚未设置).
+    leader / admin only.
+
+    客户登录第一次看到 16 个 AI 专家 + 16 个空 KB,可立即开始上传文档.
+    """
+    await require_leader_or_admin(session, auth)
+
+    # 1) 现有 Agent / KB 名字索引(幂等检查)
+    existing_agents = (
+        await session.execute(
+            select(Agent.name).where(Agent.workspace_id == auth.workspace.id)
+        )
+    ).all()
+    existing_agent_names = {r[0] for r in existing_agents}
+
+    existing_kbs = (
+        await session.execute(
+            select(KnowledgeBase).where(
+                KnowledgeBase.workspace_id == auth.workspace.id
+            )
+        )
+    ).scalars().all()
+    existing_kb_by_name: dict[str, KnowledgeBase] = {kb.name: kb for kb in existing_kbs}
+
+    agents_created = 0
+    agents_skipped = 0
+    kbs_created = 0
+    kbs_skipped = 0
+
+    for i, (code, name, dept, scope_desc, keywords) in enumerate(
+        _SMART_CONSTRUCTION_AGENTS
+    ):
+        # KB 先建/找(Agent 要绑定它的 id)
+        kb_name = f"KB · {name}"
+        kb = existing_kb_by_name.get(kb_name)
+        if kb is None:
+            kb = KnowledgeBase(
+                workspace_id=auth.workspace.id,
+                name=kb_name,
+                description=f"{name} 的独立知识库({dept}).文档解析后自动切块嵌入,RAG 召回.",
+            )
+            session.add(kb)
+            await session.flush()
+            existing_kb_by_name[kb_name] = kb
+            kbs_created += 1
+        else:
+            kbs_skipped += 1
+
+        # Agent
+        if name in existing_agent_names:
+            agents_skipped += 1
+            continue
+
+        color = _AGENT_COLORS[i % len(_AGENT_COLORS)]
+        # persona = 文档里的「角色定位 — 核心能力边界」拼成一段
+        persona = (
+            f"你是「{name}」.{scope_desc}."
+            f"\n所属:{dept}."
+            f"\n请基于本知识库内容回答用户的问题,不确定时请明确说明."
+            f"\n回答需精确,引用必标明出处."
+        )
+        agent = Agent(
+            workspace_id=auth.workspace.id,
+            name=name,
+            domain=dept[:64] if dept and dept != "—" else None,
+            persona=persona,
+            tone="专业、严谨、简洁",
+            boundary=f"业务范围:{scope_desc}",
+            keywords=keywords,
+            color=color,
+            knowledge_base_ids=[kb.id],
+            role="expert",
+        )
+        session.add(agent)
+        agents_created += 1
+
+    # 2) workspace.preset
+    ws = (
+        await session.execute(
+            select(Workspace).where(Workspace.id == auth.workspace.id)
+        )
+    ).scalar_one()
+    preset_set = False
+    current_preset = ws.preset or {}
+    if not isinstance(current_preset, dict):
+        current_preset = {}
+    if current_preset.get("kind") != "smart_construction":
+        current_preset["kind"] = "smart_construction"
+        current_preset["seeded_at"] = datetime.now(timezone.utc).isoformat()
+        ws.preset = current_preset
+        preset_set = True
+
+    await audit_log(
+        session, auth, "workspace.seed_smart_construction",
+        target_type="workspace", target_id=str(auth.workspace.id),
+        payload={
+            "agents_created": agents_created,
+            "agents_skipped": agents_skipped,
+            "kbs_created": kbs_created,
+            "kbs_skipped": kbs_skipped,
+            "preset_set": preset_set,
+        },
+        autocommit=False,
+    )
+    await session.commit()
+    return SeedSCAgentsOut(
+        agents_created=agents_created,
+        agents_skipped=agents_skipped,
+        kbs_created=kbs_created,
+        kbs_skipped=kbs_skipped,
+        preset_set=preset_set,
+    )
 
 
 # ---- v23: 看板二期 — AI 专家 Kanban + 科长 Kanban -------------------------
