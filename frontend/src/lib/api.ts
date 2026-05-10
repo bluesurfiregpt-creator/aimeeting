@@ -783,6 +783,39 @@ export type SeedSCAgentsResult = {
   preset_set: boolean;
 };
 
+/** v24.1 #3: 4-维路由 单候选评分. */
+export type RouteScore = {
+  agent_id: string;
+  agent_name: string;
+  composite: number;
+  breakdown: {
+    keyword: number;
+    history: number;
+    load: number;
+    capability: number;
+    _hits?: string[];
+    _history_count?: number;
+    _candidate_load?: number;
+  };
+  candidate_user_id: string | null;
+  candidate_user_name: string | null;
+  candidate_user_active_count: number;
+};
+
+export type RoutePreview = {
+  candidates: RouteScore[];  // 降序
+  threshold: number;
+  matched: boolean;  // 最高分是否过阈值
+};
+
+export type AutoRouteResult = {
+  matched: boolean;
+  threshold: number;
+  winner?: RouteScore | null;
+  task?: MyTask | null;  // 派发后的最新 task
+  candidates: RouteScore[];
+};
+
 /** v24.1 #2: 异常预警 force-check 单条结果. */
 export type AlertCheckResult = {
   would_fire: boolean;
@@ -1109,6 +1142,12 @@ export const api = {
   // v24.1 #2: 手工跑一次 3 条异常预警规则(跳 24h dedup),用于 demo / 调试
   alertsForceCheck: () =>
     jpost<AlertForceCheckResult>(`/api/dashboard/alerts/force-check`, {}),
+
+  // v24.1 #3: 4-维自动派发路由(任何 user 可 preview;leader/admin 可 auto-route)
+  previewRoute: (taskId: string) =>
+    jget<RoutePreview>(`/api/me/tasks/${taskId}/route-preview`),
+  autoRouteTask: (taskId: string) =>
+    jpost<AutoRouteResult>(`/api/me/tasks/${taskId}/auto-route`, {}),
 
   // v23: 看板二期 — Kanban 视图
   kanbanByAgent: (includeClosed = false) =>

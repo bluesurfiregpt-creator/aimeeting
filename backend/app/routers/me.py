@@ -965,6 +965,182 @@ async def archive_task(
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
 
 
+# v24.1 #3: 4-维 自动派发路由 -------------------------------------------------
+
+
+class RouteScoreOut(BaseModel):
+    agent_id: uuid.UUID
+    agent_name: str
+    composite: float
+    breakdown: dict  # {keyword, history, load, capability, _hits, _history_count, _candidate_load}
+    candidate_user_id: Optional[uuid.UUID] = None
+    candidate_user_name: Optional[str] = None
+    candidate_user_active_count: int = 0
+
+
+class RoutePreviewOut(BaseModel):
+    """所有候选 Agent 的评分(降序),winner 是第一个 + 是否过阈值."""
+    candidates: list[RouteScoreOut]
+    threshold: float
+    matched: bool  # 最高分是否 >= threshold(可以 auto-dispatch)
+
+
+class AutoRouteOut(BaseModel):
+    """auto-route 结果:matched=True 时已 dispatch,task 字段返回新状态."""
+    matched: bool
+    threshold: float
+    winner: Optional[RouteScoreOut] = None
+    task: Optional[MyTaskOut] = None  # 派发后的最新 task 状态
+    candidates: list[RouteScoreOut] = []  # 全候选(降序),给 UI 展示「为啥选他」
+
+
+@router.get("/tasks/{task_id}/route-preview", response_model=RoutePreviewOut)
+async def preview_route(
+    task_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.1 #3: 给某个 Task 跑一遍 4-维评分,**只展示**候选 Agent + 分数,不
+    实际派发.用途:
+      - leader 派发前先看「系统建议派给谁,凭什么」
+      - 客户演示时「让 AI 决策」
+    """
+    from ..routing import find_best_assignee_for_task, routing_score_to_dict
+
+    t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
+    decision = await find_best_assignee_for_task(
+        session, auth.workspace.id, t.content,
+        exclude_user_ids={t.created_by_user_id} if t.created_by_user_id else None,
+    )
+    if decision is None:
+        # 没 winner,可能 0 候选或者全低于阈值.我们再单独跑一遍拿全候选(无 threshold)
+        from ..routing import _MIN_COMPOSITE_THRESHOLD
+        from ..routing import find_best_assignee_for_task as _f
+        # 跑一次低阈值的 — 这是「展示」场景,要把所有候选给出来
+        all_decision = await _f(
+            session, auth.workspace.id, t.content,
+            threshold=0.0,
+            exclude_user_ids={t.created_by_user_id} if t.created_by_user_id else None,
+        )
+        candidates = (
+            [routing_score_to_dict(c) for c in all_decision.all_candidates]
+            if all_decision else []
+        )
+        return RoutePreviewOut(
+            candidates=[RouteScoreOut(**c) for c in candidates],
+            threshold=_MIN_COMPOSITE_THRESHOLD,
+            matched=False,
+        )
+    return RoutePreviewOut(
+        candidates=[RouteScoreOut(**routing_score_to_dict(c)) for c in decision.all_candidates],
+        threshold=decision.threshold,
+        matched=True,
+    )
+
+
+@router.post("/tasks/{task_id}/auto-route", response_model=AutoRouteOut)
+async def auto_route_task(
+    task_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.1 #3: 对某个 open Task,跑 4-维评分,winner > 阈值则**直接 dispatch**
+    给 winner Agent 名下负载最轻的 bound user.
+
+    leader/admin only.失败(无 winner / 阈值不达 / Task 已派) → 返回 matched=False
+    + 全候选,UI 让用户手动选.
+    """
+    from ..routing import find_best_assignee_for_task, routing_score_to_dict
+
+    await require_leader_or_admin(session, auth)
+    t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
+    if t.status != "open":
+        raise HTTPException(
+            409, f"task 当前状态 {t.status},只能对 open 状态的 task 自动派发"
+        )
+
+    decision = await find_best_assignee_for_task(
+        session, auth.workspace.id, t.content,
+        exclude_user_ids={t.created_by_user_id} if t.created_by_user_id else None,
+    )
+    if decision is None or decision.winner.candidate_user_id is None:
+        # 把所有候选拿出来给 UI(threshold=0 跑一次)
+        from ..routing import _MIN_COMPOSITE_THRESHOLD
+        all_decision = await find_best_assignee_for_task(
+            session, auth.workspace.id, t.content,
+            threshold=0.0,
+            exclude_user_ids={t.created_by_user_id} if t.created_by_user_id else None,
+        )
+        candidates_dicts = (
+            [routing_score_to_dict(c) for c in all_decision.all_candidates]
+            if all_decision else []
+        )
+        return AutoRouteOut(
+            matched=False,
+            threshold=_MIN_COMPOSITE_THRESHOLD,
+            winner=None,
+            task=None,
+            candidates=[RouteScoreOut(**c) for c in candidates_dicts],
+        )
+
+    # 命中!走 dispatch 流程(复用状态机)
+    new_status = transition(TASK_ACTION_DISPATCH, t.status)
+    now = datetime.now(timezone.utc)
+    t.assignee_user_id = decision.winner.candidate_user_id
+    t.status = new_status
+    t.dispatched_at = now
+    t.dispatched_by_user_id = auth.user.id
+
+    await _mirror_status_to_action(session, t)
+
+    if t.assignee_user_id != auth.user.id:
+        notify_payload = _task_to_meeting_payload(t)
+        notify_payload["due_at"] = t.due_at.isoformat() if t.due_at else None
+        notify_payload["dispatched_by"] = auth.user.name
+        notify_payload["auto_routed"] = True
+        notify_payload["routing_composite"] = decision.winner.composite
+        notify_payload["routing_agent"] = decision.winner.agent_name
+        await emit_notification(
+            session,
+            workspace_id=auth.workspace.id,
+            user_id=t.assignee_user_id,
+            kind="task_dispatched",
+            payload=notify_payload,
+        )
+
+    await audit_log(
+        session, auth, "task.auto_route",
+        target_type="task", target_id=str(t.id),
+        payload={
+            "winner_agent_id": str(decision.winner.agent_id),
+            "winner_agent_name": decision.winner.agent_name,
+            "winner_user_id": str(decision.winner.candidate_user_id),
+            "composite": decision.winner.composite,
+            "breakdown": decision.winner.breakdown,
+            "threshold": decision.threshold,
+        },
+        autocommit=False,
+    )
+    await session.commit()
+    await session.refresh(t)
+
+    candidates = [
+        RouteScoreOut(**routing_score_to_dict(c)) for c in decision.all_candidates
+    ]
+    out_task = await _task_to_my_out_with_lookup(
+        session, t, await _meeting_title_for(session, t)
+    )
+    return AutoRouteOut(
+        matched=True,
+        threshold=decision.threshold,
+        winner=RouteScoreOut(**routing_score_to_dict(decision.winner)),
+        task=out_task,
+        candidates=candidates,
+    )
+
+
 # v22.5: 多 AI 协作端点 ---------------------------------------------------------
 
 

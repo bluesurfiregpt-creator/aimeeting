@@ -6,8 +6,10 @@ import {
   api,
   CLASSIFICATION_BADGE_CLASSES,
   CLASSIFICATION_LABELS,
+  type RoutePreview,
   type TaskDetail,
 } from "@/lib/api";
+import { toast } from "@/lib/toast";
 
 /**
  * v23.5 — /task/[id] 任务详情页.
@@ -129,6 +131,55 @@ export default function TaskDetailPage({
       setLoading(false);
     }
   }, [taskId]);
+
+  // v24.1 #3: 4-维路由(only meaningful when status=open)
+  const [preview, setPreview] = useState<RoutePreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [autoRouting, setAutoRouting] = useState(false);
+
+  const loadPreview = useCallback(async () => {
+    if (previewLoading) return;
+    setPreviewLoading(true);
+    try {
+      const p = await api.previewRoute(taskId);
+      setPreview(p);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "评分失败");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [previewLoading, taskId]);
+
+  const onAutoRoute = useCallback(async () => {
+    if (autoRouting) return;
+    setAutoRouting(true);
+    try {
+      const r = await api.autoRouteTask(taskId);
+      if (r.matched && r.winner) {
+        toast.success(
+          `🤖 已派发给 ${r.winner.candidate_user_name || "(未知)"} (${r.winner.agent_name})`,
+          {
+            detail: `composite=${r.winner.composite} (kw ${r.winner.breakdown.keyword} · history ${r.winner.breakdown.history} · load ${r.winner.breakdown.load} · capability ${r.winner.breakdown.capability})`,
+          },
+        );
+        await load();  // 刷新 task 状态
+      } else {
+        toast.error(
+          `未达阈值 ${r.threshold} — ${r.candidates.length} 候选,最高分 ${r.candidates[0]?.composite ?? 0}。请手动派发。`,
+        );
+        // 仍展开 preview 让 leader 能看
+        setPreview({
+          candidates: r.candidates,
+          threshold: r.threshold,
+          matched: false,
+        });
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "auto-route 失败");
+    } finally {
+      setAutoRouting(false);
+    }
+  }, [autoRouting, taskId, load]);
 
   useEffect(() => {
     load();
@@ -289,6 +340,89 @@ export default function TaskDetailPage({
           </div>
         )}
       </section>
+
+      {/* v24.1 #3: 自动派发(只在 open 状态显示) */}
+      {t.status === "open" && (
+        <section
+          className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4"
+          data-testid="task-detail-auto-route"
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-2xl" aria-hidden>🤖</span>
+            <div className="flex-1">
+              <h2 className="text-sm font-semibold text-amber-200">
+                AI 自动派发(4-维评分)
+              </h2>
+              <p className="mt-0.5 text-[11px] text-zinc-500">
+                关键词 (40%) + 历史关联 (30%) + 负载均衡 (20%) + 能力标签 (10%) →
+                composite 得分.超阈值就直接派发,否则需手动选.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={loadPreview}
+                  disabled={previewLoading}
+                  data-testid="task-route-preview-btn"
+                  className="rounded-lg border border-amber-500/40 px-3 py-1.5 text-xs text-amber-200 hover:bg-amber-500/10 disabled:opacity-50"
+                >
+                  {previewLoading ? "评分中…" : "🔍 评分预览"}
+                </button>
+                <button
+                  type="button"
+                  onClick={onAutoRoute}
+                  disabled={autoRouting}
+                  data-testid="task-auto-route-btn"
+                  className="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-400 disabled:opacity-50"
+                >
+                  {autoRouting ? "派发中…" : "🤖 自动派发(leader/admin)"}
+                </button>
+              </div>
+
+              {preview && (
+                <div className="mt-3" data-testid="task-route-preview-panel">
+                  <div className="text-[11px] text-zinc-500">
+                    阈值 {preview.threshold} ·
+                    {preview.matched ? (
+                      <span className="text-emerald-300"> ✅ 最高分过阈,可自动派发</span>
+                    ) : (
+                      <span className="text-rose-400"> ❌ 最高分未过阈,建议手动</span>
+                    )}
+                  </div>
+                  <ol className="mt-2 space-y-1.5">
+                    {preview.candidates.slice(0, 5).map((c, i) => (
+                      <li
+                        key={c.agent_id}
+                        className={`rounded-md px-2 py-1.5 ${
+                          i === 0
+                            ? "border border-amber-500/40 bg-amber-500/10"
+                            : "border border-ink-700 bg-ink-950"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-zinc-200">
+                            {i === 0 && "🥇 "}
+                            {c.agent_name}
+                            <span className="text-zinc-500"> → {c.candidate_user_name || "?"}</span>
+                          </span>
+                          <span className="font-mono text-xs text-amber-200">
+                            {c.composite.toFixed(3)}
+                          </span>
+                        </div>
+                        <div className="mt-1 grid grid-cols-4 gap-1 text-[10px] text-zinc-500">
+                          <span>kw: {c.breakdown.keyword.toFixed(2)}</span>
+                          <span>hist: {c.breakdown.history.toFixed(2)}</span>
+                          <span>load: {c.breakdown.load.toFixed(2)}</span>
+                          <span>cap: {c.breakdown.capability.toFixed(2)}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* 时间线 */}
       <section className="mt-6" data-testid="task-detail-timeline">

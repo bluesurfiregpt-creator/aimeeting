@@ -3261,6 +3261,126 @@
       },
     });
 
+    // ---------- KK series · v24.1 #3 4-维自动派发路由 -----------------------
+    R.register({
+      id: "KK-1",
+      series: "KK",
+      title: "GET route-preview 返回候选 + breakdown 4 维 + threshold",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        // 创一个 open task(走 report 触发源 — 永远是 open + 无 assignee)
+        const r = await POST("/api/me/reports", {
+          title: `${PREFIX}_KK1_物业问题`,
+          content: `${PREFIX}_KK1_某小区物业管理混乱,业委会希望立即整治`,
+          severity: "medium",
+        });
+        if (!r.ok) return { ok: false, error: `report ${r.status}` };
+        ctx.KK_task = r.body.task_id;
+        const p = await GET(`/api/me/tasks/${r.body.task_id}/route-preview`);
+        if (!p.ok) return { ok: false, error: `preview ${p.status}` };
+        if (typeof p.body.threshold !== "number") {
+          return { ok: false, error: "threshold not number" };
+        }
+        if (!Array.isArray(p.body.candidates)) {
+          return { ok: false, error: "candidates not array" };
+        }
+        if (typeof p.body.matched !== "boolean") {
+          return { ok: false, error: "matched not boolean" };
+        }
+        // 候选可能为空(没绑 user 的 Agent 全跳过).有候选时验 breakdown 4 维
+        if (p.body.candidates.length > 0) {
+          const c0 = p.body.candidates[0];
+          for (const dim of ["keyword", "history", "load", "capability"]) {
+            if (typeof c0.breakdown[dim] !== "number") {
+              return { ok: false, error: `breakdown 缺 ${dim}` };
+            }
+          }
+          // composite 应当是降序
+          for (let i = 1; i < p.body.candidates.length; i++) {
+            if (p.body.candidates[i].composite > p.body.candidates[i-1].composite) {
+              return { ok: false, error: "candidates 不是降序" };
+            }
+          }
+        }
+        return {
+          ok: true,
+          evidence: {
+            _note: `${p.body.candidates.length} 候选,matched=${p.body.matched},threshold=${p.body.threshold}`,
+          },
+        };
+      },
+    });
+
+    R.register({
+      id: "KK-2",
+      series: "KK",
+      title: "POST auto-route — 已派发(非 open)task → 409",
+      async run() {
+        // 找一个已派发的 task(走老路:create + dispatch)
+        const me = (await GET("/api/auth/me")).body;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_KK2`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `meeting ${m.status}` };
+        created("meeting", m.body.id, "KK2");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_KK2_t`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_KK2_t`);
+        // 派发掉
+        await POST(`/api/me/tasks/${t.id}/dispatch`, { assignee_user_id: me.user_id });
+        // 现在它是 dispatched,试 auto-route 应当 409
+        const r = await POST(`/api/me/tasks/${t.id}/auto-route`, {});
+        if (r.ok || r.status !== 409) {
+          return { ok: false, error: `expected 409, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "non-open auto-route 拒绝 OK" } };
+      },
+    });
+
+    R.register({
+      id: "KK-3",
+      series: "KK",
+      title: "POST auto-route — 命中阈值则 dispatch + audit; 否则 matched=false",
+      async run(ctx) {
+        if (!ctx.KK_task) {
+          return { ok: false, error: "SKIP_DEP_FAILED:KK-1", evidence: { _skipped: true } };
+        }
+        const r = await POST(`/api/me/tasks/${ctx.KK_task}/auto-route`, {});
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        if (typeof r.body.matched !== "boolean") {
+          return { ok: false, error: "matched not boolean" };
+        }
+        if (r.body.matched) {
+          // 命中:必有 winner + task 状态 = dispatched + audit_log 一行
+          if (!r.body.winner || !r.body.winner.candidate_user_id) {
+            return { ok: false, error: "matched but no winner" };
+          }
+          if (!r.body.task || r.body.task.status !== "dispatched") {
+            return { ok: false, error: `task 状态 ${r.body.task?.status} != dispatched` };
+          }
+          const a = await GET("/api/audit?action=task.auto_route&limit=20");
+          const row = (a.body || []).find((x) => x.target_id === ctx.KK_task);
+          if (!row) return { ok: false, error: "task.auto_route audit row 缺" };
+          return {
+            ok: true,
+            evidence: {
+              _note: `auto-routed → ${r.body.winner.agent_name}(composite=${r.body.winner.composite})`,
+            },
+          };
+        } else {
+          // 未命中:也是合法返回,有 candidates 列表
+          if (!Array.isArray(r.body.candidates)) {
+            return { ok: false, error: "miss case 应有 candidates 列表" };
+          }
+          return {
+            ok: true,
+            evidence: { _note: `未命中阈值,matched=false,${r.body.candidates.length} 候选` },
+          };
+        }
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",
