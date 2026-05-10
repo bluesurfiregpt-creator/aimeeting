@@ -3945,6 +3945,62 @@
       },
     });
 
+    // ---------- TT series · v24.3 #2 报表日清/周查 -------------------------
+    R.register({
+      id: "TT-1",
+      series: "TT",
+      title: "GET /reports/daily-summary 返回 Excel + Content-Disposition",
+      async run() {
+        const r = await fetch("/api/reports/daily-summary", { credentials: "include" });
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const ct = r.headers.get("Content-Type") || "";
+        if (!ct.includes("spreadsheet")) {
+          return { ok: false, error: `bad CT: ${ct}` };
+        }
+        const cd = r.headers.get("Content-Disposition") || "";
+        if (!cd.includes("attachment")) {
+          return { ok: false, error: `expected attachment, CD=${cd}` };
+        }
+        try { await r.body?.cancel(); } catch {}
+        return { ok: true, evidence: { _note: "daily Excel attachment OK" } };
+      },
+    });
+
+    R.register({
+      id: "TT-2",
+      series: "TT",
+      title: "GET /reports/weekly-summary 返回 Excel",
+      async run() {
+        const r = await fetch("/api/reports/weekly-summary", { credentials: "include" });
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const ct = r.headers.get("Content-Type") || "";
+        if (!ct.includes("spreadsheet")) {
+          return { ok: false, error: `bad CT: ${ct}` };
+        }
+        try { await r.body?.cancel(); } catch {}
+        return { ok: true, evidence: { _note: "weekly Excel OK" } };
+      },
+    });
+
+    R.register({
+      id: "TT-3",
+      series: "TT",
+      title: "/daily-summary?date=非法格式 → 400",
+      async run() {
+        const r = await fetch("/api/reports/daily-summary?date=not-a-date", {
+          credentials: "include",
+        });
+        if (r.ok) {
+          try { await r.body?.cancel(); } catch {}
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        if (r.status !== 400) {
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "非法 date 拒绝 OK" } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",

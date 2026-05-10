@@ -1277,6 +1277,34 @@ export const api = {
     }
     return parseDownload(r, `status-distribution-${days}d.xlsx`);
   },
+  // v24.3 #2: 日清(date 默认今日)
+  downloadDailySummary: async (dateIso?: string | null) => {
+    const q = dateIso ? `?date=${dateIso}` : "";
+    const r = await fetch(backendBase() + `/api/reports/daily-summary${q}`, {
+      credentials: "include",
+    });
+    if (!r.ok) {
+      handleAuthError(r.status);
+      const text = await r.text().catch(() => "");
+      handleNetworkError(`/api/reports/daily-summary`, r.status, text);
+      throw makeError(`/api/reports/daily-summary`, r.status, text);
+    }
+    return parseDownload(r, `daily-summary-${dateIso || "today"}.xlsx`);
+  },
+  // v24.3 #2: 周查(week_start 默认本周一)
+  downloadWeeklySummary: async (weekStartIso?: string | null) => {
+    const q = weekStartIso ? `?week_start=${weekStartIso}` : "";
+    const r = await fetch(backendBase() + `/api/reports/weekly-summary${q}`, {
+      credentials: "include",
+    });
+    if (!r.ok) {
+      handleAuthError(r.status);
+      const text = await r.text().catch(() => "");
+      handleNetworkError(`/api/reports/weekly-summary`, r.status, text);
+      throw makeError(`/api/reports/weekly-summary`, r.status, text);
+    }
+    return parseDownload(r, `weekly-summary-${weekStartIso || "this-week"}.xlsx`);
+  },
 
   // v21: 跨 AI 数据访问申请
   createAccessRequest: (body: {

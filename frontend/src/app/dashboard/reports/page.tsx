@@ -47,12 +47,30 @@ function triggerDownload(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function thisMondayIso(): string {
+  const today = new Date();
+  const day = today.getDay();
+  const monOffset = day === 0 ? -6 : 1 - day; // 周日 → 上周一
+  const mon = new Date(today);
+  mon.setDate(today.getDate() + monOffset);
+  return `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, "0")}-${String(mon.getDate()).padStart(2, "0")}`;
+}
+
+function todayIso(): string {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+}
+
 export default function ReportsPage() {
   const months = lastNMonths(12);
   const [period, setPeriod] = useState<string>(months[0]);
   const [days, setDays] = useState<number>(30);
+  const [dailyDate, setDailyDate] = useState<string>(todayIso());
+  const [weekStart, setWeekStart] = useState<string>(thisMondayIso());
   const [busyEval, setBusyEval] = useState(false);
   const [busyDist, setBusyDist] = useState(false);
+  const [busyDaily, setBusyDaily] = useState(false);
+  const [busyWeekly, setBusyWeekly] = useState(false);
 
   const onDownloadEval = useCallback(async () => {
     if (busyEval) return;
@@ -82,6 +100,34 @@ export default function ReportsPage() {
     }
   }, [busyDist, days]);
 
+  const onDownloadDaily = useCallback(async () => {
+    if (busyDaily) return;
+    setBusyDaily(true);
+    try {
+      const { blob, filename } = await api.downloadDailySummary(dailyDate);
+      triggerDownload(blob, filename);
+      toast.success(`已导出:${filename}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "导出失败");
+    } finally {
+      setBusyDaily(false);
+    }
+  }, [busyDaily, dailyDate]);
+
+  const onDownloadWeekly = useCallback(async () => {
+    if (busyWeekly) return;
+    setBusyWeekly(true);
+    try {
+      const { blob, filename } = await api.downloadWeeklySummary(weekStart);
+      triggerDownload(blob, filename);
+      toast.success(`已导出:${filename}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "导出失败");
+    } finally {
+      setBusyWeekly(false);
+    }
+  }, [busyWeekly, weekStart]);
+
   return (
     <main className="mx-auto max-w-3xl px-4 py-12 pt-20">
       <header className="mb-6">
@@ -101,6 +147,84 @@ export default function ReportsPage() {
       </header>
 
       <div className="space-y-4">
+        {/* v24.3 #2: 日清 */}
+        <section
+          data-testid="report-daily"
+          className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-5"
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-2xl" aria-hidden>📅</span>
+            <div className="flex-1">
+              <h2 className="text-base font-medium text-white">
+                日清 <span className="rounded-full bg-violet-500/20 px-1.5 py-0.5 text-[9px] text-violet-200">v24.3</span>
+              </h2>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                2 sheet:当日 Task 全表 + 当日新建/完成/逾期 计数 + 状态分布
+              </p>
+              <div className="mt-3 flex items-center gap-3">
+                <label className="text-xs text-zinc-400">
+                  日期
+                  <input
+                    type="date"
+                    value={dailyDate}
+                    onChange={(e) => setDailyDate(e.target.value)}
+                    data-testid="report-daily-date"
+                    className="ml-2 rounded-md border border-ink-700 bg-ink-950 px-2 py-1 text-xs text-zinc-200 focus:border-violet-500 focus:outline-none"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={onDownloadDaily}
+                  disabled={busyDaily}
+                  data-testid="report-daily-download"
+                  className="rounded-lg bg-violet-500 px-4 py-1.5 text-sm font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-violet-400 transition"
+                >
+                  {busyDaily ? "导出中…" : "↓ 导出 Excel"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* v24.3 #2: 周查 */}
+        <section
+          data-testid="report-weekly"
+          className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-5"
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-2xl" aria-hidden>📆</span>
+            <div className="flex-1">
+              <h2 className="text-base font-medium text-white">
+                周查 <span className="rounded-full bg-violet-500/20 px-1.5 py-0.5 text-[9px] text-violet-200">v24.3</span>
+              </h2>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                3 sheet:周内 7 天日维 + AI 专家本周工作量 + Top 10 待办
+              </p>
+              <div className="mt-3 flex items-center gap-3">
+                <label className="text-xs text-zinc-400">
+                  周开始(周一)
+                  <input
+                    type="date"
+                    value={weekStart}
+                    onChange={(e) => setWeekStart(e.target.value)}
+                    data-testid="report-weekly-start"
+                    className="ml-2 rounded-md border border-ink-700 bg-ink-950 px-2 py-1 text-xs text-zinc-200 focus:border-violet-500 focus:outline-none"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={onDownloadWeekly}
+                  disabled={busyWeekly}
+                  data-testid="report-weekly-download"
+                  className="rounded-lg bg-violet-500 px-4 py-1.5 text-sm font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-violet-400 transition"
+                >
+                  {busyWeekly ? "导出中…" : "↓ 导出 Excel"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* 月度评价 */}
         <section
           data-testid="report-monthly-eval"
@@ -186,7 +310,7 @@ export default function ReportsPage() {
         </section>
 
         <p className="text-center text-xs text-zinc-700">
-          季度报告 / 年度报告 / PDF 格式 — 留 v23.5+
+          季度报告 / 年度报告 / PDF 格式 — 留 v25+
         </p>
       </div>
     </main>

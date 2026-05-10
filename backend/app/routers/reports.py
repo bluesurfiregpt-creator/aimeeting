@@ -1,5 +1,5 @@
 """
-v23 — 报表导出 (Excel only).
+v23 + v24.3 #2 — 报表导出 (Excel only).
 
 设计哲学:
 - 政务用户拿到报表后会自己改表头 / 着色 / 挑数据 → Excel 优于 PDF (灵活)
@@ -7,18 +7,18 @@ v23 — 报表导出 (Excel only).
 - 表头加粗 + 冻结首行,基本可读
 - 文件名带时间戳防覆盖
 
-输出:
-  /api/reports/monthly-evaluation?period=YYYY-MM
-    → 月度 4 维评价表(全员一行一份),含 完成率/及时率/质量/协作/综合
-  /api/reports/status-distribution?days=30
-    → 末 N 天状态分布趋势(每天一行,各状态计数)
+输出(智慧住建文档 §4.5 视图 4 报表体系 — 日清/周查/月结):
+  /api/reports/daily-summary?date=YYYY-MM-DD       v24.3 日清 — 当日 Task 全表 + 当日新建 / 完成 / 逾期 计数
+  /api/reports/weekly-summary?week_start=YYYY-MM-DD v24.3 周查 — 周内 7 天日维 + 周末状态总分布 + Agent 工作量
+  /api/reports/monthly-evaluation?period=YYYY-MM    v23   月结 — 全员 4 维评价
+  /api/reports/status-distribution?days=30          v23   末 N 天状态分布
 """
 
 from __future__ import annotations
 
 import io
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import AuthContext, get_current_auth, require_leader_or_admin
 from ..db import get_session
-from ..models import Task, TaskEvaluation, User
+from ..models import Agent, Task, TaskEvaluation, User, WorkspaceMembership
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 logger = logging.getLogger(__name__)
@@ -284,4 +284,306 @@ async def status_distribution_xlsx(
     _autosize_columns(ws)
 
     fname = f"状态分布_{auth.workspace.name}_近{days}天_{now.strftime('%Y%m%d-%H%M')}.xlsx"
+    return _xlsx_response(wb, fname)
+
+
+# ---- v24.3 #2: 日清(daily summary)+ 周查(weekly summary)---------------
+
+_STATUS_CN = {
+    "open": "未派发", "dispatched": "待签收", "accepted": "已签收",
+    "in_progress": "办理中", "submitted": "待审核", "done": "已完成",
+    "archived": "已归档", "cancelled": "已取消",
+}
+_SOURCE_CN = {
+    "meeting": "会议", "manual": "手工", "leader_directive": "领导指令",
+    "upper_doc": "上级文件", "cron": "定期巡检",
+    "alert": "异常预警", "report": "问题上报",
+}
+
+
+def _parse_iso_date(s: Optional[str]) -> date:
+    if not s:
+        return datetime.now(timezone.utc).date()
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, f"date 格式应为 YYYY-MM-DD,实际 {s}")
+
+
+@router.get("/daily-summary")
+async def daily_summary_xlsx(
+    date: Optional[str] = Query(None, description="YYYY-MM-DD,默认今日"),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.3 #2 日清(智慧住建文档 §4.5 视图 4):
+
+    - Sheet 1「当日 Task 全表」:当日新建的所有 Task 一行一份(含 ID / 标题 /
+      状态 / 来源 / assignee / 创建时间 / 截止时间)
+    - Sheet 2「当日汇总」:新建 / 完成 / 逾期 / 状态分布 计数
+
+    leader/admin only.
+    """
+    await require_leader_or_admin(session, auth)
+    d = _parse_iso_date(date)
+    day_start = datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc)
+    day_end = day_start + timedelta(days=1)
+
+    # ---- Sheet 1:当日新建 Task 全表
+    rows = (
+        await session.execute(
+            select(Task)
+            .where(
+                Task.workspace_id == auth.workspace.id,
+                Task.created_at >= day_start,
+                Task.created_at < day_end,
+            )
+            .order_by(Task.created_at)
+        )
+    ).scalars().all()
+    user_ids = {t.assignee_user_id for t in rows if t.assignee_user_id}
+    name_by_uid: dict = {}
+    if user_ids:
+        urows = (
+            await session.execute(select(User).where(User.id.in_(user_ids)))
+        ).scalars().all()
+        name_by_uid = {u.id: u.name for u in urows}
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"{d.isoformat()} 任务"
+
+    ws.cell(row=1, column=1, value=f"工作空间:{auth.workspace.name}").font = Font(bold=True)
+    ws.cell(row=2, column=1, value=f"日期:{d.isoformat()}")
+    ws.cell(row=3, column=1, value=f"导出时间:{datetime.now(timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M')}")
+
+    headers = ["任务 ID", "标题", "状态", "来源", "主责", "创建时间", "截止时间"]
+    header_row = 5
+    for col, h in enumerate(headers, start=1):
+        c = ws.cell(row=header_row, column=col, value=h)
+        c.font = _HEADER_FONT
+        c.fill = _HEADER_FILL
+        c.alignment = _CENTER
+
+    for i, t in enumerate(rows, start=1):
+        title = (t.title or t.content[:40]).replace("\n", " ")
+        ws.cell(row=header_row + i, column=1, value=str(t.id)[:8])
+        ws.cell(row=header_row + i, column=2, value=title[:80])
+        ws.cell(row=header_row + i, column=3, value=_STATUS_CN.get(t.status, t.status))
+        ws.cell(row=header_row + i, column=4, value=_SOURCE_CN.get(t.source_type, t.source_type))
+        ws.cell(row=header_row + i, column=5, value=name_by_uid.get(t.assignee_user_id, "-") if t.assignee_user_id else "-")
+        ws.cell(row=header_row + i, column=6,
+                value=t.created_at.astimezone().strftime("%H:%M"))
+        ws.cell(row=header_row + i, column=7,
+                value=t.due_at.astimezone().strftime("%Y-%m-%d") if t.due_at else "-")
+
+    ws.freeze_panes = ws.cell(row=header_row + 1, column=1)
+    _autosize_columns(ws)
+
+    # ---- Sheet 2:当日汇总
+    ws2 = wb.create_sheet(title="当日汇总")
+    # 当日完成数(updated_at 在该日 + status=done)
+    done_today = (
+        await session.execute(
+            select(func.count(Task.id)).where(
+                Task.workspace_id == auth.workspace.id,
+                Task.status == "done",
+                Task.updated_at >= day_start,
+                Task.updated_at < day_end,
+            )
+        )
+    ).scalar() or 0
+    # 当日时刻 active task 中已逾期数
+    overdue_now = (
+        await session.execute(
+            select(func.count(Task.id)).where(
+                Task.workspace_id == auth.workspace.id,
+                Task.due_at.is_not(None),
+                Task.due_at < day_end,
+                Task.status.notin_(("done", "archived", "cancelled")),
+            )
+        )
+    ).scalar() or 0
+    # 当日各状态新建数
+    by_status_rows = (
+        await session.execute(
+            select(Task.status, func.count(Task.id))
+            .where(
+                Task.workspace_id == auth.workspace.id,
+                Task.created_at >= day_start,
+                Task.created_at < day_end,
+            )
+            .group_by(Task.status)
+        )
+    ).all()
+    summary_pairs: list[tuple[str, int | str]] = [
+        ("当日新建总数", len(rows)),
+        ("当日完成数", int(done_today)),
+        ("截至当日活跃中已逾期", int(overdue_now)),
+        ("", ""),
+        ("--- 当日新建按状态 ---", ""),
+    ]
+    for s, c in by_status_rows:
+        summary_pairs.append((_STATUS_CN.get(s, s), int(c)))
+    for i, (k, v) in enumerate(summary_pairs, start=1):
+        ws2.cell(row=i, column=1, value=k).font = Font(bold=True) if k.startswith("---") or k.endswith("总数") else Font()
+        ws2.cell(row=i, column=2, value=v)
+    _autosize_columns(ws2)
+
+    fname = f"日清_{auth.workspace.name}_{d.isoformat()}_{datetime.now().strftime('%H%M')}.xlsx"
+    return _xlsx_response(wb, fname)
+
+
+@router.get("/weekly-summary")
+async def weekly_summary_xlsx(
+    week_start: Optional[str] = Query(None, description="YYYY-MM-DD 周一,默认本周一"),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.3 #2 周查(智慧住建文档 §4.5 视图 4):
+
+    - Sheet 1「周内 7 天日维」:每天一行 — 新建数 / 完成数 / 当日逾期
+    - Sheet 2「Agent 工作量」:本周新建 Task 按 assignee.bound_agent 分组
+    - Sheet 3「Top 10 待办」:本周末仍 active 的高优先级 task 前 10(按
+      due_at 升序;无 due_at 排末尾)
+
+    leader/admin only.
+    """
+    await require_leader_or_admin(session, auth)
+    if week_start:
+        ws_date = _parse_iso_date(week_start)
+    else:
+        today = datetime.now(timezone.utc).date()
+        ws_date = today - timedelta(days=today.weekday())  # 本周一
+    week_start_dt = datetime.combine(ws_date, datetime.min.time(), tzinfo=timezone.utc)
+    week_end_dt = week_start_dt + timedelta(days=7)
+
+    wb = Workbook()
+
+    # ---- Sheet 1:周内 7 天日维
+    ws1 = wb.active
+    ws1.title = "周内 7 天"
+    ws1.cell(row=1, column=1, value=f"工作空间:{auth.workspace.name}").font = Font(bold=True)
+    ws1.cell(row=2, column=1, value=f"周次:{ws_date.isoformat()} 至 {(ws_date + timedelta(days=6)).isoformat()}")
+    ws1.cell(row=3, column=1, value=f"导出时间:{datetime.now(timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M')}")
+
+    headers = ["日期", "星期", "新建", "完成", "当日活跃逾期"]
+    header_row = 5
+    for col, h in enumerate(headers, start=1):
+        c = ws1.cell(row=header_row, column=col, value=h)
+        c.font = _HEADER_FONT
+        c.fill = _HEADER_FILL
+        c.alignment = _CENTER
+    weekday_cn = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    for i in range(7):
+        d = ws_date + timedelta(days=i)
+        d_start = datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc)
+        d_end = d_start + timedelta(days=1)
+        created = (
+            await session.execute(
+                select(func.count(Task.id)).where(
+                    Task.workspace_id == auth.workspace.id,
+                    Task.created_at >= d_start,
+                    Task.created_at < d_end,
+                )
+            )
+        ).scalar() or 0
+        done = (
+            await session.execute(
+                select(func.count(Task.id)).where(
+                    Task.workspace_id == auth.workspace.id,
+                    Task.status == "done",
+                    Task.updated_at >= d_start,
+                    Task.updated_at < d_end,
+                )
+            )
+        ).scalar() or 0
+        overdue = (
+            await session.execute(
+                select(func.count(Task.id)).where(
+                    Task.workspace_id == auth.workspace.id,
+                    Task.due_at.is_not(None),
+                    Task.due_at < d_end,
+                    Task.status.notin_(("done", "archived", "cancelled")),
+                )
+            )
+        ).scalar() or 0
+        ws1.cell(row=header_row + 1 + i, column=1, value=d.isoformat())
+        ws1.cell(row=header_row + 1 + i, column=2, value=weekday_cn[i])
+        ws1.cell(row=header_row + 1 + i, column=3, value=int(created))
+        ws1.cell(row=header_row + 1 + i, column=4, value=int(done))
+        ws1.cell(row=header_row + 1 + i, column=5, value=int(overdue))
+    ws1.freeze_panes = ws1.cell(row=header_row + 1, column=1)
+    _autosize_columns(ws1)
+
+    # ---- Sheet 2:Agent 工作量(本周新建按 bound_agent)
+    ws2 = wb.create_sheet(title="Agent 工作量")
+    agent_rows = (
+        await session.execute(
+            select(Agent.name, func.count(Task.id))
+            .select_from(Task)
+            .join(WorkspaceMembership, WorkspaceMembership.user_id == Task.assignee_user_id)
+            .join(Agent, Agent.id == WorkspaceMembership.bound_agent_id)
+            .where(
+                Task.workspace_id == auth.workspace.id,
+                Task.created_at >= week_start_dt,
+                Task.created_at < week_end_dt,
+                WorkspaceMembership.workspace_id == auth.workspace.id,
+                WorkspaceMembership.bound_agent_id.is_not(None),
+            )
+            .group_by(Agent.name)
+            .order_by(func.count(Task.id).desc())
+        )
+    ).all()
+    ws2.cell(row=1, column=1, value="AI 专家").font = _HEADER_FONT
+    ws2.cell(row=1, column=1).fill = _HEADER_FILL
+    ws2.cell(row=1, column=2, value="本周新建数").font = _HEADER_FONT
+    ws2.cell(row=1, column=2).fill = _HEADER_FILL
+    for i, (name, c) in enumerate(agent_rows, start=2):
+        ws2.cell(row=i, column=1, value=name)
+        ws2.cell(row=i, column=2, value=int(c))
+    if not agent_rows:
+        ws2.cell(row=2, column=1, value="(本周尚无任务关联到任何 AI 专家)")
+    _autosize_columns(ws2)
+
+    # ---- Sheet 3:Top 10 待办(周末仍 active,按 due_at 升序)
+    ws3 = wb.create_sheet(title="Top 10 待办")
+    top_rows = (
+        await session.execute(
+            select(Task)
+            .where(
+                Task.workspace_id == auth.workspace.id,
+                Task.status.in_(("open", "dispatched", "accepted", "in_progress", "submitted")),
+            )
+            .order_by(Task.due_at.asc().nullslast(), Task.created_at.desc())
+            .limit(10)
+        )
+    ).scalars().all()
+    user_ids = {t.assignee_user_id for t in top_rows if t.assignee_user_id}
+    name_by_uid: dict = {}
+    if user_ids:
+        urows = (
+            await session.execute(select(User).where(User.id.in_(user_ids)))
+        ).scalars().all()
+        name_by_uid = {u.id: u.name for u in urows}
+    headers3 = ["任务", "状态", "主责", "截止时间", "已逾期"]
+    for col, h in enumerate(headers3, start=1):
+        c = ws3.cell(row=1, column=col, value=h)
+        c.font = _HEADER_FONT
+        c.fill = _HEADER_FILL
+    now_check = datetime.now(timezone.utc)
+    for i, t in enumerate(top_rows, start=2):
+        title = (t.title or t.content[:50]).replace("\n", " ")
+        ws3.cell(row=i, column=1, value=title[:80])
+        ws3.cell(row=i, column=2, value=_STATUS_CN.get(t.status, t.status))
+        ws3.cell(row=i, column=3, value=name_by_uid.get(t.assignee_user_id, "-") if t.assignee_user_id else "-")
+        ws3.cell(row=i, column=4,
+                 value=t.due_at.astimezone().strftime("%Y-%m-%d") if t.due_at else "-")
+        ws3.cell(row=i, column=5,
+                 value="是" if (t.due_at and t.due_at < now_check) else "否")
+    _autosize_columns(ws3)
+
+    fname = f"周查_{auth.workspace.name}_{ws_date.isoformat()}_{datetime.now().strftime('%H%M')}.xlsx"
     return _xlsx_response(wb, fname)
