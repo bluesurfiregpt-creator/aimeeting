@@ -506,6 +506,87 @@ export type MyTask = {
   updated_at: string;
 };
 
+/** v23.5: Task 详情页一次拉全 — 时间线 / 协办进度 / 评分 / 评论. */
+export type TaskTimelineEntry = {
+  kind:
+    | "created"
+    | "dispatched"
+    | "accepted"
+    | "started"
+    | "submitted"
+    | "done"
+    | "archived"
+    | "cancelled";
+  at: string; // ISO datetime
+  actor_user_id: string | null;
+  actor_name: string | null;
+};
+
+export type TaskCoProgress = {
+  co_assignee_user_id: string;
+  co_assignee_name: string | null;
+  content: string | null;
+  submitted_at: string;
+};
+
+export type TaskRating = {
+  id: string;
+  rater_user_id: string;
+  rater_name: string | null;
+  ratee_user_id: string;
+  ratee_name: string | null;
+  dimension: "quality" | "collaboration";
+  score: number; // 1-5
+  comment: string | null;
+  created_at: string;
+};
+
+export type TaskComment = {
+  id: string;
+  action_item_id: string;
+  author_user_id: string | null;
+  author_name: string | null;
+  content: string;
+  created_at: string;
+};
+
+export type TaskDetail = MyTask & {
+  assignee_name: string | null;
+  dispatched_by_name: string | null;
+  created_by_user_id: string | null;
+  created_by_name: string | null;
+  /** uuid 字符串 → 名字(前端按 co_assignees 顺序渲染) */
+  co_assignee_names: Record<string, string>;
+  timeline: TaskTimelineEntry[];
+  co_progress: TaskCoProgress[];
+  ratings: TaskRating[];
+  comments: TaskComment[];
+};
+
+/** v23.5: 会议追溯链 — 这次会议产生了哪些任务. */
+export type MeetingTraceTask = {
+  task_id: string;
+  action_item_id: string;
+  title: string | null;
+  content: string;
+  status: MyTask["status"];
+  assignee_user_id: string | null;
+  assignee_name: string | null;
+  due_at: string | null;
+  co_assignees: string[];
+  data_classification: DataClassification;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MeetingTrace = {
+  meeting_id: string;
+  meeting_title: string;
+  tasks: MeetingTraceTask[];
+  total: number;
+  by_status: Record<string, number>;
+};
+
 /** v19: a leader directive (natural-language instruction) and the LLM-parsed
  *  draft Tasks waiting for the user to confirm/edit/dispatch. */
 export type DirectiveDraft = {
@@ -805,6 +886,10 @@ export const api = {
   finalizeMeeting: (id: string) => jpost<Meeting>(`/api/meetings/${id}/finalize`, {}),
   meetingResult: (id: string) => jget<MeetingResult>(`/api/meetings/${id}/result`),
 
+  // v23.5: 会议追溯链 — 这次会议产生了哪些 Task + 它们现在的状态
+  getMeetingTrace: (id: string) =>
+    jget<MeetingTrace>(`/api/meetings/${id}/trace`),
+
   // M3.0 action items
   listActionItems: (meetingId: string) =>
     jget<ActionItem[]>(`/api/meetings/${meetingId}/actions`),
@@ -919,6 +1004,10 @@ export const api = {
       comment?: string | null;
     },
   ) => jpost<{ ok: boolean }>(`/api/me/tasks/${taskId}/rate`, body),
+
+  // v23.5: Task 详情页 — 一次拉全(基本+时间线+协办+评分+评论)
+  getTaskDetail: (taskId: string) =>
+    jget<TaskDetail>(`/api/me/tasks/${taskId}/detail`),
 
   // v19: 领导指令(自然语言)→ Task 草稿 → 批量入库
   createDirective: (content: string) =>

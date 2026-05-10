@@ -1,4 +1,4 @@
-# Aimeeting · 测试用例（v23）
+# Aimeeting · 测试用例（v23.5）
 
 > **使用说明**：每条用例独立可测；按编号顺序执行；遇到失败把"实际结果"列填上具体现象 + 截图；最后一列填 ✅ 通过 / ❌ 失败 / ⚠️ 部分通过。
 >
@@ -310,6 +310,7 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 
 | 版本 | 时间 | 变更摘要 |
 |---|---|---|
+| **v23.5** | 2026-05-10 | **消息中心 + 任务详情页 + 会议追溯链(信息密度 3 联动)**:① 后端新端点 `GET /api/me/tasks/{tid}/detail` 一次返回 Task 完整上下文(基本信息 + 时间线 + 协办进度 + 评分 + 评论),批量解析所有 user_id → name(无 N+1);时间线由 5 个时间戳 + 当前 status 综合(audit log 表留 v24+);权限:相关人(assignee / dispatcher / creator / co_assignee)直接放行,其他人走 access_control.can_access(分级 + leader/admin / grant);② 后端新端点 `GET /api/meetings/{mid}/trace` 返回会议沉淀的所有 Task + 状态分布(`{by_status, total, tasks[task_id+action_item_id 双指针]}`),sourcetype='meeting' 反向 join MeetingActionItem.task_id 即得;workspace 内任何人可看(分级在 detail 时再细查);③ 前端 api.ts 加 TaskDetail / MeetingTrace types(含 5 个子 type:TaskTimelineEntry/CoProgress/Rating/Comment/MeetingTraceTask)+ 2 个新方法 getTaskDetail / getMeetingTrace;④ 新页 `/task/[id]`:精品任务详情页(标题 + 状态 + 分级 + 截止 + 元信息 + 协办列表 + 时间线带圆点 + 协办交付卡片 + 评分卡片 + 评论卡片;StarBar 5★ 组件;会议名 deeplink);⑤ 新页 `/messages` 消息中心:3 section(🔥 需要我处理 = 主责待签收/办理 + 审核 + 协办,直接读 /api/me/tasks 三视角合并去重 + 角色徽章;📈 我发起的进展 = task_accepted/returned/completed/co_submitted/co_withdrawn 通知;🔔 系统消息 = 其他通知);全部已读按钮;空状态 placeholder;⑥ 新建 `meeting/[id]/TraceCard.tsx`:会议结束后底部追溯卡(状态徽章统计 + 任务列表,行点击进 /task/[id],trace.total=0 时不渲染节省空间);⑦ NotificationBell 加「查看全部」 → /messages,行 deeplink 优先 /task/[id](task_id 兜底 meeting_id);⑧ AuthHeader 顶栏加 💬 消息中心入口图标(所有角色可见);⑨ /me Task 行(主责 + 协办两处)文字 → /task/[id] 链接;⑩ Cowork GG 系列 6 用例(detail shape / 404 / 派发后含 dispatched_by_name + timeline 'dispatched' / trace shape + 含已知 task / 空 meeting trace / 跨/不存在 meeting 404);两份 baseline.json 刷到 v23.5(总 103 用例,95 ✅ + 8 ⏭️) |
 | **v23** | 2026-05-10 | **看板二期 + 报表 Excel 导出 + Playwright headless CI**:① 后端 `/api/dashboard/kanban-by-agent`(每 AI 一列;Task 归属判断:assignee 的 bound_agent → source_ref.agent_id → fallback「未分配」列)+ `/kanban-by-user`(按 assignee 工作量降序 + 「未指派」末尾);两 endpoint 都支持 `include_closed` 默认 false 只展示活跃;② 后端 `routers/reports.py`(全新):`/monthly-evaluation` + `/status-distribution` 用 openpyxl 生成 Excel,RFC 5987 中文文件名,leader-only;月度表带表头加粗 + 冻结首行 + 百分比格式 + 综合分排名;③ main.py 注册 reports router;④ 前端 api.ts 加 KanbanCard/Column/Out 类型 + 6 个新方法 + parseDownload helper(RFC 5987 文件名解析,refactor 旧 export 复用);⑤ 前端 `/dashboard` 主页加 3 张入口卡(AI 专家 Kanban / 科长 Kanban / 报表中心),报表中心仅 leader 可见(member 灰显);⑥ 新建共享组件 `components/KanbanView.tsx`(精品 polish:状态色边 / 截止日色 / 协办进度 chip / hover lift / 三态加载-空-错误);两个 Kanban 子页 thin wrapper 复用;⑦ `/dashboard/reports` 页:月度选择器(过去 12 月)+ 状态分布区间选择(7/14/30/60/90)+ 两个导出按钮(Excel only,精品交付);⑧ T3 CI 升级:`.github/workflows/cowork-headless.yml` workflow_dispatch 触发 + Playwright runner(`tests/playwright-runner.js`)登录 prod 跑全套 cowork_suite,失败时 step 红显;artifact 上传 markdown + json 报告;⑨ 测试 Cowork FF 系列 6 用例(Kanban shape / 工作量降序 / include_closed 切换 / Excel CT 校验 / 多区间 / days 越界拒绝);两份 baseline.json 刷到 v23(总 97 用例,89 ✅ + 8 ⏭️) |
 | v22.5 | 2026-05-09 | **多 AI 协作(主责 + 协办,精品 UI)+ 真评价数据回写**:① 模型:Task 加 `co_assignees` JSONB UUID 数组(最多 5 人,不含主责);新表 `task_co_progress`(协办进度报告,UNIQUE on task_id+user_id 防多次插)+ `task_collaboration_rating`(双向评分原子事件,UNIQUE on task+rater+ratee+dimension);② 新模块 `evaluation.py`:`recompute_user_evaluation` 从真实 Task / TaskCollaborationRating 算 4 维分(0-1 归一)→ UPSERT 月度 task_evaluation,真数据**覆盖** v22 seed;③ 端点:`POST /api/me/tasks/{tid}/co-submit`(协办交付,UPSERT 进度行 + 通知主责)/ `co-withdraw`(per Q1 移除自己 + 通知)/ `rate`(per Q4 双向评分,3 种合法 rater→ratee 矩阵:主责↔协办 collaboration / dispatcher→主责 quality);④ `dispatch_task` + `commit_directive` 都接受 `co_assignees`(per Q5 max 5 + workspace 校验 + 不能含主责)+ 给每个协办发 `task_co_assigned` 通知;⑤ `submit_task` per Q2 加 `force` 参数:有未交协办时默认 422 + 错误信息列出待交人,前端 confirm 后 force=true 重试硬过;⑥ `approve_task` 后实时 recompute 主责 + 所有协办的本月评价(真数据上线);⑦ `/api/me/tasks` 加 `role=coassignee` 视角;Task shape 加 `co_assignees` + `co_submitted_user_ids`(批量 join 防 N+1);⑧ Notification 加 4 个新 kind:`task_co_assigned/co_submitted/co_withdrawn/collaboration_rated`;⑨ 前端:DirectivePanel draft 行勾「立即派发」后展开协办多选 chip(按 user 切换,5 人上限 toast);`/me` 加「我的协办」section(青色边框,显示协办进度 N/M,「✓ 提交协办成果」+「退出协办」按钮);submit 422 自动弹 confirm 询问是否 force;**RateDialog 精品 modal**(approve 后弹出,5 分制按钮组 + 评论 + 「稍后再评」+ 「提交评分」);⑩ 测试 Cowork EE 系列 7 用例(dispatch+co_assignees / max 5 / 不含主责 / 非协办 co-submit 403 / submit 未交 422 + force / self-rate 400 / bad dimension+score 400);两份 baseline.json 刷到 v22.5(总 91 用例,83 ✅ + 8 ⏭️) |
 | v22 | 2026-05-09 | **看板 Dashboard 雏形(精品交付) + T3 CI 落地**:① 模型:新表 `task_evaluation`(月度 4 维评价 + 累计指标 + (workspace, assignee, period) UNIQUE);② 新 router `/api/dashboard`:聚合 endpoint `/overview` 一次返回 7 个 KPI + 元信息(role + scope_label),含 expert scope 过滤(leader 看全局 / expert 看 bound agent / member 看自己 assignee);`/seed-eval-data` admin-only 智慧住建演示用 seed,deterministic random(同 user_id+period 多次跑结果稳定),含 inserted/updated/overwrite 语义;③ 前端:安装 `recharts` 依赖(~80KB),新页 `/dashboard`(7-segment 精品配色板:primary/warm/cool/green/rose/red/purple/amber);布局:顶部 4 KPI 卡(总任务/待签收/已逾期/本月完成率) + 中部 3 图(状态饼/工作量横条 stacked overdue/30d 完成vs创建折线) + 底部 3 图(触发源饼/7d 创建条/4 维评价雷达 top 3);精品 polish:配色统一、暗色 tooltip、加载/空/错误三态、admin 才显示 🌱 Seed 按钮、手动刷新(不自动轮询);④ AuthHeader 顶栏加 📊 入口,leader/admin/owner/expert 可见,member 隐藏(角色分化曝光);⑤ 测试 Cowork DD 系列 6 用例(overview shape / 30d&7d 点数补齐 / seed 接口 / seed 后 evaluations 非空 4 维 / seed 幂等 / seed overwrite 二次有效);两份 baseline.json 同步刷到 v22(总 84 用例,76 ✅ + 8 ⏭️);⑥ **T3 CI 落地**:`.github/workflows/lint.yml` 新增,PR / push to main 时跑:Python AST · JS 语法 · 两份 baseline.json 一致性 · 两份 cowork_suite.js 一致性 · JSON 合法 · TypeScript noEmit;故意不跑端到端 Cowork(需 headless 浏览器 / 真 prod,留 v23+) |
@@ -1338,6 +1339,34 @@ A7+: 数据行,综合分降序;百分比列自动 0.0% 格式
 
 ---
 
+## GG 系列 · v23.5 消息中心 + 任务详情页 + 会议追溯链
+
+> 用户 4 大方向里的「方向 1 消息中心」+「方向 4 任务做透」+ 「会议沉淀可视化」三联动.信息密度提升:一个页面看完一个事(Task / Meeting),不再逼用户串多个页面拼上下文.
+
+| 用例 | 操作 | 预期 | 状态 |
+|---|---|---|---|
+| GG-1 | 创建 meeting + action → GET `/api/me/tasks/{tid}/detail` | 200,timeline / co_progress / ratings / comments 都是数组,timeline 含 'created' 事件 | ✅ |
+| GG-2 | GET `/api/me/tasks/{nonexistent uuid}/detail` | 404 | ✅ |
+| GG-3 | dispatch 后再次 GET detail | 含 assignee_name + dispatched_by_name,timeline 出现 'dispatched' 事件 | ✅ |
+| GG-4 | GET `/api/meetings/{mid}/trace`(GG-1 的 meeting) | meeting_id 匹配,total ≥ 1,by_status 是对象,GG-1 task 出现在 tasks 列表,带 task_id + action_item_id 双指针 | ✅ |
+| GG-5 | trace 一个空 meeting | total=0,tasks=[] | ✅ |
+| GG-6 | trace 不存在的 meeting | 404(workspace 隔离 / not found 统一) | ✅ |
+
+**手测点(单浏览器无法验证的部分)**:
+- AuthHeader 顶栏新增 💬 消息中心入口图标(所有角色可见,/messages)
+- /messages:3 section 各带数字徽章(rose/cyan/zinc 渐变);需要我处理 = 主责待签收+办理 + 审核 + 协办,行点击 → /task/[id];我发起的进展 = task_accepted/returned/completed/co_submitted/co_withdrawn 通知;系统消息 = 其他;空状态 placeholder「享受短暂的安静 ✨」;全部已读按钮(已读时灰显)
+- /task/[id]:精品任务详情页 — 标题 + 状态徽章 + 分级徽章 + 截止日(逾期红);元信息卡(来源 / 主责 / 派发人 / 协办列表带「已交/未交」chip);时间线带圆点(创建→派发→签收→开始→上报办结);协办交付卡片(每个协办一张,含 content);评分卡片(rater→ratee + 维度 + 5★ StarBar + comment);协作评论卡片(MeetingActionItemComment 顺手带过来)
+- /meeting/[id]:会议结束后底部出现 🔗 追溯卡(状态徽章统计 + 任务列表),trace.total=0 时不渲染节省空间;每行点击进 /task/[id]
+- NotificationBell 抽屉:头部新增「查看全部」 → /messages 链接;每行 deeplink 优先 /task/[id](task_id 兜底 meeting_id)
+- /me Task 行(主责 + 协办两处)正文文字现在是 → /task/[id] 链接(hover accent 色)
+
+**架构演进**(v17 → v23.5 累积):
+- v17-v23:Task 中心化 + 8 态状态机 + 触发源 4/6 + 政务安全 + 多 AI 协作 + Dashboard + Kanban + 报表 + Headless CI
+- **v23.5**:**信息密度联动 — 消息中心 + 任务详情 + 会议追溯**(智慧住建文档「四.1 流程闭环」+「四.5 视图」继续填齐)
+- 接下来 (v24+):AI 数据分析(LLM eval + 问数 + 自动洞察)+ 任务做透(全局搜索 + 知识沉淀闭环)+ TaskAuditLog 表(精确时间线)+ 跨任务关联
+
+---
+
 ## 测试报告模板
 
 测完后请把这一段填给我：
@@ -1345,7 +1374,7 @@ A7+: 数据行,综合分降序;百分比列自动 0.0% 格式
 ```
 测试人:
 测试时间:
-测试用例版本: v23
+测试用例版本: v23.5
 浏览器/系统:
 默认账号是否生效: 是 / 否
 

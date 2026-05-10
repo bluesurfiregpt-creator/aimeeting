@@ -719,6 +719,137 @@ async def list_action_items(
     return [_action_to_out(r, name_by_id) for r in rows]
 
 
+# v23.5: 会议追溯链 ----------------------------------------------------------
+
+
+class MeetingTraceTaskOut(BaseModel):
+    """A Task that originated from this meeting."""
+    task_id: uuid.UUID
+    action_item_id: uuid.UUID  # 原会议 action item id(供老页面 deeplink)
+    title: Optional[str] = None
+    content: str
+    status: str
+    assignee_user_id: Optional[uuid.UUID] = None
+    assignee_name: Optional[str] = None
+    due_at: Optional[datetime] = None
+    co_assignees: list[uuid.UUID] = []
+    data_classification: str = "general"
+    created_at: datetime
+    updated_at: datetime
+
+
+class MeetingTraceOut(BaseModel):
+    """
+    v23.5 — 会议追溯链:这次会议产生了哪些任务、它们现在的状态.
+
+    只展示「meeting → task」一层(被引用关系如「该 task 又被 X 任务引用」
+    留 v24+).
+    """
+    meeting_id: uuid.UUID
+    meeting_title: str
+    tasks: list[MeetingTraceTaskOut] = []
+    total: int = 0
+    by_status: dict[str, int] = {}  # 'open': 3, 'done': 5, ...
+
+
+@router.get("/{meeting_id}/trace", response_model=MeetingTraceOut)
+async def get_meeting_trace(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v23.5: 这次会议沉淀了哪些 Task + 它们现在的状态.
+
+    workspace 内任何成员可看(沿用 _load_owned_meeting 的 workspace 隔离).
+    Task 自身分级在 /api/me/tasks/{tid}/detail 时再细查 — trace 列表是
+    元数据,不展示敏感正文.
+
+    流程:Meeting → MeetingActionItem(meeting_id) → Task(via action_item.task_id)
+    """
+    m = await _load_owned_meeting(meeting_id, session, auth)
+
+    # MeetingActionItem.task_id 在 v17 后是必填(虽然字段还是 nullable),
+    # 一对一映射到 Task.
+    action_rows = (
+        await session.execute(
+            select(MeetingActionItem)
+            .where(
+                MeetingActionItem.meeting_id == m.id,
+                MeetingActionItem.task_id.is_not(None),
+            )
+            .order_by(MeetingActionItem.created_at)
+        )
+    ).scalars().all()
+
+    if not action_rows:
+        return MeetingTraceOut(
+            meeting_id=m.id, meeting_title=m.title or "未命名会议", tasks=[], total=0, by_status={}
+        )
+
+    task_ids = [a.task_id for a in action_rows if a.task_id]
+    task_by_id: dict[uuid.UUID, Task] = {}
+    if task_ids:
+        trows = (
+            await session.execute(
+                select(Task).where(Task.id.in_(task_ids), Task.workspace_id == m.workspace_id)
+            )
+        ).scalars().all()
+        task_by_id = {t.id: t for t in trows}
+
+    # 收集所有 assignee user_id 一次解析名字
+    user_ids: set[uuid.UUID] = set()
+    for t in task_by_id.values():
+        if t.assignee_user_id:
+            user_ids.add(t.assignee_user_id)
+    name_by_id: dict[uuid.UUID, str] = {}
+    if user_ids:
+        urows = (
+            await session.execute(
+                select(User.id, User.name).where(User.id.in_(user_ids))
+            )
+        ).all()
+        name_by_id = {uid: nm for uid, nm in urows}
+
+    out_tasks: list[MeetingTraceTaskOut] = []
+    by_status: dict[str, int] = {}
+    for ai in action_rows:
+        t = task_by_id.get(ai.task_id) if ai.task_id else None
+        if t is None:
+            continue
+        co_uuids: list[uuid.UUID] = []
+        for s in (t.co_assignees or []):
+            try:
+                co_uuids.append(uuid.UUID(s))
+            except (TypeError, ValueError):
+                continue
+        out_tasks.append(
+            MeetingTraceTaskOut(
+                task_id=t.id,
+                action_item_id=ai.id,
+                title=t.title,
+                content=t.content,
+                status=t.status,
+                assignee_user_id=t.assignee_user_id,
+                assignee_name=name_by_id.get(t.assignee_user_id) if t.assignee_user_id else None,
+                due_at=t.due_at,
+                co_assignees=co_uuids,
+                data_classification=t.data_classification or "general",
+                created_at=t.created_at,
+                updated_at=t.updated_at,
+            )
+        )
+        by_status[t.status] = by_status.get(t.status, 0) + 1
+
+    return MeetingTraceOut(
+        meeting_id=m.id,
+        meeting_title=m.title or "未命名会议",
+        tasks=out_tasks,
+        total=len(out_tasks),
+        by_status=by_status,
+    )
+
+
 @router.post("/{meeting_id}/actions", response_model=ActionItemOut)
 async def create_action_item(
     meeting_id: str,

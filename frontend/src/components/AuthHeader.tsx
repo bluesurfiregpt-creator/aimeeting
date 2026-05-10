@@ -109,6 +109,27 @@ export default function AuthHeader() {
             <path d="M5 12h14" />
           </svg>
         </button>
+        <Link
+          href="/messages"
+          data-testid="messages-open-btn"
+          title="消息中心"
+          aria-label="消息中心"
+          className="grid h-8 w-8 place-items-center rounded-full border border-ink-700 bg-ink-900/90 text-zinc-300 hover:text-zinc-100"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+        </Link>
         <NotificationBell />
         <div className="flex items-center gap-3 rounded-full border border-ink-700 bg-ink-900/90 px-3 py-1.5 backdrop-blur">
           <span className="text-xs text-zinc-500">{me.workspace_name}</span>

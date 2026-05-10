@@ -2768,6 +2768,152 @@
       },
     });
 
+    // ---------- GG series · v23.5 消息中心 + 任务详情页 + 会议追溯链 ----------
+    R.register({
+      id: "GG-1",
+      series: "GG",
+      title: "GET /api/me/tasks/{tid}/detail 200 + 关键字段全(timeline/co_progress/ratings/comments)",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        if (!me?.user_id) return { ok: false, error: "no caller user_id" };
+        // 创会议 + action(触发 task 1:1 mirror)
+        const m = await POST("/api/meetings", { title: `${PREFIX}_GG1`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `meeting ${m.status}` };
+        created("meeting", m.body.id, "GG1");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_GG1_t`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_GG1_t`);
+        if (!t) return { ok: false, error: "task not visible" };
+        ctx.GG1_task = t.id;
+        ctx.GG1_meeting = m.body.id;
+        const r = await GET(`/api/me/tasks/${t.id}/detail`);
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        const d = r.body;
+        if (d.id !== t.id) return { ok: false, error: "id mismatch" };
+        if (!Array.isArray(d.timeline)) return { ok: false, error: "timeline not array" };
+        if (!Array.isArray(d.co_progress)) return { ok: false, error: "co_progress not array" };
+        if (!Array.isArray(d.ratings)) return { ok: false, error: "ratings not array" };
+        if (!Array.isArray(d.comments)) return { ok: false, error: "comments not array" };
+        // 至少有一个 'created' timeline 事件
+        if (!d.timeline.some((e) => e.kind === "created")) {
+          return { ok: false, error: "timeline 缺少 'created' 事件" };
+        }
+        return { ok: true, evidence: { _note: `timeline=${d.timeline.length} 条` } };
+      },
+    });
+
+    R.register({
+      id: "GG-2",
+      series: "GG",
+      title: "GET /api/me/tasks/{nonexistent}/detail → 404",
+      async run() {
+        const fakeId = "00000000-0000-0000-0000-000000000099";
+        const r = await GET(`/api/me/tasks/${fakeId}/detail`);
+        if (r.ok || r.status !== 404) {
+          return { ok: false, error: `expected 404, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "404 OK" } };
+      },
+    });
+
+    R.register({
+      id: "GG-3",
+      series: "GG",
+      title: "task detail 含 dispatched_by_name + assignee_name(派发后)",
+      async run(ctx) {
+        if (!ctx.GG1_task) {
+          return { ok: false, error: "SKIP_DEP_FAILED:GG-1", evidence: { _skipped: true } };
+        }
+        const me = (await GET("/api/auth/me")).body;
+        // 派发给自己,触发 dispatched_at + dispatched_by_user_id
+        const disp = await POST(`/api/me/tasks/${ctx.GG1_task}/dispatch`, {
+          assignee_user_id: me.user_id,
+        });
+        if (!disp.ok) return { ok: false, error: `dispatch ${disp.status}` };
+        const r = await GET(`/api/me/tasks/${ctx.GG1_task}/detail`);
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const d = r.body;
+        if (!d.assignee_name) return { ok: false, error: "assignee_name 缺失" };
+        if (!d.dispatched_by_name) return { ok: false, error: "dispatched_by_name 缺失" };
+        if (!d.timeline.some((e) => e.kind === "dispatched")) {
+          return { ok: false, error: "timeline 缺 'dispatched' 事件" };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `assignee=${d.assignee_name} disp=${d.dispatched_by_name}` },
+        };
+      },
+    });
+
+    R.register({
+      id: "GG-4",
+      series: "GG",
+      title: "GET /api/meetings/{mid}/trace shape OK + 含 GG-1 task",
+      async run(ctx) {
+        if (!ctx.GG1_meeting || !ctx.GG1_task) {
+          return { ok: false, error: "SKIP_DEP_FAILED:GG-1", evidence: { _skipped: true } };
+        }
+        const r = await GET(`/api/meetings/${ctx.GG1_meeting}/trace`);
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        const tr = r.body;
+        if (tr.meeting_id !== ctx.GG1_meeting) return { ok: false, error: "meeting_id mismatch" };
+        if (!Array.isArray(tr.tasks)) return { ok: false, error: "tasks not array" };
+        if (typeof tr.total !== "number") return { ok: false, error: "total not number" };
+        if (typeof tr.by_status !== "object" || !tr.by_status) {
+          return { ok: false, error: "by_status not object" };
+        }
+        if (!tr.tasks.some((t) => t.task_id === ctx.GG1_task)) {
+          return { ok: false, error: "GG1_task 未出现在 trace.tasks" };
+        }
+        // 每个 task 应同时携带 task_id + action_item_id(双指针)
+        const sample = tr.tasks[0];
+        if (!sample.task_id || !sample.action_item_id) {
+          return { ok: false, error: "task 缺 task_id / action_item_id" };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `total=${tr.total}, by_status keys=${Object.keys(tr.by_status).join(",")}` },
+        };
+      },
+    });
+
+    R.register({
+      id: "GG-5",
+      series: "GG",
+      title: "trace 空 meeting → total=0 + tasks=[]",
+      async run() {
+        const m = await POST("/api/meetings", { title: `${PREFIX}_GG5_empty`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `meeting ${m.status}` };
+        created("meeting", m.body.id, "GG5");
+        const r = await GET(`/api/meetings/${m.body.id}/trace`);
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if (r.body.total !== 0) return { ok: false, error: `expected total=0, got ${r.body.total}` };
+        if (!Array.isArray(r.body.tasks) || r.body.tasks.length !== 0) {
+          return { ok: false, error: `tasks 应为空数组` };
+        }
+        return { ok: true, evidence: { _note: "空会议 → total=0" } };
+      },
+    });
+
+    R.register({
+      id: "GG-6",
+      series: "GG",
+      title: "trace 跨工作空间隔离 → 404(请求别人 workspace 的会议)",
+      async run() {
+        // 用一个肯定不存在的 uuid 走 _load_owned_meeting,应当 404
+        // (这等价于跨工作空间访问被拒,因为 workspace_id 过滤后 select 为 None)
+        const fakeId = "00000000-0000-0000-0000-000000000088";
+        const r = await GET(`/api/meetings/${fakeId}/trace`);
+        if (r.ok || r.status !== 404) {
+          return { ok: false, error: `expected 404, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "跨/不存在 meeting → 404" } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",

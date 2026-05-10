@@ -41,11 +41,17 @@ function formatRelative(iso: string): string {
 function describe(n: Notification): { line: string; href: string | null } {
   const p = (n.payload || {}) as Record<string, unknown>;
   const meetingId = typeof p.meeting_id === "string" ? p.meeting_id : null;
+  const taskId = typeof p.task_id === "string" ? p.task_id : null;
   const actionId = typeof p.action_id === "string" ? p.action_id : null;
   const meetingTitle =
     typeof p.meeting_title === "string" ? p.meeting_title : null;
   const content = typeof p.content === "string" ? p.content : "";
-  const href = meetingId ? `/meeting/${meetingId}` : null;
+  // v23.5: 优先 deeplink 到 /task/[id](详情页),fallback 到 /meeting/[id]
+  const href = taskId
+    ? `/task/${taskId}`
+    : meetingId
+      ? `/meeting/${meetingId}`
+      : null;
   switch (n.kind) {
     case "action_assigned": {
       const by = typeof p.assigned_by === "string" ? p.assigned_by : "";
@@ -274,6 +280,14 @@ export default function NotificationBell() {
               >
                 全部已读
               </button>
+              <Link
+                href="/messages"
+                onClick={() => setOpen(false)}
+                data-testid="notification-view-all"
+                className="text-xs text-zinc-500 hover:text-zinc-200"
+              >
+                查看全部
+              </Link>
               <Link
                 href="/me"
                 onClick={() => setOpen(false)}

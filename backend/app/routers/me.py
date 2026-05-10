@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fastapi import File, UploadFile
 
+from ..access_control import can_access_or_raise
 from ..auth import (
     AuthContext,
     expert_bound_agent_id,
@@ -48,6 +49,7 @@ from ..models import (
     LeaderDirective,
     Meeting,
     MeetingActionItem,
+    MeetingActionItemComment,
     Notification,
     Task,
     TaskCoProgress,
@@ -1137,6 +1139,296 @@ async def rate_task_collaboration(
 
     await session.commit()
     return {"ok": True}
+
+
+# v23.5: 任务详情页一次拉全 ----------------------------------------------------
+
+
+class TaskTimelineEntry(BaseModel):
+    """
+    Task 生命周期上的一条事件(由现有时间戳综合出).
+
+    Schema 没有 audit log 表 — 我们只能从 Task 自己的 5 个 timestamp
+    + 当前 status 推出时间线;rejected→in_progress→submitted 这种
+    来回不会被还原.v24+ 加 TaskAuditLog 表才能精确.
+    """
+    kind: str  # 'created' | 'dispatched' | 'accepted' | 'started' | 'submitted' | 'done' | 'cancelled' | 'archived'
+    at: datetime
+    actor_user_id: Optional[uuid.UUID] = None
+    actor_name: Optional[str] = None
+
+
+class TaskCoProgressOut(BaseModel):
+    co_assignee_user_id: uuid.UUID
+    co_assignee_name: Optional[str] = None
+    content: Optional[str] = None
+    submitted_at: datetime
+
+
+class TaskRatingOut(BaseModel):
+    id: uuid.UUID
+    rater_user_id: uuid.UUID
+    rater_name: Optional[str] = None
+    ratee_user_id: uuid.UUID
+    ratee_name: Optional[str] = None
+    dimension: str  # 'quality' | 'collaboration'
+    score: int  # 1-5
+    comment: Optional[str] = None
+    created_at: datetime
+
+
+class TaskCommentOut(BaseModel):
+    """
+    会议 action item 评论.Task 详情页顺手把它们带进来,
+    避免用户点回会议页才能看到协作历史.
+    """
+    id: uuid.UUID
+    action_item_id: uuid.UUID
+    author_user_id: Optional[uuid.UUID] = None
+    author_name: Optional[str] = None
+    content: str
+    created_at: datetime
+
+
+class TaskDetailOut(MyTaskOut):
+    """v23.5 — /task/[id] 页面的唯一数据接口."""
+    # 名字预解析(免前端 N+1)
+    assignee_name: Optional[str] = None
+    dispatched_by_name: Optional[str] = None
+    created_by_user_id: Optional[uuid.UUID] = None
+    created_by_name: Optional[str] = None
+    # uuid 字符串 → name(前端按 co_assignees 顺序渲染)
+    co_assignee_names: dict[str, str] = {}
+    # 关联数据(都是已按时间排序的 list)
+    timeline: list[TaskTimelineEntry] = []
+    co_progress: list[TaskCoProgressOut] = []
+    ratings: list[TaskRatingOut] = []
+    comments: list[TaskCommentOut] = []
+
+
+@router.get("/tasks/{task_id}/detail", response_model=TaskDetailOut)
+async def get_task_detail(
+    task_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v23.5: Task 详情页一次拉全 — 基本+时间线+协办+评分+评论.
+
+    谁能看:
+      - 相关人(assignee / dispatcher / creator / co_assignee)→ 直接放行
+      - 其他人 → 走 access_control.can_access(分级 + leader/admin / grant)
+
+    设计哲学:这是 /task/[id] 页面的唯一数据接口.前端拿到就能渲染整页,
+    避免 5+ 次串行请求(用户体感慢).批量解析所有 user_id → name,
+    确保渲染时不需要二次请求.
+    """
+    t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
+
+    # ---- 权限 ----
+    co_uids = _co_uuids_of(t)
+    is_principal = (
+        t.assignee_user_id == auth.user.id
+        or t.dispatched_by_user_id == auth.user.id
+        or t.created_by_user_id == auth.user.id
+        or auth.user.id in co_uids
+    )
+    if not is_principal:
+        await can_access_or_raise(
+            session,
+            auth,
+            resource_type="task",
+            resource_id=t.id,
+            classification=t.data_classification or "general",
+            owner_user_id=t.assignee_user_id,
+        )
+
+    # ---- 收集所有需要解析名字的 user id(批量取一次) ----
+    user_ids: set[uuid.UUID] = set()
+    if t.assignee_user_id:
+        user_ids.add(t.assignee_user_id)
+    if t.dispatched_by_user_id:
+        user_ids.add(t.dispatched_by_user_id)
+    if t.created_by_user_id:
+        user_ids.add(t.created_by_user_id)
+    user_ids.update(co_uids)
+
+    # ---- co_progress ----
+    cp_rows = (
+        await session.execute(
+            select(TaskCoProgress)
+            .where(TaskCoProgress.task_id == t.id)
+            .order_by(TaskCoProgress.submitted_at.desc())
+        )
+    ).scalars().all()
+    for cp in cp_rows:
+        user_ids.add(cp.co_assignee_user_id)
+
+    # ---- ratings ----
+    rating_rows = (
+        await session.execute(
+            select(TaskCollaborationRating)
+            .where(TaskCollaborationRating.task_id == t.id)
+            .order_by(TaskCollaborationRating.created_at.desc())
+        )
+    ).scalars().all()
+    for r in rating_rows:
+        user_ids.add(r.rater_user_id)
+        user_ids.add(r.ratee_user_id)
+
+    # ---- comments(通过 MeetingActionItem.task_id == t.id 反查) ----
+    # 注意:task_id 是 ActionItem 上的 FK,反向找它的 comments.
+    # 非 meeting 起源的 Task 自然 0 条 comment.
+    comment_rows: list[MeetingActionItemComment] = []
+    ai_id = (
+        await session.execute(
+            select(MeetingActionItem.id)
+            .where(MeetingActionItem.task_id == t.id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if ai_id:
+        comment_rows = (
+            await session.execute(
+                select(MeetingActionItemComment)
+                .where(MeetingActionItemComment.action_item_id == ai_id)
+                .order_by(MeetingActionItemComment.created_at)
+            )
+        ).scalars().all()
+        for c in comment_rows:
+            if c.author_user_id:
+                user_ids.add(c.author_user_id)
+
+    # ---- 批量取所有 user 名字 ----
+    name_by_id: dict[uuid.UUID, str] = {}
+    if user_ids:
+        urows = (
+            await session.execute(
+                select(User.id, User.name).where(User.id.in_(user_ids))
+            )
+        ).all()
+        name_by_id = {u_id: u_name for u_id, u_name in urows}
+
+    # ---- 拼时间线 ----
+    timeline: list[TaskTimelineEntry] = [
+        TaskTimelineEntry(
+            kind="created",
+            at=t.created_at,
+            actor_user_id=t.created_by_user_id,
+            actor_name=name_by_id.get(t.created_by_user_id) if t.created_by_user_id else None,
+        )
+    ]
+    if t.dispatched_at:
+        timeline.append(
+            TaskTimelineEntry(
+                kind="dispatched",
+                at=t.dispatched_at,
+                actor_user_id=t.dispatched_by_user_id,
+                actor_name=name_by_id.get(t.dispatched_by_user_id) if t.dispatched_by_user_id else None,
+            )
+        )
+    if t.accepted_at:
+        timeline.append(
+            TaskTimelineEntry(
+                kind="accepted",
+                at=t.accepted_at,
+                actor_user_id=t.assignee_user_id,
+                actor_name=name_by_id.get(t.assignee_user_id) if t.assignee_user_id else None,
+            )
+        )
+    if t.started_at:
+        timeline.append(
+            TaskTimelineEntry(
+                kind="started",
+                at=t.started_at,
+                actor_user_id=t.assignee_user_id,
+                actor_name=name_by_id.get(t.assignee_user_id) if t.assignee_user_id else None,
+            )
+        )
+    # 终态:模型只有 updated_at,不够精确(reject 后再 submit 会覆盖).
+    # v23.5 接受这个简化 — 评论 + 协办交付 + 评分能补上下文.
+    if t.status in ("submitted", "done", "archived", "cancelled"):
+        actor_id: Optional[uuid.UUID] = None
+        actor_name: Optional[str] = None
+        if t.status == "submitted":
+            # submit 必由主责发起
+            actor_id = t.assignee_user_id
+            actor_name = name_by_id.get(t.assignee_user_id) if t.assignee_user_id else None
+        # done/archived/cancelled 可能多种角色发起,留空让前端 fallback「系统」
+        timeline.append(
+            TaskTimelineEntry(
+                kind=t.status,
+                at=t.updated_at,
+                actor_user_id=actor_id,
+                actor_name=actor_name,
+            )
+        )
+    timeline.sort(key=lambda e: e.at)
+
+    # ---- 协办进度 out ----
+    cp_out = [
+        TaskCoProgressOut(
+            co_assignee_user_id=cp.co_assignee_user_id,
+            co_assignee_name=name_by_id.get(cp.co_assignee_user_id),
+            content=cp.content,
+            submitted_at=cp.submitted_at,
+        )
+        for cp in cp_rows
+    ]
+
+    # ---- ratings out ----
+    rating_out = [
+        TaskRatingOut(
+            id=r.id,
+            rater_user_id=r.rater_user_id,
+            rater_name=name_by_id.get(r.rater_user_id),
+            ratee_user_id=r.ratee_user_id,
+            ratee_name=name_by_id.get(r.ratee_user_id),
+            dimension=r.dimension,
+            score=r.score,
+            comment=r.comment,
+            created_at=r.created_at,
+        )
+        for r in rating_rows
+    ]
+
+    # ---- comments out ----
+    comment_out = [
+        TaskCommentOut(
+            id=c.id,
+            action_item_id=c.action_item_id,
+            author_user_id=c.author_user_id,
+            author_name=name_by_id.get(c.author_user_id) if c.author_user_id else None,
+            content=c.content,
+            created_at=c.created_at,
+        )
+        for c in comment_rows
+    ]
+
+    # ---- 协办 user_id → name 字典 ----
+    co_assignee_names: dict[str, str] = {}
+    for cu in co_uids:
+        nm = name_by_id.get(cu)
+        if nm:
+            co_assignee_names[str(cu)] = nm
+
+    # ---- 复用 _task_to_my_out 拼基础部分,然后扩展 ----
+    co_submitted_uids = [cp.co_assignee_user_id for cp in cp_rows]
+    meeting_pair = await _meeting_title_for(session, t)
+    base = _task_to_my_out(t, meeting_pair, co_submitted=co_submitted_uids)
+
+    return TaskDetailOut(
+        **base.model_dump(),
+        assignee_name=name_by_id.get(t.assignee_user_id) if t.assignee_user_id else None,
+        dispatched_by_name=name_by_id.get(t.dispatched_by_user_id) if t.dispatched_by_user_id else None,
+        created_by_user_id=t.created_by_user_id,
+        created_by_name=name_by_id.get(t.created_by_user_id) if t.created_by_user_id else None,
+        co_assignee_names=co_assignee_names,
+        timeline=timeline,
+        co_progress=cp_out,
+        ratings=rating_out,
+        comments=comment_out,
+    )
 
 
 # v19: 领导指令(自然语言 → Task 拆解)----------------------------------------

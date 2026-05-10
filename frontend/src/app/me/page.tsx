@@ -484,9 +484,14 @@ export default function MePage() {
             </span>
           )}
           <div className="flex-1 min-w-0">
-            <div className="text-sm text-zinc-100 break-words">
+            <Link
+              href={`/task/${t.id}`}
+              data-testid={`me-task-detail-link-${t.id}`}
+              className="block break-words text-sm text-zinc-100 hover:text-accent-200"
+              title="查看任务详情"
+            >
               {t.content}
-            </div>
+            </Link>
             <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-500">
               {meetingId ? (
                 <Link
@@ -721,9 +726,14 @@ export default function MePage() {
                             {iSubmitted ? "已交付" : "协办中"}
                           </span>
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm text-zinc-100 break-words">
+                            <Link
+                              href={`/task/${t.id}`}
+                              data-testid={`me-co-task-detail-link-${t.id}`}
+                              className="block break-words text-sm text-zinc-100 hover:text-accent-200"
+                              title="查看任务详情"
+                            >
                               {t.content}
-                            </div>
+                            </Link>
                             <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-500">
                               {t.meeting_id ? (
                                 <Link

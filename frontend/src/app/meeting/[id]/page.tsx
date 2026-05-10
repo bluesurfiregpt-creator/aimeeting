@@ -14,6 +14,7 @@ import { api, type Agent, type AgendaItem, type TranscriptLine } from "@/lib/api
 import BriefingCard from "./BriefingCard";
 import SummaryCard from "./SummaryCard";
 import ActionItemsCard from "./ActionItemsCard";
+import TraceCard from "./TraceCard";
 
 type LiveLine =
   | {
@@ -924,6 +925,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       {phase === "idle" ? <BriefingCard meetingId={meetingId} /> : null}
       {phase === "ended" ? <SummaryCard meetingId={meetingId} /> : null}
       {phase === "ended" ? <ActionItemsCard meetingId={meetingId} /> : null}
+      {phase === "ended" ? <TraceCard meetingId={meetingId} /> : null}
 
       {agents.length > 0 ? (
         <div className="mt-6 rounded-xl border border-ink-700 bg-ink-900 px-4 py-3">
