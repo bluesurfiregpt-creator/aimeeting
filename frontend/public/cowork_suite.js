@@ -3592,6 +3592,132 @@
       },
     });
 
+    // ---------- OO series · v24.2 #1 办结 → KB 沉淀联动 --------------------
+    R.register({
+      id: "OO-1",
+      series: "OO",
+      title: "approve 后 LLM 沉淀(轮询 30s) → source_ref.curated=true",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_OO1`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `meeting ${m.status}` };
+        created("meeting", m.body.id, "OO1");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_OO1_对沙头街道老旧小区幕墙进行结构鉴定,30 户范围,本月内出报告`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content.startsWith(`${PREFIX}_OO1`));
+        if (!t) return { ok: false, error: "task not visible" };
+        ctx.OO1_task = t.id;
+        // 走完整流程到 approved
+        await POST(`/api/me/tasks/${t.id}/dispatch`, { assignee_user_id: me.user_id });
+        await POST(`/api/me/tasks/${t.id}/accept`, {});
+        await POST(`/api/me/tasks/${t.id}/start`, {});
+        await POST(`/api/me/tasks/${t.id}/submit`, {
+          completed: "已完成 30 户排查,12 户存在松动,出具初步整治建议",
+          problems: "业委会配合度低,3 户拒绝入户",
+          next_steps: "下月联合街道办做拒户协调",
+        });
+        // me 是 dispatcher 也是 assignee → me 自己 approve
+        const ar = await POST(`/api/me/tasks/${t.id}/approve`, {});
+        if (!ar.ok) return { ok: false, error: `approve ${ar.status}` };
+        // 轮询 30s 看 source_ref.curated 是否变 true
+        let curated = false;
+        let lastDetail = null;
+        for (let i = 0; i < 15; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const d = await GET(`/api/me/tasks/${t.id}/detail`);
+          if (!d.ok) continue;
+          lastDetail = d.body;
+          if (d.body.source_ref?.curated === true) {
+            curated = true;
+            break;
+          }
+        }
+        if (!curated) {
+          return {
+            ok: false,
+            error: `30s 内 source_ref.curated 没变 true; final source_ref=${JSON.stringify(lastDetail?.source_ref)}`,
+          };
+        }
+        // 验有 memory_id
+        if (!lastDetail.source_ref.curated_memory_id) {
+          return { ok: false, error: "curated 但 memory_id 没写入" };
+        }
+        return {
+          ok: true,
+          evidence: {
+            _note: `LLM 沉淀完成,memory_id=${lastDetail.source_ref.curated_memory_id?.slice(0,8)}, kb_id=${lastDetail.source_ref.curated_kb_id?.slice(0,8)}`,
+          },
+        };
+      },
+    });
+
+    R.register({
+      id: "OO-2",
+      series: "OO",
+      title: "approved 后 KB 出现「[自动沉淀]」KnowledgeDocument",
+      async run(ctx) {
+        if (!ctx.OO1_task) {
+          return { ok: false, error: "SKIP_DEP_FAILED:OO-1", evidence: { _skipped: true } };
+        }
+        // OO-1 应已 curated;这里看 task 写的 curated_kb_id 对应 KB 里有没有
+        // 「[自动沉淀]」开头的文档
+        const d = await GET(`/api/me/tasks/${ctx.OO1_task}/detail`);
+        if (!d.ok) return { ok: false, error: `detail ${d.status}` };
+        const kbId = d.body.source_ref?.curated_kb_id;
+        if (!kbId) {
+          // 没绑 agent 时跳过 KB 写入是 OK 的(只 LongTermMemory),算 pass
+          return { ok: true, evidence: { _note: "task assignee 没绑 agent,跳过 KB(只写 memory)" } };
+        }
+        const docs = await GET(`/api/knowledge-bases/${kbId}/documents`);
+        if (!docs.ok) return { ok: false, error: `kb docs ${docs.status}` };
+        const auto = (docs.body || []).find((x) => x.filename.startsWith("[自动沉淀"));
+        if (!auto) {
+          return {
+            ok: false,
+            error: `KB ${kbId} 里没找到「[自动沉淀」开头的文档(总 ${docs.body?.length} 个)`,
+          };
+        }
+        if (auto.status !== "ready") {
+          return { ok: false, error: `auto-curated doc 状态 ${auto.status} != ready` };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `${auto.filename.slice(0,40)}... ready` },
+        };
+      },
+    });
+
+    R.register({
+      id: "OO-3",
+      series: "OO",
+      title: "approve 幂等 — 已 curated 的 task 重 approve 不会重沉淀",
+      async run(ctx) {
+        if (!ctx.OO1_task) {
+          return { ok: false, error: "SKIP_DEP_FAILED:OO-1", evidence: { _skipped: true } };
+        }
+        // 拿 OO-1 的 curated_at
+        const d1 = await GET(`/api/me/tasks/${ctx.OO1_task}/detail`);
+        const oldAt = d1.body.source_ref?.curated_at;
+        if (!oldAt) return { ok: false, error: "OO-1 没 curated_at,跳过 OO-3" };
+        // task 已经 done 状态,再 approve 应当 422(状态机不允许)— 但其实
+        // 可能允许?查 task_state.py.无论如何,我们只验「curated_at 不变」.
+        // 先尝试 approve 再
+        const a = await POST(`/api/me/tasks/${ctx.OO1_task}/approve`, {});
+        // approve 可能 422(状态不对)or 200(允许;但沉淀会跳)
+        // 都 OK,关键是 curated_at 不变
+        await new Promise((r) => setTimeout(r, 3000));  // 给可能的 LLM 跑
+        const d2 = await GET(`/api/me/tasks/${ctx.OO1_task}/detail`);
+        const newAt = d2.body.source_ref?.curated_at;
+        if (oldAt !== newAt) {
+          return { ok: false, error: `curated_at 变了:old=${oldAt} new=${newAt}(应当幂等)` };
+        }
+        return { ok: true, evidence: { _note: `幂等 OK (curated_at 不变, 二次 approve 状态码 ${a.status})` } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",

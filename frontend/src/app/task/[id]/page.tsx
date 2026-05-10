@@ -424,6 +424,57 @@ export default function TaskDetailPage({
         </section>
       )}
 
+      {/* v24.2 #1: 办结沉淀徽章(若有) */}
+      {(() => {
+        const curated = (t.source_ref as Record<string, unknown> | null | undefined)?.curated;
+        if (!curated) return null;
+        const sr = t.source_ref as {
+          curated_tags?: string[];
+          curated_kb_id?: string | null;
+          curated_at?: string;
+        };
+        return (
+          <section
+            className="mt-6 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4"
+            data-testid="task-detail-curated-badge"
+          >
+            <div className="flex items-start gap-3">
+              <span className="text-2xl" aria-hidden>📚</span>
+              <div className="flex-1">
+                <h2 className="text-sm font-semibold text-emerald-200">
+                  已沉淀至知识库
+                </h2>
+                <p className="mt-0.5 text-[11px] text-zinc-500">
+                  办结后系统已自动 LLM 摘要 + 入 KB(Agent 下次回答相关问题时会引用).
+                  {sr.curated_at && ` · 沉淀时间 ${fmtDateTime(sr.curated_at)}`}
+                </p>
+                {sr.curated_tags && sr.curated_tags.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {sr.curated_tags.map((tag, i) => (
+                      <span
+                        key={i}
+                        data-testid="task-detail-curated-tag"
+                        className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-200"
+                      >
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {sr.curated_kb_id && (
+                  <Link
+                    href={`/admin/knowledge/${sr.curated_kb_id}`}
+                    className="mt-2 inline-block text-[11px] text-accent-300 hover:text-accent-200"
+                  >
+                    → 去知识库查看
+                  </Link>
+                )}
+              </div>
+            </div>
+          </section>
+        );
+      })()}
+
       {/* v24.1 #5: 阶段汇报模板内容(若有) */}
       {(() => {
         const sp = (t.source_ref as Record<string, unknown> | null | undefined)?.submission_payload as

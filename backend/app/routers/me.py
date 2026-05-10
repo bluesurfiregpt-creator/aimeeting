@@ -928,6 +928,14 @@ async def approve_task(
     )
     await session.commit()
     await session.refresh(t)
+
+    # v24.2 #1: 办结 → KB 沉淀联动(智慧住建文档 §5.2).
+    # fire-and-forget — LLM 5-15s 不应阻塞 approve API 响应.
+    # 用户在 TaskDetail 重刷或 KB 列表里很快看到「[自动沉淀]」文档.
+    import asyncio
+    from ..closure_curator import curate_closed_task
+    asyncio.create_task(curate_closed_task(t.id))
+
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
 
 
