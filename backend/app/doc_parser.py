@@ -35,6 +35,15 @@ SUPPORTED_EXTENSIONS = {
     ".json": "text",
     ".yaml": "text",
     ".yml": "text",
+    # v25-2: 图片格式 → OCR(Qwen-VL).政务客户大量历史扫描件 / 拍照公文
+    ".jpg": "image",
+    ".jpeg": "image",
+    ".png": "image",
+    ".bmp": "image",
+    ".tiff": "image",
+    ".tif": "image",
+    ".webp": "image",
+    ".gif": "image",
 }
 
 
@@ -47,9 +56,22 @@ def kind_from_filename(filename: str) -> Optional[str]:
 
 
 def extract_text(filename: str, content: bytes) -> str:
+    """
+    同步抽取 — 用于不需要 OCR 的格式.
+
+    image / 扫描件 PDF 走 async 路径(extract_text_async).
+    若 caller 想统一 sync 接口,扫描 PDF 抽出空字符串后由 caller 决定要不要
+    重试为 async 路径.
+    """
     kind = kind_from_filename(filename)
     if kind is None:
         raise ValueError(f"unsupported file type: {filename}")
+    if kind == "image":
+        # 同步路径不能调 OCR(async).让 caller 走 extract_text_async.
+        raise ValueError(
+            f"image file '{filename}' requires async OCR path "
+            f"(use extract_text_async instead of extract_text)"
+        )
     if kind == "pdf":
         return _extract_pdf(content)
     if kind == "docx":
@@ -59,6 +81,37 @@ def extract_text(filename: str, content: bytes) -> str:
     if kind == "text":
         return _decode_text(content)
     raise ValueError(f"unhandled kind: {kind}")
+
+
+async def extract_text_async(filename: str, content: bytes) -> str:
+    """
+    v25-2 异步抽取(支持 OCR).
+
+    行为:
+      - 图片 → 直接 OCR
+      - PDF → 先 pypdf;若文字量 < 阈值,自动 OCR fallback(扫描件)
+      - 其他格式 → 同 extract_text(sync)
+
+    OCR 失败时:对图片 raise OCRError(没有兜底);对 PDF 返回 pypdf 已抽到
+    的文字(可能空)— 不破坏 caller 期望.
+    """
+    kind = kind_from_filename(filename)
+    if kind is None:
+        raise ValueError(f"unsupported file type: {filename}")
+    if kind == "image":
+        from .ocr import image_mime_for_filename, ocr_image
+        return await ocr_image(content, mime_type=image_mime_for_filename(filename))
+    if kind == "pdf":
+        # 先 pypdf 抽 — 文字 PDF 这一步就够了,省 OCR 钱
+        text = _extract_pdf(content)
+        if text and len(text.strip()) >= 30:
+            return text
+        # 文字太少 → 大概率是扫描件 → OCR fallback
+        from .ocr import maybe_ocr_pdf_if_empty
+        final_text, _ = await maybe_ocr_pdf_if_empty(text, content)
+        return final_text
+    # 非 PDF / 非图片 → 复用 sync 路径
+    return extract_text(filename, content)
 
 
 def _decode_text(content: bytes) -> str:

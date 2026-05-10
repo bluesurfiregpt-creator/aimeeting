@@ -182,7 +182,7 @@ async def upload_document(
     if kind is None:
         raise HTTPException(
             400,
-            "unsupported file type. allowed: PDF / DOCX / XLSX / TXT / MD / CSV / JSON / YAML",
+            "unsupported file type. allowed: PDF(含扫描件 OCR) / DOCX / XLSX / TXT / MD / CSV / JSON / YAML / 图片(JPG/PNG/BMP/TIFF/WebP/GIF)",
         )
 
     raw = await file.read()

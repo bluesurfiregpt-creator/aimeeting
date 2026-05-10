@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "frozen_at": "2026-05-10T00:00:00Z",
-  "frozen_against": "v25-1 (演示数据 wipe + seed — 客户演示前 干净起点)",
+  "frozen_against": "v25-2 (OCR — Qwen-VL 读图 + 扫描件 PDF fallback + 图片上传)",
   "_note": "Deterministic per-case status snapshot. T2 diff: any case whose status differs from this baseline is a regression (or, for ⏭️→✅, a new pass to celebrate). evidence/error/timing intentionally excluded — those are non-deterministic.",
   "summary": {
-    "total": 157,
-    "pass": 149,
+    "total": 159,
+    "pass": 151,
     "fail": 0,
     "skipped": 8
   },
@@ -166,6 +166,8 @@
     { "id": "XX-4", "series": "XX", "status": "pass" },
     { "id": "YY-1", "series": "YY", "status": "pass" },
     { "id": "YY-2", "series": "YY", "status": "pass" },
-    { "id": "YY-3", "series": "YY", "status": "pass" }
+    { "id": "YY-3", "series": "YY", "status": "pass" },
+    { "id": "ZZ-1", "series": "ZZ", "status": "pass" },
+    { "id": "ZZ-2", "series": "ZZ", "status": "pass" }
   ]
 }

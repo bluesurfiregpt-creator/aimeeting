@@ -4323,6 +4323,124 @@
       },
     });
 
+    // ---------- ZZ series · v25-2 OCR --------------------------------------
+    R.register({
+      id: "ZZ-1",
+      series: "ZZ",
+      title: "v25-2 KB 上传 应 接受 image/png(不再 400 unsupported)",
+      async run() {
+        // 1×1 PNG transparent (smallest valid PNG)
+        const pngBytes = Uint8Array.from([
+          0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+          0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+          0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+          0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+          0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+          0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+        ]);
+        // 找一个可用的 KB(优先用 demo 的,没有就找任意一个)
+        const kbs = await GET("/api/kb").catch(() => ({ ok: false }));
+        if (!kbs.ok || !Array.isArray(kbs.body) || kbs.body.length === 0) {
+          return {
+            ok: true,
+            evidence: { _note: "无 KB,跳过(seed 后再跑;不算 fail)" },
+          };
+        }
+        const kb = kbs.body[0];
+        const fd = new FormData();
+        fd.append(
+          "file",
+          new Blob([pngBytes], { type: "image/png" }),
+          `cowork-zz1-${RUN_ID}.png`
+        );
+        const r = await fetch(`/api/kb/${kb.id}/documents`, {
+          method: "POST",
+          credentials: "include",
+          body: fd,
+        });
+        if (r.status === 400) {
+          const body = await r.text();
+          if (body.includes("unsupported")) {
+            return { ok: false, error: `仍然 400 unsupported: ${body}` };
+          }
+        }
+        // 成功(200/201)或其他状态(401/403)都说明 wiring OK,不是 unsupported
+        if (r.status >= 500) {
+          return { ok: false, error: `5xx 内部错误: ${r.status}` };
+        }
+        if (r.status === 200 || r.status === 201) {
+          const body = await r.json().catch(() => ({}));
+          // OCR 是 background task,这里只验上传成功
+          // 注:KB document 的删除路径在 performCleanup 没注册,先 skip 自动清理
+          //     (1px PNG 不会污染检索结果)
+          return {
+            ok: true,
+            evidence: { _note: `图片上传 OK 状态=${r.status}`, doc_id: body.id },
+          };
+        }
+        // 200-399 中除 200/201 外的也算 OK(端点存在 + 接受 image/png)
+        return {
+          ok: true,
+          evidence: { _note: `端点接受 image/png (status=${r.status})` },
+        };
+      },
+    });
+
+    R.register({
+      id: "ZZ-2",
+      series: "ZZ",
+      title: "v25-2 上级文件上传 应 接受 image/png(不再 400 unsupported)",
+      async run() {
+        const pngBytes = Uint8Array.from([
+          0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+          0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+          0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+          0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+          0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+          0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+        ]);
+        const fd = new FormData();
+        fd.append(
+          "file",
+          new Blob([pngBytes], { type: "image/png" }),
+          `cowork-zz2-${RUN_ID}.png`
+        );
+        const r = await fetch(`/api/me/upper-docs`, {
+          method: "POST",
+          credentials: "include",
+          body: fd,
+        });
+        // 接受 image:不应是 400 unsupported
+        if (r.status === 400) {
+          const body = await r.text();
+          if (body.includes("unsupported")) {
+            return { ok: false, error: `仍然 400 unsupported: ${body}` };
+          }
+        }
+        if (r.status >= 500) {
+          return { ok: false, error: `5xx 内部错误: ${r.status}` };
+        }
+        if (r.status === 200 || r.status === 201) {
+          const body = await r.json().catch(() => ({}));
+          // upper_doc 删除走 discard;cleanup 没 mapping,这里先 skip
+          //     (1px PNG 内容空,不污染数据)
+          // 1px PNG OCR 应该返回空文字 → parse_error 是 "无可提取的文字内容"
+          return {
+            ok: true,
+            evidence: {
+              _note: `upper-doc 上传成功`,
+              status: body.status,
+              parse_error: body.parse_error || "(无)",
+            },
+          };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `端点接受 image/png (status=${r.status})` },
+        };
+      },
+    });
+
     R.register({
       id: "YY-3",
       series: "YY",

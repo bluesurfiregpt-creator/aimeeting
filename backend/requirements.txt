@@ -21,3 +21,7 @@ python-docx==1.1.2
 docx2txt==0.8
 openpyxl==3.1.5
 sentry-sdk[fastapi]==2.18.0
+# v25-2 OCR: PDF page render(纯 Python wheel,无需 poppler / 系统依赖)
+pypdfium2==4.30.0
+# v25-2 OCR: Pillow(PNG bytes 输出 — pypdfium2.to_pil 依赖它)
+Pillow==11.0.0

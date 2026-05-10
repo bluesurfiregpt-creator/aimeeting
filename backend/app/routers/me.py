@@ -44,7 +44,7 @@ from ..auth import (
 )
 from ..db import get_session
 from ..directive_parser import parse_directive
-from ..doc_parser import extract_text, kind_from_filename
+from ..doc_parser import extract_text_async, kind_from_filename
 from ..llm_quota import check_quota_or_raise
 from ..evaluation import recompute_for_task_participants, recompute_user_evaluation
 from ..models import (
@@ -2451,8 +2451,8 @@ async def create_upper_doc(
     文件不入 OSS / 不入知识库:本接口只是个一次性「文件 → 任务」转换器.
     若需长期 KB 召回,走独立的 KB 上传路径.
 
-    支持文件类型:PDF / DOCX / XLSX / TXT / MD / CSV / JSON / YAML
-    (复用 doc_parser.SUPPORTED_EXTENSIONS).
+    v25-2 支持文件类型:PDF(含扫描件 OCR fallback) / DOCX / XLSX /
+    TXT / MD / CSV / JSON / YAML / 图片(JPG/PNG/BMP/TIFF/WebP/GIF — Qwen-VL OCR).
     """
     if not file.filename:
         raise HTTPException(400, "filename required")
@@ -2460,7 +2460,7 @@ async def create_upper_doc(
     if kind is None:
         raise HTTPException(
             400,
-            "unsupported file type. allowed: PDF / DOCX / XLSX / TXT / MD / CSV / JSON / YAML",
+            "unsupported file type. allowed: PDF / DOCX / XLSX / TXT / MD / CSV / JSON / YAML / 图片(JPG/PNG/BMP/TIFF/WebP/GIF)",
         )
     raw = await file.read()
     if not raw:
@@ -2470,11 +2470,11 @@ async def create_upper_doc(
             413, f"file too large ({len(raw)} bytes); max {_UPPER_DOC_MAX_BYTES}"
         )
 
-    # 1) 抽文本
+    # 1) 抽文本(v25-2: async + OCR fallback for 扫描件 PDF / 图片)
     extracted = ""
     parse_err: Optional[str] = None
     try:
-        extracted = extract_text(file.filename, raw).strip()
+        extracted = (await extract_text_async(file.filename, raw)).strip()
     except Exception as exc:  # 解析失败仍写入 row + parse_error,便于用户看到失败原因
         parse_err = f"文件解析失败: {exc}"
     if not parse_err and not extracted:

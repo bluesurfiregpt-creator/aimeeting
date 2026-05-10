@@ -346,14 +346,14 @@ export default function DirectivePanel({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.csv,.json,.yaml,.yml"
+                  accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.csv,.json,.yaml,.yml,.jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp,.gif"
                   onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                   disabled={parsing}
                   data-testid="upper-doc-input"
                   className="block w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-zinc-200 file:mr-3 file:rounded-md file:border-0 file:bg-ink-700 file:px-3 file:py-1.5 file:text-xs file:text-zinc-200 hover:file:bg-ink-600 disabled:opacity-60"
                 />
                 <p className="mt-1 text-[10px] text-zinc-500">
-                  支持 PDF / DOCX / XLSX / TXT / MD / CSV / JSON / YAML,最大 10MB.系统抽取文本后调 LLM 拆解.
+                  支持 PDF(含扫描件 OCR) / DOCX / XLSX / TXT / MD / CSV / JSON / YAML / 图片(JPG/PNG/BMP/...),最大 10MB.扫描件 / 图片走 OCR 慢 30-60s.
                 </p>
                 <div className="mt-2 flex items-center justify-end gap-2">
                   <button

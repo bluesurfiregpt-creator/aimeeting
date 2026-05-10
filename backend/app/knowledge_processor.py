@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .chunker import split_text
 from .db import SessionLocal
-from .doc_parser import extract_text
+from .doc_parser import extract_text_async
 from .embeddings import EmbeddingError, compute_embeddings
 from .models import KnowledgeChunk, KnowledgeDocument
 from .oss_client import OSSClient
@@ -63,7 +63,8 @@ async def process_document(document_id: uuid.UUID) -> None:
         import urllib.request
         url = oss.signed_url(oss_key, expires_seconds=300)
         raw = urllib.request.urlopen(url).read()
-        text = extract_text(filename, raw)
+        # v25-2: extract_text_async — 图片走 OCR / 扫描件 PDF 自动 OCR fallback
+        text = await extract_text_async(filename, raw)
     except Exception as e:
         logger.exception("parse failed for %s", document_id)
         await _mark_failed(document_id, f"parse: {e}")

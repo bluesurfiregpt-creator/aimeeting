@@ -124,7 +124,7 @@ export default function KbDetailPage({
             type="file"
             multiple
             disabled={uploading}
-            accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.markdown,.csv,.json,.yaml,.yml,.text,.log"
+            accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.markdown,.csv,.json,.yaml,.yml,.text,.log,.jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp,.gif"
             onChange={(e) => onUpload(e.target.files)}
             className="hidden"
           />
@@ -132,7 +132,7 @@ export default function KbDetailPage({
       </header>
 
       <p className="mt-2 text-xs text-zinc-500">
-        支持 PDF / DOCX / XLSX / TXT / MD / CSV / JSON / YAML, 单文件 ≤ 50 MB。上传后会自动解析、切块、嵌入(通常几十秒到一两分钟)。
+        支持 PDF(含扫描件 OCR) / DOCX / XLSX / TXT / MD / CSV / JSON / YAML / 图片(JPG/PNG/BMP/TIFF/WebP/GIF), 单文件 ≤ 50 MB。上传后自动解析、切块、嵌入。扫描件 / 图片走 Qwen-VL OCR,30-60s/页。
       </p>
 
       <section className="mt-6">
