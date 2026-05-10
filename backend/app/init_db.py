@@ -76,6 +76,15 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("task", "co_assignees", "JSONB"),
 ]
 
+# v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).
+# 用一个单独的列表是因为 ADD COLUMN 和 ALTER COLUMN TYPE 是不同 SQL.
+_COLUMN_TYPE_MIGRATIONS: list[tuple[str, str, str]] = [
+    # KnowledgeDocument.mime_type 64 太短:.docx mime 'application/vnd.
+    # openxmlformats-officedocument.wordprocessingml.document' = 70 chars,
+    # .pptx 73, .xlsx 67 都会撞 → 上传 500.扩到 128.
+    ("knowledge_document", "mime_type", "VARCHAR(128)"),
+]
+
 # Drop the legacy unique-on-provider constraint so the new
 # (workspace_id, provider) composite can take over.
 _LEGACY_CONSTRAINTS = [
@@ -93,6 +102,13 @@ async def init_db() -> None:
         for table, col, spec in _COLUMN_MIGRATIONS:
             await conn.execute(
                 text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {spec}")
+            )
+
+        # 2b. ALTER COLUMN TYPE for capacity extensions (idempotent — PG no-ops
+        # when current type matches target).
+        for table, col, spec in _COLUMN_TYPE_MIGRATIONS:
+            await conn.execute(
+                text(f"ALTER TABLE {table} ALTER COLUMN {col} TYPE {spec}")
             )
 
         # 3. drop legacy unique constraints (idempotent — IF EXISTS)

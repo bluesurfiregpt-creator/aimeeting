@@ -1001,7 +1001,10 @@ class KnowledgeDocument(Base):
         PgUUID(as_uuid=True), ForeignKey("knowledge_base.id", ondelete="CASCADE"), index=True
     )
     filename: Mapped[str] = mapped_column(String(255))
-    mime_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # v23.5+: 128 才放得下 .docx/.xlsx/.pptx 的 Office Open XML mime
+    # (e.g. 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' = 70 chars).
+    # 原 64 太紧,Word/PPT/Excel 上传统一 500.init_db ALTER 迁移现有表.
+    mime_type: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     oss_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     byte_size: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="uploading")
