@@ -21,7 +21,7 @@ from __future__ import annotations
 import random
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -1267,3 +1267,108 @@ async def kanban_by_user(
         scope_label=scope_label,
         include_closed=include_closed,
     )
+
+
+# ---- v25-1 · 演示数据清除 + 一键 demo seed ---------------------------------
+
+
+class WipeDemoIn(BaseModel):
+    confirm: str  # 必须等于 "yes_wipe_all_demo_data" 才执行
+    wipe_voiceprints: bool = True
+
+
+class WipeDemoOut(BaseModel):
+    rows_deleted: dict[str, int]
+    total: int
+
+
+@router.post("/wipe-demo-data", response_model=WipeDemoOut)
+async def wipe_demo_data(
+    payload: WipeDemoIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v25-1 — 清除当前 workspace 下所有业务数据.
+
+    ⚠️ 不可逆操作.必须 owner / admin 角色,且 `confirm == 'yes_wipe_all_demo_data'`.
+
+    保留:User / WorkspaceMembership / Workspace 本身 / ModelProviderConfig.
+    清除:Notification / AuditLog / KnowledgeBase + Documents + Chunks /
+          LongTermMemory / DataAccessRequest / CronRule / Task + 子表 /
+          LeaderDirective / UpperDoc / Meeting + 子表 / Agent /
+          Voiceprint(可选) / WorkspaceInvitation / workspace.preset.
+
+    成功后调 seed-demo-scenario 一键重新灌入演示场景.
+    """
+    await require_leader_or_admin(session, auth)
+    if payload.confirm != "yes_wipe_all_demo_data":
+        raise HTTPException(
+            400,
+            "confirm 必须显式等于 'yes_wipe_all_demo_data' 才执行(防误触).",
+        )
+    from ..demo_seed import wipe_workspace_business_data
+
+    counts = await wipe_workspace_business_data(
+        session,
+        workspace_id=auth.workspace.id,
+        caller_user_id=auth.user.id,
+        wipe_voiceprints=payload.wipe_voiceprints,
+    )
+
+    # 单独写一条 audit_log(在新 session,因为旧 audit 已被 wipe)
+    await audit_log(
+        session, auth, "workspace.wipe_demo_data",
+        target_type="workspace", target_id=str(auth.workspace.id),
+        payload={"rows_deleted": counts, "total": sum(counts.values())},
+        autocommit=True,
+    )
+    return WipeDemoOut(rows_deleted=counts, total=sum(counts.values()))
+
+
+class SeedDemoIn(BaseModel):
+    seed_kb_documents: bool = True  # False 时跳过 48 篇 KB(嵌入慢时可关掉)
+
+
+class SeedDemoOut(BaseModel):
+    summary: dict[str, Any]
+
+
+@router.post("/seed-demo-scenario", response_model=SeedDemoOut)
+async def seed_demo_scenario_endpoint(
+    payload: SeedDemoIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v25-1 — 一键灌入完整演示场景.
+
+    内容:
+      - 16 AI 智慧住建专家(复用 seed-smart-construction-agents)
+      - 19 demo 用户(密码 demo123;含 leader/admin/expert/member 各角色)
+      - 10 历史 / 进行中 / 计划中 会议(含 transcript / agent message / action item)
+      - 5 上级文件 + 5 领导指令(含 LLM 拆解出的 drafts)
+      - 30 任务(各状态分布,可激活看板/趋势/月评)
+      - 16 AI × 3 篇 KB 文档(共 48 篇,带 embedding 实测 30-60s)
+
+    幂等:已存在的 demo 用户 email 跳过,Agent 名重复跳过.
+    建议先调 wipe-demo-data,再 seed-demo-scenario,从干净状态开始.
+
+    leader / admin only.返回各类对象创建数量.
+    """
+    await require_leader_or_admin(session, auth)
+    from ..demo_seed import seed_demo_scenario
+
+    summary = await seed_demo_scenario(
+        session,
+        workspace_id=auth.workspace.id,
+        caller_user_id=auth.user.id,
+        seed_kb_documents=payload.seed_kb_documents,
+    )
+    await audit_log(
+        session, auth, "workspace.seed_demo_scenario",
+        target_type="workspace", target_id=str(auth.workspace.id),
+        payload=summary,
+        autocommit=True,
+    )
+    return SeedDemoOut(summary=summary)

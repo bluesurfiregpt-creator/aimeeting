@@ -20,6 +20,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <AdminTab href="/admin/cron-rules" label="定期巡检" />
         <AdminTab href="/admin/team" label="团队" />
         <AdminTab href="/admin/audit" label="操作日志" />
+        <AdminTab href="/admin/demo-data" label="演示数据" />
       </nav>
       <div className="mt-8">{children}</div>
     </div>

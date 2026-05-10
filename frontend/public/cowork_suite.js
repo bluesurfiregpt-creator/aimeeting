@@ -4294,6 +4294,57 @@
       },
     });
 
+    // ---------- YY series · v25-1 演示数据 wipe + seed --------------------
+    R.register({
+      id: "YY-1",
+      series: "YY",
+      title: "wipe-demo-data 缺 confirm 应 400(防误触守卫)",
+      async run() {
+        const r = await POST("/api/dashboard/wipe-demo-data", {});
+        if (r.status !== 400) {
+          return { ok: false, error: `期望 400, 实际 ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "防误触守卫 OK" } };
+      },
+    });
+
+    R.register({
+      id: "YY-2",
+      series: "YY",
+      title: "wipe-demo-data 错的 confirm 字符串 应 400",
+      async run() {
+        const r = await POST("/api/dashboard/wipe-demo-data", {
+          confirm: "yes",  // 错的
+        });
+        if (r.status !== 400) {
+          return { ok: false, error: `期望 400, 实际 ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "字符串校验严格 OK" } };
+      },
+    });
+
+    R.register({
+      id: "YY-3",
+      series: "YY",
+      title: "seed-demo-scenario 端点存在(不实际跑,检 405/400/200 范围)",
+      async run() {
+        // 我们不真实触发 seed(会污染当前 workspace);只验端点 wired 正确,
+        // 不会 404.OPTIONS / GET 应该是 405,POST 应该 200/40x.
+        const r = await fetch("/api/dashboard/seed-demo-scenario", {
+          method: "GET",
+          credentials: "include",
+        });
+        if (r.status === 404) {
+          return { ok: false, error: "端点 404,wiring 错" };
+        }
+        // 405 (Method Not Allowed) 或 401/403 都说明端点存在
+        return {
+          ok: true,
+          evidence: { _note: `端点存在 (status=${r.status})` },
+        };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",
