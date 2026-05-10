@@ -9,6 +9,9 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# 构建时注入版本号 (deploy.sh 设置 BUILD_VERSION) — 左下角 VersionBadge 显示
+ARG BUILD_VERSION=dev
+ENV NEXT_PUBLIC_BUILD_VERSION=$BUILD_VERSION
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 

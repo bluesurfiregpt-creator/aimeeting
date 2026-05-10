@@ -52,6 +52,10 @@ services:
     build:
       context: ../frontend
       dockerfile: Dockerfile
+      args:
+        # 由 deploy.sh 注入(YYYY-MM-DD HH:MM:SS Beijing time);
+        # 没设时 fallback 到 'dev',左下角 VersionBadge 显示 'vdev'
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
     container_name: aimeeting-frontend
     restart: unless-stopped
     environment:

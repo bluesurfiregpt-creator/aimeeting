@@ -2,6 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import AuthHeader from "@/components/AuthHeader";
 import Toaster from "@/components/Toaster";
+import VersionBadge from "@/components/VersionBadge";
 
 export const metadata: Metadata = {
   title: "Aimeeting · AI 会议",
@@ -19,6 +20,7 @@ export default function RootLayout({
         <AuthHeader />
         {children}
         <Toaster />
+        <VersionBadge />
       </body>
     </html>
   );
