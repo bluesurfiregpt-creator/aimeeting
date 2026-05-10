@@ -113,6 +113,9 @@ async def list_members(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    # v25-bug-fix #6 ABAC: leader/admin/owner 才能列全员;expert/member 403.
+    # 之前 expert 调此 endpoint 能拿全部 24 个用户邮箱 + 部门绑定,信息泄露.
+    await _require_admin(session, auth)
     rows = (
         await session.execute(
             select(WorkspaceMembership, User)

@@ -80,6 +80,16 @@ async def list_users(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    """
+    List workspace 用户(主要给开会页面挑参会人 / 派任务挑 assignee 用).
+
+    v25-bug-fix #6 ABAC:
+      - admin/leader/owner: 完整字段(含 email)
+      - expert/member: 隐去 email,只返 id/name/has_voiceprint(防泄露)
+    """
+    from ..auth import is_leader_or_admin
+    is_admin = await is_leader_or_admin(session, auth)
+
     rows = (
         await session.execute(
             select(User)
@@ -98,10 +108,13 @@ async def list_users(
         )
     ).all()
     have_vp = {row[0] for row in vp_rows}
-    return [
-        UserOut.model_validate({**u.__dict__, "has_voiceprint": (u.id in have_vp)})
-        for u in rows
-    ]
+    out: list[UserOut] = []
+    for u in rows:
+        d = {**u.__dict__, "has_voiceprint": (u.id in have_vp)}
+        if not is_admin:
+            d["email"] = None  # 隐去 email
+        out.append(UserOut.model_validate(d))
+    return out
 
 
 @router.get("/{user_id}", response_model=UserOut)

@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..audit import audit_log
-from ..auth import AuthContext, get_current_auth
+from ..auth import AuthContext, expert_bound_agent_id, get_current_auth, is_leader_or_admin
 from ..db import get_session
 from ..models import Agent
 
@@ -67,13 +67,20 @@ async def list_agents(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    rows = (
-        await session.execute(
-            select(Agent)
-            .where(Agent.workspace_id == auth.workspace.id)
-            .order_by(Agent.created_at.desc())
-        )
-    ).scalars().all()
+    # v25-bug-fix #6 ABAC:
+    #   - leader/admin/owner: 看 全部 16 AI(管理用)
+    #   - expert: 仅看自己 bound 的 1 个 AI(避免看到其它科室 AI 的 persona / KB 绑定)
+    #   - member: 看 全部(基础信息,不含 dify key — _to_out 已脱敏)
+    # 这是 ABAC 雏形,实际上线后可能要进一步限制 member 视角.
+    is_admin = await is_leader_or_admin(session, auth)
+    bound = await expert_bound_agent_id(session, auth)
+
+    q = select(Agent).where(Agent.workspace_id == auth.workspace.id)
+    if not is_admin and bound is not None:
+        # expert 只看自己绑定的
+        q = q.where(Agent.id == bound)
+    q = q.order_by(Agent.created_at.desc())
+    rows = (await session.execute(q)).scalars().all()
     return [_to_out(a) for a in rows]
 
 

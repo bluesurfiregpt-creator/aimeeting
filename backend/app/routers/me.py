@@ -1182,6 +1182,90 @@ class AutoRouteOut(BaseModel):
     candidates: list[RouteScoreOut] = []  # 全候选(降序),给 UI 展示「为啥选他」
 
 
+# v25-bug-fix #5: 内容/指令 级别的 4-维路由别名 endpoint(测试用例期望)
+class RecommendByContentIn(BaseModel):
+    content: str
+
+
+@router.post("/dispatch-recommend", response_model=RoutePreviewOut)
+async def dispatch_recommend_by_content(
+    payload: RecommendByContentIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v25-bug-fix #5: 不依赖 Task 行,直接传 content 跑 4-维 评分.
+
+    用途:
+      - leader 在 directive draft 里看「这条指令系统会推荐派给谁」
+      - 测试 / API 集成,不需先创建 task
+
+    返回 同 /tasks/{id}/route-preview.
+    """
+    from ..routing import find_best_assignee_for_task, routing_score_to_dict
+
+    text = (payload.content or "").strip()
+    if not text:
+        raise HTTPException(400, "content required")
+
+    decision = await find_best_assignee_for_task(
+        session, auth.workspace.id, text,
+        exclude_user_ids={auth.user.id},
+    )
+    if decision is None:
+        from ..routing import _MIN_COMPOSITE_THRESHOLD
+        all_decision = await find_best_assignee_for_task(
+            session, auth.workspace.id, text, threshold=0.0,
+            exclude_user_ids={auth.user.id},
+        )
+        cands = (
+            [routing_score_to_dict(s) for s in all_decision.all_candidates]
+            if all_decision else []
+        )
+        return RoutePreviewOut(
+            candidates=[RouteScoreOut(**c) for c in cands],
+            threshold=_MIN_COMPOSITE_THRESHOLD,
+            matched=False,
+        )
+    cands = [routing_score_to_dict(s) for s in decision.all_candidates]
+    return RoutePreviewOut(
+        candidates=[RouteScoreOut(**c) for c in cands],
+        threshold=decision.threshold,
+        matched=True,
+    )
+
+
+@router.post("/directives/{directive_id}/recommend", response_model=RoutePreviewOut)
+async def directive_recommend(
+    directive_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v25-bug-fix #5: 给指令本身跑 4-维路由(用 directive.content 作为评分文本).
+
+    Convenience wrapper over /dispatch-recommend — 不需要 client 重传 content.
+    """
+    try:
+        did = uuid.UUID(directive_id)
+    except ValueError:
+        raise HTTPException(400, "invalid directive id")
+    row = (
+        await session.execute(
+            select(LeaderDirective).where(
+                LeaderDirective.id == did,
+                LeaderDirective.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "directive not found")
+    return await dispatch_recommend_by_content(
+        RecommendByContentIn(content=row.content),
+        session=session, auth=auth,
+    )
+
+
 @router.get("/tasks/{task_id}/route-preview", response_model=RoutePreviewOut)
 async def preview_route(
     task_id: str,
@@ -2144,7 +2228,11 @@ class DirectiveCommitTaskIn(BaseModel):
     title: Optional[str] = None
     assignee_user_id: Optional[uuid.UUID] = None
     due_at: Optional[datetime] = None
-    dispatch: bool = False  # if True + assignee set, transition to dispatched immediately
+    # v25-bug-fix #4: dispatch 改 Optional[bool],None 时按 assignee 自动判断:
+    #   - 有 assignee → 默认 dispatch=True(用户预期,匹配 FE 行为)
+    #   - 无 assignee → 不可能 dispatch(无目标),保持 status='open'
+    # 显式 dispatch=False + assignee 设了 → 草稿暂存(罕见,但保留能力).
+    dispatch: Optional[bool] = None
     # v22.5: 一并选协办(只在 dispatch=true 时生效;最多 5 个;不能含主责)
     co_assignees: Optional[list[uuid.UUID]] = None
 
@@ -2222,8 +2310,12 @@ async def commit_directive(
         c = (tspec.content or "").strip()
         if not c:
             continue
-        # Default 'open'; if dispatch+assignee, jump to dispatched.
-        wants_dispatch = tspec.dispatch and tspec.assignee_user_id is not None
+        # v25-bug-fix #4: dispatch=None(默认)+ assignee → 派发(用户预期);
+        # dispatch=False + assignee → 暂存草稿(罕见用例);无 assignee 永不派发.
+        wants_dispatch = (
+            tspec.assignee_user_id is not None
+            and (tspec.dispatch is None or tspec.dispatch is True)
+        )
 
         # v22.5: 协办列表(只在 dispatch 时启用 + 验证)
         co_uuids: list[uuid.UUID] = []
@@ -2581,7 +2673,11 @@ async def commit_upper_doc(
         c = (tspec.content or "").strip()
         if not c:
             continue
-        wants_dispatch = tspec.dispatch and tspec.assignee_user_id is not None
+        # v25-bug-fix #4: 同 directive commit — assignee 设了 + dispatch 非显式 False → 派发.
+        wants_dispatch = (
+            tspec.assignee_user_id is not None
+            and (tspec.dispatch is None or tspec.dispatch is True)
+        )
         new_task = Task(
             workspace_id=auth.workspace.id,
             title=(tspec.title.strip()[:255] if tspec.title else None) or None,
