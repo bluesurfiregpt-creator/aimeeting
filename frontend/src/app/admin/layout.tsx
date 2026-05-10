@@ -19,6 +19,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <AdminTab href="/admin/memory" label="长期记忆" />
         <AdminTab href="/admin/cron-rules" label="定期巡检" />
         <AdminTab href="/admin/team" label="团队" />
+        <AdminTab href="/admin/access-requests" label="访问申请" />
         <AdminTab href="/admin/audit" label="操作日志" />
         <AdminTab href="/admin/demo-data" label="演示数据" />
       </nav>

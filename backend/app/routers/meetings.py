@@ -188,6 +188,44 @@ async def export_meeting(
     return Response(content=body, media_type=media, headers=headers)
 
 
+@router.get("/{meeting_id}/minutes")
+async def export_meeting_minutes(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v25-5 — 单场会议纪要 docx 完整版(政务公文格式).
+
+    比 /export?format=docx 更全:
+      - 议程(若有)
+      - 摘要 + 转写 + AI 专家发言 + 待办事项
+      - RGB 颜色 + 标题层级 + RFC 5987 中文 filename
+      - 页脚带导出时间
+
+    任何登录用户(只要在该 workspace)都可导出.
+    """
+    from urllib.parse import quote
+    from fastapi.responses import Response
+
+    from ..meeting_minutes import build_minutes_docx
+
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    body, filename = await build_minutes_docx(session, m.id)
+    ascii_fallback = filename.encode("ascii", errors="replace").decode("ascii").replace("?", "_")
+    headers = {
+        "Content-Disposition": (
+            f"attachment; filename=\"{ascii_fallback}\"; "
+            f"filename*=UTF-8''{quote(filename)}"
+        ),
+    }
+    return Response(
+        content=body,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers=headers,
+    )
+
+
 @router.delete("/{meeting_id}", status_code=204)
 async def delete_meeting(
     meeting_id: str,

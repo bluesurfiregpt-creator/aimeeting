@@ -65,6 +65,24 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
     }
   }, [meetingId]);
 
+  // v25-5: 完整纪要 docx(含议程 / agent 发言 / 待办)
+  const downloadMinutes = useCallback(async () => {
+    try {
+      const { blob, filename } = await api.downloadMeetingMinutes(meetingId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`已导出 ${filename}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "导出失败");
+    }
+  }, [meetingId]);
+
   const regen = useCallback(async () => {
     setBusy(true);
     setSummary(null);
@@ -132,9 +150,16 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
           <button
             onClick={() => download("docx")}
             className="text-zinc-500 hover:text-accent-400"
-            title="导出为 Word 文档"
+            title="导出为 Word 文档(简版:摘要 + 实录)"
           >
             导出 .docx
+          </button>
+          <button
+            onClick={downloadMinutes}
+            className="rounded-md bg-violet-500/15 px-2 py-0.5 font-medium text-violet-300 hover:bg-violet-500/25"
+            title="导出完整会议纪要 docx(含议程 / AI 发言 / 待办事项 / 政务公文格式)"
+          >
+            📄 完整纪要
           </button>
           <span className="text-zinc-700">|</span>
           <button

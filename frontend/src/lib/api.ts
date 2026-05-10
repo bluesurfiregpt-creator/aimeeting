@@ -1411,6 +1411,32 @@ export const api = {
     return { blob: await r.blob(), filename };
   },
 
+  /** v25-5: 单场会议纪要 docx 完整版(含议程 / agent 发言 / 待办事项). */
+  downloadMeetingMinutes: async (id: string) => {
+    const r = await fetch(
+      backendBase() + `/api/meetings/${id}/minutes`,
+      { credentials: "include" },
+    );
+    if (!r.ok) {
+      handleAuthError(r.status);
+      const text = await r.text().catch(() => "");
+      handleNetworkError(`/api/meetings/${id}/minutes`, r.status, text);
+      throw makeError(`/api/meetings/${id}/minutes`, r.status, text);
+    }
+    const cd = r.headers.get("Content-Disposition") ?? "";
+    let filename = `meeting-minutes.docx`;
+    const star = cd.match(/filename\*=UTF-8''([^;]+)/i);
+    if (star) {
+      try {
+        filename = decodeURIComponent(star[1]);
+      } catch {}
+    } else {
+      const plain = cd.match(/filename="?([^";]+)"?/i);
+      if (plain) filename = plain[1];
+    }
+    return { blob: await r.blob(), filename };
+  },
+
   listAudit: (action?: string, limit = 200) => {
     const q = new URLSearchParams({ limit: String(limit) });
     if (action) q.set("action", action);

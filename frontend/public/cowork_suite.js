@@ -4386,6 +4386,86 @@
       },
     });
 
+    // ---------- AB series · v25-3 数据访问申请 + v25-5 会议纪要 -----------
+    R.register({
+      id: "AB-1",
+      series: "AB",
+      title: "v25-3 GET /access-requests?role=reviewer 端点存在 + 返回数组",
+      async run() {
+        const r = await GET("/api/me/access-requests?role=reviewer&status=pending");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if (!Array.isArray(r.body)) {
+          return { ok: false, error: `期望数组,实际 ${typeof r.body}` };
+        }
+        return { ok: true, evidence: { _note: `pending=${r.body.length}` } };
+      },
+    });
+
+    R.register({
+      id: "AB-2",
+      series: "AB",
+      title: "v25-3 GET /access-requests?role=requester 自申请列表",
+      async run() {
+        const r = await GET("/api/me/access-requests?role=requester&status=all");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if (!Array.isArray(r.body)) {
+          return { ok: false, error: "non-array" };
+        }
+        return { ok: true, evidence: { _note: `my requests=${r.body.length}` } };
+      },
+    });
+
+    R.register({
+      id: "AB-3",
+      series: "AB",
+      title: "v25-5 /meetings/{id}/minutes 端点存在(找一个会议)",
+      async run() {
+        const ms = await GET("/api/meetings");
+        if (!ms.ok) return { ok: false, error: `meetings ${ms.status}` };
+        const list = ms.body || [];
+        if (list.length === 0) {
+          return {
+            ok: true,
+            evidence: { _note: "没有会议(seed 后再跑;不 fail)" },
+          };
+        }
+        const m = list[0];
+        const r = await fetch(`/api/meetings/${m.id}/minutes`, {
+          credentials: "include",
+        });
+        if (r.status === 404) {
+          return { ok: false, error: "404 端点未 wired" };
+        }
+        if (r.status >= 500) {
+          return { ok: false, error: `5xx 内部错误: ${r.status}` };
+        }
+        const ct = r.headers.get("Content-Type") || "";
+        const cd = r.headers.get("Content-Disposition") || "";
+        if (r.status === 200) {
+          if (!ct.includes("officedocument.wordprocessingml.document")) {
+            return { ok: false, error: `Content-Type 期望 docx, 实际 ${ct}` };
+          }
+          if (!cd.includes("filename")) {
+            return { ok: false, error: `缺 Content-Disposition` };
+          }
+          // 扔掉 body
+          await r.arrayBuffer();
+          return {
+            ok: true,
+            evidence: {
+              _note: `docx 导出 OK`,
+              meeting_id: m.id,
+              has_filename_star: cd.includes("filename*=UTF-8''"),
+            },
+          };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `端点存在 (status=${r.status})` },
+        };
+      },
+    });
+
     R.register({
       id: "ZZ-2",
       series: "ZZ",

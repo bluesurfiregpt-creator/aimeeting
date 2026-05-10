@@ -171,9 +171,12 @@ function Card({
 function StatusPie({ data }: { data: DashboardOverview["by_status"] }) {
   if (!data.length) {
     return (
-      <p className="text-xs text-zinc-500" data-testid="empty-status">
-        暂无数据
-      </p>
+      <div className="text-xs text-zinc-500" data-testid="empty-status">
+        <p>暂无任务数据.</p>
+        <p className="mt-1 text-zinc-600">
+          首次使用?去 <a href="/admin/demo-data" className="text-violet-400 hover:text-violet-300">演示数据</a> 一键 seed 完整场景.
+        </p>
+      </div>
     );
   }
   const chartData = data.map((d) => ({
@@ -226,7 +229,7 @@ function SourcePie({ data }: { data: DashboardOverview["by_source"] }) {
   if (!data.length) {
     return (
       <p className="text-xs text-zinc-500" data-testid="empty-source">
-        暂无数据
+        暂无任务来源数据 — 先创建 / seed 任务后这里就有.
       </p>
     );
   }
