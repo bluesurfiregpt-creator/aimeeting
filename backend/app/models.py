@@ -162,6 +162,12 @@ class User(Base):
     password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # v24.3 #3 — 暂停派单截止时间(智慧住建文档 §4.4 重大超时治理 — 连续 2 次
+    # 重大超时 → suspended_until = now + 7d).派发时检查;过期自动恢复.
+    # NULL = 未暂停;过去时间 = 已自动恢复.
+    suspended_until: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Convenience pointer to the user's primary workspace (the one they see
     # by default after login). Real authorization is via workspace_membership.
     workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
@@ -331,6 +337,43 @@ class MeetingAgentMessage(Base):
     # 长期记忆引用(LongTermMemory)留 v25 也并入此处.
     citations: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TaskPenalty(Base):
+    """
+    v24.3 #3 — 任务超时扣分事件(智慧住建文档 §4.4 超时治理).
+
+    每条 task × user × severity 最多一行(UNIQUE),避免重复扣分.
+    score_delta:
+      - severe (3-7d 超时):  -3
+      - major  (>7d 超时):   -5
+    连续 2 次 major 触发 user.suspended_until = now + 7d(暂停派单).
+    """
+    __tablename__ = "task_penalty"
+    __table_args__ = (
+        UniqueConstraint(
+            "task_id", "user_id", "severity",
+            name="uq_penalty_task_user_severity",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("task.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    severity: Mapped[str] = mapped_column(String(16))  # 'severe' | 'major'
+    score_delta: Mapped[int] = mapped_column(Integer)  # 负数:-3 / -5
+    days_overdue: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
 
 
 class MeetingActionItem(Base):

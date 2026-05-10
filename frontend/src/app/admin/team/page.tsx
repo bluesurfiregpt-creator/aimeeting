@@ -226,6 +226,17 @@ export default function TeamAdmin() {
                           {isMe && (
                             <span className="text-xs text-zinc-500">（你）</span>
                           )}
+                          {/* v24.3 #3: 暂停派单徽章 */}
+                          {m.suspended_until &&
+                            new Date(m.suspended_until) > new Date() && (
+                              <span
+                                data-testid={`team-suspended-${m.user_id}`}
+                                title={`暂停派单至 ${new Date(m.suspended_until).toLocaleString("zh-CN")}`}
+                                className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium text-rose-300"
+                              >
+                                🚫 暂停派单
+                              </span>
+                            )}
                         </div>
                         <div className="mt-0.5 text-xs text-zinc-500">
                           {m.email ?? "—"} · 加入于{" "}

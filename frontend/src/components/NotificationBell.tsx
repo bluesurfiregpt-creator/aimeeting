@@ -133,6 +133,26 @@ function describe(n: Notification): { line: string; href: string | null } {
       const prefix = role === "dispatcher" ? "下属未签收" : "请尽快签收";
       return { line: `⏰ ${prefix} (${hours}h):${title}`, href };
     }
+    case "task_penalty": {
+      const title = typeof p.title === "string" ? p.title : "";
+      const sev = typeof p.severity === "string" ? p.severity : "";
+      const days = typeof p.days_overdue === "number" ? p.days_overdue : 0;
+      const score = typeof p.score_delta === "number" ? p.score_delta : 0;
+      const role = typeof p.to_role === "string" ? p.to_role : "";
+      const sevTag = sev === "major" ? "[重大]" : "[严重]";
+      const prefix = role === "dispatcher" ? "下属任务超时扣分" : "你的任务超时被扣分";
+      return { line: `📉 ${prefix} ${sevTag} 超时 ${days}d / ${score} 分:${title}`, href };
+    }
+    case "user_suspended": {
+      const name = typeof p.user_name === "string" ? p.user_name : "";
+      const until = typeof p.suspended_until === "string" ? p.suspended_until : "";
+      const role = typeof p.to_role === "string" ? p.to_role : "";
+      const subj = role === "self" ? "你" : name;
+      return {
+        line: `🚫 ${subj} 因连续 2 次重大超时被暂停派单,至 ${until.slice(0, 10)}`,
+        href,
+      };
+    }
     default:
       return { line: n.kind, href };
   }

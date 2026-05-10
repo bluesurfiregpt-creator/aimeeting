@@ -4001,6 +4001,57 @@
       },
     });
 
+    // ---------- UU series · v24.3 #3 扭分 + 暂停派单 -------------------------
+    R.register({
+      id: "UU-1",
+      series: "UU",
+      title: "POST /penalties/force-check 200 + new_penalties 字段",
+      async run() {
+        const r = await POST("/api/dashboard/penalties/force-check", {});
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        if (typeof r.body.new_penalties !== "number") {
+          return { ok: false, error: "new_penalties not number" };
+        }
+        return { ok: true, evidence: { _note: `+${r.body.new_penalties} 条 penalty` } };
+      },
+    });
+
+    R.register({
+      id: "UU-2",
+      series: "UU",
+      title: "GET /api/team/members shape 含 suspended_until 字段",
+      async run() {
+        const r = await GET("/api/team/members");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const members = r.body || [];
+        if (members.length === 0) return { ok: false, error: "no members" };
+        const m = members[0];
+        if (!("suspended_until" in m)) {
+          return { ok: false, error: "suspended_until 字段缺失" };
+        }
+        // Type:null or string
+        if (m.suspended_until !== null && typeof m.suspended_until !== "string") {
+          return { ok: false, error: `suspended_until 类型错误: ${typeof m.suspended_until}` };
+        }
+        return { ok: true, evidence: { _note: `${members.length} members, shape OK` } };
+      },
+    });
+
+    R.register({
+      id: "UU-3",
+      series: "UU",
+      title: "audit_log 含 penalties.force_check 一行",
+      async run() {
+        await POST("/api/dashboard/penalties/force-check", {});
+        const r = await GET("/api/audit?action=penalties.force_check&limit=10");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if ((r.body || []).length === 0) {
+          return { ok: false, error: "force_check audit 缺" };
+        }
+        return { ok: true, evidence: { _note: `audit row id=${r.body[0].id}` } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",

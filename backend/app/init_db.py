@@ -77,6 +77,9 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     # v24.3 #1 (RAG 引用溯源 UI 强化):agent message 持久化引用的 KB chunks.
     # 默认 NULL = 老消息没引用信息(只在新消息上有).
     ("meeting_agent_message", "citations", "JSONB"),
+    # v24.3 #3 (扣分 + 暂停派单):user.suspended_until.
+    # NULL = 未暂停;过去时间 = 已恢复.
+    ('"user"', "suspended_until", "TIMESTAMPTZ"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

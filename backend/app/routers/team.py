@@ -59,6 +59,8 @@ class MemberOut(BaseModel):
     role: str
     bound_agent_id: Optional[uuid.UUID] = None
     bound_agent_name: Optional[str] = None
+    # v24.3 #3: 暂停派单截止时间(NULL = 未暂停;过去时间 = 已自动恢复)
+    suspended_until: Optional[datetime] = None
     joined_at: datetime
 
 
@@ -128,6 +130,7 @@ async def list_members(
             role=m.role,
             bound_agent_id=m.bound_agent_id,
             bound_agent_name=name_by_agent.get(m.bound_agent_id) if m.bound_agent_id else None,
+            suspended_until=u.suspended_until,
             joined_at=m.created_at,
         )
         for (m, u) in rows
@@ -226,6 +229,7 @@ async def update_member(
         role=target.role,
         bound_agent_id=target.bound_agent_id,
         bound_agent_name=bound_name,
+        suspended_until=u.suspended_until,
         joined_at=target.created_at,
     )
 

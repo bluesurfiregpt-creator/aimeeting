@@ -893,6 +893,36 @@ async def dispatch_overdue_force_check(
     return DispatchOverdueOut(notifications_emitted=n)
 
 
+# ---- v24.3 #3 · 超时扣分手工触发 -------------------------------------------
+
+
+class PenaltyForceCheckOut(BaseModel):
+    new_penalties: int
+
+
+@router.post("/penalties/force-check", response_model=PenaltyForceCheckOut)
+async def penalties_force_check(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.3 #3: 手工跑一次超时扣分扫描(平时 1h 自动).
+
+    Leader/admin only.返回新插入的 penalty 数(已扣过的不重扣).
+    """
+    from ..due_reminder import _tick_penalties
+    await require_leader_or_admin(session, auth)
+    n = await _tick_penalties(session)
+    await audit_log(
+        session, auth, "penalties.force_check",
+        target_type="workspace", target_id=str(auth.workspace.id),
+        payload={"new_penalties": n},
+        autocommit=False,
+    )
+    await session.commit()
+    return PenaltyForceCheckOut(new_penalties=n)
+
+
 # ---- v24.1 #2 · 异常预警手工触发 -------------------------------------------
 
 

@@ -447,6 +447,13 @@ async def dispatch_task(
     ).scalar_one_or_none()
     if not u:
         raise HTTPException(400, "assignee_user_id not in this workspace")
+    # v24.3 #3: 暂停派单检查(智慧住建文档 §4.4)
+    if u.suspended_until and u.suspended_until > datetime.now(timezone.utc):
+        raise HTTPException(
+            409,
+            f"用户 {u.name} 因连续 2 次重大超时被暂停派单,至 "
+            f"{u.suspended_until.astimezone().strftime('%Y-%m-%d %H:%M')} 才可派",
+        )
 
     # v22.5: 验证协办列表
     co_uuids: list[uuid.UUID] = []

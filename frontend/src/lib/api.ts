@@ -462,7 +462,9 @@ export type Notification = {
     | "task_collaboration_rated"
     | "report_submitted"
     | "alert_fired"
-    | "task_dispatch_overdue";
+    | "task_dispatch_overdue"
+    | "task_penalty"
+    | "user_suspended";
   severity: "normal" | "yellow" | "red" | "purple";
   payload: Record<string, unknown> | null;
   read_at: string | null;
@@ -725,6 +727,8 @@ export type TeamMember = {
   role: TeamRole;
   bound_agent_id: string | null;
   bound_agent_name: string | null;
+  /** v24.3 #3: 暂停派单截止时间(NULL=未暂停;过去时间=已自动恢复) */
+  suspended_until: string | null;
   joined_at: string;
 };
 
@@ -1200,6 +1204,12 @@ export const api = {
   dispatchOverdueForceCheck: () =>
     jpost<{ notifications_emitted: number }>(
       `/api/dashboard/dispatch-overdue/force-check`,
+      {},
+    ),
+  // v24.3 #3: 手工跑一次超时扣分扫描(平时 1h 自动)
+  penaltiesForceCheck: () =>
+    jpost<{ new_penalties: number }>(
+      `/api/dashboard/penalties/force-check`,
       {},
     ),
 

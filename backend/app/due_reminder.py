@@ -29,8 +29,10 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy.exc import IntegrityError
+
 from .db import SessionLocal
-from .models import Meeting, MeetingActionItem, Task, WorkspaceMembership
+from .models import Meeting, MeetingActionItem, Task, TaskPenalty, User, WorkspaceMembership
 from .notify import emit_notification
 
 logger = logging.getLogger(__name__)
@@ -211,6 +213,152 @@ async def _tick_dispatch_overdue(session: AsyncSession) -> int:
     return fired
 
 
+async def _tick_penalties(session: AsyncSession) -> int:
+    """
+    v24.3 #3 — 超时扣分 + 连续 2 次重大暂停派单(智慧住建文档 §4.4).
+
+    扫所有 active task with due_at past:
+      - 3-7d 超时 → severe (-3)
+      - >7d 超时 → major (-5)
+    UNIQUE on (task, user, severity) 防重复扣.major 时检查近 30d 内
+    是否已有 ≥1 条 major(算上本次就 ≥2),触发 user.suspended_until = now + 7d.
+
+    Returns:fired count(本 tick 新插入的 penalty 数).
+    """
+    now = datetime.now(timezone.utc)
+    rows = (
+        await session.execute(
+            select(Task).where(
+                Task.assignee_user_id.is_not(None),
+                Task.due_at.is_not(None),
+                Task.due_at < now,
+                Task.status.notin_(("done", "archived", "cancelled")),
+            )
+        )
+    ).scalars().all()
+    fired = 0
+    for t in rows:
+        days_overdue = (now - t.due_at).days
+        if days_overdue < 3:
+            continue
+        severity = "major" if days_overdue >= 7 else "severe"
+        score_delta = -5 if severity == "major" else -3
+
+        # UPSERT-style:UNIQUE 拦,IntegrityError 跳过
+        try:
+            session.add(
+                TaskPenalty(
+                    workspace_id=t.workspace_id,
+                    task_id=t.id,
+                    user_id=t.assignee_user_id,
+                    severity=severity,
+                    score_delta=score_delta,
+                    days_overdue=days_overdue,
+                    reason=f"超时 {days_overdue} 天 (due_at={t.due_at.isoformat()})",
+                )
+            )
+            await session.flush()
+        except IntegrityError:
+            await session.rollback()
+            continue  # 已扣过这条 severity,不重扣
+
+        fired += 1
+
+        # 通知本人(red)+ 派发人(yellow)
+        notify_payload = {
+            "task_id": str(t.id),
+            "title": (t.title or t.content[:40]),
+            "severity": severity,
+            "score_delta": score_delta,
+            "days_overdue": days_overdue,
+        }
+        await emit_notification(
+            session,
+            workspace_id=t.workspace_id,
+            user_id=t.assignee_user_id,
+            kind="task_penalty",
+            severity="red" if severity == "major" else "yellow",
+            payload={**notify_payload, "to_role": "assignee"},
+        )
+        if t.dispatched_by_user_id and t.dispatched_by_user_id != t.assignee_user_id:
+            await emit_notification(
+                session,
+                workspace_id=t.workspace_id,
+                user_id=t.dispatched_by_user_id,
+                kind="task_penalty",
+                severity="yellow",
+                payload={
+                    **notify_payload,
+                    "to_role": "dispatcher",
+                    "assignee_user_id": str(t.assignee_user_id),
+                },
+            )
+
+        # 重大 (major):看近 30d 是否已有另一条 major → 暂停派单 7d
+        if severity == "major":
+            cutoff_30d = now - timedelta(days=30)
+            major_count = (
+                await session.execute(
+                    select(func.count(TaskPenalty.id)).where(
+                        TaskPenalty.workspace_id == t.workspace_id,
+                        TaskPenalty.user_id == t.assignee_user_id,
+                        TaskPenalty.severity == "major",
+                        TaskPenalty.created_at >= cutoff_30d,
+                    )
+                )
+            ).scalar() or 0
+            if major_count >= 2:
+                # 暂停 7 天(若已暂停则取较远的)
+                user = (
+                    await session.execute(
+                        select(User).where(User.id == t.assignee_user_id)
+                    )
+                ).scalar_one_or_none()
+                if user is not None:
+                    target_until = now + timedelta(days=7)
+                    if user.suspended_until is None or user.suspended_until < target_until:
+                        user.suspended_until = target_until
+                    # 通知 user 自己 + workspace owners/admins
+                    suspend_payload = {
+                        "user_id": str(user.id),
+                        "user_name": user.name,
+                        "suspended_until": target_until.isoformat(),
+                        "trigger_task_id": str(t.id),
+                        "major_count_30d": int(major_count),
+                    }
+                    await emit_notification(
+                        session,
+                        workspace_id=t.workspace_id,
+                        user_id=user.id,
+                        kind="user_suspended",
+                        severity="purple",
+                        payload={**suspend_payload, "to_role": "self"},
+                    )
+                    leader_rows = (
+                        await session.execute(
+                            select(WorkspaceMembership.user_id).where(
+                                WorkspaceMembership.workspace_id == t.workspace_id,
+                                WorkspaceMembership.role.in_(("owner", "admin", "leader")),
+                            )
+                        )
+                    ).all()
+                    for (lid,) in leader_rows:
+                        if lid == user.id:
+                            continue
+                        await emit_notification(
+                            session,
+                            workspace_id=t.workspace_id,
+                            user_id=lid,
+                            kind="user_suspended",
+                            severity="purple",
+                            payload={**suspend_payload, "to_role": "leader"},
+                        )
+
+    if fired:
+        await session.commit()
+    return fired
+
+
 async def due_reminder_loop(stop_event: asyncio.Event) -> None:
     """
     Long-running loop wired into the FastAPI lifespan. Sleeps between
@@ -237,6 +385,13 @@ async def due_reminder_loop(stop_event: asyncio.Event) -> None:
                     logger.info(
                         "due_reminder dispatch-overdue tick: emitted %d notifications",
                         dispatch_overdue_n,
+                    )
+                # v24.3 #3: 超时扣分 + 暂停派单 — 同 tick 跑(智慧住建文档 §4.4)
+                penalties = await _tick_penalties(session)
+                if penalties:
+                    logger.info(
+                        "due_reminder penalty tick: %d new penalties applied",
+                        penalties,
                     )
         except Exception:  # belt + suspenders: never let a bad row kill the loop
             logger.exception("due_reminder tick failed")

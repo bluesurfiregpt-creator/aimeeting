@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "frozen_at": "2026-05-10T00:00:00Z",
-  "frozen_against": "v24.3 #2 (报表日清/周查 Excel)",
+  "frozen_against": "v24.3 #3 (超时扭分 + 暂停派单)",
   "_note": "Deterministic per-case status snapshot. T2 diff: any case whose status differs from this baseline is a regression (or, for ⏭️→✅, a new pass to celebrate). evidence/error/timing intentionally excluded — those are non-deterministic.",
   "summary": {
-    "total": 142,
-    "pass": 134,
+    "total": 145,
+    "pass": 137,
     "fail": 0,
     "skipped": 8
   },
@@ -151,6 +151,9 @@
     { "id": "SS-1", "series": "SS", "status": "pass" },
     { "id": "TT-1", "series": "TT", "status": "pass" },
     { "id": "TT-2", "series": "TT", "status": "pass" },
-    { "id": "TT-3", "series": "TT", "status": "pass" }
+    { "id": "TT-3", "series": "TT", "status": "pass" },
+    { "id": "UU-1", "series": "UU", "status": "pass" },
+    { "id": "UU-2", "series": "UU", "status": "pass" },
+    { "id": "UU-3", "series": "UU", "status": "pass" }
   ]
 }
