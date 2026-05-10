@@ -88,6 +88,32 @@ def _extract_pdf(content: bytes) -> str:
 
 
 def _extract_docx(content: bytes) -> str:
+    """
+    DOCX 文本提取.两段式:
+      1. 主路径 python-docx — 表格保留完好,段落整齐
+      2. fallback docx2txt — 主路径炸时(WPS / 在线 Office 导出经常缺
+         word/endnotes.xml / footnotes.xml 等可选 part,python-docx
+         严格 KeyError 拒绝),用 docx2txt 强行抽文本.精度低一点
+         (表格变线性,部分格式丢)但**不会失败**.
+
+    实测最常见 fallback 触发原因:WPS / iWork / Google Docs 导出的 .docx
+    缺 endnotes.xml,以及 OnlyOffice 缺 footer 引用.
+    """
+    try:
+        return _extract_docx_strict(content)
+    except KeyError as e:
+        # zipfile.ZipFile.open() KeyError 长成 "There is no item named '...' in the archive"
+        logger.warning("python-docx 失败(%s),fallback 到 docx2txt", e)
+        return _extract_docx_loose(content)
+    except Exception as e:
+        # 其他异常(BadZipFile / 损坏 / 加密 等)也走 fallback,docx2txt 也会
+        # 抛 — 那就让它抛上去,让 router 标 status=failed.
+        logger.warning("python-docx 异常(%s: %s),fallback 到 docx2txt", type(e).__name__, e)
+        return _extract_docx_loose(content)
+
+
+def _extract_docx_strict(content: bytes) -> str:
+    """python-docx 主路径 — 表格 + 段落都漂亮."""
     from docx import Document  # python-docx
 
     doc = Document(io.BytesIO(content))
@@ -103,6 +129,29 @@ def _extract_docx(content: bytes) -> str:
             if cells:
                 parts.append("\t".join(cells))
     return "\n".join(parts)
+
+
+def _extract_docx_loose(content: bytes) -> str:
+    """
+    docx2txt fallback — 把 docx 当 zip 打开,抽 word/document.xml 的文本.
+    需要写到临时文件(docx2txt API 只接 path).
+    """
+    import tempfile
+    import os
+
+    import docx2txt
+
+    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+    try:
+        text = docx2txt.process(tmp_path) or ""
+        return text.strip()
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
 
 
 def _extract_xlsx(content: bytes) -> str:
