@@ -4052,6 +4052,57 @@
       },
     });
 
+    // ---------- VV series · v24.3 #4 月结评价自动 cron ---------------------
+    R.register({
+      id: "VV-1",
+      series: "VV",
+      title: "POST /monthly-eval/force-run 默认上月 → 200 + workspaces/users",
+      async run() {
+        const r = await POST("/api/dashboard/monthly-eval/force-run", {});
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        for (const k of ["period", "workspaces", "users"]) {
+          if (!(k in r.body)) return { ok: false, error: `missing ${k}` };
+        }
+        if (!/^\d{4}-\d{2}$/.test(r.body.period)) {
+          return { ok: false, error: `bad period format: ${r.body.period}` };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `period=${r.body.period}, ws=${r.body.workspaces}, users=${r.body.users}` },
+        };
+      },
+    });
+
+    R.register({
+      id: "VV-2",
+      series: "VV",
+      title: "monthly-eval/force-run 指定 period(2024-01)→ 200 + 同 period",
+      async run() {
+        const r = await POST("/api/dashboard/monthly-eval/force-run", {
+          period: "2024-01",
+        });
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if (r.body.period !== "2024-01") {
+          return { ok: false, error: `expected period=2024-01, got ${r.body.period}` };
+        }
+        return { ok: true, evidence: { _note: "custom period OK" } };
+      },
+    });
+
+    R.register({
+      id: "VV-3",
+      series: "VV",
+      title: "audit_log 含 monthly_eval.force_run 一行",
+      async run() {
+        const r = await GET("/api/audit?action=monthly_eval.force_run&limit=10");
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if ((r.body || []).length === 0) {
+          return { ok: false, error: "force_run audit 缺" };
+        }
+        return { ok: true, evidence: { _note: `audit row id=${r.body[0].id}` } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",

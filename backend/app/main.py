@@ -16,6 +16,7 @@ from .config import get_settings
 from .cron_runner import cron_runner_loop
 from .db import SessionLocal
 from .due_reminder import due_reminder_loop
+from .monthly_eval_runner import monthly_eval_loop
 from .identify_pipeline import identify_worker
 from .init_db import init_db
 from .models import Meeting, MeetingTranscript
@@ -61,6 +62,7 @@ async def lifespan(_app: FastAPI):
     reminder_task = asyncio.create_task(due_reminder_loop(stop_event))
     cron_task = asyncio.create_task(cron_runner_loop(stop_event))
     alert_task = asyncio.create_task(alert_monitor_loop(stop_event))
+    monthly_eval_task = asyncio.create_task(monthly_eval_loop(stop_event))
     try:
         yield
     finally:
@@ -69,6 +71,7 @@ async def lifespan(_app: FastAPI):
             ("due_reminder", reminder_task),
             ("cron_runner", cron_task),
             ("alert_monitor", alert_task),
+            ("monthly_eval", monthly_eval_task),
         ):
             try:
                 await asyncio.wait_for(t, timeout=5)

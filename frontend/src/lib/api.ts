@@ -1212,6 +1212,12 @@ export const api = {
       `/api/dashboard/penalties/force-check`,
       {},
     ),
+  // v24.3 #4: 手工跑一次月结评价(平时月初自动)
+  monthlyEvalForceRun: (period?: string | null) =>
+    jpost<{ period: string; workspaces: number; users: number }>(
+      `/api/dashboard/monthly-eval/force-run`,
+      { period: period ?? null },
+    ),
 
   // v24.2 #4: 3 个指标的趋势分析(mean/std/z-score/slope/forecast/anomaly)
   trends: (days = 30) =>

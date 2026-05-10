@@ -893,6 +893,45 @@ async def dispatch_overdue_force_check(
     return DispatchOverdueOut(notifications_emitted=n)
 
 
+# ---- v24.3 #4 · 月结评价手工触发 -------------------------------------------
+
+
+class MonthlyEvalForceRunIn(BaseModel):
+    period: Optional[str] = None  # 'YYYY-MM',默认上月
+
+
+class MonthlyEvalForceRunOut(BaseModel):
+    period: str
+    workspaces: int
+    users: int
+
+
+@router.post("/monthly-eval/force-run", response_model=MonthlyEvalForceRunOut)
+async def monthly_eval_force_run(
+    payload: MonthlyEvalForceRunIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v24.3 #4: 手工跑一次月结评价(给所有 workspace 的所有 active assignees).
+
+    平时由 monthly_eval_loop 在每月 1 号 0-2 点自动跑.
+    Leader/admin only.可指定 period(默认上月).
+    """
+    from ..monthly_eval_runner import run_monthly_eval_for_all
+    await require_leader_or_admin(session, auth)
+    p = (payload.period or "").strip() or None
+    result = await run_monthly_eval_for_all(session, period=p)
+    await audit_log(
+        session, auth, "monthly_eval.force_run",
+        target_type="system", target_id=None,
+        payload=result,
+        autocommit=False,
+    )
+    await session.commit()
+    return MonthlyEvalForceRunOut(**result)
+
+
 # ---- v24.3 #3 · 超时扣分手工触发 -------------------------------------------
 
 
