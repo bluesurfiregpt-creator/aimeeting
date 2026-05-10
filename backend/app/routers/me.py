@@ -1567,6 +1567,9 @@ async def create_report(
     content = (payload.content or "").strip()
     if not content:
         raise HTTPException(400, "content required")
+    if len(content) < 5:
+        # 同前端 ReportPanel 校验:<5 字一般是误操作 / 噪声上报
+        raise HTTPException(400, "content too short (min 5 chars)")
     if len(content) > 2000:
         raise HTTPException(400, "content too long (max 2000 chars)")
     if payload.severity not in _REPORT_SEVERITY_TO_NOTI:
