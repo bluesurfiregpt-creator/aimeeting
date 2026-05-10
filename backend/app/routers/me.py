@@ -738,10 +738,18 @@ async def cancel_task(
 
 
 class SubmitIn(BaseModel):
-    note: Optional[str] = None  # 阶段汇报简述,可选
+    note: Optional[str] = None  # 阶段汇报简述,可选(legacy back-compat)
     # v22.5: 若有未交协办,默认返回 422 让 UI 警告;客户端确认后带 force=true
     # 再调一次硬过.
     force: bool = False
+    # v24.1 #5: 智慧住建文档 §4.3 阶段性上报模板.4 段结构化(都可选,任一非空都
+    # 视为「使用结构化模板」).客户端可保留只填 note 的旧行为(纯文本汇报).
+    completed: Optional[str] = None      # 已完成工作
+    problems: Optional[str] = None       # 当前问题
+    next_steps: Optional[str] = None     # 下一步计划
+    # 佐证材料链接列表(URLs,如 OSS 存储 / 知识库 KB doc 链接).
+    # max 10 条,每条 max 500 字符(防长 URL 攻击).
+    evidence_urls: Optional[list[str]] = None
 
 
 class RejectIn(BaseModel):
@@ -807,6 +815,36 @@ async def submit_task(
 
     t.status = new_status
 
+    # v24.1 #5: 如果用了结构化模板,把 submission_payload 写到 source_ref 里
+    # 持久化(给 TaskDetail 页 + 客户审核时看完整阶段汇报).
+    submission_payload: dict[str, Any] = {}
+    if payload.completed:
+        submission_payload["completed"] = payload.completed[:2000]
+    if payload.problems:
+        submission_payload["problems"] = payload.problems[:2000]
+    if payload.next_steps:
+        submission_payload["next_steps"] = payload.next_steps[:2000]
+    if payload.evidence_urls:
+        # 限 max 10 条 + 单条 max 500 chars
+        if len(payload.evidence_urls) > 10:
+            raise HTTPException(400, "evidence_urls 最多 10 条")
+        ev_clean = [(u or "").strip()[:500] for u in payload.evidence_urls if u and u.strip()]
+        if ev_clean:
+            submission_payload["evidence_urls"] = ev_clean
+    if payload.note:
+        submission_payload["note"] = payload.note[:500]
+
+    if submission_payload:
+        # 把 submission_payload 写到 source_ref(JSONB)的子键,不破坏原 source_ref
+        existing_ref = t.source_ref if isinstance(t.source_ref, dict) else {}
+        existing_ref["submission_payload"] = {
+            **submission_payload,
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+            "submitted_by_user_id": str(auth.user.id),
+            "submitted_by_name": auth.user.name,
+        }
+        t.source_ref = existing_ref
+
     await _mirror_status_to_action(session, t)
 
     reviewer_id = t.dispatched_by_user_id or t.created_by_user_id
@@ -815,6 +853,10 @@ async def submit_task(
         notify_payload["submitted_by"] = auth.user.name
         if payload.note:
             notify_payload["note"] = payload.note[:500]
+        # v24.1 #5: 结构化字段非空时给 UI 一个 "structured=true" 提示,引导
+        # 审核者点开看(detail 页有完整内容)
+        if any([payload.completed, payload.problems, payload.next_steps, payload.evidence_urls]):
+            notify_payload["structured"] = True
         await emit_notification(
             session,
             workspace_id=auth.workspace.id,

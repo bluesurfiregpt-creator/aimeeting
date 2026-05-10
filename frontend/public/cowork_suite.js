@@ -3419,6 +3419,124 @@
       },
     });
 
+    // ---------- MM series · v24.1 #5 阶段性上报模板 -------------------------
+    R.register({
+      id: "MM-1",
+      series: "MM",
+      title: "submit 结构化 4 段 → source_ref.submission_payload 写入",
+      async run(ctx) {
+        const me = ctx.me || (await GET("/api/auth/me")).body;
+        // 创 + 派 + 签 + 开始
+        const m = await POST("/api/meetings", { title: `${PREFIX}_MM1`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `meeting ${m.status}` };
+        created("meeting", m.body.id, "MM1");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_MM1_t`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_MM1_t`);
+        await POST(`/api/me/tasks/${t.id}/dispatch`, { assignee_user_id: me.user_id });
+        await POST(`/api/me/tasks/${t.id}/accept`, {});
+        await POST(`/api/me/tasks/${t.id}/start`, {});
+        // 结构化 submit
+        const r = await POST(`/api/me/tasks/${t.id}/submit`, {
+          completed: `${PREFIX}_MM1_completed_本周完成 X`,
+          problems: `${PREFIX}_MM1_problems_遇到 Y`,
+          next_steps: `${PREFIX}_MM1_next_下周做 Z`,
+          evidence_urls: ["https://example.com/proof1.png", "https://example.com/doc.pdf"],
+        });
+        if (!r.ok) return { ok: false, error: `submit ${r.status} ${JSON.stringify(r.body)}` };
+        // 拉 detail 验 source_ref.submission_payload 各字段
+        const d = await GET(`/api/me/tasks/${t.id}/detail`);
+        if (!d.ok) return { ok: false, error: `detail ${d.status}` };
+        const sp = d.body.source_ref?.submission_payload;
+        if (!sp) return { ok: false, error: "source_ref.submission_payload 没写入" };
+        if (!sp.completed?.includes("MM1_completed")) {
+          return { ok: false, error: `completed 不对: ${sp.completed}` };
+        }
+        if (!sp.problems?.includes("MM1_problems")) {
+          return { ok: false, error: "problems 不对" };
+        }
+        if (!sp.next_steps?.includes("MM1_next")) {
+          return { ok: false, error: "next_steps 不对" };
+        }
+        if (!Array.isArray(sp.evidence_urls) || sp.evidence_urls.length !== 2) {
+          return { ok: false, error: `evidence_urls 数不对: ${JSON.stringify(sp.evidence_urls)}` };
+        }
+        return { ok: true, evidence: { _note: "4 段 + 2 evidence URLs 全写入" } };
+      },
+    });
+
+    R.register({
+      id: "MM-2",
+      series: "MM",
+      title: "submit evidence_urls > 10 条 → 400",
+      async run() {
+        const me = (await GET("/api/auth/me")).body;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_MM2`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `meeting ${m.status}` };
+        created("meeting", m.body.id, "MM2");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_MM2_t`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_MM2_t`);
+        await POST(`/api/me/tasks/${t.id}/dispatch`, { assignee_user_id: me.user_id });
+        await POST(`/api/me/tasks/${t.id}/accept`, {});
+        await POST(`/api/me/tasks/${t.id}/start`, {});
+        const urls = Array.from({ length: 11 }, (_, i) => `https://e.com/${i}`);
+        const r = await POST(`/api/me/tasks/${t.id}/submit`, {
+          completed: "x",
+          evidence_urls: urls,
+        });
+        if (r.ok || r.status !== 400) {
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: "11 个 URL 拒绝 OK" } };
+      },
+    });
+
+    R.register({
+      id: "MM-3",
+      series: "MM",
+      title: "submit 只填 note(back-compat 老用法)→ 200 + 不写 submission_payload",
+      async run() {
+        const me = (await GET("/api/auth/me")).body;
+        const m = await POST("/api/meetings", { title: `${PREFIX}_MM3`, attendee_user_ids: [] });
+        if (!m.ok) return { ok: false, error: `meeting ${m.status}` };
+        created("meeting", m.body.id, "MM3");
+        await POST(`/api/meetings/${m.body.id}/actions`, {
+          content: `${PREFIX}_MM3_t`,
+          assignee_user_id: me.user_id,
+        });
+        const myTasks = await GET("/api/me/tasks?status=all");
+        const t = (myTasks.body || []).find((x) => x.content === `${PREFIX}_MM3_t`);
+        await POST(`/api/me/tasks/${t.id}/dispatch`, { assignee_user_id: me.user_id });
+        await POST(`/api/me/tasks/${t.id}/accept`, {});
+        await POST(`/api/me/tasks/${t.id}/start`, {});
+        const r = await POST(`/api/me/tasks/${t.id}/submit`, {
+          note: `${PREFIX}_MM3_legacy_note`,
+        });
+        if (!r.ok) return { ok: false, error: `submit ${r.status}` };
+        // note 单字段也算「使用了模板」(>=1 段),应当写 submission_payload
+        // 但只含 note,没有 completed/problems/next_steps 等
+        const d = await GET(`/api/me/tasks/${t.id}/detail`);
+        const sp = d.body.source_ref?.submission_payload;
+        if (sp) {
+          if (sp.completed || sp.problems || sp.next_steps) {
+            return { ok: false, error: "只填 note 不应 populate 其他字段" };
+          }
+          if (!sp.note?.includes("MM3_legacy_note")) {
+            return { ok: false, error: "note 内容不对" };
+          }
+        }
+        // 即使没写 submission_payload 也 OK(纯 back-compat)
+        return { ok: true, evidence: { _note: "back-compat OK" } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",

@@ -1064,6 +1064,18 @@ export const api = {
   // v22.5: 加 force 参数 — 当未交协办存在时,默认 422 警告;前端 confirm 后带 force=true 重试.
   submitTask: (taskId: string, note?: string | null, force = false) =>
     jpost<MyTask>(`/api/me/tasks/${taskId}/submit`, { note, force }),
+  // v24.1 #5: 阶段性上报模板(智慧住建文档 §4.3)— 结构化 4 段
+  submitTaskStructured: (
+    taskId: string,
+    body: {
+      completed?: string | null;
+      problems?: string | null;
+      next_steps?: string | null;
+      evidence_urls?: string[] | null;
+      note?: string | null;  // 自由发挥文本(可选)
+      force?: boolean;
+    },
+  ) => jpost<MyTask>(`/api/me/tasks/${taskId}/submit`, body),
   approveTask: (taskId: string) =>
     jpost<MyTask>(`/api/me/tasks/${taskId}/approve`, {}),
   rejectTask: (taskId: string, reason?: string | null) =>

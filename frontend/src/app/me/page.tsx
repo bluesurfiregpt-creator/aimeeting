@@ -12,6 +12,7 @@ import {
   type NotificationList,
 } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import SubmitDialog from "@/components/SubmitDialog";
 
 /**
  * v19: personal dashboard, now Task-centric (was MyAction in v16-v18).
@@ -301,34 +302,11 @@ export default function MePage() {
     [reload],
   );
 
-  const onSubmit = useCallback(
-    async (t: MyTask) => {
-      const note = window.prompt("阶段汇报(可选):", "");
-      if (note === null) return;
-      try {
-        await api.submitTask(t.id, note);
-        toast.success("已上报办结申请");
-        reload();
-      } catch (e) {
-        // v22.5: 422 = 协办未交警告;弹 confirm,确认后 force=true 重试
-        const msg = e instanceof Error ? e.message : "上报失败";
-        if (msg.includes("协办") || msg.includes("force=true")) {
-          if (window.confirm(`${msg}\n\n确认强制汇总并提交?`)) {
-            try {
-              await api.submitTask(t.id, note, true);
-              toast.success("已上报办结申请(强制汇总)");
-              reload();
-            } catch (e2) {
-              toast.error(e2 instanceof Error ? e2.message : "上报失败");
-            }
-          }
-          return;
-        }
-        toast.error(msg);
-      }
-    },
-    [reload],
-  );
+  // v24.1 #5: 阶段性上报模板 — 弹 SubmitDialog 让用户填结构化字段
+  const [submitDialogTask, setSubmitDialogTask] = useState<MyTask | null>(null);
+  const onSubmit = useCallback((t: MyTask) => {
+    setSubmitDialogTask(t);
+  }, []);
 
   // v22.5: 协办方提交进度
   const onCoSubmit = useCallback(
@@ -875,6 +853,17 @@ export default function MePage() {
           )}
         </section>
       </div>
+
+      {/* v24.1 #5: 阶段性上报模板 */}
+      <SubmitDialog
+        open={!!submitDialogTask}
+        task={submitDialogTask}
+        onClose={() => setSubmitDialogTask(null)}
+        onSubmitted={() => {
+          setSubmitDialogTask(null);
+          reload();
+        }}
+      />
 
       {/* v22.5: 评分对话框 */}
       {rateModal && (

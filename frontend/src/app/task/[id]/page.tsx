@@ -424,6 +424,93 @@ export default function TaskDetailPage({
         </section>
       )}
 
+      {/* v24.1 #5: 阶段汇报模板内容(若有) */}
+      {(() => {
+        const sp = (t.source_ref as Record<string, unknown> | null | undefined)?.submission_payload as
+          | {
+              completed?: string;
+              problems?: string;
+              next_steps?: string;
+              evidence_urls?: string[];
+              note?: string;
+              submitted_at?: string;
+              submitted_by_name?: string;
+            }
+          | undefined;
+        if (!sp) return null;
+        return (
+          <section
+            className="mt-6 rounded-lg border border-violet-500/30 bg-violet-500/5 p-4"
+            data-testid="task-detail-submission-payload"
+          >
+            <header className="mb-3 flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-violet-200">
+                📋 阶段汇报
+              </h2>
+              <span className="text-[10px] text-zinc-500">
+                {sp.submitted_by_name || ""}
+                {sp.submitted_at && ` · ${fmtDateTime(sp.submitted_at)}`}
+              </span>
+            </header>
+            <div className="space-y-3 text-xs">
+              {sp.completed && (
+                <div data-testid="submission-completed">
+                  <div className="font-medium text-emerald-300">✅ 已完成</div>
+                  <div className="mt-0.5 whitespace-pre-wrap text-zinc-300">
+                    {sp.completed}
+                  </div>
+                </div>
+              )}
+              {sp.problems && (
+                <div data-testid="submission-problems">
+                  <div className="font-medium text-amber-300">⚠️ 问题 / 风险</div>
+                  <div className="mt-0.5 whitespace-pre-wrap text-zinc-300">
+                    {sp.problems}
+                  </div>
+                </div>
+              )}
+              {sp.next_steps && (
+                <div data-testid="submission-next-steps">
+                  <div className="font-medium text-sky-300">➡️ 下一步</div>
+                  <div className="mt-0.5 whitespace-pre-wrap text-zinc-300">
+                    {sp.next_steps}
+                  </div>
+                </div>
+              )}
+              {sp.evidence_urls && sp.evidence_urls.length > 0 && (
+                <div data-testid="submission-evidence">
+                  <div className="font-medium text-zinc-400">
+                    📎 佐证材料 ({sp.evidence_urls.length})
+                  </div>
+                  <ul className="mt-0.5 space-y-1">
+                    {sp.evidence_urls.map((url, i) => (
+                      <li key={i}>
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="break-all text-accent-300 hover:text-accent-200"
+                        >
+                          {url}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {sp.note && (
+                <div data-testid="submission-note">
+                  <div className="font-medium text-zinc-400">💬 备注</div>
+                  <div className="mt-0.5 whitespace-pre-wrap text-zinc-300">
+                    {sp.note}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        );
+      })()}
+
       {/* 时间线 */}
       <section className="mt-6" data-testid="task-detail-timeline">
         <h2 className="mb-3 text-sm font-semibold text-zinc-300">📍 时间线</h2>

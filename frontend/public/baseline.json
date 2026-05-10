@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "frozen_at": "2026-05-10T00:00:00Z",
-  "frozen_against": "v24.1 #4 (24h 签收超时催办)",
+  "frozen_against": "v24.1 #5 (阶段性上报模板 — 结构化 submit)",
   "_note": "Deterministic per-case status snapshot. T2 diff: any case whose status differs from this baseline is a regression (or, for ⏭️→✅, a new pass to celebrate). evidence/error/timing intentionally excluded — those are non-deterministic.",
   "summary": {
-    "total": 121,
-    "pass": 113,
+    "total": 124,
+    "pass": 116,
     "fail": 0,
     "skipped": 8
   },
@@ -130,6 +130,9 @@
     { "id": "KK-2", "series": "KK", "status": "pass" },
     { "id": "KK-3", "series": "KK", "status": "pass" },
     { "id": "LL-1", "series": "LL", "status": "pass" },
-    { "id": "LL-2", "series": "LL", "status": "pass" }
+    { "id": "LL-2", "series": "LL", "status": "pass" },
+    { "id": "MM-1", "series": "MM", "status": "pass" },
+    { "id": "MM-2", "series": "MM", "status": "pass" },
+    { "id": "MM-3", "series": "MM", "status": "pass" }
   ]
 }
