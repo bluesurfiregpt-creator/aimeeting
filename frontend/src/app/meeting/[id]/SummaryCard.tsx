@@ -6,11 +6,13 @@ import remarkGfm from "remark-gfm";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
-type Status = "pending" | "ready" | "failed" | "unconfigured" | "skipped";
+// v25.16: 加 'loading' 区分 "页面刚打开还在拉数据" vs "真的 LLM 在跑"
+// 之前默认 status='pending' 导致首次加载就显示 "LLM 通常 5-30 秒..." 误导文案.
+type Status = "loading" | "pending" | "ready" | "failed" | "unconfigured" | "skipped";
 
 export default function SummaryCard({ meetingId }: { meetingId: string }) {
   const [summary, setSummary] = useState<string | null>(null);
-  const [status, setStatus] = useState<Status>("pending");
+  const [status, setStatus] = useState<Status>("loading");  // v25.16
   const [skipMessage, setSkipMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const pollRef = useRef<number | null>(null);
@@ -24,7 +26,8 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
       return r.status as Status;
     } catch (e) {
       console.warn("getMeetingSummary failed", e);
-      return "pending" as Status;
+      // 加载失败 — 保持 loading 状态(UI 显示加载中而非生成中)
+      return "loading" as Status;
     }
   }, [meetingId]);
 
@@ -37,7 +40,12 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
       attempts++;
       const s = await fetchOnce();
       if (!alive) return;
-      if (s === "ready" || s === "failed" || s === "unconfigured" || s === "skipped") return;
+      // v25.16: ready/failed/unconfigured/skipped 都是 terminal,停 polling
+      // loading 是首次错误(网络等),也停 — 避免无限重试
+      if (
+        s === "ready" || s === "failed" || s === "unconfigured" ||
+        s === "skipped" || s === "loading"
+      ) return;
       if (attempts > 75) return; // ~5 min cap
       pollRef.current = window.setTimeout(tick, 4000);
     };
@@ -122,6 +130,12 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
         <div className="flex items-center gap-2">
           <span className="text-base">📋</span>
           <h2 className="text-base font-medium text-white">会议纪要</h2>
+          {status === "loading" && (
+            <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-zinc-700/40 px-2 py-0.5 text-xs text-zinc-400">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-zinc-500" />
+              加载中…
+            </span>
+          )}
           {status === "pending" && (
             <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
@@ -252,6 +266,14 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
         <article className="mt-4 prose-invert max-w-none text-sm text-zinc-200">
           <Markdown>{summary}</Markdown>
         </article>
+      ) : status === "loading" ? (
+        // v25.16: 首次加载 — 不要显示 "LLM 5-30 秒" 那种误导文案
+        <div className="mt-4 space-y-2">
+          <div className="h-3 w-1/3 animate-pulse rounded bg-ink-800" />
+          <div className="h-3 w-full animate-pulse rounded bg-ink-800" />
+          <div className="h-3 w-5/6 animate-pulse rounded bg-ink-800" />
+          <div className="h-3 w-2/3 animate-pulse rounded bg-ink-800" />
+        </div>
       ) : (
         <p className="mt-4 text-sm text-zinc-500">
           {status === "unconfigured"
