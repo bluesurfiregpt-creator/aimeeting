@@ -85,6 +85,9 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ('"user"', "attributes", "JSONB"),
     # v25.15: action item 实录依据 — 让 用户看 待办的来源句
     ("meeting_action_item", "evidence_quote", "TEXT"),
+    # v25.19: action item 实录锚点(LLM 输出的行号数组,JSON 数组).
+    # 配合 evidence_quote 让前端能 跳转到 实录精确位置 高亮上下文.
+    ("meeting_action_item", "evidence_anchor_line_ids", "JSON"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

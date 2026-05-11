@@ -428,14 +428,31 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
                       )}
                     </div>
 
-                    {/* v25.15: 实录依据 — 这条待办来自纪要的哪一句 */}
-                    {item.evidence_quote && (
+                    {/* v25.15 + v25.19: 实录依据 — 缩略 + "查看实录上下文 →" 可点 */}
+                    {(item.evidence_quote || (item.evidence_anchor_line_ids?.length ?? 0) > 0) && (
                       <div
                         className="mt-1.5 rounded-lg border-l-2 border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[11px] text-zinc-400"
-                        title="📜 实录依据 — 这条待办是因为纪要里出现了这句话"
+                        title="实录依据 — LLM 抽这条待办时引用的真人对话片段"
                       >
-                        <span className="mr-1 text-amber-400">📜 依据:</span>
-                        <span className="italic">「{item.evidence_quote}」</span>
+                        <div className="flex items-start gap-1">
+                          <span className="shrink-0 text-amber-400">📜 依据:</span>
+                          <span className="italic">
+                            {item.evidence_quote
+                              ? (item.evidence_quote.length > 80
+                                  ? "「" + item.evidence_quote.slice(0, 80) + "…」"
+                                  : "「" + item.evidence_quote + "」")
+                              : "(LLM 未提供文本摘要)"}
+                          </span>
+                        </div>
+                        {(item.evidence_anchor_line_ids?.length ?? 0) > 0 && (
+                          <Link
+                            href={`/meeting/${meetingId}?focus=${item.evidence_anchor_line_ids!.join(",")}`}
+                            className="mt-1 inline-flex items-center gap-1 text-[11px] text-amber-300 hover:text-amber-200 underline-offset-2 hover:underline"
+                            title={`跳转到实录中 ${item.evidence_anchor_line_ids!.length} 句锚点对话(高亮 + 上下文)`}
+                          >
+                            🔗 查看实录原文上下文（{item.evidence_anchor_line_ids!.length} 句锚点）→
+                          </Link>
+                        )}
                       </div>
                     )}
                   </div>

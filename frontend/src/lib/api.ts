@@ -231,8 +231,11 @@ export type ActionItem = {
   task_status?: string | null;
   task_assignee_name?: string | null;
   task_co_assignees_count?: number;
-  // v25.15: 实录依据(LLM 抽时记下的支撑句)
+  // v25.15: 实录依据(LLM 抽时记下的支撑句 — 短摘要预览)
   evidence_quote?: string | null;
+  // v25.19: 实录行号锚点 — 前端拿到后 可跳转到 /meeting/{mid}?focus=<ids>
+  // 实录页 useSearchParams 读 focus,自动滚动 + 高亮 + 展开上下文 ±3 句.
+  evidence_anchor_line_ids?: number[] | null;
 };
 
 /** v24.3 #1: 单条 RAG 引用(KB chunk)— 智慧住建文档 §3.1 引用溯源角标. */

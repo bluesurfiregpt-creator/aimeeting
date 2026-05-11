@@ -647,12 +647,25 @@ export default function TaskDetailPage({
         )}
       </section>
 
-      {/* v25.15: 实录依据 / 会议来源(从 source_ref 拿 — 来自 LLM 抽取时记下的) */}
+      {/* v25.15 + v25.19: 实录依据 / 会议来源 — 缩略 + 行号锚点 跳转 */}
       {(() => {
         const sref = (t.source_ref as Record<string, unknown> | null | undefined) || {};
         const evidence = typeof sref.evidence_quote === "string" ? sref.evidence_quote : null;
         const meetingId = typeof sref.meeting_id === "string" ? sref.meeting_id : null;
-        if (!evidence && !meetingId) return null;
+        // v25.19: anchor_line_ids 也是 dual-write 到 source_ref 的
+        const rawAnchors = sref.evidence_anchor_line_ids;
+        const anchorIds: number[] = Array.isArray(rawAnchors)
+          ? rawAnchors.filter((x): x is number => typeof x === "number" && x > 0)
+          : [];
+        const hasAnchors = anchorIds.length > 0;
+        if (!evidence && !meetingId && !hasAnchors) return null;
+        // 跳转链接:?focus=<逗号分隔的 ids>,实录页会自动滚动 + 高亮
+        const focusHref =
+          meetingId && hasAnchors
+            ? `/meeting/${meetingId}?focus=${anchorIds.join(",")}`
+            : meetingId
+            ? `/meeting/${meetingId}`
+            : null;
         return (
           <section
             className="mt-6 rounded-lg border border-amber-500/20 bg-amber-500/5 p-4"
@@ -662,24 +675,37 @@ export default function TaskDetailPage({
               <span>📜</span> 这条任务从哪来
             </h2>
             <p className="mt-0.5 text-[11px] text-zinc-500">
-              AI 抽取本待办时记下的会议实录原文.闭环透明 — 你可以追溯回会议讨论.
+              {hasAnchors
+                ? `AI 抽这条待办时,引用了实录中 ${anchorIds.length} 句真人对话作为依据.点下面"在实录中查看"可直接跳转 + 高亮上下文.`
+                : "AI 抽取本待办时记下的会议实录原文.闭环透明 — 你可以追溯回会议讨论."}
             </p>
             {evidence && (
               <blockquote className="mt-2 rounded-md border-l-2 border-amber-400/60 bg-ink-950/50 px-3 py-2 text-sm italic text-zinc-200">
-                「{evidence}」
+                「{evidence.length > 200 ? evidence.slice(0, 200) + "…" : evidence}」
               </blockquote>
             )}
-            {meetingId && t.meeting_title && (
-              <div className="mt-2 text-xs text-zinc-500">
-                来自会议:
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+              {focusHref && hasAnchors && (
                 <Link
-                  href={`/meeting/${meetingId}`}
-                  className="ml-1 text-accent-400 hover:text-accent-300"
+                  href={focusHref}
+                  className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2.5 py-1 font-medium text-amber-300 hover:bg-amber-500/25"
+                  title={`在《${t.meeting_title || "会议"}》实录中定位这 ${anchorIds.length} 句对话,高亮 + 自动滚动`}
                 >
-                  《{t.meeting_title}》→
+                  🔗 在实录中查看上下文（{anchorIds.length} 句）→
                 </Link>
-              </div>
-            )}
+              )}
+              {meetingId && t.meeting_title && (
+                <span>
+                  来自会议:
+                  <Link
+                    href={`/meeting/${meetingId}`}
+                    className="ml-1 text-accent-400 hover:text-accent-300"
+                  >
+                    《{t.meeting_title}》→
+                  </Link>
+                </span>
+              )}
+            </div>
           </section>
         );
       })()}

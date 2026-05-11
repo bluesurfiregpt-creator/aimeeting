@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 _SYSTEM_PROMPT = """你是一名会议秘书。从会议纪要里抽取 **确定要做** 的工作型待办行动项 (Action Items).
 
 **严格 JSON 单行** 输出,不要包代码块,不要任何其他文字:
-{"items": [{"content": "<待办内容,简短>", "assignee_name": "<负责人姓名,可空字符串>", "due_at": "YYYY-MM-DD 或空字符串", "evidence_quote": "<纪要原文里能支撑这条待办的句子,逐字摘抄,30-100 字>"}]}
+{"items": [{"content": "<待办内容,简短>", "assignee_name": "<负责人姓名,可空字符串>", "due_at": "YYYY-MM-DD 或空字符串", "evidence_quote": "<实录原文 1-3 句围绕该待办的真人对话,30-150 字>", "evidence_anchor_line_ids": [<行号数组>]}]}
 
 evidence_quote 字段是关键追溯信息:
   - 必填,不能空字符串
@@ -55,16 +55,26 @@ evidence_quote 字段是关键追溯信息:
     (这是 纪要 markdown 的 bullet,不是真人对话原话,等于自证)
   - 找不到实录原文支撑 → 整条 待办 不抽(违反规则 A)
 
+evidence_anchor_line_ids 字段(v25.19 新增,极重要):
+  - 实录每一行 前面都有 `[<数字>]` 形式的【行号】标记,如 `[123] 张三: 我们要做 ...`
+  - 你需要把【支撑这条待办的实录行号】 全部列入数组,通常 2-6 个行号
+  - **行号必须从实录文本里逐字复制**,严禁猜测 / 编造数字
+  - evidence_quote 摘的内容 应该 大致 对应 这些行号 的实际文本(允许略有缩减拼接)
+  - 必须**至少**返回 1 个行号.找不到 → 整条 待办 不抽.
+
 【最高优先级 反幻觉规则】违反任一条 都比 不抽 更糟:
 
-A. **每条 content 必须能在纪要原文找到对应字句来源**.找不到来源的 → 一律 不抽.
-B. **严禁补全 / 演绎 / 总结引申**.即使你认为"按常理这场会议应该会做 X",纪要没明确写 → 不抽.
+A. **每条 content 必须能在实录原文找到对应字句来源**.找不到来源的 → 一律 不抽.
+B. **严禁补全 / 演绎 / 总结引申**.即使你认为"按常理这场会议应该会做 X",原文没明确写 → 不抽.
 C. **assignee_name 必须从原文精确抽取**.原文没出现的人名 → 留空字符串.严禁编造姓名.
-D. **due_at 只接受 纪要原文明文写出的日期**(如 "5月20日"、"2025-06-12").
+D. **due_at 只接受 原文明文写出的日期**(如 "5月20日"、"2025-06-12").
    原文没明确 deadline → due_at 必须留 空字符串.**严禁编造日期 / 倒推日期 / 默认今天**.
 E. **AI 专家发言不算 工作待办依据**.如果纪要里出现 "AI 专家说..."、"AI 建议..."、
    "根据 AI 建议..." 类语言 — 这是 AI 助手的建议,不是真人承诺.**忽略**,不抽.
+   实录中说话人为 "[?]" 或 AI 专家名(如 "企业服务专家"、"UI/UX 专家")的行,也不能作为
+   evidence_anchor_line_ids 的唯一支撑 — 必须有真人发言行 配合.
 F. **闲聊 / 私人安排 / 模糊想法 / 没有清晰承诺**: 一律不抽.
+G. **evidence_anchor_line_ids 严禁编造行号**.行号必须真实存在于实录中.
 
 **没有符合的工作待办时,必须返回** `{"items": []}`.空列表是合法且优先的输出.
 
@@ -78,20 +88,25 @@ F. **闲聊 / 私人安排 / 模糊想法 / 没有清晰承诺**: 一律不抽.
 反例 1:纪要里 AI 专家说 "建议组织对齐 Figma 变量命名" → **不能抽** (AI 建议不算).
 反例 2:纪要写 "本月底前提交" 但没说具体日期 → due_at 留空,**不要编**成 "2024-06-12".
 反例 3:纪要没出现 "邓西" 但你觉得他应该负责 → assignee_name 留空,**不要瞎填**.
-正例 4:纪要写 "完善系统需求文档" 但没人主动认领 → 仍然抽取,assignee_name 留空字符串.
+反例 4:实录里没有 [42] 这行 但你编了 evidence_anchor_line_ids=[42] → 整条丢弃.
+正例 5:实录写 "完善系统需求文档" 但没人主动认领 → 仍然抽取,assignee_name 留空字符串.
         (后续 leader 可人工分派.漏抽=丢失信息,不可接受.)
 
 示例 1 (闲聊 + AI 建议 → 空):
-输入: 「今天天气不错。AI 专家建议先聚焦深圳政策。中午去吃拉面吧。」
+输入: 「[1] 李四: 今天天气不错。[2] 企业服务专家: 建议先聚焦深圳政策。[3] 张三: 中午去吃拉面吧。」
 输出: {"items": []}
 
 示例 2 (真人承诺 → 抽):
-输入: 「邓西负责本周五前提交 PRD V2。中午去吃拉面。李法务下周三前出合规意见。」
+输入: 「[10] 邓西: 这周五前我把 PRD V2 提交吧。[11] 张明: 好,法务也跟下。
+       [12] 李法务: 没问题,我下周三前出合规意见。」
 输出: {"items": [
-  {"content":"提交 PRD V2","assignee_name":"邓西","due_at":"","evidence_quote":"邓西负责本周五前提交 PRD V2"},
-  {"content":"出具合规意见","assignee_name":"李法务","due_at":"","evidence_quote":"李法务下周三前出合规意见"}
+  {"content":"提交 PRD V2","assignee_name":"邓西","due_at":"",
+   "evidence_quote":"邓西:这周五前我把 PRD V2 提交吧。张明:好,法务也跟下。",
+   "evidence_anchor_line_ids":[10,11]},
+  {"content":"出具合规意见","assignee_name":"李法务","due_at":"",
+   "evidence_quote":"李法务:没问题,我下周三前出合规意见。",
+   "evidence_anchor_line_ids":[12]}
 ]}
-(注意:吃拉面被剔除;due_at 因「下周三前」是相对时间没法确定具体日期 → 留空,严禁编)
 """
 
 
@@ -153,26 +168,39 @@ async def extract_and_store_actions(
                 await db.execute(select(User).where(User.id.in_(speaker_ids)))
             ).scalars().all()
             name_by_uid = {u.id: u.name for u in users_speaker}
-        transcript_text = "\n".join(
-            f"{(name_by_uid.get(r.speaker_user_id) if r.speaker_user_id else '[?]')}: "
-            f"{(r.text or '').strip()}"
-            for r in transcript_rows
-            if (r.text or '').strip()
-        )
-        # 太长截断(LLM token 限制),纪要里的话题应该 主要在 实录后半段
+        # v25.19: 实录文本前面挂【行号】 — LLM 看到 `[<id>] 说话人: 文本`,
+        # 输出 evidence_anchor_line_ids 时 直接复制这些数字.后端再 validate.
+        valid_line_ids: set[int] = set()
+        transcript_lines: list[str] = []
+        for r in transcript_rows:
+            text = (r.text or "").strip()
+            if not text:
+                continue
+            valid_line_ids.add(r.id)
+            speaker_name = (
+                name_by_uid.get(r.speaker_user_id)
+                if r.speaker_user_id else None
+            ) or "[?]"
+            transcript_lines.append(f"[{r.id}] {speaker_name}: {text}")
+        transcript_text = "\n".join(transcript_lines)
+        # 太长截断(LLM token 限制),保留后半段 — 纪要话题主要在会议后半段
         if len(transcript_text) > 8000:
             transcript_text = transcript_text[-8000:]
+            # 重算 valid_line_ids — 只保留被截断后仍在文本里的 id
+            # 用 简单的 [N] 正则提取
+            kept_ids = set(int(x) for x in re.findall(r"\[(\d+)\]", transcript_text))
+            valid_line_ids = valid_line_ids & kept_ids
 
         user_prompt = (
             f"会议标题: {m.title or '未命名会议'}\n\n"
             f"=== 会议纪要 (Markdown,用来定 待办内容 / 负责人 / 截止) ===\n\n"
             f"{summary_md}\n\n"
-            f"=== 会议实录 原文(逐句,用来摘 evidence_quote)===\n\n"
+            f"=== 会议实录 原文(逐句,行号在前,用来摘 evidence_quote + anchor)===\n\n"
             f"{transcript_text or '(实录为空)'}\n\n"
             f"=== 任务 ===\n\n"
-            f"按规则抽取 action items.特别注意:evidence_quote 必须从【实录原文】摘,"
-            f"而**不是**从【纪要】重抄.evidence_quote 应是 真人对话原话,30-150 字,"
-            f"包含 1-3 句围绕该待办的讨论 上下文.若实录里 找不到 相关对话 → 这条待办不抽."
+            f"按规则抽取 action items.evidence_quote 必须从【实录原文】摘 — "
+            f"不是从【纪要】重抄.evidence_anchor_line_ids 必须是上面实录前面方括号里 "
+            f"的真实数字,通常 2-6 个,严禁编造."
         )
 
         chunks: list[str] = []
@@ -226,11 +254,28 @@ async def extract_and_store_actions(
             assignee_name = (it.get("assignee_name") or "").strip()
             due_str = (it.get("due_at") or "").strip()
             evidence = (it.get("evidence_quote") or "").strip()  # v25.15
+            # v25.19: 实录行号锚点 — LLM 输出后,validate against valid_line_ids
+            # 剔除 LLM 编的 / 越界 / 类型错的;只保留实际存在的 transcript row ids.
+            raw_anchors = it.get("evidence_anchor_line_ids") or []
+            anchor_ids: list[int] = []
+            if isinstance(raw_anchors, list):
+                seen: set[int] = set()
+                for x in raw_anchors:
+                    try:
+                        v = int(x)
+                    except (TypeError, ValueError):
+                        continue
+                    if v in valid_line_ids and v not in seen:
+                        anchor_ids.append(v)
+                        seen.add(v)
+                # cap 一下避免 LLM 给一长串
+                anchor_ids = anchor_ids[:20]
             assignee_user_id = _match_user(ws_users, assignee_name)
 
             # v17 dual-write: every summary-extracted action also creates
             # its 1:1 Task (source_type='meeting').
             # v25.15: evidence_quote 一并写到 action + task.source_ref.
+            # v25.19: anchor_line_ids 同样 dual-write.
             add_action_with_task(
                 db,
                 workspace_id=m.workspace_id,
@@ -247,6 +292,7 @@ async def extract_and_store_actions(
                 action_source_type="summary",
                 created_by_user_id=None,
                 evidence_quote=evidence[:500] or None,  # v25.15
+                evidence_anchor_line_ids=anchor_ids or None,  # v25.19
             )
             inserted += 1
 

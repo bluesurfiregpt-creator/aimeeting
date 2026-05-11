@@ -1310,6 +1310,8 @@ class ActionItemOut(BaseModel):
     task_co_assignees_count: int = 0
     # v25.15: 实录依据 — LLM 抽出待办时记下的纪要原文支撑句
     evidence_quote: Optional[str] = None
+    # v25.19: 实录行号锚点 — 前端拿到后能 跳转 meeting?focus=ids 高亮 + 展开上下文
+    evidence_anchor_line_ids: Optional[list[int]] = None
 
 
 class ActionItemIn(BaseModel):
@@ -1348,6 +1350,7 @@ def _action_to_out(
         task_assignee_name=ti["assignee_name"] if ti else None,
         task_co_assignees_count=ti["co_count"] if ti else 0,
         evidence_quote=row.evidence_quote,  # v25.15
+        evidence_anchor_line_ids=row.evidence_anchor_line_ids,  # v25.19
     )
 
 

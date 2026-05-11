@@ -41,7 +41,8 @@ def add_action_with_task(
     status: str = "open",
     action_source_type: str = "manual",
     created_by_user_id: Optional[uuid.UUID] = None,
-    evidence_quote: Optional[str] = None,  # v25.15: 实录依据原句
+    evidence_quote: Optional[str] = None,  # v25.15: 实录依据原句(预览用)
+    evidence_anchor_line_ids: Optional[list[int]] = None,  # v25.19: 实录行号锚点
 ) -> tuple[MeetingActionItem, Task]:
     """
     Add both rows to the session. Their ids are generated client-side so
@@ -60,6 +61,8 @@ def add_action_with_task(
     }
     if evidence_quote:
         source_ref["evidence_quote"] = evidence_quote  # v25.15
+    if evidence_anchor_line_ids:
+        source_ref["evidence_anchor_line_ids"] = evidence_anchor_line_ids  # v25.19
 
     task = Task(
         id=task_id,
@@ -84,6 +87,7 @@ def add_action_with_task(
         source_type=action_source_type,
         task_id=task_id,
         evidence_quote=evidence_quote,  # v25.15
+        evidence_anchor_line_ids=evidence_anchor_line_ids,  # v25.19
     )
     session.add(task)
     session.add(action)

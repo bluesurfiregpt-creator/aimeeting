@@ -1,7 +1,8 @@
 "use client";
 
-import { use, useCallback, useEffect, useRef, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   MicPermissionError,
   probeAudioCapabilities,
@@ -189,6 +190,27 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   const [statusText, setStatusText] = useState("待开始");
   // v25.12-#2: Tab 化 — 实录 / 纪要 两个视图
   const [viewTab, setViewTab] = useState<"live" | "minutes">("live");
+  // v25.19 #1: 从实录 tab 触发 重生成/重识别 后,把 ++key 传给 SummaryCard
+  // 让它重启 polling — 否则 SummaryCard polling 已经停在 ready,看不到新结果.
+  const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
+
+  // v25.19 #3d: 实录锚点 — 任务详情 / 行动项 通过 ?focus=id1,id2,... 跳进来,
+  // 实录页 高亮这些 行 + 滚动 + 展开 ±3 句上下文.
+  // 同时若 ?tab=minutes 也支持从外部直接跳到 纪要 tab.
+  const searchParams = useSearchParams();
+  const focusIds = useMemo<Set<number>>(() => {
+    const raw = searchParams?.get("focus") || "";
+    if (!raw) return new Set();
+    const ids = raw
+      .split(",")
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    return new Set(ids);
+  }, [searchParams]);
+  // 标记 我们是否已经为这一组 focus 滚动过(避免每次 lines 变化 都重新滚)
+  const scrolledForFocusRef = useRef<string | null>(null);
+  // 如果 URL 带 ?focus= 且 transcripts 加载完成 → 滚到第一个 focus 行 + 居中.
+  // 不在 useMemo 内做 — 需要等 lines 加载.
   // Meeting metadata loaded on mount so we can:
   //   1. Show the actual meeting title in the H1 (was hardcoded to a feature
   //      description, which confused testers — see report v8 finding 4)
@@ -563,10 +585,39 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   }, [refreshSpeakers]);
 
   useEffect(() => {
+    // v25.19 #3d: 如果用户从 evidence 跳过来(?focus=...),不要自动滚到底
+    // 否则会盖掉 后面要做的 focus 居中滚动.
+    if (focusIds.size > 0) return;
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [lines]);
+  }, [lines, focusIds]);
+
+  // v25.19 #3d: 如果 URL 带 ?focus=ids,等 transcripts 加载完(serverLineId 都贴上了)
+  // → 把第一个 focus 行 居中滚动 到视口里.每组 focus 只做一次.
+  useEffect(() => {
+    if (focusIds.size === 0) return;
+    const key = Array.from(focusIds).sort().join(",");
+    if (scrolledForFocusRef.current === key) return;
+    // 检查 lines 是否包含至少一个 focus 行
+    const hasFocusLine = lines.some(
+      (l) =>
+        l.kind === "user" &&
+        l.serverLineId != null &&
+        focusIds.has(l.serverLineId),
+    );
+    if (!hasFocusLine) return; // 等下一次 lines 更新
+    // 延一帧,等 DOM 渲染完
+    const tid = window.setTimeout(() => {
+      const firstId = Math.min(...Array.from(focusIds));
+      const el = document.getElementById(`focus-line-${firstId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        scrolledForFocusRef.current = key;
+      }
+    }, 80);
+    return () => window.clearTimeout(tid);
+  }, [focusIds, lines]);
 
   const start = useCallback(async () => {
     if (phase !== "idle") return;
@@ -1021,12 +1072,85 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       {/* v25.12-#2: 纪要 tab — 仅 phase=ended */}
       {/* v25.14: TraceCard 合并到 ActionItemsCard(待办与流转 一卡到底)*/}
       <div style={{ display: viewTab === "minutes" ? "block" : "none" }}>
-        {phase === "ended" ? <SummaryCard meetingId={meetingId} /> : null}
+        {phase === "ended" ? <SummaryCard meetingId={meetingId} refreshKey={summaryRefreshKey} /> : null}
         {phase === "ended" ? <ActionItemsCard meetingId={meetingId} /> : null}
       </div>
 
       {/* v25.12-#2: 实录 tab(默认) — 所有 live/idle 期内容 */}
       <div style={{ display: viewTab === "live" ? "block" : "none" }}>
+
+      {/* v25.19 #1: 上游处理工具栏 — 只在 phase=ended 时显示.
+          原本在 SummaryCard header,但 "重生成纪要 / 重新识别声纹 / 高清重跑 ASR"
+          本质上 都是【对实录原始数据 重新处理】,放在【实录与发言】tab 顶部
+          更符合用户心智 — 操作的是上游,生成在下游(纪要 tab). */}
+      {phase === "ended" ? (
+        <div className="mt-4 rounded-xl border border-ink-700 bg-ink-900/60 px-4 py-3">
+          <div className="flex items-center gap-3 text-xs">
+            <span className="shrink-0 text-zinc-400">🛠️ 实录处理工具:</span>
+            <button
+              onClick={async () => {
+                try {
+                  await api.regenerateMeetingSummary(meetingId);
+                  toast.success("✅ 纪要重生成已触发", {
+                    detail: "30-60 秒后切到「纪要 + 行动项」tab 查看新结果",
+                    sticky: true,
+                  });
+                  // v25.19: 让 SummaryCard 重启 polling — 否则停在 ready 看不到
+                  setSummaryRefreshKey((k) => k + 1);
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "重生成失败");
+                }
+              }}
+              className="rounded-md bg-accent-500/15 px-2.5 py-1 font-medium text-accent-300 hover:bg-accent-500/25"
+              title="不改实录,只重跑 LLM 生成纪要(qwen-max + 反幻觉 prompt).适合改完说话人或修了 prompt 后."
+            >
+              🔄 重生成纪要
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  const r = await api.rerunIdentify(meetingId);
+                  toast.success(r.note);
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "重识别失败");
+                }
+              }}
+              className="rounded-md bg-amber-500/15 px-2.5 py-1 font-medium text-amber-300 hover:bg-amber-500/25"
+              title="重跑 pyannote 声纹识别 + 邻域平滑(2-pass).适合调阈值后看新效果,或某些行误识时一键修."
+            >
+              🔄 重新识别声纹
+            </button>
+            <button
+              onClick={async () => {
+                if (
+                  !confirm(
+                    "高清重跑会:\n" +
+                      "  1) 用 paraformer-v2 离线高清模型重新转录(2-5 分钟)\n" +
+                      "  2) 替换原实录\n" +
+                      "  3) 重跑 identify + cleaner + summary\n\n" +
+                      "确定继续?"
+                  )
+                )
+                  return;
+                try {
+                  toast.info("📡 离线 ASR 提交中…(5 分钟内别关页面)");
+                  const r = await api.rerunOfflineAsr(meetingId);
+                  toast.success(`✅ ${r.next_step}(${r.sentences} 句)`);
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "高清重跑失败");
+                }
+              }}
+              className="rounded-md bg-orange-500/15 px-2.5 py-1 font-medium text-orange-300 hover:bg-orange-500/25"
+              title="离线 paraformer-v2:逐字精度比 realtime 高 20-30%,但要 2-5 分钟.适合实录有大段错字 / 漏字时."
+            >
+              🎯 高清重跑 ASR
+            </button>
+            <span className="ml-auto text-[10px] text-zinc-600">
+              生成 / 识别 都是异步,触发后请刷新或切 tab 查看结果
+            </span>
+          </div>
+        </div>
+      ) : null}
 
       {mounted && phase === "idle" && audioCaps.isIOSSafari ? (
         <div className="mt-4 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-xs text-sky-200">
@@ -1292,15 +1416,30 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                 </div>
               ) : (
                 <ul className="space-y-3">
-                  {userLines.map((l) =>
-                    l.kind === "user" ? (
+                  {userLines.map((l) => {
+                    if (l.kind !== "user") return null;
+                    // v25.19 #3d: 实录锚点高亮
+                    const isFocused =
+                      l.serverLineId != null && focusIds.has(l.serverLineId);
+                    return (
                       <li
                         key={l.id}
-                        className={
+                        id={
+                          l.serverLineId != null
+                            ? `focus-line-${l.serverLineId}`
+                            : undefined
+                        }
+                        className={[
                           l.final
                             ? "text-base leading-relaxed text-zinc-100"
-                            : "text-base leading-relaxed text-zinc-400"
-                        }
+                            : "text-base leading-relaxed text-zinc-400",
+                          // 锚点高亮 — 琥珀色背景 + 左边框 + 圆角
+                          isFocused
+                            ? "rounded-md border-l-4 border-amber-400 bg-amber-500/10 px-2 py-1 -mx-2 transition-colors"
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
                       >
                         {l.startMs != null && (
                           <span
@@ -1329,8 +1468,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                         <span>{l.text}</span>
                         {!l.final ? <span className="ml-1 animate-pulse">▌</span> : null}
                       </li>
-                    ) : null,
-                  )}
+                    );
+                  })}
                 </ul>
               )}
             </div>

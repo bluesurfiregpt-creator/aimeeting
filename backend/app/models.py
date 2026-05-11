@@ -422,6 +422,12 @@ class MeetingActionItem(Base):
     # 让用户/leader 看 "为什么生成这条待办" — 闭环里的关键透明度.
     # 也写到 dual-write 的 Task.source_ref.evidence_quote 让任务详情页能取到.
     evidence_quote: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # v25.19: 实录锚点 — LLM 从带行号的实录里抽出待办时,同时输出 这条待办
+    # 是 哪几行实录 直接支撑的 — 行号是 meeting_transcript.id (BigInt).
+    # 用途:前端 evidence 加 "查看实录上下文 →" 按钮,跳转到 实录页 滚动 +
+    # 高亮 + 展开 ±3 句上下文.比 evidence_quote 的纯文本块更可信.
+    # 后端验证:filter 掉 LLM 编造的不存在 ids,只保留实际有的.
+    evidence_anchor_line_ids: Mapped[Optional[list[int]]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

@@ -10,11 +10,17 @@ import { toast } from "@/lib/toast";
 // 之前默认 status='pending' 导致首次加载就显示 "LLM 通常 5-30 秒..." 误导文案.
 type Status = "loading" | "pending" | "ready" | "failed" | "unconfigured" | "skipped";
 
-export default function SummaryCard({ meetingId }: { meetingId: string }) {
+export default function SummaryCard({
+  meetingId,
+  refreshKey = 0,
+}: {
+  meetingId: string;
+  // v25.19: 外部触发 重生成 后 ++ 这个 key,SummaryCard 会重启 polling.
+  refreshKey?: number;
+}) {
   const [summary, setSummary] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("loading");  // v25.16
   const [skipMessage, setSkipMessage] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const pollRef = useRef<number | null>(null);
 
   const fetchOnce = useCallback(async () => {
@@ -32,9 +38,16 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
   }, [meetingId]);
 
   // Poll: pending → keep polling every 4s, up to 5 minutes
+  // v25.19: 加 refreshKey 依赖 — 外部触发 重生成 后,polling 重启,
+  // 不然 polling 已经停在 ready,看不到 新结果.
   useEffect(() => {
     let alive = true;
     let attempts = 0;
+    // v25.19: refreshKey 变化时,先 reset 显示状态(让用户立刻看到 骨架屏)
+    if (refreshKey > 0) {
+      setSummary(null);
+      setStatus("pending");
+    }
     const tick = async () => {
       if (!alive) return;
       attempts++;
@@ -54,7 +67,7 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
       alive = false;
       if (pollRef.current) window.clearTimeout(pollRef.current);
     };
-  }, [fetchOnce]);
+  }, [fetchOnce, refreshKey]);
 
   const download = useCallback(async (format: "md" | "docx") => {
     try {
@@ -91,38 +104,8 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
     }
   }, [meetingId]);
 
-  const regen = useCallback(async () => {
-    setBusy(true);
-    setSummary(null);
-    setStatus("pending");
-    try {
-      await api.regenerateMeetingSummary(meetingId);
-      // restart polling
-      let attempts = 0;
-      const tick = async () => {
-        attempts++;
-        const s = await fetchOnce();
-        if (
-          s === "ready" ||
-          s === "failed" ||
-          s === "unconfigured" ||
-          s === "skipped"
-        ) {
-          setBusy(false);
-          return;
-        }
-        if (attempts > 75) {
-          setBusy(false);
-          return;
-        }
-        pollRef.current = window.setTimeout(tick, 4000);
-      };
-      tick();
-    } catch (e) {
-      console.error(e);
-      setBusy(false);
-    }
-  }, [meetingId, fetchOnce]);
+  // v25.19 #1: 「重生成纪要」按钮 移到实录 tab 顶部工具栏(page.tsx).
+  // SummaryCard 只负责 渲染 + polling — summary_md=NULL 时自动显示 loading 骨架.
 
   return (
     <section className="mt-6 rounded-xl border border-ink-700 bg-ink-900 p-6">
@@ -175,68 +158,40 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
           >
             📄 完整纪要
           </button>
+          {/* v25.19 #2: 「识别 debug」 改名「声纹诊断」 + 加用户能看懂的解释.
+              它的作用:当发现 实录里说话人识别错很多(误识 / 大量 [?]) 时,
+              点这里看具体哪一环出问题 — 没录声纹? 切片漏? 阈值太严? */}
           <span className="text-zinc-700">|</span>
-          <button
-            onClick={regen}
-            disabled={busy}
-            className="text-zinc-500 hover:text-accent-400 disabled:opacity-50"
-          >
-            {busy ? "生成中..." : "重新生成"}
-          </button>
-          {/* v25.7-#4: 重跑声纹识别 + debug */}
-          <span className="text-zinc-700">|</span>
-          <button
-            onClick={async () => {
-              try {
-                const r = await api.rerunIdentify(meetingId);
-                toast.success(r.note);
-              } catch (e) {
-                toast.error(e instanceof Error ? e.message : "重跑失败");
-              }
-            }}
-            className="text-zinc-500 hover:text-amber-400"
-            title="重跑声纹识别(testing 时调阈值后看新结果;30-60s 后刷新)"
-          >
-            🔄 重新识别
-          </button>
           <button
             onClick={async () => {
               try {
                 const d = await api.identifyDebug(meetingId);
                 console.log("[identify-debug]", d);
-                const summary = [
-                  `🎙️ 声纹: ${d.voiceprint_count}`,
-                  `📦 segments: ${d.segment_count_total}(命中 ${d.segment_count_kept})`,
-                  `📝 实录: ${d.transcript_lines} (识别 ${d.transcript_with_speaker} / 未识 ${d.transcript_unknown})`,
-                  `阈值: ${d.threshold_used}`,
-                  ...d.notes,
+                const total = d.transcript_lines || 1;
+                const ratio = Math.round((d.transcript_with_speaker / total) * 100);
+                const lines = [
+                  `🎙️ 已录声纹的成员:${d.voiceprint_count} 人`,
+                  `📦 pyannote 切片:${d.segment_count_total} 段(其中 ${d.segment_count_kept} 段达标用于对齐)`,
+                  `📝 实录:${d.transcript_lines} 句 — 识别到说话人 ${d.transcript_with_speaker} 句(${ratio}%),未识别 ${d.transcript_unknown} 句`,
+                  `匹配阈值:${d.threshold_used}(数值越大 越严)`,
+                  "",
+                  "📌 系统诊断:",
+                  ...(d.notes || ["(暂无)"]),
+                  "",
+                  "💡 排错思路:",
+                  "  • 未识别 句 多 → 让缺席成员去 /me 补录声纹",
+                  "  • 识别错 多 → 阈值可能太松,或两人声音相近,用 ✏️ 批量纠正",
+                  "  • 切片少 → 录音质量差(噪音 / 远场),试「🎯 高清重跑 ASR」",
                 ].join("\n");
-                alert(summary + "\n\n详细数据见 console");
+                alert(lines);
               } catch (e) {
-                toast.error(e instanceof Error ? e.message : "debug 失败");
+                toast.error(e instanceof Error ? e.message : "诊断失败");
               }
             }}
             className="text-zinc-500 hover:text-cyan-400"
-            title="声纹识别 debug — 在 console 看 segments / confidence / 提示"
+            title="声纹诊断 — 看本场会议 声纹识别 各环节数据(声纹库 / 切片 / 实录覆盖率 / 阈值),帮你判断为啥说话人识别错或漏"
           >
-            🔍 识别 debug
-          </button>
-          {/* v25.8-#4: 离线 ASR 高清重跑(2-5 分钟,质量更高) */}
-          <button
-            onClick={async () => {
-              if (!confirm("离线 ASR 重跑会:1) 用 paraformer-v2 高清模型重新转录(2-5 分钟);2) 替换原实录;3) 重跑 identify + cleaner + summary.\n\n确定继续?")) return;
-              try {
-                toast.info("📡 离线 ASR 提交中…(5 分钟内别关页面)");
-                const r = await api.rerunOfflineAsr(meetingId);
-                toast.success(`✅ ${r.next_step}(${r.sentences} 句)`);
-              } catch (e) {
-                toast.error(e instanceof Error ? e.message : "离线 ASR 失败");
-              }
-            }}
-            className="rounded-md bg-orange-500/15 px-2 py-0.5 font-medium text-orange-300 hover:bg-orange-500/25"
-            title="高清重跑 — paraformer-v2 离线模型,质量比 realtime 高 20-30%(耗时 2-5 分钟)"
-          >
-            🎯 高清重跑
+            🔍 声纹诊断
           </button>
           <button
             onClick={async () => {
@@ -244,20 +199,26 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
                 const r = await api.meetingHotWords(meetingId);
                 console.log("[hot-words]", r);
                 const text = [
-                  `参会人姓名 (${r.attendee_names.length}): ${r.attendee_names.join(", ") || "无"}`,
-                  `Agent keywords (${r.agent_keywords.length}): ${r.agent_keywords.join(", ") || "无"}`,
-                  `KB 标题 (${r.kb_titles.length}): ${r.kb_titles.join(", ") || "无"}`,
-                  `\n💡 ${r.suggestion}`,
-                ].join("\n\n");
+                  `📛 参会人姓名 (${r.attendee_names.length} 个):`,
+                  `  ${r.attendee_names.join(", ") || "(无)"}`,
+                  "",
+                  `🤖 AI 专家关键词 (${r.agent_keywords.length} 个):`,
+                  `  ${r.agent_keywords.join(", ") || "(无)"}`,
+                  "",
+                  `📚 KB 文档标题 (${r.kb_titles.length} 个):`,
+                  `  ${r.kb_titles.join(", ") || "(无)"}`,
+                  "",
+                  `💡 ${r.suggestion}`,
+                ].join("\n");
                 alert(text);
               } catch (e) {
                 toast.error(e instanceof Error ? e.message : "hot words 失败");
               }
             }}
             className="text-zinc-500 hover:text-lime-400"
-            title="本会议自动收集的 hot words(参会人 + agent.keywords + KB)"
+            title="ASR 热词 — 本会议自动喂给 DashScope 的热词词表(让 ASR 优先识别这些专有名词)"
           >
-            🔥 hot words
+            🔥 ASR 热词
           </button>
         </div>
       </header>
