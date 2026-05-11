@@ -1180,6 +1180,23 @@ export const api = {
   markAllNotificationsRead: () =>
     jpostVoid(`/api/me/notifications/read-all`, {}),
 
+  // v25.22: 通知 治理 — 删单条 / 根源清理 / 孤儿清理
+  deleteNotification: (id: string) => jdelete(`/api/me/notifications/${id}`),
+  // 删通知 + 关联 action_item + paired task + 跨用户 同 action_id 通知
+  cleanupNotificationSource: (id: string) =>
+    jpost<{
+      notification_deleted: boolean;
+      action_item_deleted: boolean;
+      task_deleted: boolean;
+      related_notifications_deleted: number;
+    }>(`/api/me/notifications/${id}/cleanup-source`, {}),
+  // 一键扫:payload.action_id 指向 已不存在 action_item 的通知 → 删
+  cleanupOrphanNotifications: () =>
+    jpost<{
+      scanned: number;
+      deleted_orphans: number;
+    }>(`/api/me/notifications/cleanup-orphans`, {}),
+
   // v17 → v19: Task lifecycle (派发 / 签收 / 退回 / 办理 / 上报 / 办结 / 归档 / 取消)
   listMyTasks: (
     status:

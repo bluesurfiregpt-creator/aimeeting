@@ -226,14 +226,72 @@ function describeNotification(n: Notification): string {
   }
 }
 
-function NotiRow({ n }: { n: Notification }) {
+// v25.22: kinds 与 source-cleanup 相关 — payload 带 action_id,清根源时会
+// 删 action_item + paired task + 跨用户 同 action_id 通知.
+const SOURCE_CLEANUP_KINDS = new Set([
+  "action_assigned",
+  "action_due_soon",
+  "action_overdue",
+  "action_comment",
+]);
+
+function NotiRow({
+  n,
+  onChanged,
+}: {
+  n: Notification;
+  onChanged: () => void;
+}) {
   const taskId = notiTaskId(n);
   const meetingId = notiMeetingId(n);
   const href = taskId ? `/task/${taskId}` : meetingId ? `/meeting/${meetingId}` : null;
   const unread = !n.read_at;
-  const inner = (
+  const canCleanupSource = SOURCE_CLEANUP_KINDS.has(n.kind);
+
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm("删除这条通知?(只删通知,不影响关联任务)")) return;
+    try {
+      await api.deleteNotification(n.id);
+      toast.success("已删除");
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "删除失败");
+    }
+  };
+
+  const handleCleanupSource = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (
+      !confirm(
+        "⚠️ 根源清理 — 删除:\n" +
+          "  • 这条通知\n" +
+          "  • 它指向的 行动项(任务)\n" +
+          "  • 关联的 Task(若有)\n" +
+          "  • 同一行动项给其他人发的 通知\n\n" +
+          "适用:AI 抽错的假任务 / 历史脏数据.确定?"
+      )
+    )
+      return;
+    try {
+      const r = await api.cleanupNotificationSource(n.id);
+      toast.success("✅ 根源清理完成", {
+        detail: `通知 ${r.related_notifications_deleted} · 任务项 ${
+          r.action_item_deleted ? "1" : "0"
+        } · 工单 ${r.task_deleted ? "1" : "0"}`,
+        sticky: true,
+      });
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "清理失败");
+    }
+  };
+
+  const content = (
     <div
-      className={`flex items-start gap-2 rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 ${unread ? "ring-1 ring-rose-400/30" : ""}`}
+      className={`flex items-start gap-2 rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 ${unread ? "ring-1 ring-rose-400/30" : ""} hover:bg-ink-800/60`}
       data-testid="message-noti-row"
       data-kind={n.kind}
       data-unread={unread ? "1" : "0"}
@@ -249,12 +307,31 @@ function NotiRow({ n }: { n: Notification }) {
           {fmtRelative(n.created_at)}
         </div>
       </div>
+      <div className="flex flex-none items-center gap-1">
+        {canCleanupSource && (
+          <button
+            onClick={handleCleanupSource}
+            className="rounded px-1.5 py-0.5 text-[10px] text-amber-400 hover:bg-amber-500/15 hover:text-amber-200"
+            title="根源清理 — 删通知 + 它指向的 行动项 / Task / 同源其他通知.适合假任务."
+          >
+            🔗 根源清理
+          </button>
+        )}
+        <button
+          onClick={handleDelete}
+          className="rounded px-1.5 py-0.5 text-zinc-500 hover:bg-rose-500/15 hover:text-rose-300"
+          title="删除这条通知(不影响底层任务)"
+        >
+          ✕
+        </button>
+      </div>
     </div>
   );
-  if (!href) return inner;
+
+  if (!href) return content;
   return (
     <Link href={href} className="block">
-      {inner}
+      {content}
     </Link>
   );
 }
@@ -381,6 +458,34 @@ export default function MessagesPage() {
     }
   }, [busy, notifs.unread_count]);
 
+  // v25.22: 一键清孤儿 — payload.action_id 指向 已删除 action_item 的通知
+  const onCleanupOrphans = useCallback(async () => {
+    if (busy) return;
+    if (
+      !confirm(
+        "🧹 一键清扫【孤儿通知】 — 扫描你在此工作区的所有 任务/行动项 类通知,\n" +
+          "把指向【已不存在的行动项】的通知 全部删除.\n\n" +
+          "(适用:历史 假任务 / 已被删除的任务 残留的通知红点)\n\n确定?"
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const r = await api.cleanupOrphanNotifications();
+      toast.success(
+        r.deleted_orphans > 0
+          ? `✅ 清掉 ${r.deleted_orphans} 条孤儿通知`
+          : "✅ 没有孤儿通知 — 你的通知都对应着实际任务",
+        { detail: `扫描了 ${r.scanned} 条 任务/行动项 通知`, sticky: true },
+      );
+      await loadNotifs();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "清扫失败");
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, loadNotifs]);
+
   // Section 1: 合并 + 去重(主责 / 审核 / 协办 重叠时一次显示)
   const actionable = useMemo<ActionableTask[]>(() => {
     const seen = new Set<string>();
@@ -430,17 +535,29 @@ export default function MessagesPage() {
             </Link>
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onMarkAll}
-          disabled={busy || notifs.unread_count === 0}
-          data-testid="messages-mark-all-read"
-          className="rounded-lg border border-ink-700 bg-ink-900 px-3 py-1.5 text-xs text-zinc-300 hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {notifs.unread_count > 0
-            ? `全部已读 (${notifs.unread_count})`
-            : "无未读"}
-        </button>
+        <div className="flex items-center gap-2">
+          {/* v25.22: 一键清孤儿 — 把 指向已删除任务 的通知 一并清掉 */}
+          <button
+            type="button"
+            onClick={onCleanupOrphans}
+            disabled={busy}
+            className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+            title="扫描所有任务/行动项通知,删掉指向已不存在任务的(假任务残留)"
+          >
+            🧹 一键清孤儿
+          </button>
+          <button
+            type="button"
+            onClick={onMarkAll}
+            disabled={busy || notifs.unread_count === 0}
+            data-testid="messages-mark-all-read"
+            className="rounded-lg border border-ink-700 bg-ink-900 px-3 py-1.5 text-xs text-zinc-300 hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {notifs.unread_count > 0
+              ? `全部已读 (${notifs.unread_count})`
+              : "无未读"}
+          </button>
+        </div>
       </header>
 
       {/* Section 1: 需要我处理 */}
@@ -501,7 +618,7 @@ export default function MessagesPage() {
         ) : (
           <div className="space-y-2">
             {progressNotis.map((n) => (
-              <NotiRow key={n.id} n={n} />
+              <NotiRow key={n.id} n={n} onChanged={loadNotifs} />
             ))}
           </div>
         )}
@@ -533,7 +650,7 @@ export default function MessagesPage() {
         ) : (
           <div className="space-y-2">
             {systemNotis.map((n) => (
-              <NotiRow key={n.id} n={n} />
+              <NotiRow key={n.id} n={n} onChanged={loadNotifs} />
             ))}
           </div>
         )}

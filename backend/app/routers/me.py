@@ -28,7 +28,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fastapi import File, UploadFile
@@ -3013,6 +3013,223 @@ async def mark_all_notifications_read(
         .values(read_at=func.now())
     )
     await session.commit()
+
+
+# v25.22: 彻底治理 假通知 / 孤儿通知 —— 3 个新 endpoint -----------------------
+# 痛点:截图里 698 天逾期通知 = due_reminder 每小时扫到 action_item 还在 DB.
+# 之前只能"标已读",不能"删".now 给用户 直接 删通知 + 一键清根源 的能力.
+
+
+@router.delete("/notifications/{notif_id}", status_code=204)
+async def delete_notification(
+    notif_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """删单条通知.只能删自己的."""
+    try:
+        nid = uuid.UUID(notif_id)
+    except ValueError:
+        raise HTTPException(400, "invalid notification id")
+    row = (
+        await session.execute(
+            select(Notification).where(
+                Notification.id == nid,
+                Notification.user_id == auth.user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "notification not found")
+    await session.execute(delete(Notification).where(Notification.id == nid))
+    await session.commit()
+
+
+class CleanupNotifSourceOut(BaseModel):
+    notification_deleted: bool
+    action_item_deleted: bool
+    task_deleted: bool
+    related_notifications_deleted: int  # 同一 action_id 的所有相关通知
+
+
+@router.post(
+    "/notifications/{notif_id}/cleanup-source",
+    response_model=CleanupNotifSourceOut,
+)
+async def cleanup_notification_source(
+    notif_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v25.22: 「源头清理」 — 删这条通知 + 它指向的 action_item + paired task +
+    同一 action_id 的所有 相关通知(action_assigned / action_due_soon /
+    action_overdue / action_comment).
+
+    用途:截图里 698 天逾期假任务 — 用户在 /messages 看到不爽,一键斩草除根,
+    不必去翻 会议详情页 找 「⚠️ 重置并重跑」 按钮.
+
+    幂等:即使 action_item / task 已经不存在 也会成功(只删通知).
+    安全:只清自己 workspace 内的资源.
+    """
+    try:
+        nid = uuid.UUID(notif_id)
+    except ValueError:
+        raise HTTPException(400, "invalid notification id")
+    notif = (
+        await session.execute(
+            select(Notification).where(
+                Notification.id == nid,
+                Notification.user_id == auth.user.id,
+                Notification.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not notif:
+        raise HTTPException(404, "notification not found")
+
+    # 从 payload 提 action_id (action_assigned / action_due_soon /
+    # action_overdue / action_comment 都用 payload.action_id)
+    payload = notif.payload or {}
+    action_id_str = payload.get("action_id") if isinstance(payload, dict) else None
+    action_id: Optional[uuid.UUID] = None
+    if action_id_str:
+        try:
+            action_id = uuid.UUID(action_id_str)
+        except (ValueError, TypeError):
+            action_id = None
+
+    out = CleanupNotifSourceOut(
+        notification_deleted=False,
+        action_item_deleted=False,
+        task_deleted=False,
+        related_notifications_deleted=0,
+    )
+
+    if action_id is not None:
+        # 找 action_item — 必须同 workspace
+        action = (
+            await session.execute(
+                select(MeetingActionItem).where(
+                    MeetingActionItem.id == action_id,
+                    MeetingActionItem.workspace_id == auth.workspace.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if action:
+            # 先删 paired task
+            if action.task_id:
+                tres = await session.execute(
+                    delete(Task).where(Task.id == action.task_id)
+                )
+                out.task_deleted = (tres.rowcount or 0) > 0
+            # 再删 action_item (action_item_comment CASCADE)
+            ares = await session.execute(
+                delete(MeetingActionItem).where(MeetingActionItem.id == action_id)
+            )
+            out.action_item_deleted = (ares.rowcount or 0) > 0
+
+        # 删 所有 引用同一 action_id 的 通知 (跨用户也删,因为同一假任务
+        # 可能给协办人 / leader 也发了通知)
+        nres = await session.execute(
+            text(
+                "DELETE FROM notification "
+                "WHERE workspace_id = :ws AND payload->>'action_id' = :aid"
+            ),
+            {"ws": str(auth.workspace.id), "aid": str(action_id)},
+        )
+        out.related_notifications_deleted = int(nres.rowcount or 0)
+        out.notification_deleted = True
+    else:
+        # 没 action_id,只删通知本身
+        await session.execute(delete(Notification).where(Notification.id == nid))
+        out.notification_deleted = True
+        out.related_notifications_deleted = 1
+
+    await session.commit()
+    return out
+
+
+class CleanupOrphansOut(BaseModel):
+    scanned: int
+    deleted_orphans: int
+    deleted_fake_actions: int = 0
+    deleted_fake_tasks: int = 0
+
+
+@router.post(
+    "/notifications/cleanup-orphans",
+    response_model=CleanupOrphansOut,
+)
+async def cleanup_orphan_notifications(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v25.22: 「孤儿通知清理」 — 扫本用户 workspace 内 全部 action_* 通知,
+    payload.action_id 已经不存在 action_item 的 → 删.
+
+    适用:历史上有人删了 action_item / task,但通知 zombies 留在 DB.
+
+    返回 deleted_orphans 个数.deleted_fake_* 留 0(本 endpoint 不主动删 action,
+    那个用 /notifications/{id}/cleanup-source).
+    """
+    # 拿用户在此 workspace 的所有 action_* 通知 + 它的 payload.action_id
+    rows = (
+        await session.execute(
+            select(Notification).where(
+                Notification.user_id == auth.user.id,
+                Notification.workspace_id == auth.workspace.id,
+                Notification.kind.in_(
+                    [
+                        "action_assigned",
+                        "action_due_soon",
+                        "action_overdue",
+                        "action_comment",
+                    ]
+                ),
+            )
+        )
+    ).scalars().all()
+    scanned = len(rows)
+
+    # 收集所有 referenced action_ids
+    ref_ids: set[uuid.UUID] = set()
+    notif_action_pairs: list[tuple[uuid.UUID, Optional[uuid.UUID]]] = []
+    for r in rows:
+        payload = r.payload or {}
+        aid_str = payload.get("action_id") if isinstance(payload, dict) else None
+        aid: Optional[uuid.UUID] = None
+        if aid_str:
+            try:
+                aid = uuid.UUID(aid_str)
+                ref_ids.add(aid)
+            except (ValueError, TypeError):
+                aid = None
+        notif_action_pairs.append((r.id, aid))
+
+    # 查哪些 action_id 真实存在
+    existing: set[uuid.UUID] = set()
+    if ref_ids:
+        ex_rows = (
+            await session.execute(
+                select(MeetingActionItem.id).where(MeetingActionItem.id.in_(ref_ids))
+            )
+        ).all()
+        existing = {row[0] for row in ex_rows}
+
+    # 删孤儿 = action_id 不存在 (或 action_id 本身 None — 也算孤儿)
+    orphan_notif_ids: list[uuid.UUID] = [
+        nid for nid, aid in notif_action_pairs if aid is None or aid not in existing
+    ]
+    deleted = 0
+    if orphan_notif_ids:
+        res = await session.execute(
+            delete(Notification).where(Notification.id.in_(orphan_notif_ids))
+        )
+        deleted = int(res.rowcount or 0)
+    await session.commit()
+    return CleanupOrphansOut(scanned=scanned, deleted_orphans=deleted)
 
 
 # --------- v24.4 #1: LLM rate limit 自检 / 测试入口 -------------------------
