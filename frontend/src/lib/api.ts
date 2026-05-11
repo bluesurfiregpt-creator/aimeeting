@@ -995,6 +995,27 @@ export const api = {
   finalizeMeeting: (id: string) => jpost<Meeting>(`/api/meetings/${id}/finalize`, {}),
   meetingResult: (id: string) => jget<MeetingResult>(`/api/meetings/${id}/result`),
 
+  // v25.8-#4: 离线 ASR 复跑(高清,2-5 分钟)
+  rerunOfflineAsr: (id: string) =>
+    jpost<{
+      started: boolean;
+      task_id: string | null;
+      sentences: number;
+      model: string;
+      elapsed_s: number;
+      next_step: string;
+    }>(`/api/meetings/${id}/offline-asr/rerun`, {}),
+
+  // v25.8-#3: 看会议自动收集的 hot words(用户拷贝去 DashScope vocab)
+  meetingHotWords: (id: string) =>
+    jget<{
+      attendee_names: string[];
+      agent_keywords: string[];
+      kb_titles: string[];
+      total: number;
+      suggestion: string;
+    }>(`/api/meetings/${id}/hot-words`),
+
   // v25.7-#4: 声纹识别 重跑 + debug
   rerunIdentify: (id: string) =>
     jpost<{ started: boolean; note: string; meeting_status: string }>(

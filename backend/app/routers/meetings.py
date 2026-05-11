@@ -709,6 +709,53 @@ class IdentifyDebugOut(BaseModel):
     notes: list[str]
 
 
+class OfflineAsrOut(BaseModel):
+    started: bool
+    task_id: Optional[str] = None
+    sentences: int
+    model: str
+    elapsed_s: int
+    next_step: str
+
+
+@router.post("/{meeting_id}/offline-asr/rerun", response_model=OfflineAsrOut)
+async def rerun_offline_asr_endpoint(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v25.8-#4: 触发离线 ASR 复跑 — 用 paraformer-v2(批量,非实时)
+    重新转录会议录音,质量比 realtime 高 20-30%.
+
+    阻塞调用(2-5 分钟,直到 DashScope 任务完成).返回后端会自动:
+    1. 替换 final 实录
+    2. 重跑 identify(对齐说话人)
+    3. 触发 cleaner(LLM 修字)
+    4. 重新生成 summary
+    全流程总时长 4-8 分钟.成功响应后,前端 5 分钟后刷新看新纪要.
+    """
+    from ..offline_asr import OfflineASRError, rerun_offline_asr
+
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    if m.status not in ("finished", "processed"):
+        raise HTTPException(409, f"会议未结束(status={m.status}),无法离线复跑")
+
+    try:
+        result = await rerun_offline_asr(m.id)
+    except OfflineASRError as e:
+        raise HTTPException(500, f"离线 ASR 失败: {e}")
+
+    return OfflineAsrOut(
+        started=True,
+        task_id=result.get("task_id"),
+        sentences=result["sentences"],
+        model=result["model"],
+        elapsed_s=result["elapsed_s"],
+        next_step=result["next_step"],
+    )
+
+
 class HotWordsOut(BaseModel):
     attendee_names: list[str]
     agent_keywords: list[str]

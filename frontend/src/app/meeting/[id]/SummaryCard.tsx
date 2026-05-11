@@ -207,6 +207,44 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
           >
             🔍 识别 debug
           </button>
+          {/* v25.8-#4: 离线 ASR 高清重跑(2-5 分钟,质量更高) */}
+          <button
+            onClick={async () => {
+              if (!confirm("离线 ASR 重跑会:1) 用 paraformer-v2 高清模型重新转录(2-5 分钟);2) 替换原实录;3) 重跑 identify + cleaner + summary.\n\n确定继续?")) return;
+              try {
+                toast.info("📡 离线 ASR 提交中…(5 分钟内别关页面)");
+                const r = await api.rerunOfflineAsr(meetingId);
+                toast.success(`✅ ${r.next_step}(${r.sentences} 句)`);
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "离线 ASR 失败");
+              }
+            }}
+            className="rounded-md bg-orange-500/15 px-2 py-0.5 font-medium text-orange-300 hover:bg-orange-500/25"
+            title="高清重跑 — paraformer-v2 离线模型,质量比 realtime 高 20-30%(耗时 2-5 分钟)"
+          >
+            🎯 高清重跑
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                const r = await api.meetingHotWords(meetingId);
+                console.log("[hot-words]", r);
+                const text = [
+                  `参会人姓名 (${r.attendee_names.length}): ${r.attendee_names.join(", ") || "无"}`,
+                  `Agent keywords (${r.agent_keywords.length}): ${r.agent_keywords.join(", ") || "无"}`,
+                  `KB 标题 (${r.kb_titles.length}): ${r.kb_titles.join(", ") || "无"}`,
+                  `\n💡 ${r.suggestion}`,
+                ].join("\n\n");
+                alert(text);
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "hot words 失败");
+              }
+            }}
+            className="text-zinc-500 hover:text-lime-400"
+            title="本会议自动收集的 hot words(参会人 + agent.keywords + KB)"
+          >
+            🔥 hot words
+          </button>
         </div>
       </header>
 
