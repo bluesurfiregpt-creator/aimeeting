@@ -209,6 +209,7 @@ export type Meeting = {
   started_at: string | null;
   ended_at: string | null;
   attendee_user_ids: string[];
+  attendee_agent_ids?: string[];  // v25.7-#1: 邀请的 AI 专家
   agenda?: AgendaItem[] | null;
 };
 
@@ -980,11 +981,15 @@ export const api = {
     title: string,
     attendeeUserIds: string[],
     agenda?: AgendaItem[] | null,
+    attendeeAgentIds?: string[],  // v25.7-#1
   ) =>
     jpost<Meeting>("/api/meetings", {
       title,
       attendee_user_ids: attendeeUserIds,
       ...(agenda && agenda.length ? { agenda } : {}),
+      ...(attendeeAgentIds && attendeeAgentIds.length
+        ? { attendee_agent_ids: attendeeAgentIds }
+        : {}),
     }),
   getMeeting: (id: string) => jget<Meeting>(`/api/meetings/${id}`),
   finalizeMeeting: (id: string) => jpost<Meeting>(`/api/meetings/${id}/finalize`, {}),

@@ -61,7 +61,11 @@ async def _load_owned_meeting(
     return m
 
 
-def _to_meeting_out(m: Meeting, attendee_user_ids: list[uuid.UUID]) -> MeetingOut:
+def _to_meeting_out(
+    m: Meeting,
+    attendee_user_ids: list[uuid.UUID],
+    attendee_agent_ids: list[uuid.UUID] | None = None,
+) -> MeetingOut:
     return MeetingOut.model_validate(
         {
             "id": m.id,
@@ -70,6 +74,7 @@ def _to_meeting_out(m: Meeting, attendee_user_ids: list[uuid.UUID]) -> MeetingOu
             "started_at": m.started_at,
             "ended_at": m.ended_at,
             "attendee_user_ids": attendee_user_ids,
+            "attendee_agent_ids": attendee_agent_ids or [],
             "agenda": m.agenda,
         }
     )
@@ -104,14 +109,36 @@ async def create_meeting(
         ).scalar_one_or_none()
         if u is not None:
             session.add(MeetingAttendee(meeting_id=m.id, user_id=uid))
+
+    # v25.7-#1: 邀请 AI 专家(workspace 校验)
+    bound_agent_ids: list[uuid.UUID] = []
+    if payload.attendee_agent_ids:
+        from ..models import Agent
+        valid_agents = (
+            await session.execute(
+                select(Agent.id).where(
+                    Agent.id.in_(payload.attendee_agent_ids),
+                    Agent.workspace_id == auth.workspace.id,
+                    Agent.is_active.is_(True),
+                )
+            )
+        ).all()
+        bound_agent_ids = [r[0] for r in valid_agents]
+        for aid in bound_agent_ids:
+            session.add(MeetingAttendee(meeting_id=m.id, agent_id=aid))
+
     await session.commit()
     await session.refresh(m)
     await audit_log(
         session, auth, "meeting.create",
         target_type="meeting", target_id=str(m.id),
-        payload={"title": m.title, "attendee_count": len(payload.attendee_user_ids)},
+        payload={
+            "title": m.title,
+            "attendee_count": len(payload.attendee_user_ids),
+            "agent_count": len(bound_agent_ids),
+        },
     )
-    return _to_meeting_out(m, list(payload.attendee_user_ids))
+    return _to_meeting_out(m, list(payload.attendee_user_ids), bound_agent_ids)
 
 
 @router.get("", response_model=list[MeetingOut])
@@ -129,18 +156,24 @@ async def list_meetings(
     ).scalars().all()
     if not rows:
         return []
-    # Pull attendee user_ids for each meeting in one shot
+    # Pull attendee user_ids + agent_ids for each meeting in one shot
     ids = [m.id for m in rows]
     rels = (
         await session.execute(
             select(MeetingAttendee).where(MeetingAttendee.meeting_id.in_(ids))
         )
     ).scalars().all()
-    by_meeting: dict[uuid.UUID, list[uuid.UUID]] = {}
+    by_meeting_user: dict[uuid.UUID, list[uuid.UUID]] = {}
+    by_meeting_agent: dict[uuid.UUID, list[uuid.UUID]] = {}
     for r in rels:
         if r.user_id is not None:
-            by_meeting.setdefault(r.meeting_id, []).append(r.user_id)
-    return [_to_meeting_out(m, by_meeting.get(m.id, [])) for m in rows]
+            by_meeting_user.setdefault(r.meeting_id, []).append(r.user_id)
+        elif r.agent_id is not None:
+            by_meeting_agent.setdefault(r.meeting_id, []).append(r.agent_id)
+    return [
+        _to_meeting_out(m, by_meeting_user.get(m.id, []), by_meeting_agent.get(m.id, []))
+        for m in rows
+    ]
 
 
 @router.get("/{meeting_id}/export")
@@ -263,12 +296,12 @@ async def get_meeting(
     m = await _load_owned_meeting(meeting_id, session, auth)
     rows = (
         await session.execute(
-            select(MeetingAttendee.user_id).where(
-                MeetingAttendee.meeting_id == m.id, MeetingAttendee.user_id.is_not(None)
-            )
+            select(MeetingAttendee).where(MeetingAttendee.meeting_id == m.id)
         )
-    ).all()
-    return _to_meeting_out(m, [r[0] for r in rows])
+    ).scalars().all()
+    user_ids = [r.user_id for r in rows if r.user_id is not None]
+    agent_ids = [r.agent_id for r in rows if r.agent_id is not None]
+    return _to_meeting_out(m, user_ids, agent_ids)
 
 
 @router.post("/{meeting_id}/finalize", response_model=MeetingOut)
@@ -292,12 +325,12 @@ async def finalize_meeting(
     bg.add_task(run_identify, m.id)
     rows = (
         await session.execute(
-            select(MeetingAttendee.user_id).where(
-                MeetingAttendee.meeting_id == m.id, MeetingAttendee.user_id.is_not(None)
-            )
+            select(MeetingAttendee).where(MeetingAttendee.meeting_id == m.id)
         )
-    ).all()
-    return _to_meeting_out(m, [r[0] for r in rows])
+    ).scalars().all()
+    user_ids = [r.user_id for r in rows if r.user_id is not None]
+    agent_ids = [r.agent_id for r in rows if r.agent_id is not None]
+    return _to_meeting_out(m, user_ids, agent_ids)
 
 
 _STATUS_RE = re.compile(r"<!-- identify:(\w+): (.*?) -->")

@@ -36,6 +36,9 @@ class AgendaItem(BaseModel):
 class MeetingCreate(BaseModel):
     title: Optional[str] = "未命名会议"
     attendee_user_ids: list[uuid.UUID] = []
+    # v25.7-#1: 显式邀请的 AI 专家 — 没勾的 AI 不会被自动触发(关键词 / @mention).
+    # 之前 agent_router 默认 fallback 全部 active agents → 一个会议被 16+ AI 满天乱蹦.
+    attendee_agent_ids: list[uuid.UUID] = []
     agenda: Optional[list[AgendaItem]] = None
 
 
@@ -47,6 +50,7 @@ class MeetingOut(BaseModel):
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     attendee_user_ids: list[uuid.UUID] = []
+    attendee_agent_ids: list[uuid.UUID] = []  # v25.7-#1
     agenda: Optional[list[AgendaItem]] = None
 
 

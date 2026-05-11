@@ -537,8 +537,12 @@ async def invoke_agent_directly(
 
 
 async def _agents_for_meeting(db: AsyncSession, meeting_id: uuid.UUID) -> list[Agent]:
-    """Active agents bound to this meeting; falls back to all active agents
-    so single-Agent setups don't require ticking a box every time."""
+    """Active agents 显式邀请到本会议的.
+
+    v25.7-#1 修复:之前 没邀请任何 AI 时 fallback 到「all active agents」 →
+    一场会议被 16+ AI 关键词触发满天乱蹦.现在 没勾就 0 个,
+    不自动触发任何 AI(用户可在会议中手动 invoke).
+    """
     attendee_agent_ids = (
         await db.execute(
             select(MeetingAttendee.agent_id).where(
@@ -549,13 +553,7 @@ async def _agents_for_meeting(db: AsyncSession, meeting_id: uuid.UUID) -> list[A
     ).all()
     agent_ids = [r[0] for r in attendee_agent_ids]
     if not agent_ids:
-        return list(
-            (
-                await db.execute(
-                    select(Agent).where(Agent.is_active.is_(True))
-                )
-            ).scalars()
-        )
+        return []  # v25.7-#1: 没邀请就不触发(关键改动)
     return list(
         (
             await db.execute(

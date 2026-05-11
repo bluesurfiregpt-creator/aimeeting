@@ -3,14 +3,36 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, type AgendaItem, type User } from "@/lib/api";
+import { api, type Agent, type AgendaItem, type User } from "@/lib/api";
 
 type DraftAgendaRow = { title: string; time_budget_min: string }; // string for input
+
+// v25.7-#1: agent 颜色名 → Tailwind class 映射(meeting page 已有,这里复制)
+const AGENT_COLOR_BG: Record<string, string> = {
+  violet: "bg-violet-500/15 text-violet-200 border-violet-500/30",
+  rose: "bg-rose-500/15 text-rose-200 border-rose-500/30",
+  emerald: "bg-emerald-500/15 text-emerald-200 border-emerald-500/30",
+  amber: "bg-amber-500/15 text-amber-200 border-amber-500/30",
+  sky: "bg-sky-500/15 text-sky-200 border-sky-500/30",
+  cyan: "bg-cyan-500/15 text-cyan-200 border-cyan-500/30",
+  lime: "bg-lime-500/15 text-lime-200 border-lime-500/30",
+  fuchsia: "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-500/30",
+  blue: "bg-blue-500/15 text-blue-200 border-blue-500/30",
+  green: "bg-green-500/15 text-green-200 border-green-500/30",
+  orange: "bg-orange-500/15 text-orange-200 border-orange-500/30",
+  red: "bg-red-500/15 text-red-200 border-red-500/30",
+  teal: "bg-teal-500/15 text-teal-200 border-teal-500/30",
+  indigo: "bg-indigo-500/15 text-indigo-200 border-indigo-500/30",
+  pink: "bg-pink-500/15 text-pink-200 border-pink-500/30",
+  yellow: "bg-yellow-500/15 text-yellow-200 border-yellow-500/30",
+};
 
 export default function Home() {
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [pickedAgents, setPickedAgents] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState("");
   // M3.0: agenda items (optional). Each row: title (required) + budget min.
   // `agenda` is committed to the API only when at least one row has a title.
@@ -26,12 +48,23 @@ export default function Home() {
       .listUsers()
       .then(setUsers)
       .catch((e) => setErr(String(e)));
+    // v25.7-#1: 拉 active AI 专家列表
+    api
+      .listAgents()
+      .then((rows) => setAgents(rows.filter((a) => a.is_active)))
+      .catch(() => setAgents([]));
   }, []);
 
   const toggle = (id: string) => {
     const s = new Set(picked);
     s.has(id) ? s.delete(id) : s.add(id);
     setPicked(s);
+  };
+
+  const toggleAgent = (id: string) => {
+    const s = new Set(pickedAgents);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setPickedAgents(s);
   };
 
   const start = async () => {
@@ -50,6 +83,7 @@ export default function Home() {
         title.trim() || `会议 ${new Date().toLocaleString("zh-CN")}`,
         Array.from(picked),
         cleaned.length ? cleaned : null,
+        Array.from(pickedAgents),  // v25.7-#1
       );
       router.push(`/meeting/${m.id}`);
     } catch (e) {
@@ -211,6 +245,56 @@ export default function Home() {
                   </label>
                 </li>
               ))}
+            </ul>
+          )}
+        </div>
+
+        {/* v25.7-#1: 邀请 AI 专家(可多选;不勾任何 = 无 AI 触发) */}
+        <div className="mt-6">
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-zinc-500">
+              邀请 AI 专家 <span className="text-zinc-600">(可多选;不勾则会议中没有 AI 自动发言)</span>
+            </div>
+            <Link href="/admin/agents" className="text-xs text-zinc-600 hover:text-accent-400">
+              + 管理 AI 专家
+            </Link>
+          </div>
+          {agents.length === 0 ? (
+            <p className="mt-2 text-sm text-zinc-600" data-testid="no-agents-hint">
+              还没有 AI 专家。去 <Link href="/admin/agents" className="text-accent-400">AI 配置</Link> 创建。
+            </p>
+          ) : (
+            <ul className="mt-3 grid gap-2 sm:grid-cols-2" data-testid="agent-picker">
+              {agents.map((a) => {
+                const tone = AGENT_COLOR_BG[a.color || "violet"] || AGENT_COLOR_BG.violet;
+                const isOn = pickedAgents.has(a.id);
+                return (
+                  <li key={a.id}>
+                    <label
+                      className={`flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 transition ${
+                        isOn
+                          ? tone
+                          : "border-ink-700 bg-ink-950 text-zinc-300 hover:border-zinc-600"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={isOn}
+                          onChange={() => toggleAgent(a.id)}
+                          className="h-4 w-4 accent-accent-500"
+                        />
+                        🤖 {a.name}
+                      </span>
+                      {a.domain && (
+                        <span className="ml-2 truncate text-[10px] text-zinc-500">
+                          {a.domain}
+                        </span>
+                      )}
+                    </label>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
