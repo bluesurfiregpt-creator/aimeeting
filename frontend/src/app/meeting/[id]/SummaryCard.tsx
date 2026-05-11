@@ -13,15 +13,24 @@ type Status = "loading" | "pending" | "ready" | "failed" | "unconfigured" | "ski
 export default function SummaryCard({
   meetingId,
   refreshKey = 0,
+  onStatusChange,
 }: {
   meetingId: string;
   // v25.19: 外部触发 重生成 后 ++ 这个 key,SummaryCard 会重启 polling.
   refreshKey?: number;
+  // v25.20: 把 polling 到的 status 实时回报给 父 — 让父的进度条 在 ready 时
+  // 跳到 100% (重生成纪要 真正完成 的信号).
+  onStatusChange?: (status: Status) => void;
 }) {
   const [summary, setSummary] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("loading");  // v25.16
   const [skipMessage, setSkipMessage] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
+
+  // v25.20: 同步把 status 变化告诉外部
+  useEffect(() => {
+    onStatusChange?.(status);
+  }, [status, onStatusChange]);
 
   const fetchOnce = useCallback(async () => {
     try {

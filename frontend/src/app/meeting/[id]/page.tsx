@@ -194,6 +194,71 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   // 让它重启 polling — 否则 SummaryCard polling 已经停在 ready,看不到新结果.
   const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
 
+  // v25.20: 上游处理工具的 进度条 / 帮助面板.
+  // 进度条按 估算时长 走(到 95% 停),完成事件(SummaryCard 收到 ready)
+  // 把它顶到 100% 并 4 秒后自动收起.
+  type UpstreamTaskKind = "regenerate" | "rerun-identify" | "offline-asr";
+  type UpstreamTask = {
+    kind: UpstreamTaskKind;
+    label: string;        // 标题
+    description: string;  // 详细说明 LLM 在做啥
+    startedAt: number;    // Date.now() ms
+    expectedMs: number;   // 估算时长
+    completed: boolean;   // 真正确认完成?
+    failed?: string;      // 错误原因
+  };
+  const [upstreamTask, setUpstreamTask] = useState<UpstreamTask | null>(null);
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  const [showHelp, setShowHelp] = useState(false);
+
+  // 每秒 tick 一次 — 只在 task 跑时跑.
+  useEffect(() => {
+    if (!upstreamTask) return;
+    const h = window.setInterval(() => setNowTick(Date.now()), 500);
+    return () => window.clearInterval(h);
+  }, [upstreamTask]);
+
+  // task 完成后 4 秒自动收起
+  useEffect(() => {
+    if (!upstreamTask || !upstreamTask.completed) return;
+    const h = window.setTimeout(() => setUpstreamTask(null), 4000);
+    return () => window.clearTimeout(h);
+  }, [upstreamTask]);
+
+  // 进度算法:0..95% 按 elapsed / expected,completed 直接 100,failed 80(红)
+  const upstreamProgress = useMemo(() => {
+    if (!upstreamTask) return 0;
+    if (upstreamTask.completed) return 100;
+    if (upstreamTask.failed) return 80;
+    const elapsed = nowTick - upstreamTask.startedAt;
+    const pct = (elapsed / upstreamTask.expectedMs) * 100;
+    return Math.min(95, Math.max(2, pct));
+  }, [upstreamTask, nowTick]);
+
+  const upstreamElapsedSec = upstreamTask
+    ? Math.floor((nowTick - upstreamTask.startedAt) / 1000)
+    : 0;
+
+  const startUpstreamTask = useCallback(
+    (
+      kind: UpstreamTaskKind,
+      label: string,
+      description: string,
+      expectedMs: number,
+    ) => {
+      setUpstreamTask({
+        kind,
+        label,
+        description,
+        startedAt: Date.now(),
+        expectedMs,
+        completed: false,
+      });
+      setNowTick(Date.now());
+    },
+    [],
+  );
+
   // v25.19 #3d: 实录锚点 — 任务详情 / 行动项 通过 ?focus=id1,id2,... 跳进来,
   // 实录页 高亮这些 行 + 滚动 + 展开 ±3 句上下文.
   // 同时若 ?tab=minutes 也支持从外部直接跳到 纪要 tab.
@@ -1072,55 +1137,93 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       {/* v25.12-#2: 纪要 tab — 仅 phase=ended */}
       {/* v25.14: TraceCard 合并到 ActionItemsCard(待办与流转 一卡到底)*/}
       <div style={{ display: viewTab === "minutes" ? "block" : "none" }}>
-        {phase === "ended" ? <SummaryCard meetingId={meetingId} refreshKey={summaryRefreshKey} /> : null}
+        {phase === "ended" ? (
+          <SummaryCard
+            meetingId={meetingId}
+            refreshKey={summaryRefreshKey}
+            onStatusChange={(s) => {
+              // v25.20: regenerate task 跑时,SummaryCard polling 拿到
+              // ready/failed/skipped 即为完成 — 通知进度条跳到 100%.
+              setUpstreamTask((t) => {
+                if (!t || t.kind !== "regenerate" || t.completed) return t;
+                if (s === "ready") return { ...t, completed: true };
+                if (s === "failed" || s === "skipped") {
+                  return { ...t, failed: s === "failed" ? "LLM 调用失败" : "实录过短,跳过" };
+                }
+                return t;
+              });
+            }}
+          />
+        ) : null}
         {phase === "ended" ? <ActionItemsCard meetingId={meetingId} /> : null}
       </div>
 
       {/* v25.12-#2: 实录 tab(默认) — 所有 live/idle 期内容 */}
       <div style={{ display: viewTab === "live" ? "block" : "none" }}>
 
-      {/* v25.19 #1: 上游处理工具栏 — 只在 phase=ended 时显示.
-          原本在 SummaryCard header,但 "重生成纪要 / 重新识别声纹 / 高清重跑 ASR"
-          本质上 都是【对实录原始数据 重新处理】,放在【实录与发言】tab 顶部
-          更符合用户心智 — 操作的是上游,生成在下游(纪要 tab). */}
+      {/* v25.19 #1 + v25.20: 上游处理工具栏 — phase=ended 时显示.
+          v25.20:加进度条 + 帮助面板,让用户知道任务时长 + 何时该用. */}
       {phase === "ended" ? (
         <div className="mt-4 rounded-xl border border-ink-700 bg-ink-900/60 px-4 py-3">
-          <div className="flex items-center gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-3 text-xs">
             <span className="shrink-0 text-zinc-400">🛠️ 实录处理工具:</span>
             <button
+              disabled={!!upstreamTask && !upstreamTask.completed}
               onClick={async () => {
+                startUpstreamTask(
+                  "regenerate",
+                  "🔄 重生成纪要",
+                  "LLM (qwen-max) 用反幻觉 prompt 从实录重写纪要 + 重抽行动项 + 长记忆.不改实录文字.",
+                  25_000,
+                );
                 try {
                   await api.regenerateMeetingSummary(meetingId);
-                  toast.success("✅ 纪要重生成已触发", {
-                    detail: "30-60 秒后切到「纪要 + 行动项」tab 查看新结果",
-                    sticky: true,
-                  });
-                  // v25.19: 让 SummaryCard 重启 polling — 否则停在 ready 看不到
+                  // 让 SummaryCard 重启 polling — 否则停在 ready 看不到
                   setSummaryRefreshKey((k) => k + 1);
                 } catch (e) {
+                  setUpstreamTask((t) =>
+                    t
+                      ? { ...t, failed: e instanceof Error ? e.message : "触发失败" }
+                      : t,
+                  );
                   toast.error(e instanceof Error ? e.message : "重生成失败");
                 }
               }}
-              className="rounded-md bg-accent-500/15 px-2.5 py-1 font-medium text-accent-300 hover:bg-accent-500/25"
-              title="不改实录,只重跑 LLM 生成纪要(qwen-max + 反幻觉 prompt).适合改完说话人或修了 prompt 后."
+              className="rounded-md bg-accent-500/15 px-2.5 py-1 font-medium text-accent-300 hover:bg-accent-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+              title="不改实录,只重跑 LLM 生成纪要(qwen-max + 反幻觉 prompt).预计 ~25 秒."
             >
               🔄 重生成纪要
             </button>
             <button
+              disabled={!!upstreamTask && !upstreamTask.completed}
               onClick={async () => {
+                startUpstreamTask(
+                  "rerun-identify",
+                  "🔄 重新识别声纹",
+                  "重跑 pyannote 切片对齐 + 邻域平滑.基于已录的声纹库重新分配说话人.约 30 秒.",
+                  30_000,
+                );
                 try {
                   const r = await api.rerunIdentify(meetingId);
+                  // identify 是同步返回 — 后端返回了就算完成
+                  setUpstreamTask((t) => (t ? { ...t, completed: true } : t));
                   toast.success(r.note);
                 } catch (e) {
+                  setUpstreamTask((t) =>
+                    t
+                      ? { ...t, failed: e instanceof Error ? e.message : "重识别失败" }
+                      : t,
+                  );
                   toast.error(e instanceof Error ? e.message : "重识别失败");
                 }
               }}
-              className="rounded-md bg-amber-500/15 px-2.5 py-1 font-medium text-amber-300 hover:bg-amber-500/25"
-              title="重跑 pyannote 声纹识别 + 邻域平滑(2-pass).适合调阈值后看新效果,或某些行误识时一键修."
+              className="rounded-md bg-amber-500/15 px-2.5 py-1 font-medium text-amber-300 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+              title="重跑 pyannote 声纹识别 + 邻域平滑.预计 ~30 秒."
             >
               🔄 重新识别声纹
             </button>
             <button
+              disabled={!!upstreamTask && !upstreamTask.completed}
               onClick={async () => {
                 if (
                   !confirm(
@@ -1128,27 +1231,177 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                       "  1) 用 paraformer-v2 离线高清模型重新转录(2-5 分钟)\n" +
                       "  2) 替换原实录\n" +
                       "  3) 重跑 identify + cleaner + summary\n\n" +
-                      "确定继续?"
+                      "确定继续?",
                   )
                 )
                   return;
+                startUpstreamTask(
+                  "offline-asr",
+                  "🎯 高清重跑 ASR",
+                  "paraformer-v2 离线模型重新转录全场录音(精度比 realtime 高 20-30%),完后 chain 触发 identify+cleaner+summary.",
+                  180_000,
+                );
                 try {
-                  toast.info("📡 离线 ASR 提交中…(5 分钟内别关页面)");
                   const r = await api.rerunOfflineAsr(meetingId);
-                  toast.success(`✅ ${r.next_step}(${r.sentences} 句)`);
+                  // ASR 是异步 — 触发成功不代表完成,继续按 timer 走
+                  toast.success(`✅ 已提交:${r.next_step}(${r.sentences} 句)`);
                 } catch (e) {
+                  setUpstreamTask((t) =>
+                    t
+                      ? { ...t, failed: e instanceof Error ? e.message : "高清重跑失败" }
+                      : t,
+                  );
                   toast.error(e instanceof Error ? e.message : "高清重跑失败");
                 }
               }}
-              className="rounded-md bg-orange-500/15 px-2.5 py-1 font-medium text-orange-300 hover:bg-orange-500/25"
-              title="离线 paraformer-v2:逐字精度比 realtime 高 20-30%,但要 2-5 分钟.适合实录有大段错字 / 漏字时."
+              className="rounded-md bg-orange-500/15 px-2.5 py-1 font-medium text-orange-300 hover:bg-orange-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+              title="离线 paraformer-v2 全量重跑.预计 2-5 分钟."
             >
               🎯 高清重跑 ASR
             </button>
-            <span className="ml-auto text-[10px] text-zinc-600">
-              生成 / 识别 都是异步,触发后请刷新或切 tab 查看结果
-            </span>
+            <button
+              onClick={() => setShowHelp((v) => !v)}
+              className={
+                "ml-auto rounded-md px-2 py-1 text-zinc-500 hover:text-zinc-200 " +
+                (showHelp ? "bg-ink-800 text-zinc-200" : "")
+              }
+              title="这 3 个按钮分别什么情况下点?"
+            >
+              ❓ 何时用
+            </button>
           </div>
+
+          {/* v25.20 帮助面板 — 点 ❓ 何时用 弹出 */}
+          {showHelp && (
+            <div className="mt-3 rounded-lg border border-ink-700 bg-ink-950/50 p-3 text-[12px] leading-relaxed text-zinc-300">
+              <div className="mb-2 text-zinc-500">
+                这 3 个按钮 处理顺序:实录 → 说话人 → 纪要。改下游不影响上游。
+              </div>
+              <ul className="space-y-2">
+                <li>
+                  <span className="font-medium text-orange-300">🎯 高清重跑 ASR</span>{" "}
+                  <span className="text-zinc-500">(最重,2-5 分钟)</span>
+                  <div className="mt-0.5 text-zinc-400">
+                    实录里出现 <b>大段错字 / 漏字 / 专业术语识别歪</b>。原因:开会时用的是
+                    realtime 流式 ASR,牺牲了精度换实时性。这个按钮用离线 paraformer-v2 全量重跑,
+                    精度高 20-30%,完后会自动连锁触发 重识别声纹 + 重生成纪要。
+                    <br />
+                    <span className="text-amber-300">⚠️ 会替换全部实录</span> — 你的手动纠正会丢。
+                  </div>
+                </li>
+                <li>
+                  <span className="font-medium text-amber-300">🔄 重新识别声纹</span>{" "}
+                  <span className="text-zinc-500">(~30 秒)</span>
+                  <div className="mt-0.5 text-zinc-400">
+                    实录文字 OK,但 <b>说话人名字 错很多 / 大量 [?]未识别</b>。可能原因:
+                    <br />
+                    &nbsp;• 缺席成员开会后补录了声纹 — 点这个把他认出来
+                    <br />
+                    &nbsp;• 你刚调了识别阈值或者改了声纹库
+                    <br />
+                    &nbsp;• 声纹数据老旧 — 想用最新的算法重跑一次
+                    <br />
+                    若只是几句错,先用 ✏️ <b>批量纠正(+5 / +10)</b> 更快,这个按钮是大改用的。
+                  </div>
+                </li>
+                <li>
+                  <span className="font-medium text-accent-300">🔄 重生成纪要</span>{" "}
+                  <span className="text-zinc-500">(~25 秒)</span>
+                  <div className="mt-0.5 text-zinc-400">
+                    实录 + 说话人 都 OK,只想 <b>重写纪要 + 行动项</b>。常见场景:
+                    <br />
+                    &nbsp;• 上次纪要看着 hallucinate(瞎编日期/任务) — 用新 prompt 重抽
+                    <br />
+                    &nbsp;• 你刚改了几个说话人 — 让纪要按新归属重写
+                    <br />
+                    &nbsp;• 上次失败 / 跳过(实录太短) → 加完手动实录后再试一次
+                    <br />
+                    它链式触发 LLM 纪要 + 行动项抽取(带 evidence 锚点)+ 长期记忆。
+                  </div>
+                </li>
+              </ul>
+            </div>
+          )}
+
+          {/* v25.20 进度条 — task 跑时显示 */}
+          {upstreamTask && (
+            <div
+              className={
+                "mt-3 rounded-lg border p-3 transition " +
+                (upstreamTask.failed
+                  ? "border-rose-500/40 bg-rose-500/5"
+                  : upstreamTask.completed
+                  ? "border-emerald-500/40 bg-emerald-500/5"
+                  : "border-amber-500/40 bg-amber-500/5")
+              }
+            >
+              <div className="flex items-center justify-between text-xs">
+                <span
+                  className={
+                    "font-medium " +
+                    (upstreamTask.failed
+                      ? "text-rose-300"
+                      : upstreamTask.completed
+                      ? "text-emerald-300"
+                      : "text-amber-300")
+                  }
+                >
+                  {upstreamTask.failed
+                    ? `❌ ${upstreamTask.label} 失败`
+                    : upstreamTask.completed
+                    ? `✅ ${upstreamTask.label} 完成`
+                    : `${upstreamTask.label} 进行中…`}
+                </span>
+                <button
+                  onClick={() => setUpstreamTask(null)}
+                  className="text-zinc-500 hover:text-zinc-200"
+                  title="收起"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-ink-800">
+                <div
+                  className={
+                    "h-full rounded-full transition-all duration-500 " +
+                    (upstreamTask.failed
+                      ? "bg-rose-400"
+                      : upstreamTask.completed
+                      ? "bg-emerald-400"
+                      : "bg-amber-400")
+                  }
+                  style={{ width: `${upstreamProgress}%` }}
+                />
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[11px]">
+                <span className="text-zinc-500">
+                  {upstreamTask.failed
+                    ? upstreamTask.failed
+                    : `已用 ${upstreamElapsedSec} 秒 / 预计 ${Math.ceil(upstreamTask.expectedMs / 1000)} 秒`}
+                </span>
+                <span className="text-zinc-500">{Math.round(upstreamProgress)}%</span>
+              </div>
+              <div className="mt-1 text-[10px] text-zinc-600">{upstreamTask.description}</div>
+              {!upstreamTask.completed &&
+                !upstreamTask.failed &&
+                upstreamProgress >= 95 && (
+                  <div className="mt-2 rounded-md bg-ink-950/60 px-2 py-1.5 text-[11px] text-amber-200">
+                    💡 估算时间到了,任务可能 还在跑(尤其 LLM 慢时).可以
+                    <button
+                      onClick={() => {
+                        if (upstreamTask.kind === "regenerate" || upstreamTask.kind === "offline-asr") {
+                          setViewTab("minutes");
+                        }
+                      }}
+                      className="mx-1 underline underline-offset-2 hover:text-amber-100"
+                    >
+                      切到「纪要+行动项」tab
+                    </button>
+                    或刷新页面 看最新结果.
+                  </div>
+                )}
+            </div>
+          )}
         </div>
       ) : null}
 
