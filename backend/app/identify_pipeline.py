@@ -297,9 +297,20 @@ async def run_identify(meeting_id: uuid.UUID, *, final: bool = True) -> bool:
 
     if final:
         session_state.discard(meeting_id)
-        # Kick off summary generation in the background (don't block worker)
+        # v25.8-#2: 先 LLM 修字(post-ASR cleaner),再 generate summary.
+        # 串行而非并行 — summary 必须看到修后的实录.
         from .summary_generator import generate_summary  # local import to avoid cycle
-        asyncio.create_task(generate_summary(meeting_id))
+        from .transcript_cleaner import clean_meeting_transcripts
+
+        async def _post_meeting_pipeline() -> None:
+            try:
+                n = await clean_meeting_transcripts(meeting_id)
+                logger.info("post-meeting: cleaned %d transcript lines", n)
+            except Exception:
+                logger.exception("transcript_cleaner failed; proceeding with raw text")
+            await generate_summary(meeting_id)
+
+        asyncio.create_task(_post_meeting_pipeline())
     logger.info(
         "identify pass for meeting %s: %d segments, %d lines, changed=%s, final=%s",
         meeting_id, len(segments), len(lines), changed, final,
