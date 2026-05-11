@@ -1326,6 +1326,118 @@ async def wipe_demo_data(
     return WipeDemoOut(rows_deleted=counts, total=sum(counts.values()))
 
 
+# ---- v25-prod-prep · 全局焦土重置 ------------------------------------------
+
+
+class ScorchedEarthIn(BaseModel):
+    confirm: str  # 必须 "yes_scorched_earth_reset"
+
+
+class ScorchedEarthOut(BaseModel):
+    workspaces_deleted: int
+    users_deleted: int
+    voiceprints_deleted: int
+    password_resets_deleted: int
+    main_workspace_business_rows_deleted: int
+    main_workspace_id: str
+    main_user_id: str
+    model_provider_configs_kept: int
+
+
+@router.post("/scorched-earth-reset", response_model=ScorchedEarthOut)
+async def scorched_earth_reset(
+    payload: ScorchedEarthIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    生产环境真人测试前 全局重置:
+      ⚠️ 删除所有 不属于当前 caller 主 workspace 的 workspace(CASCADE 子表)
+      ⚠️ 主 workspace 内 业务数据全清(沿用 wipe_workspace_business_data)
+      ⚠️ 删除所有 非 caller 用户 + 他们的 memberships
+      ⚠️ 清空 voiceprint / password_reset_token
+      ✅ 保留 caller 用户行 + caller 主 workspace 行 + model_provider_config(LLM keys)
+
+    必要 owner 权限 + confirm == 'yes_scorched_earth_reset'.
+    """
+    from sqlalchemy import delete
+    from ..models import (
+        ModelProviderConfig, PasswordResetToken, User, Voiceprint,
+        Workspace, WorkspaceMembership,
+    )
+    from ..demo_seed import wipe_workspace_business_data
+
+    if payload.confirm != "yes_scorched_earth_reset":
+        raise HTTPException(
+            400,
+            "confirm 必须显式等于 'yes_scorched_earth_reset' 才执行(不可逆).",
+        )
+
+    # owner-only(比 wipe-demo-data 更严)
+    membership = (
+        await session.execute(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.user_id == auth.user.id,
+                WorkspaceMembership.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not membership or membership.role not in ("owner",):
+        raise HTTPException(403, "scorched-earth 仅 owner 可操作")
+
+    main_user_id = auth.user.id
+    main_ws_id = auth.workspace.id
+
+    # Step 1: 主 workspace 内业务数据 全清
+    counts = await wipe_workspace_business_data(
+        session,
+        workspace_id=main_ws_id,
+        caller_user_id=main_user_id,
+        wipe_voiceprints=True,
+    )
+    main_ws_total = sum(counts.values())
+
+    # Step 2: 删 其他 workspace(CASCADE 处理一切下挂数据)
+    res = await session.execute(
+        delete(Workspace).where(Workspace.id != main_ws_id)
+    )
+    workspaces_deleted = int(res.rowcount or 0)
+
+    # Step 3: 删 非 caller 用户 + memberships(membership 已被 ws CASCADE,
+    # 但主 workspace 内 非 caller 的 memberships 还在,删之)
+    await session.execute(
+        delete(WorkspaceMembership).where(WorkspaceMembership.user_id != main_user_id)
+    )
+    res = await session.execute(
+        delete(User).where(User.id != main_user_id)
+    )
+    users_deleted = int(res.rowcount or 0)
+
+    # Step 4: voiceprint / password_reset_token 全清
+    res = await session.execute(delete(Voiceprint))
+    vp_deleted = int(res.rowcount or 0)
+    res = await session.execute(delete(PasswordResetToken))
+    pwd_deleted = int(res.rowcount or 0)
+
+    # 验证 model_provider_config 完整保留
+    mpc_count = (
+        await session.execute(select(func.count(ModelProviderConfig.id)))
+    ).scalar() or 0
+
+    await session.commit()
+
+    return ScorchedEarthOut(
+        workspaces_deleted=workspaces_deleted,
+        users_deleted=users_deleted,
+        voiceprints_deleted=vp_deleted,
+        password_resets_deleted=pwd_deleted,
+        main_workspace_business_rows_deleted=main_ws_total,
+        main_workspace_id=str(main_ws_id),
+        main_user_id=str(main_user_id),
+        model_provider_configs_kept=int(mpc_count),
+    )
+
+
 class SeedDemoIn(BaseModel):
     seed_kb_documents: bool = True  # False 时跳过 48 篇 KB(嵌入慢时可关掉)
 

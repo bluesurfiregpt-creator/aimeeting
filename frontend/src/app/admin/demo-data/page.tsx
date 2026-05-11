@@ -24,6 +24,17 @@ type SeedResult = {
   summary: Record<string, unknown>;
 };
 
+type ScorchedResult = {
+  workspaces_deleted: number;
+  users_deleted: number;
+  voiceprints_deleted: number;
+  password_resets_deleted: number;
+  main_workspace_business_rows_deleted: number;
+  main_workspace_id: string;
+  main_user_id: string;
+  model_provider_configs_kept: number;
+};
+
 export default function DemoDataAdmin() {
   const [wipeConfirmText, setWipeConfirmText] = useState("");
   const [wipeBusy, setWipeBusy] = useState(false);
@@ -31,6 +42,47 @@ export default function DemoDataAdmin() {
   const [seedBusy, setSeedBusy] = useState(false);
   const [seedKbDocuments, setSeedKbDocuments] = useState(true);
   const [seedResult, setSeedResult] = useState<SeedResult | null>(null);
+
+  // v25-prod-prep: 焦土重置(只 owner 能用)
+  const [scorchedConfirm, setScorchedConfirm] = useState("");
+  const [scorchedBusy, setScorchedBusy] = useState(false);
+  const [scorchedResult, setScorchedResult] = useState<ScorchedResult | null>(null);
+
+  const scorchedEarth = async () => {
+    if (scorchedConfirm !== "SCORCH") {
+      toast.error('请在输入框里输入 "SCORCH" 大写6字母确认');
+      return;
+    }
+    if (
+      !confirm(
+        "🔥🔥🔥 焦土重置 - 删除 ALL workspace(只留主账号 ws)+ ALL 用户(只留你自己)+ ALL voiceprint.\n\n保留:你的账号 / 主 workspace / 4 个 LLM key.\n\n上线前真人测试用,不可逆.确定?"
+      )
+    )
+      return;
+    setScorchedBusy(true);
+    setScorchedResult(null);
+    try {
+      const r = await fetch("/api/dashboard/scorched-earth-reset", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: "yes_scorched_earth_reset" }),
+      });
+      if (!r.ok) {
+        const err = await r.text();
+        throw new Error(`${r.status}: ${err}`);
+      }
+      const result = await r.json();
+      setScorchedResult(result);
+      setScorchedConfirm("");
+      toast.success(`🔥 焦土重置完成`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`焦土重置失败: ${msg}`);
+    } finally {
+      setScorchedBusy(false);
+    }
+  };
 
   const wipeAll = async () => {
     if (wipeConfirmText !== "WIPE") {
@@ -221,6 +273,84 @@ export default function DemoDataAdmin() {
             </table>
             <div className="mt-3 text-xs text-zinc-400">
               下一步:用 <code className="rounded bg-violet-500/15 px-1 py-0.5">demo.lijg@futian.gov.cn</code>(局长 / leader 角色) 或任意 demo.xxx@futian.gov.cn 账号(密码 <code className="rounded bg-violet-500/15 px-1 py-0.5">demo123</code>)登录,体验完整业务场景.
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ========== Scorched Earth (v25-prod-prep) ========== */}
+      <section className="rounded-2xl border-2 border-orange-600/50 bg-orange-600/5 p-6">
+        <h3 className="flex items-center gap-2 text-lg font-semibold text-orange-200">
+          <span>🔥🔥🔥</span> 焦土重置(上线前 真人测试 起点)
+        </h3>
+        <div className="mt-3 space-y-2 text-sm text-zinc-300">
+          <p className="text-orange-200">
+            比 ⚠️ 清除 更彻底:
+          </p>
+          <ul className="ml-4 list-disc space-y-1 text-zinc-300">
+            <li>清除:<b>所有 workspace</b>(只留主账号 ws)/ <b>所有用户</b>(只留你自己) / 所有声纹 / 所有密码重置 token / 主 ws 内 全部业务数据</li>
+            <li>保留:你的账号(<code className="rounded bg-orange-500/20 px-1.5 py-0.5">bluesurfiregpt@gmail.com</code>) / 主 workspace 行 / <b>4 个 LLM key</b>(不动)</li>
+          </ul>
+          <p className="mt-2 text-orange-300">
+            <b>仅 owner 可点</b>.不可逆.
+          </p>
+        </div>
+
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex-1">
+            <label className="block text-xs uppercase tracking-wider text-orange-300">
+              输入 <code className="rounded bg-orange-500/20 px-1.5 py-0.5">SCORCH</code> 确认
+            </label>
+            <input
+              value={scorchedConfirm}
+              onChange={(e) => setScorchedConfirm(e.target.value)}
+              placeholder="SCORCH"
+              className="mt-1 w-full rounded-lg border border-orange-500/30 bg-ink-900/60 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-orange-400 focus:outline-none"
+              disabled={scorchedBusy}
+            />
+          </div>
+          <button
+            onClick={scorchedEarth}
+            disabled={scorchedBusy || scorchedConfirm !== "SCORCH"}
+            className="rounded-lg bg-orange-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-500"
+          >
+            {scorchedBusy ? "焦土中..." : "🔥 焦土重置"}
+          </button>
+        </div>
+
+        {scorchedResult && (
+          <div className="mt-5 rounded-lg border border-orange-500/20 bg-ink-950/40 p-4">
+            <div className="text-sm font-semibold text-orange-200">🔥 重置完成</div>
+            <table className="mt-2 w-full text-xs text-zinc-400">
+              <tbody>
+                <tr className="border-b border-ink-800">
+                  <td className="py-1 pr-3 font-mono text-zinc-500">workspaces_deleted</td>
+                  <td className="py-1 text-right text-zinc-200">{scorchedResult.workspaces_deleted}</td>
+                </tr>
+                <tr className="border-b border-ink-800">
+                  <td className="py-1 pr-3 font-mono text-zinc-500">users_deleted</td>
+                  <td className="py-1 text-right text-zinc-200">{scorchedResult.users_deleted}</td>
+                </tr>
+                <tr className="border-b border-ink-800">
+                  <td className="py-1 pr-3 font-mono text-zinc-500">voiceprints_deleted</td>
+                  <td className="py-1 text-right text-zinc-200">{scorchedResult.voiceprints_deleted}</td>
+                </tr>
+                <tr className="border-b border-ink-800">
+                  <td className="py-1 pr-3 font-mono text-zinc-500">password_resets_deleted</td>
+                  <td className="py-1 text-right text-zinc-200">{scorchedResult.password_resets_deleted}</td>
+                </tr>
+                <tr className="border-b border-ink-800">
+                  <td className="py-1 pr-3 font-mono text-zinc-500">main_workspace_business_rows_deleted</td>
+                  <td className="py-1 text-right text-zinc-200">{scorchedResult.main_workspace_business_rows_deleted}</td>
+                </tr>
+                <tr className="border-b border-ink-800">
+                  <td className="py-1 pr-3 font-mono text-emerald-500">model_provider_configs_kept</td>
+                  <td className="py-1 text-right text-emerald-300">{scorchedResult.model_provider_configs_kept}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div className="mt-3 text-xs text-zinc-400">
+              系统已恢复出厂状态 — 仅保留你的账号 + 主 workspace + LLM keys.重新登录开始真人测试.
             </div>
           </div>
         )}
