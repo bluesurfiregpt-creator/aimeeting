@@ -39,50 +39,62 @@ logger = logging.getLogger(__name__)
 
 SUMMARY_SYSTEM_PROMPT = """你是一名为政府/企业会议撰写正式纪要的专业秘书。
 
-阅读下面这场会议的实录(带说话人姓名), 抽出真实发生过的内容, 整理成一份结构化纪要。
-严格遵守以下规则:
+【最高优先级 反幻觉规则】违反任一条 都比 不写更糟。
 
-1. 输出**纯 Markdown**, 不要包代码块。
-2. 严格按下面 8 个 ## 二级标题, 即使某节为空也要列出"无"或"暂无"。
-3. 内容必须忠实于实录,**不要凭空编造**。如果实录信息不足,直接写"实录中未提及"。
-4. 决策、风险、待办都要标注**责任人**(如果实录中提到)和**时间节点**(如果实录中提到)。
-5. 简洁: 每个 bullet 一行,直接说事实/结论, 不要解释。
-6. 称呼说话人用实录中的真实姓名(如"邓西"), 不要用"用户"、"speaker_01"。
+A. **每个 bullet 必须能在实录原文中找到对应字句来源**。如果你想写一句话但
+   找不到对应来源 → **不要写**,直接整节写"暂无"。
+B. **严禁补全 / 演绎 / 总结引申**。即使你认为"按常理这场会议应该会讨论 X",
+   实录没明确提到 → 不写。
+C. **禁用承接词**:不要写"通过会议讨论"、"大家一致认为"、"经过讨论"、
+   "据介绍"、"经研究决定"、"会议指出"等套话。直接写事实陈述。
+D. **整个纪要总长度 不超过实录原文的 1/3**。实录短 → 纪要更短。
+E. 实录里 没有 "决定/决议/决策" 关键词 → "已形成决策"节 必须只写 "暂无"。
+   没有 "风险/隐患/担心/担忧" → "风险提醒" 必须只写 "无"。
+   没有 "下一步/接下来/计划/打算" → "下一步建议" 必须只写 "无"。
+F. 称呼说话人用实录中的真实姓名(如"张明"), 不要用"用户"、"speaker_01"、
+   "[?]"(实录里 [?] 表示该句说话人未识别 — 你也用 "[?]" 不要乱给名字)。
 
-固定结构(必须每节都出现):
+【输出格式】
+
+1. 输出**纯 Markdown**, 不要包代码块, 不要带任何注释或前后说明。
+2. 严格按下面 8 个 ## 二级标题, 即使某节为空也要列出, 但只写"暂无"。
+3. 决策 / 风险 / 待办 都要标注**责任人**(若实录提到)和**时间节点**(若实录提到)。
+4. 每个 bullet 一行,简洁,不要换行。
+
+【固定结构】
 
 ## 会议主题
-(一句话,从对话中归纳出的核心议题)
+(一句话,从对话中归纳出的核心议题。实录信息不足 → "实录信息不足,无法确定主题")
 
 ## 概览
-(2-4 句话,这场会议讨论了什么、形成了什么共识)
+(2-4 句话,只陈述实录中实际讨论过的内容。不补充行业常识。
+若实录少于 5 句有效发言 → "实录过短,无法概括")
 
 ## 关键要点
-- (要点 1)
+- (要点 1 — 必须对应实录原文片段)
 - (要点 2)
 ...
+(没有要点 → "暂无")
 
 ## 已形成决策
 - (决策内容) — 决策人: XXX
-- ...
-(如无决策,写"暂无明确决策")
+(实录没有 "决定/决议/决策/通过" → "暂无")
 
 ## 分歧事项
-- (谁与谁在哪点上看法不同, 各自的理由)
-...
-(如无分歧,写"无明显分歧")
+- (谁与谁在哪点上看法不同)
+(没有 → "无明显分歧")
 
 ## 风险提醒
 - (风险描述) — 提出人: XXX
-...
+(实录没有提及风险/隐患/担忧 → "无")
 
 ## 待办事项
 - [ ] (具体事项) — 负责: XXX, 截止: YYYY-MM-DD 或"待定"
-...
+(没有明确待办 → "无")
 
 ## 下一步建议
-- (建议 1)
-...
+- (建议 1 — 必须实录中有人明确提到要"接下来 / 下一步 / 计划")
+(没有 → "无")
 """
 
 
@@ -128,7 +140,8 @@ async def _build_named_transcript(db: AsyncSession, meeting_id: uuid.UUID) -> st
     # below their created_at (approximate but readable).
     lines: list[str] = []
     for r in rows:
-        speaker = name_by_user.get(r.speaker_user_id) if r.speaker_user_id else "未识别"
+        # v25.7-#2: 未识别 标 [?] 提醒 LLM 这句不可借此推论意图
+        speaker = name_by_user.get(r.speaker_user_id) if r.speaker_user_id else "[?]"
         lines.append(f"[{_fmt_ms(r.start_ms)}] {speaker}: {r.text.strip()}")
     if agent_msgs:
         # Just append agent messages at the end with an "AI 专家发言" divider —
@@ -148,8 +161,13 @@ def _fmt_ms(ms: Optional[int]) -> str:
     return f"{int(s // 60):02d}:{int(s % 60):02d}"
 
 
-MIN_TRANSCRIPT_LINES = 3
-MIN_TRANSCRIPT_CHARS = 60
+# v25.7-#2 反幻觉:阈值显著提高,脏数据直接 skip 不调 LLM
+MIN_TRANSCRIPT_LINES = 10   # 之前 3,真人测试反馈"3 句话也生成了乱编纪要"
+MIN_TRANSCRIPT_CHARS = 300  # 之前 60,中文 300 字才有总结价值
+
+# v25.7-#2: 纪要专用 LLM(qwen-max-latest 中文政务 + 结构化 + 反幻觉最强)
+# 不依赖 user 在 /admin/models 里选的 model — 那个保留给 起草/问数 等快任务.
+SUMMARY_MODEL_OVERRIDE = "qwen-max-latest"
 
 
 async def generate_summary(
@@ -221,10 +239,14 @@ async def generate_summary(
 
     chunks: list[str] = []
     try:
+        # v25.7-#2: 强制 qwen-max-latest + temperature=0 + top_p=0.1 — 反幻觉
         async for c in stream_chat(
             provider=provider,
             system_prompt=SUMMARY_SYSTEM_PROMPT,
             user_prompt=user_prompt,
+            model_override=SUMMARY_MODEL_OVERRIDE,
+            temperature=0.0,
+            top_p=0.1,
         ):
             chunks.append(c)
     except LlmError:

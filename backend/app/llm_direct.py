@@ -44,13 +44,28 @@ async def stream_chat(
     provider: ModelProviderConfig,
     system_prompt: str,
     user_prompt: str,
+    model_override: Optional[str] = None,  # v25.7-#2: 如纪要场景指定 qwen-max-latest
+    temperature: Optional[float] = None,   # v25.7-#2: 严谨场景设 0
+    top_p: Optional[float] = None,
 ) -> AsyncIterator[str]:
-    """Yields response text chunks. Raises LlmError on failure."""
+    """Yields response text chunks. Raises LlmError on failure.
+
+    v25.7-#2 新加 3 个 override:
+      - model_override: 跳过 provider.model_id,用别的模型(如纪要走 qwen-max)
+      - temperature: 0 = 最严谨,默认 None 不传(让模型用 default ~0.7)
+      - top_p: 配合 temperature 收紧采样
+    """
     if provider.provider == "anthropic":
-        async for chunk in _stream_anthropic(provider, system_prompt, user_prompt):
+        async for chunk in _stream_anthropic(
+            provider, system_prompt, user_prompt,
+            model_override=model_override, temperature=temperature,
+        ):
             yield chunk
         return
-    async for chunk in _stream_openai_compatible(provider, system_prompt, user_prompt):
+    async for chunk in _stream_openai_compatible(
+        provider, system_prompt, user_prompt,
+        model_override=model_override, temperature=temperature, top_p=top_p,
+    ):
         yield chunk
 
 
@@ -60,6 +75,10 @@ async def _stream_openai_compatible(
     provider: ModelProviderConfig,
     system_prompt: str,
     user_prompt: str,
+    *,
+    model_override: Optional[str] = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
 ) -> AsyncIterator[str]:
     base = (provider.base_url or "").rstrip("/")
     # Qwen DashScope's OpenAI-compatible mode adds /chat/completions under
@@ -75,14 +94,18 @@ async def _stream_openai_compatible(
     else:
         url = base + "/chat/completions"
 
-    body = {
-        "model": provider.model_id or _default_model(provider.provider),
+    body: dict[str, Any] = {
+        "model": model_override or provider.model_id or _default_model(provider.provider),
         "stream": True,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
     }
+    if temperature is not None:
+        body["temperature"] = float(temperature)
+    if top_p is not None:
+        body["top_p"] = float(top_p)
     # Strip whitespace defensively — pasted keys often have trailing
     # newlines, and httpx refuses to send a header value with whitespace.
     headers = {
@@ -121,17 +144,22 @@ async def _stream_anthropic(
     provider: ModelProviderConfig,
     system_prompt: str,
     user_prompt: str,
+    *,
+    model_override: Optional[str] = None,
+    temperature: Optional[float] = None,
 ) -> AsyncIterator[str]:
     base = (provider.base_url or "https://api.anthropic.com/v1").rstrip("/")
     # /messages is the canonical endpoint
     url = base + ("/messages" if not base.endswith("/messages") else "")
     body: dict[str, Any] = {
-        "model": provider.model_id or "claude-sonnet-4-6",
+        "model": model_override or provider.model_id or "claude-sonnet-4-6",
         "max_tokens": 1024,
         "stream": True,
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_prompt}],
     }
+    if temperature is not None:
+        body["temperature"] = float(temperature)
     headers = {
         "x-api-key": (provider.api_key or "").strip(),
         "anthropic-version": "2023-06-01",
