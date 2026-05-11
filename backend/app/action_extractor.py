@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import SessionLocal
 from .llm_direct import LlmError, get_active_provider, stream_chat
-from .models import Meeting, MeetingActionItem, User
+from .models import Meeting, MeetingActionItem, MeetingTranscript, User
 from .task_sync import add_action_with_task, delete_tasks_for_meeting_summary_actions
 
 logger = logging.getLogger(__name__)
@@ -45,11 +45,15 @@ _SYSTEM_PROMPT = """你是一名会议秘书。从会议纪要里抽取 **确定
 **严格 JSON 单行** 输出,不要包代码块,不要任何其他文字:
 {"items": [{"content": "<待办内容,简短>", "assignee_name": "<负责人姓名,可空字符串>", "due_at": "YYYY-MM-DD 或空字符串", "evidence_quote": "<纪要原文里能支撑这条待办的句子,逐字摘抄,30-100 字>"}]}
 
-evidence_quote 字段是新加的关键追溯信息:
+evidence_quote 字段是关键追溯信息:
   - 必填,不能空字符串
-  - **必须**是纪要原文的逐字摘抄(可截前后但不能改字)
-  - 后续 UI 会把 evidence_quote 显示给用户看 "为什么生成这条待办"
-  - 找不到原文支撑 → 整条 待办 不抽(违反规则 A)
+  - **必须**从【会议实录】(真人对话)逐字摘抄,**不是**从【会议纪要】(markdown 列表)抄
+  - 长度 30-150 字,**包含 1-3 句围绕该待办的讨论上下文**.可包含说话人姓名前缀.
+  - 示例(好的 evidence):"张明:我们这周要完成 PRD V2 吧? 邓西:好,我周五前提交,
+    需要法务也跟一下。 李法务:可以,我下周三前出意见。"
+  - 反例(坏的 evidence — 不要这样):"提交 PRD V2 — 负责: 邓西"
+    (这是 纪要 markdown 的 bullet,不是真人对话原话,等于自证)
+  - 找不到实录原文支撑 → 整条 待办 不抽(违反规则 A)
 
 【最高优先级 反幻觉规则】违反任一条 都比 不抽 更糟:
 
@@ -131,9 +135,44 @@ async def extract_and_store_actions(
                 )
             ).scalars().all()
 
+        # v25.17: 同时拉实录原文 — evidence_quote 必须从实录摘,而不是 summary 重复
+        transcript_rows = (
+            await db.execute(
+                select(MeetingTranscript).where(
+                    MeetingTranscript.meeting_id == meeting_id,
+                    MeetingTranscript.is_final.is_(True),
+                )
+                .order_by(MeetingTranscript.id)
+            )
+        ).scalars().all()
+        # resolve speaker names
+        speaker_ids = {r.speaker_user_id for r in transcript_rows if r.speaker_user_id}
+        name_by_uid: dict = {}
+        if speaker_ids:
+            users_speaker = (
+                await db.execute(select(User).where(User.id.in_(speaker_ids)))
+            ).scalars().all()
+            name_by_uid = {u.id: u.name for u in users_speaker}
+        transcript_text = "\n".join(
+            f"{(name_by_uid.get(r.speaker_user_id) if r.speaker_user_id else '[?]')}: "
+            f"{(r.text or '').strip()}"
+            for r in transcript_rows
+            if (r.text or '').strip()
+        )
+        # 太长截断(LLM token 限制),纪要里的话题应该 主要在 实录后半段
+        if len(transcript_text) > 8000:
+            transcript_text = transcript_text[-8000:]
+
         user_prompt = (
             f"会议标题: {m.title or '未命名会议'}\n\n"
-            f"会议纪要 (Markdown):\n\n{summary_md}"
+            f"=== 会议纪要 (Markdown,用来定 待办内容 / 负责人 / 截止) ===\n\n"
+            f"{summary_md}\n\n"
+            f"=== 会议实录 原文(逐句,用来摘 evidence_quote)===\n\n"
+            f"{transcript_text or '(实录为空)'}\n\n"
+            f"=== 任务 ===\n\n"
+            f"按规则抽取 action items.特别注意:evidence_quote 必须从【实录原文】摘,"
+            f"而**不是**从【纪要】重抄.evidence_quote 应是 真人对话原话,30-150 字,"
+            f"包含 1-3 句围绕该待办的讨论 上下文.若实录里 找不到 相关对话 → 这条待办不抽."
         )
 
         chunks: list[str] = []

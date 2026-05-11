@@ -110,6 +110,299 @@ function StarBar({ score }: { score: number }) {
   );
 }
 
+// v25.17: AI 派发助手 — 替代原来的 "AI 自动派发(4-维评分)" 区
+// 自适应置信度:
+//   ≥ 0.50 高置信 → 大字"建议派给 X" + 一键派发
+//   0.30-0.50 中等 → "倾向 X 但不确定" + 4 维分项 + top 3
+//   < 0.30 低置信 → "AI 没把握" + 解释 + 候选列表 让用户手选
+function SmartDispatchSection({
+  taskId,
+  preview,
+  previewLoading,
+  loadPreview,
+  autoRouting,
+  onAutoRoute,
+}: {
+  taskId: string;
+  preview: RoutePreview | null;
+  previewLoading: boolean;
+  loadPreview: () => Promise<void>;
+  autoRouting: boolean;
+  onAutoRoute: () => Promise<void>;
+}) {
+  // 进入页面自动跑评分
+  useEffect(() => {
+    if (!preview && !previewLoading) {
+      void loadPreview();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId]);
+
+  // 没数据 / 加载中
+  if (!preview && previewLoading) {
+    return (
+      <section className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">🤖</span>
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold text-amber-200">AI 派发助手</h2>
+            <div className="mt-2 flex items-center gap-2 text-xs text-zinc-400">
+              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+              AI 正在评估这条任务适合派给谁…
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+  if (!preview) {
+    return null;
+  }
+
+  const topScore = preview.candidates[0]?.composite ?? 0;
+  const topCand = preview.candidates[0];
+  const HIGH = 0.50;
+  const LOW = 0.30;
+  const level = topScore >= HIGH ? "high" : topScore >= LOW ? "mid" : "low";
+
+  const dimLabel: Record<string, string> = {
+    keyword: "关键词匹配",
+    history: "历史经验",
+    load: "当前负载",
+    capability: "能力标签",
+  };
+  const dimHelp: Record<string, string> = {
+    keyword: "任务内容与专家的擅长领域 是否吻合",
+    history: "该专家以前处理过类似任务的次数",
+    load: "该专家当前待办量(越低 / 派给他越合适)",
+    capability: "专家档案里 标注的关联领域是否覆盖",
+  };
+
+  const Dim = ({ name, score }: { name: keyof typeof dimLabel; score: number }) => (
+    <div className="flex items-center gap-2" title={dimHelp[name]}>
+      <span className="w-20 text-[10px] text-zinc-500">{dimLabel[name]}</span>
+      <div className="h-1.5 flex-1 rounded-full bg-ink-800">
+        <div
+          className="h-full rounded-full bg-amber-400"
+          style={{ width: `${Math.min(100, score * 100)}%` }}
+        />
+      </div>
+      <span className="w-9 font-mono text-[10px] text-amber-200">
+        {score.toFixed(2)}
+      </span>
+    </div>
+  );
+
+  // 高置信:醒目卡片 + 一键派发
+  if (level === "high" && topCand) {
+    return (
+      <section className="mt-6 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-5"
+        data-testid="task-detail-auto-route">
+        <div className="flex items-start gap-3">
+          <span className="text-2xl">🤖</span>
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold text-emerald-200">
+              AI 推荐 · 高置信
+            </h2>
+            <p className="mt-0.5 text-[11px] text-zinc-400">
+              AI 已评估完 — 这条任务最适合下面这位.确认后一键派发,生成正式工单.
+            </p>
+
+            <div className="mt-4 rounded-lg border border-emerald-500/40 bg-ink-950/40 p-4">
+              <div className="flex items-baseline gap-3">
+                <span className="text-2xl">🥇</span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-lg font-semibold text-white">
+                    {topCand.candidate_user_name || "?"}
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    匹配的 AI 专家:{topCand.agent_name} · 该专家目前 {topCand.candidate_user_active_count} 个进行中任务
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="font-mono text-2xl font-semibold text-emerald-300">
+                    {topScore.toFixed(2)}
+                  </div>
+                  <div className="text-[10px] text-zinc-600">综合得分 / 满分 1.00</div>
+                </div>
+              </div>
+              <div className="mt-3 space-y-1.5 text-xs">
+                <Dim name="keyword" score={topCand.breakdown.keyword} />
+                <Dim name="history" score={topCand.breakdown.history} />
+                <Dim name="load" score={topCand.breakdown.load} />
+                <Dim name="capability" score={topCand.breakdown.capability} />
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={onAutoRoute}
+                disabled={autoRouting}
+                data-testid="task-auto-route-btn"
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {autoRouting ? "派发中…" : `✅ 确认派发给 ${topCand.candidate_user_name}`}
+              </button>
+              <button
+                onClick={loadPreview}
+                disabled={previewLoading}
+                className="rounded-lg border border-ink-700 px-3 py-2 text-xs text-zinc-400 hover:bg-ink-800"
+              >
+                {previewLoading ? "重算中…" : "🔄 重新评估"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // 中等置信:倾向 X 但不确定 + 4 维分项 + top 3
+  if (level === "mid" && topCand) {
+    return (
+      <section className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-5"
+        data-testid="task-detail-auto-route">
+        <div className="flex items-start gap-3">
+          <span className="text-2xl">🤖</span>
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold text-amber-200">
+              AI 推荐 · 中等置信
+            </h2>
+            <p className="mt-0.5 text-[11px] text-zinc-400">
+              AI 倾向派给 <b className="text-amber-200">{topCand.candidate_user_name}</b>,但
+              不太确定 — 可能这条任务跨多个领域 / 历史样本少.建议你看下评分后再拍板.
+            </p>
+
+            <ol className="mt-3 space-y-2">
+              {preview.candidates.slice(0, 3).map((c, i) => (
+                <li
+                  key={c.agent_id}
+                  className={`rounded-lg px-3 py-2 ${
+                    i === 0
+                      ? "border border-amber-500/40 bg-amber-500/10"
+                      : "border border-ink-700 bg-ink-950"
+                  }`}
+                >
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-sm text-zinc-100">
+                      {i === 0 && "🥇 "}
+                      {i === 1 && "🥈 "}
+                      {i === 2 && "🥉 "}
+                      <b>{c.candidate_user_name || "?"}</b>
+                      <span className="ml-2 text-[11px] text-zinc-500">
+                        ({c.agent_name})
+                      </span>
+                    </span>
+                    <span className="font-mono text-sm text-amber-200">
+                      {c.composite.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="mt-2 space-y-1 text-xs">
+                    <Dim name="keyword" score={c.breakdown.keyword} />
+                    <Dim name="history" score={c.breakdown.history} />
+                    <Dim name="load" score={c.breakdown.load} />
+                    <Dim name="capability" score={c.breakdown.capability} />
+                  </div>
+                </li>
+              ))}
+            </ol>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={onAutoRoute}
+                disabled={autoRouting}
+                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950 hover:bg-amber-400 disabled:opacity-50"
+              >
+                {autoRouting ? "派发中…" : `🤖 派给 AI 首选 ${topCand.candidate_user_name}`}
+              </button>
+              <button
+                onClick={loadPreview}
+                disabled={previewLoading}
+                className="rounded-lg border border-ink-700 px-3 py-2 text-xs text-zinc-400 hover:bg-ink-800"
+              >
+                🔄 重新评估
+              </button>
+              <span className="self-center text-[11px] text-zinc-500">
+                或在 /me 页面 手动选 assignee
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // 低置信:AI 没把握 + 解释为什么 + 让用户手选
+  return (
+    <section className="mt-6 rounded-lg border border-rose-500/30 bg-rose-500/5 p-5"
+      data-testid="task-detail-auto-route">
+      <div className="flex items-start gap-3">
+        <span className="text-2xl">🤷</span>
+        <div className="flex-1">
+          <h2 className="text-sm font-semibold text-rose-200">
+            AI 没把握 — 请你手动选
+          </h2>
+          <p className="mt-0.5 text-[11px] text-zinc-400">
+            AI 综合得分 {topScore.toFixed(2)} 低于 阈值 {preview.threshold.toFixed(2)}.可能的原因:
+          </p>
+          <ul className="mt-1 ml-4 list-disc space-y-0.5 text-[11px] text-zinc-500">
+            {topCand && topCand.breakdown.keyword < 0.2 && (
+              <li>任务内容里 没出现明确的业务术语 → 任何专家的关键词都没命中</li>
+            )}
+            {topCand && topCand.breakdown.history < 0.2 && (
+              <li>没人处理过类似任务 → 没历史样本可参考</li>
+            )}
+            {topCand && topCand.breakdown.capability < 0.05 && (
+              <li>这条任务的领域 没匹配到任何专家档案</li>
+            )}
+            {!topCand && <li>当前 workspace 还没配置 active AI 专家</li>}
+          </ul>
+
+          {preview.candidates.length > 0 && (
+            <>
+              <p className="mt-3 text-xs text-zinc-400">
+                给你 全部 候选 + 各维得分,你自己拍:
+              </p>
+              <ol className="mt-2 space-y-2">
+                {preview.candidates.slice(0, 5).map((c) => (
+                  <li
+                    key={c.agent_id}
+                    className="rounded-lg border border-ink-700 bg-ink-950 px-3 py-2"
+                  >
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-sm text-zinc-100">
+                        <b>{c.candidate_user_name || "?"}</b>
+                        <span className="ml-2 text-[11px] text-zinc-500">
+                          ({c.agent_name})
+                        </span>
+                      </span>
+                      <span className="font-mono text-xs text-rose-200">
+                        {c.composite.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="mt-2 space-y-1 text-xs">
+                      <Dim name="keyword" score={c.breakdown.keyword} />
+                      <Dim name="history" score={c.breakdown.history} />
+                      <Dim name="load" score={c.breakdown.load} />
+                      <Dim name="capability" score={c.breakdown.capability} />
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+
+          <p className="mt-3 text-[11px] text-zinc-500">
+            💡 手动指派:进 <Link href="/me" className="text-accent-400 hover:text-accent-300">我的工作台</Link>
+            ,找到本任务,点 「派发」 选 assignee.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
 export default function TaskDetailPage({
   params,
 }: {
@@ -391,87 +684,23 @@ export default function TaskDetailPage({
         );
       })()}
 
-      {/* v24.1 #3: 自动派发(只在 open 状态显示) */}
+      {/* v25.17: AI 派发助手 — 自适应置信度,自动加载,直白文案 */}
       {t.status === "open" && (
+        <SmartDispatchSection
+          taskId={t.id}
+          preview={preview}
+          previewLoading={previewLoading}
+          loadPreview={loadPreview}
+          autoRouting={autoRouting}
+          onAutoRoute={onAutoRoute}
+        />
+      )}
+      {/* 兼容老 UI 占位(已移除) */}
+      {false && (
         <section
           className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4"
           data-testid="task-detail-auto-route"
-        >
-          <div className="flex items-start gap-3">
-            <span className="text-2xl" aria-hidden>🤖</span>
-            <div className="flex-1">
-              <h2 className="text-sm font-semibold text-amber-200">
-                AI 自动派发(4-维评分)
-              </h2>
-              <p className="mt-0.5 text-[11px] text-zinc-500">
-                关键词 (40%) + 历史关联 (30%) + 负载均衡 (20%) + 能力标签 (10%) →
-                composite 得分.超阈值就直接派发,否则需手动选.
-              </p>
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={loadPreview}
-                  disabled={previewLoading}
-                  data-testid="task-route-preview-btn"
-                  className="rounded-lg border border-amber-500/40 px-3 py-1.5 text-xs text-amber-200 hover:bg-amber-500/10 disabled:opacity-50"
-                >
-                  {previewLoading ? "评分中…" : "🔍 评分预览"}
-                </button>
-                <button
-                  type="button"
-                  onClick={onAutoRoute}
-                  disabled={autoRouting}
-                  data-testid="task-auto-route-btn"
-                  className="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-400 disabled:opacity-50"
-                >
-                  {autoRouting ? "派发中…" : "🤖 自动派发(leader/admin)"}
-                </button>
-              </div>
-
-              {preview && (
-                <div className="mt-3" data-testid="task-route-preview-panel">
-                  <div className="text-[11px] text-zinc-500">
-                    阈值 {preview.threshold} ·
-                    {preview.matched ? (
-                      <span className="text-emerald-300"> ✅ 最高分过阈,可自动派发</span>
-                    ) : (
-                      <span className="text-rose-400"> ❌ 最高分未过阈,建议手动</span>
-                    )}
-                  </div>
-                  <ol className="mt-2 space-y-1.5">
-                    {preview.candidates.slice(0, 5).map((c, i) => (
-                      <li
-                        key={c.agent_id}
-                        className={`rounded-md px-2 py-1.5 ${
-                          i === 0
-                            ? "border border-amber-500/40 bg-amber-500/10"
-                            : "border border-ink-700 bg-ink-950"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-zinc-200">
-                            {i === 0 && "🥇 "}
-                            {c.agent_name}
-                            <span className="text-zinc-500"> → {c.candidate_user_name || "?"}</span>
-                          </span>
-                          <span className="font-mono text-xs text-amber-200">
-                            {c.composite.toFixed(3)}
-                          </span>
-                        </div>
-                        <div className="mt-1 grid grid-cols-4 gap-1 text-[10px] text-zinc-500">
-                          <span>kw: {c.breakdown.keyword.toFixed(2)}</span>
-                          <span>hist: {c.breakdown.history.toFixed(2)}</span>
-                          <span>load: {c.breakdown.load.toFixed(2)}</span>
-                          <span>cap: {c.breakdown.capability.toFixed(2)}</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
+        ></section>
       )}
 
       {/* v24.2 #1: 办结沉淀徽章(若有) */}
