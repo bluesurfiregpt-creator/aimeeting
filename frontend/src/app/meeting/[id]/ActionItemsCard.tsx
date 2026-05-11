@@ -76,6 +76,19 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
   // so re-expanding is instant.
   const [comments, setComments] = useState<Record<string, CommentState>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // v25.23: 「⚠️ 重置并重跑」期间的进度条状态.
+  // null = idle;非 null = 跑中,UI 显进度条 + 禁用所有写按钮.
+  type ResetState = {
+    startedAt: number;
+    expectedMs: number;   // 估算 60s
+    completed: boolean;
+    failed?: string;      // 失败原因
+    summaryReady?: boolean;
+  };
+  const [resetState, setResetState] = useState<ResetState | null>(null);
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  // 跑中 → busy=true,所有按钮 + 输入框 disabled
+  const busy = !!resetState && !resetState.completed && !resetState.failed;
 
   const refresh = useCallback(async () => {
     try {
@@ -103,6 +116,83 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
   useEffect(() => {
     api.listUsers().then(setUsers).catch(() => {});
   }, []);
+
+  // v25.23: 重置 跑中 → 每 0.5s tick 进度条
+  useEffect(() => {
+    if (!resetState || resetState.completed || resetState.failed) return;
+    const h = window.setInterval(() => setNowTick(Date.now()), 500);
+    return () => window.clearInterval(h);
+  }, [resetState]);
+
+  // v25.23: 重置 跑中 → 每 4s 轮询 summary status,看到 ready → 标完成
+  useEffect(() => {
+    if (!resetState || resetState.completed || resetState.failed) return;
+    let alive = true;
+    let attempts = 0;
+    const poll = async () => {
+      if (!alive) return;
+      attempts++;
+      try {
+        const r = await api.getMeetingSummary(meetingId);
+        if (!alive) return;
+        if (r.status === "ready") {
+          // summary 好了 → 刷一次 action items (action_extractor 紧跟 summary)
+          await refresh();
+          setResetState((s) => (s ? { ...s, completed: true, summaryReady: true } : s));
+          return;
+        }
+        if (r.status === "failed") {
+          setResetState((s) => (s ? { ...s, failed: "LLM 生成失败" } : s));
+          return;
+        }
+        if (r.status === "skipped") {
+          setResetState((s) => (s ? { ...s, failed: "实录过短,跳过" } : s));
+          return;
+        }
+      } catch {
+        /* 网络错误 不结束,下一轮再试 */
+      }
+      if (attempts > 60) return; // 4s * 60 = 4 分钟 cap
+      const h = window.setTimeout(poll, 4000);
+      // 注:这里没法 cancel 单次 setTimeout 在 cleanup,因为 alive flag 已经保护
+    };
+    void poll();
+    return () => {
+      alive = false;
+    };
+  }, [resetState, meetingId, refresh]);
+
+  // v25.23: 完成 / 失败 → 4 秒后自动收起进度条
+  useEffect(() => {
+    if (!resetState) return;
+    if (!resetState.completed && !resetState.failed) return;
+    const h = window.setTimeout(() => setResetState(null), 4000);
+    return () => window.clearTimeout(h);
+  }, [resetState]);
+
+  // 进度算法:0..95% 按 elapsed / expected;completed=100; failed=80(红色满到此)
+  const resetProgress = (() => {
+    if (!resetState) return 0;
+    if (resetState.completed) return 100;
+    if (resetState.failed) return 80;
+    const elapsed = nowTick - resetState.startedAt;
+    return Math.min(95, Math.max(2, (elapsed / resetState.expectedMs) * 100));
+  })();
+  const resetElapsedSec = resetState
+    ? Math.floor((nowTick - resetState.startedAt) / 1000)
+    : 0;
+  // 阶段文案 — 让用户知道现在在跑哪一步
+  const resetStagePhrase = (() => {
+    if (!resetState) return "";
+    if (resetState.failed) return resetState.failed;
+    if (resetState.completed) return "新纪要 + 行动项 已生成 — 上下滚动查看 ↑";
+    const pct = resetProgress;
+    if (pct < 15) return "🧹 清干净老数据(纪要 / 行动项 / 任务 / 通知 / AI 发言)…";
+    if (pct < 40) return "🔍 LLM 重新分析实录(qwen-max + 反幻觉 prompt)…";
+    if (pct < 70) return "📝 生成新纪要中…";
+    if (pct < 95) return "📋 抽取行动项 + 实录锚点 evidence …";
+    return "💾 收尾入库 — 应该快了…";
+  })();
 
   const toggleStatus = useCallback(
     async (item: ActionItem) => {
@@ -289,25 +379,26 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
         <div className="flex items-center gap-3">
           {/* v25.11: 清掉 LLM 自动提取的(hallucination 一键清) */}
           <button
+            disabled={busy}
             onClick={async () => {
               if (!confirm("清掉本会议 所有 LLM 自动提取的 行动项 + 对应任务?\n\n手动添加的不删.")) return;
               try {
                 const r = await api.wipeAutoActions(meetingId);
                 toast.success(`✅ 已清 ${r.deleted_actions} 行动项 + ${r.deleted_tasks} 任务`);
-                // refresh
                 const r2 = await api.listActionItems(meetingId);
                 setItems(r2);
               } catch (e) {
                 toast.error(e instanceof Error ? e.message : "清除失败");
               }
             }}
-            className="text-xs text-zinc-500 hover:text-rose-400"
+            className="text-xs text-zinc-500 hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-30"
             title="清掉 LLM 自动提取的行动项(如果发现幻觉错误)— 手动添加的不删"
           >
             🗑️ 清自动提取
           </button>
-          {/* v25.18: ⚠️ 完整重置派生数据 — 比 清自动提取 更彻底,连 工作台通知 也清 */}
+          {/* v25.18 + v25.23: ⚠️ 完整重置派生数据 — busy 期间禁用 + 进度条 */}
           <button
+            disabled={busy}
             onClick={async () => {
               if (
                 !confirm(
@@ -320,38 +411,116 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
                     "  • 本场会议产生的全部通知(工作台'逾期 X 天'也会消失)\n\n" +
                     "保留:\n" +
                     "  • 实录原文 + 参会名单 + 议程\n\n" +
-                    "之后自动重跑 纪要 + 行动项 抽取.约 30-60 秒可见新结果."
+                    "之后自动重跑 纪要 + 行动项 抽取.约 30-60 秒.\n" +
+                    "执行期间会显示进度条 + 禁用 写操作 — 请不要刷新或切走."
                 )
               )
                 return;
+              // v25.23: 立刻启动进度条 — 用户看到反馈,期间禁用所有写按钮
+              setResetState({
+                startedAt: Date.now(),
+                expectedMs: 60_000,
+                completed: false,
+              });
+              setNowTick(Date.now());
               try {
                 const r = await api.resetMeetingDerived(meetingId);
                 toast.success(
-                  `✅ 清干净 + 重跑已触发`,
+                  `✅ 已清 ${r.deleted_actions} 行动项 / ${r.deleted_tasks} 任务 / ${r.deleted_notifications} 通知`,
                   {
-                    detail: `行动 ${r.deleted_actions} · 任务 ${r.deleted_tasks} · AI 发言 ${r.deleted_agent_messages} · 声纹切片 ${r.deleted_speaker_segments} · 通知 ${r.deleted_notifications}`,
-                    sticky: true,
+                    detail: `LLM 重新生成 纪要 + 行动项 中,约 30-60 秒.无需操作.`,
                   }
                 );
                 const r2 = await api.listActionItems(meetingId);
                 setItems(r2);
-                // 通知用户:summary 会异步刷,自己切到 纪要 tab 看
-                setTimeout(() => {
-                  toast.info("纪要生成中,可切到「纪要」tab 看 loading 骨架屏…", {
-                    sticky: true,
-                  });
-                }, 1200);
+                // 不 setResetState completed — 等下面 useEffect 轮询 summary status
+                // 拿到 ready 后再标完成(那时 action_extractor 也跑完了).
               } catch (e) {
+                setResetState((s) =>
+                  s ? { ...s, failed: e instanceof Error ? e.message : "重置失败" } : s
+                );
                 toast.error(e instanceof Error ? e.message : "重置失败");
               }
             }}
-            className="text-xs text-zinc-500 hover:text-amber-400"
-            title="重置本场会议的全部派生数据(纪要 / 行动项 / 任务 / 通知 / AI 发言),然后从实录重跑.演示前的兜底."
+            className="text-xs text-zinc-500 hover:text-amber-400 disabled:cursor-not-allowed disabled:opacity-30"
+            title="重置本场会议的全部派生数据(纪要 / 行动项 / 任务 / 通知 / AI 发言),然后从实录重跑.约 60 秒."
           >
             ⚠️ 重置并重跑
           </button>
         </div>
       </header>
+
+      {/* v25.23: 「重置并重跑」进度条 — busy / completed / failed 都显示.
+          让用户看到明显的等待心理预期 + 阻止 无效干扰操作. */}
+      {resetState && (
+        <div
+          className={
+            "mt-3 rounded-lg border p-3 transition " +
+            (resetState.failed
+              ? "border-rose-500/40 bg-rose-500/5"
+              : resetState.completed
+              ? "border-emerald-500/40 bg-emerald-500/5"
+              : "border-amber-500/40 bg-amber-500/5")
+          }
+          data-testid="action-items-reset-progress"
+        >
+          <div className="flex items-center justify-between text-xs">
+            <span
+              className={
+                "font-medium " +
+                (resetState.failed
+                  ? "text-rose-300"
+                  : resetState.completed
+                  ? "text-emerald-300"
+                  : "text-amber-300")
+              }
+            >
+              {resetState.failed
+                ? `❌ 重置失败`
+                : resetState.completed
+                ? `✅ 重置并重跑 完成`
+                : `⚠️ 重置并重跑 进行中… 请勿做其他操作`}
+            </span>
+            {(resetState.completed || resetState.failed) && (
+              <button
+                onClick={() => setResetState(null)}
+                className="text-zinc-500 hover:text-zinc-200"
+                title="收起"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-ink-800">
+            <div
+              className={
+                "h-full rounded-full transition-all duration-500 " +
+                (resetState.failed
+                  ? "bg-rose-400"
+                  : resetState.completed
+                  ? "bg-emerald-400"
+                  : "bg-amber-400")
+              }
+              style={{ width: `${resetProgress}%` }}
+            />
+          </div>
+          <div className="mt-1.5 flex items-center justify-between gap-3 text-[11px]">
+            <span className="text-zinc-400">{resetStagePhrase}</span>
+            <span className="shrink-0 text-zinc-500">
+              {resetState.completed
+                ? "100%"
+                : resetState.failed
+                ? "失败"
+                : `已用 ${resetElapsedSec} 秒 / 预计 60 秒 · ${Math.round(resetProgress)}%`}
+            </span>
+          </div>
+          {!resetState.completed && !resetState.failed && resetProgress >= 95 && (
+            <div className="mt-2 rounded-md bg-ink-950/60 px-2 py-1.5 text-[11px] text-amber-200">
+              💡 LLM 偶尔会慢一点,再等 10-30 秒.页面会自动检测完成 — 不用刷新.
+            </div>
+          )}
+        </div>
+      )}
 
       {items.length === 0 ? (
         <p className="mt-3 text-sm text-zinc-500">
@@ -376,7 +545,8 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
                     data-testid={`action-checkbox-${item.id}`}
                     checked={checked}
                     onChange={() => toggleStatus(item)}
-                    className="h-4 w-4 shrink-0 accent-accent-500"
+                    disabled={busy}
+                    className="h-4 w-4 shrink-0 accent-accent-500 disabled:cursor-not-allowed disabled:opacity-40"
                   />
                   <div className="min-w-0 flex-1">
                     <div
@@ -471,7 +641,8 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
                   </button>
                   <button
                     onClick={() => remove(item)}
-                    className="shrink-0 text-xs text-zinc-600 hover:text-rose-400"
+                    disabled={busy}
+                    className="shrink-0 text-xs text-zinc-600 hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-30"
                     title="删除"
                   >
                     ✕
@@ -560,13 +731,14 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
         </ul>
       )}
 
-      {/* Manual add row */}
+      {/* Manual add row — v25.23: busy 期间 disabled */}
       <div className="mt-4 flex items-center gap-2">
         <select
           value={newAssignee}
           onChange={(e) => setNewAssignee(e.target.value)}
           data-testid="action-add-assignee"
-          className="shrink-0 rounded-lg border border-ink-700 bg-ink-950 px-2 py-1.5 text-xs text-zinc-200 focus:border-accent-500 focus:outline-none"
+          disabled={busy}
+          className="shrink-0 rounded-lg border border-ink-700 bg-ink-950 px-2 py-1.5 text-xs text-zinc-200 focus:border-accent-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
         >
           <option value="">未指定</option>
           {users.map((u) => (
@@ -583,16 +755,17 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
-              void addItem();
+              if (!busy) void addItem();
             }
           }}
-          placeholder="添加一项行动项,回车保存…"
-          className="flex-1 rounded-lg border border-ink-700 bg-ink-950 px-3 py-1.5 text-sm text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
+          placeholder={busy ? "重置并重跑 进行中,请稍后…" : "添加一项行动项,回车保存…"}
+          disabled={busy}
+          className="flex-1 rounded-lg border border-ink-700 bg-ink-950 px-3 py-1.5 text-sm text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
         />
         <button
           data-testid="action-add-submit"
           onClick={() => void addItem()}
-          disabled={!newContent.trim() || adding}
+          disabled={busy || !newContent.trim() || adding}
           className="shrink-0 rounded-lg bg-accent-500 px-3 py-1.5 text-xs font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent-400 transition"
         >
           {adding ? "添加中…" : "添加"}
