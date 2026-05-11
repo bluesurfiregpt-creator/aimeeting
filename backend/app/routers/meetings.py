@@ -1164,6 +1164,11 @@ class ActionItemOut(BaseModel):
     source_type: str
     created_at: datetime
     updated_at: datetime
+    # v25.14: 关联 Task 的状态信息(用户视角:行动项 + 流转 是一回事)
+    task_id: Optional[uuid.UUID] = None
+    task_status: Optional[str] = None  # open / dispatched / accepted / in_progress / submitted / done / archived / cancelled
+    task_assignee_name: Optional[str] = None  # 可能与 action.assignee 不同(被 leader 重新分派后)
+    task_co_assignees_count: int = 0
 
 
 class ActionItemIn(BaseModel):
@@ -1179,7 +1184,12 @@ class ActionItemPatch(BaseModel):
     status: Optional[str] = None  # open | done | cancelled
 
 
-def _action_to_out(row: MeetingActionItem, name_by_id: dict[uuid.UUID, str]) -> ActionItemOut:
+def _action_to_out(
+    row: MeetingActionItem,
+    name_by_id: dict[uuid.UUID, str],
+    task_info_by_id: Optional[dict[uuid.UUID, dict]] = None,  # v25.14
+) -> ActionItemOut:
+    ti = (task_info_by_id or {}).get(row.task_id) if row.task_id else None
     return ActionItemOut(
         id=row.id,
         meeting_id=row.meeting_id,
@@ -1192,6 +1202,10 @@ def _action_to_out(row: MeetingActionItem, name_by_id: dict[uuid.UUID, str]) -> 
         source_type=row.source_type,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        task_id=row.task_id,
+        task_status=ti["status"] if ti else None,
+        task_assignee_name=ti["assignee_name"] if ti else None,
+        task_co_assignees_count=ti["co_count"] if ti else 0,
     )
 
 
@@ -1201,7 +1215,11 @@ async def list_action_items(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    """List all action items for this meeting (auto-extracted + manual)."""
+    """List all action items for this meeting (auto-extracted + manual).
+
+    v25.14: 同时拉每个 action 关联的 Task 的状态 + 主责姓名 + 协办数,
+    让前端 「行动项」 cards 直接展示 流转,不必再去 /trace 二次拉.
+    """
     await _load_owned_meeting(meeting_id, session, auth)
     rows = (
         await session.execute(
@@ -1211,13 +1229,32 @@ async def list_action_items(
         )
     ).scalars().all()
     user_ids = {r.assignee_user_id for r in rows if r.assignee_user_id}
+    # v25.14: 拉关联 Task 的状态
+    task_ids = [r.task_id for r in rows if r.task_id]
+    task_info_by_id: dict[uuid.UUID, dict] = {}
+    if task_ids:
+        tasks = (
+            await session.execute(select(Task).where(Task.id.in_(task_ids)))
+        ).scalars().all()
+        for t in tasks:
+            if t.assignee_user_id:
+                user_ids.add(t.assignee_user_id)
+            task_info_by_id[t.id] = {
+                "status": t.status,
+                "assignee_user_id": t.assignee_user_id,
+                "co_count": len(t.co_assignees) if t.co_assignees else 0,
+            }
     name_by_id: dict[uuid.UUID, str] = {}
     if user_ids:
         users = (
             await session.execute(select(User).where(User.id.in_(user_ids)))
         ).scalars().all()
         name_by_id = {u.id: u.name for u in users}
-    return [_action_to_out(r, name_by_id) for r in rows]
+    # 把 assignee_name 注入 task_info
+    for tid, info in task_info_by_id.items():
+        aid = info.get("assignee_user_id")
+        info["assignee_name"] = name_by_id.get(aid) if aid else None
+    return [_action_to_out(r, name_by_id, task_info_by_id) for r in rows]
 
 
 # v23.5: 会议追溯链 ----------------------------------------------------------

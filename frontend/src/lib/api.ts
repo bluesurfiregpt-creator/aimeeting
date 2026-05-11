@@ -226,6 +226,11 @@ export type ActionItem = {
   source_type: "summary" | "manual" | "agent";
   created_at: string;
   updated_at: string;
+  // v25.14: 关联 Task 的流转状态(行动项 + 流转 合一)
+  task_id?: string | null;
+  task_status?: string | null;
+  task_assignee_name?: string | null;
+  task_co_assignees_count?: number;
 };
 
 /** v24.3 #1: 单条 RAG 引用(KB chunk)— 智慧住建文档 §3.1 引用溯源角标. */

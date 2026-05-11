@@ -14,7 +14,8 @@ import { api, type Agent, type AgendaItem, type TranscriptLine } from "@/lib/api
 import BriefingCard from "./BriefingCard";
 import SummaryCard from "./SummaryCard";
 import ActionItemsCard from "./ActionItemsCard";
-import TraceCard from "./TraceCard";
+// v25.14: TraceCard 合并到 ActionItemsCard,不再单独引用
+// import TraceCard from "./TraceCard";
 
 type LiveLine =
   | {
@@ -1018,10 +1019,10 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       </nav>
 
       {/* v25.12-#2: 纪要 tab — 仅 phase=ended */}
+      {/* v25.14: TraceCard 合并到 ActionItemsCard(待办与流转 一卡到底)*/}
       <div style={{ display: viewTab === "minutes" ? "block" : "none" }}>
         {phase === "ended" ? <SummaryCard meetingId={meetingId} /> : null}
         {phase === "ended" ? <ActionItemsCard meetingId={meetingId} /> : null}
-        {phase === "ended" ? <TraceCard meetingId={meetingId} /> : null}
       </div>
 
       {/* v25.12-#2: 实录 tab(默认) — 所有 live/idle 期内容 */}

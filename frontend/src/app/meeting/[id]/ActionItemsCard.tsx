@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   api,
   type ActionComment,
@@ -8,6 +9,28 @@ import {
   type User,
 } from "@/lib/api";
 import { toast } from "@/lib/toast";
+
+// v25.14: 行动项 卡 同时展示 task 流转 状态(合并 TraceCard 功能)
+const TASK_STATUS_LABEL: Record<string, string> = {
+  open: "未派发",
+  dispatched: "待签收",
+  accepted: "已签收",
+  in_progress: "办理中",
+  submitted: "待审核",
+  done: "已完成",
+  archived: "已归档",
+  cancelled: "已取消",
+};
+const TASK_STATUS_TONE: Record<string, string> = {
+  open: "bg-zinc-700/40 text-zinc-300",
+  dispatched: "bg-amber-500/15 text-amber-300",
+  accepted: "bg-cyan-500/15 text-cyan-300",
+  in_progress: "bg-sky-500/15 text-sky-300",
+  submitted: "bg-violet-500/15 text-violet-300",
+  done: "bg-emerald-500/15 text-emerald-300",
+  archived: "bg-zinc-800 text-zinc-500",
+  cancelled: "bg-zinc-800 text-zinc-500",
+};
 
 /**
  * M3.0 Action Items panel — displayed under SummaryCard on `processed` meetings.
@@ -255,9 +278,12 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-base">📌</span>
-          <h2 className="text-base font-medium text-white">行动项</h2>
+          <h2 className="text-base font-medium text-white">待办与流转</h2>
           <span className="ml-1 rounded-full bg-ink-800 px-2 py-0.5 text-xs text-zinc-400">
             {items.length} 项 · {openCount} 待办
+          </span>
+          <span className="text-[10px] text-zinc-600" title="本次会议形成的待办清单 + 当前流转状态">
+            (会议中讨论形成 · AI 自动抽取 + 手动添加)
           </span>
         </div>
         {/* v25.11: 清掉 LLM 自动提取的(hallucination 一键清) */}
@@ -316,20 +342,44 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
                     >
                       {item.content}
                     </div>
-                    <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-500">
-                      {assignee ? (
-                        <span title={item.assignee_user_id ? "已绑定用户" : "仅记录姓名,未绑定"}>
-                          {item.assignee_user_id ? "👤" : "❓"} {assignee}
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-zinc-500">
+                      {/* v25.14: 任务流转状态 — 第一优先级显示(用户视角先关心"现在到哪步了") */}
+                      {item.task_status && (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                            TASK_STATUS_TONE[item.task_status] || TASK_STATUS_TONE.open
+                          }`}
+                        >
+                          {TASK_STATUS_LABEL[item.task_status] || item.task_status}
+                        </span>
+                      )}
+                      {/* 优先用 task 上的 assignee(可能被 leader 重派过),退到 action 的 */}
+                      {(item.task_assignee_name || assignee) ? (
+                        <span title={(item.task_id || item.assignee_user_id) ? "已绑定用户" : "仅记录姓名,未绑定"}>
+                          👤 {item.task_assignee_name || assignee}
+                          {item.task_co_assignees_count && item.task_co_assignees_count > 0
+                            ? ` + ${item.task_co_assignees_count} 协办`
+                            : ""}
                         </span>
                       ) : (
-                        <span className="text-zinc-600">未指定负责人</span>
+                        <span className="text-zinc-600">⚠️ 未指定负责人</span>
                       )}
                       {item.due_at ? (
                         <span>📅 {new Date(item.due_at).toLocaleDateString("zh-CN")}</span>
                       ) : null}
                       <span className="text-zinc-700">
-                        {item.source_type === "summary" ? "自动抽取" : "手动添加"}
+                        {item.source_type === "summary" ? "AI 自动抽取" : "手动添加"}
                       </span>
+                      {/* v25.14: 一键 进 任务详情(派发 / 审核 / 沉淀 等) */}
+                      {item.task_id && (
+                        <Link
+                          href={`/task/${item.task_id}`}
+                          className="ml-auto text-[10px] text-accent-400 hover:text-accent-300"
+                          title="进入任务详情 — 派发 / 签收 / 评分 / 沉淀"
+                        >
+                          → 任务详情
+                        </Link>
+                      )}
                     </div>
                   </div>
                   <button
