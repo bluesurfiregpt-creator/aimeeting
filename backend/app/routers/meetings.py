@@ -27,6 +27,7 @@ from ..models import (
     MeetingActionItemComment,
     MeetingAgentMessage,
     MeetingAttendee,
+    MeetingSpeakerSegment,
     MeetingTranscript,
     Task,
     User,
@@ -639,6 +640,202 @@ async def get_result(
         lines=out_lines,
         identification_status=status,
         identification_message=msg,
+    )
+
+
+# --------- v25.7-#4: 声纹识别 重跑 + 调试 ----------------------------------
+
+
+class IdentifyRerunOut(BaseModel):
+    started: bool
+    note: str
+    meeting_status: str
+
+
+@router.post("/{meeting_id}/identify/rerun", response_model=IdentifyRerunOut)
+async def rerun_identify_endpoint(
+    meeting_id: str,
+    bg: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v25.7-#4: 手动重跑声纹识别(给 leader/admin 在会议详情页用).
+
+    用途:测试时发现某个用户没识别 → 调阈值后 重跑 看新结果.
+    """
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    if m.status not in ("finished", "processed"):
+        raise HTTPException(409, f"会议未结束(status={m.status}),无法重跑识别")
+
+    # 重置为 finished + 清 summary 标记 让重新跑
+    if m.status == "processed":
+        await session.execute(
+            update(Meeting).where(Meeting.id == m.id).values(status="finished")
+        )
+        await session.commit()
+
+    bg.add_task(run_identify, m.id, final=True)
+    return IdentifyRerunOut(
+        started=True,
+        note="已触发重新识别(后台跑,30-60s 后看 result 页)",
+        meeting_status="finished",
+    )
+
+
+class IdentifyDebugSegment(BaseModel):
+    label: str
+    user_id: Optional[uuid.UUID] = None
+    user_name: Optional[str] = None
+    start_ms: int
+    end_ms: int
+    duration_ms: int
+    confidence: float
+    status: str  # auto_recognized / low_confidence / filtered_below_threshold
+
+
+class IdentifyDebugOut(BaseModel):
+    meeting_id: uuid.UUID
+    pyannote_job_id: Optional[str]
+    voiceprint_count: int
+    voiceprints: list[dict]  # [{user_id, user_name, label}]
+    segment_count_total: int
+    segment_count_kept: int
+    segments: list[IdentifyDebugSegment]
+    transcript_lines: int
+    transcript_with_speaker: int
+    transcript_unknown: int
+    threshold_used: float
+    notes: list[str]
+
+
+@router.get("/{meeting_id}/identify/debug", response_model=IdentifyDebugOut)
+async def identify_debug(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v25.7-#4: 声纹识别 debug 端点.
+
+    返回:
+      - 提交的 voiceprints(label / user_id / 用户名)
+      - pyannote 返回的所有 segments(含 confidence / 是否被阈值过滤)
+      - 实录行数 + 已贴说话人 / 未识别 数
+    用途:测试时 立即看 哪个用户的 voiceprint 没命中 segment / 命中但 confidence 太低.
+    """
+    from ..identify_pipeline import (
+        CONF_THRESHOLD, PYANNOTE_MATCH_THRESHOLD, MIN_SEGMENT_DURATION_MS,
+    )
+
+    m = await _load_owned_meeting(meeting_id, session, auth)
+
+    # 拿 voiceprints (按 attendee user)
+    attendees = (
+        await session.execute(
+            select(MeetingAttendee).where(
+                MeetingAttendee.meeting_id == m.id,
+                MeetingAttendee.user_id.is_not(None),
+            )
+        )
+    ).scalars().all()
+    user_ids = [a.user_id for a in attendees]
+    users_by_id: dict[uuid.UUID, User] = {}
+    if user_ids:
+        users = (
+            await session.execute(select(User).where(User.id.in_(user_ids)))
+        ).scalars().all()
+        users_by_id = {u.id: u for u in users}
+
+    from ..models import Voiceprint
+    vp_rows = (
+        await session.execute(
+            select(Voiceprint).where(
+                Voiceprint.user_id.in_(user_ids), Voiceprint.is_active.is_(True)
+            )
+        )
+    ).scalars().all() if user_ids else []
+    voiceprints_info = [
+        {
+            "user_id": str(vp.user_id),
+            "user_name": users_by_id[vp.user_id].name if vp.user_id in users_by_id else "?",
+            "label": f"u{str(vp.user_id)[:8]}-{users_by_id[vp.user_id].name if vp.user_id in users_by_id else 'user'}"[:100],
+            "embedding_dim": len((vp.pyannote_payload or {}).get("voiceprint", []))
+                if vp.pyannote_payload else 0,
+        }
+        for vp in vp_rows
+    ]
+
+    # 拿 segments(含 user_id NULL 的 — 这些是被 conf 阈值打掉的)
+    seg_rows = (
+        await session.execute(
+            select(MeetingSpeakerSegment)
+            .where(MeetingSpeakerSegment.meeting_id == m.id)
+            .order_by(MeetingSpeakerSegment.start_ms)
+        )
+    ).scalars().all()
+    segments_out: list[IdentifyDebugSegment] = []
+    for s in seg_rows:
+        dur = s.end_ms - s.start_ms
+        if dur < MIN_SEGMENT_DURATION_MS:
+            status_label = "filtered_too_short"
+        elif s.user_id is None:
+            status_label = "filtered_below_conf"
+        else:
+            status_label = "auto_recognized"
+        u_name = users_by_id[s.user_id].name if s.user_id and s.user_id in users_by_id else None
+        segments_out.append(IdentifyDebugSegment(
+            label=s.label,
+            user_id=s.user_id,
+            user_name=u_name,
+            start_ms=s.start_ms,
+            end_ms=s.end_ms,
+            duration_ms=dur,
+            confidence=float(s.confidence or 0.0),
+            status=status_label,
+        ))
+
+    # 实录统计
+    line_rows = (
+        await session.execute(
+            select(MeetingTranscript).where(
+                MeetingTranscript.meeting_id == m.id,
+                MeetingTranscript.is_final.is_(True),
+            )
+        )
+    ).scalars().all()
+    n_lines = len(line_rows)
+    n_with_speaker = sum(1 for l in line_rows if l.speaker_user_id is not None)
+
+    # 提示信息
+    notes: list[str] = []
+    if not vp_rows:
+        notes.append("⚠️ 没有声纹数据 — 需要参会人提前在 /enroll 录入声纹")
+    if not seg_rows:
+        notes.append("⚠️ pyannote 返回 0 segments — 可能音频未上传 / pyannote 服务异常")
+    miss_users = set(user_ids) - {s.user_id for s in seg_rows if s.user_id}
+    if miss_users:
+        miss_names = [users_by_id[uid].name for uid in miss_users if uid in users_by_id]
+        notes.append(
+            f"⚠️ 这些用户的声纹未命中任何 segment: {', '.join(miss_names)} — "
+            f"可能 confidence 全 < {PYANNOTE_MATCH_THRESHOLD},或他们没说话"
+        )
+    if n_lines > 0 and n_with_speaker == 0:
+        notes.append("⚠️ 实录有内容但全部未识别 — 可能 align 阈值过严")
+
+    return IdentifyDebugOut(
+        meeting_id=m.id,
+        pyannote_job_id=m.pyannote_job_id,
+        voiceprint_count=len(vp_rows),
+        voiceprints=voiceprints_info,
+        segment_count_total=len(seg_rows),
+        segment_count_kept=sum(1 for s in seg_rows if s.user_id is not None),
+        segments=segments_out,
+        transcript_lines=n_lines,
+        transcript_with_speaker=n_with_speaker,
+        transcript_unknown=n_lines - n_with_speaker,
+        threshold_used=PYANNOTE_MATCH_THRESHOLD,
+        notes=notes,
     )
 
 

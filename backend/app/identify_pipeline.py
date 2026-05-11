@@ -40,23 +40,17 @@ from . import session_state
 
 logger = logging.getLogger(__name__)
 
-CONF_THRESHOLD = 0.5  # below this we mark UNKNOWN (manual fixup later)
-PERIODIC_INTERVAL_S = 45  # how often the live worker triggers an identify pass
-MIN_BUFFER_SECONDS = 20   # don't bother identifying buffers shorter than this
-# pyannote matching threshold (sent to /identify). Higher = stricter:
-# pyannote refuses to claim a match unless the voiceprint similarity is
-# very high. Round-2 testing showed 0.7 still leaks unenrolled-speaker
-# attribution; bumped to 0.75 to err on the side of UNKNOWN over
-# wrong-name. Manual correction UI exists for the long-tail.
-PYANNOTE_MATCH_THRESHOLD = 0.75
-# When aligning ASR sentences to pyannote segments, we additionally require
-# at least this fraction of the sentence's duration to overlap with the
-# matched segment. Round-2 raised from 0.5 → 0.7 to suppress short-word
-# attribution from noise windows.
-MIN_LINE_OVERLAP_RATIO = 0.7
-# Skip pyannote segments shorter than this — they are usually clipped
-# fragments of noise that happen to score well against a voiceprint.
-MIN_SEGMENT_DURATION_MS = 1000
+# v25.7-#4 客户真人测试反馈:2 个声纹只识别了 1 个,另一个一句话都没识别.
+# 怀疑是 pyannote 阈值过严(0.75)导致第二人 confidence 落 0.5-0.74 全 reject.
+# 降到 0.55,允许更多 false positive,人工纠正 UI 已存在.
+CONF_THRESHOLD = 0.4  # was 0.5 — 给 align 时多机会保留 segment
+PERIODIC_INTERVAL_S = 45
+MIN_BUFFER_SECONDS = 20
+PYANNOTE_MATCH_THRESHOLD = 0.55  # was 0.75 — 客户测试 漏识半数
+# 对齐 ASR 句到 pyannote segment 的最小重叠率
+MIN_LINE_OVERLAP_RATIO = 0.5  # was 0.7 — 降以便短句也能被对齐
+# 短于此的 segment 视为噪音
+MIN_SEGMENT_DURATION_MS = 800  # was 1000 — 略放宽,毕竟单字也可能成 segment
 
 
 async def identify_worker(

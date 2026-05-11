@@ -995,6 +995,37 @@ export const api = {
   finalizeMeeting: (id: string) => jpost<Meeting>(`/api/meetings/${id}/finalize`, {}),
   meetingResult: (id: string) => jget<MeetingResult>(`/api/meetings/${id}/result`),
 
+  // v25.7-#4: 声纹识别 重跑 + debug
+  rerunIdentify: (id: string) =>
+    jpost<{ started: boolean; note: string; meeting_status: string }>(
+      `/api/meetings/${id}/identify/rerun`,
+      {},
+    ),
+  identifyDebug: (id: string) =>
+    jget<{
+      meeting_id: string;
+      pyannote_job_id: string | null;
+      voiceprint_count: number;
+      voiceprints: Array<{ user_id: string; user_name: string; label: string; embedding_dim: number }>;
+      segment_count_total: number;
+      segment_count_kept: number;
+      segments: Array<{
+        label: string;
+        user_id: string | null;
+        user_name: string | null;
+        start_ms: number;
+        end_ms: number;
+        duration_ms: number;
+        confidence: number;
+        status: string;
+      }>;
+      transcript_lines: number;
+      transcript_with_speaker: number;
+      transcript_unknown: number;
+      threshold_used: number;
+      notes: string[];
+    }>(`/api/meetings/${id}/identify/debug`),
+
   // v23.5: 会议追溯链 — 这次会议产生了哪些 Task + 它们现在的状态
   getMeetingTrace: (id: string) =>
     jget<MeetingTrace>(`/api/meetings/${id}/trace`),

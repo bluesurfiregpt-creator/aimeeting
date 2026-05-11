@@ -169,6 +169,44 @@ export default function SummaryCard({ meetingId }: { meetingId: string }) {
           >
             {busy ? "生成中..." : "重新生成"}
           </button>
+          {/* v25.7-#4: 重跑声纹识别 + debug */}
+          <span className="text-zinc-700">|</span>
+          <button
+            onClick={async () => {
+              try {
+                const r = await api.rerunIdentify(meetingId);
+                toast.success(r.note);
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "重跑失败");
+              }
+            }}
+            className="text-zinc-500 hover:text-amber-400"
+            title="重跑声纹识别(testing 时调阈值后看新结果;30-60s 后刷新)"
+          >
+            🔄 重新识别
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                const d = await api.identifyDebug(meetingId);
+                console.log("[identify-debug]", d);
+                const summary = [
+                  `🎙️ 声纹: ${d.voiceprint_count}`,
+                  `📦 segments: ${d.segment_count_total}(命中 ${d.segment_count_kept})`,
+                  `📝 实录: ${d.transcript_lines} (识别 ${d.transcript_with_speaker} / 未识 ${d.transcript_unknown})`,
+                  `阈值: ${d.threshold_used}`,
+                  ...d.notes,
+                ].join("\n");
+                alert(summary + "\n\n详细数据见 console");
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "debug 失败");
+              }
+            }}
+            className="text-zinc-500 hover:text-cyan-400"
+            title="声纹识别 debug — 在 console 看 segments / confidence / 提示"
+          >
+            🔍 识别 debug
+          </button>
         </div>
       </header>
 
