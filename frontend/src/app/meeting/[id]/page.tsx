@@ -658,13 +658,63 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     }
   }, [lines, focusIds]);
 
-  // v25.19 #3d: 如果 URL 带 ?focus=ids,等 transcripts 加载完(serverLineId 都贴上了)
-  // → 把第一个 focus 行 居中滚动 到视口里.每组 focus 只做一次.
+  // v25.21: focusIds 非空 → 强制切到 实录 tab.
+  // 多层保险:loadMeetingMeta 处已做了不进 minutes,这里再兜底
+  // (比如用户在 minutes 中切回 live 的过程中,或 URL 后续才变化的情况).
+  useEffect(() => {
+    if (focusIds.size > 0) setViewTab("live");
+  }, [focusIds]);
+
+  // v25.21: 显式 居中滚动 — 用 父容器(实录 panel 是 overflow-y-auto)
+  // 计算 scrollTop,不用 scrollIntoView(嵌套滚动容器里行为不稳).
+  const scrollFocusIntoCenter = useCallback(() => {
+    if (focusIds.size === 0) return;
+    const firstId = Math.min(...Array.from(focusIds));
+    const el = document.getElementById(`focus-line-${firstId}`);
+    const cont = scrollRef.current;
+    if (!el || !cont) return;
+    // 行相对于父容器顶部的位置 — 用 getBoundingClientRect 差值最稳
+    const elRect = el.getBoundingClientRect();
+    const contRect = cont.getBoundingClientRect();
+    const offsetWithinCont =
+      elRect.top - contRect.top + cont.scrollTop;
+    cont.scrollTo({
+      top: Math.max(
+        0,
+        offsetWithinCont - cont.clientHeight / 2 + el.clientHeight / 2,
+      ),
+      behavior: "smooth",
+    });
+  }, [focusIds]);
+
+  // v25.21: 锚点 ±2 句作为 上下文 — 显示浅琥珀,提示用户 这是连续对话区域
+  const contextLineIds = useMemo<Set<number>>(() => {
+    if (focusIds.size === 0) return new Set();
+    const userLines = lines.filter(
+      (l): l is typeof lines[number] & { serverLineId: number } =>
+        l.kind === "user" && l.serverLineId != null,
+    );
+    const focusedIdx: number[] = [];
+    userLines.forEach((l, i) => {
+      if (focusIds.has(l.serverLineId)) focusedIdx.push(i);
+    });
+    const out = new Set<number>();
+    focusedIdx.forEach((i) => {
+      for (let k = i - 2; k <= i + 2; k++) {
+        if (k < 0 || k >= userLines.length) continue;
+        const lid = userLines[k].serverLineId;
+        if (!focusIds.has(lid)) out.add(lid); // 锚点本身不算上下文
+      }
+    });
+    return out;
+  }, [focusIds, lines]);
+
+  // v25.19 #3d → v25.21: 当 transcripts 加载完成(serverLineId 都贴上了)
+  // 且至少一个 focus 行已渲染 → 居中滚动 + 标记 scrolled,避免重复滚.
   useEffect(() => {
     if (focusIds.size === 0) return;
     const key = Array.from(focusIds).sort().join(",");
     if (scrolledForFocusRef.current === key) return;
-    // 检查 lines 是否包含至少一个 focus 行
     const hasFocusLine = lines.some(
       (l) =>
         l.kind === "user" &&
@@ -674,15 +724,11 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     if (!hasFocusLine) return; // 等下一次 lines 更新
     // 延一帧,等 DOM 渲染完
     const tid = window.setTimeout(() => {
-      const firstId = Math.min(...Array.from(focusIds));
-      const el = document.getElementById(`focus-line-${firstId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        scrolledForFocusRef.current = key;
-      }
-    }, 80);
+      scrollFocusIntoCenter();
+      scrolledForFocusRef.current = key;
+    }, 120);
     return () => window.clearTimeout(tid);
-  }, [focusIds, lines]);
+  }, [focusIds, lines, scrollFocusIntoCenter]);
 
   const start = useCallback(async () => {
     if (phase !== "idle") return;
@@ -821,7 +867,12 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         });
         if (m.status === "processed" || m.status === "finished") {
           setPhase("ended");
-          setViewTab("minutes");  // v25.12-#2: 已结束会议默认 纪要 tab
+          // v25.12-#2: 已结束会议默认 纪要 tab
+          // v25.21: 但如果 URL 带 ?focus= (从 任务详情 跳过来看实录依据),
+          // 必须留在 live tab — 否则 jump 到纪要 然后用户看不到我们高亮的实录.
+          const hasFocus = !!(typeof window !== "undefined" &&
+            new URL(window.location.href).searchParams.get("focus"));
+          if (!hasFocus) setViewTab("minutes");
           setStatusText(m.status === "processed" ? "✅ 已处理" : "已结束");
           // Pre-populate transcript + speaker names so the user sees
           // historical content immediately, not a "请点开始会议" empty state.
@@ -1405,6 +1456,33 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         </div>
       ) : null}
 
+      {/* v25.21: 锚点 banner — 从 任务详情 / 行动项 跳过来时显示,
+          告诉用户 "你看的实录已经定位到 N 句锚点,前后 ±2 是上下文". */}
+      {focusIds.size > 0 ? (
+        <div className="mt-4 rounded-lg border-l-4 border-amber-400 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-100">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-base">📍</span>
+              <span>
+                你从【任务详情 / 行动项】跳过来 — 已为你定位 实录中{" "}
+                <strong className="text-amber-300">{focusIds.size} 句</strong>{" "}
+                AI 抽这条待办时引用的真人对话,
+                <span className="text-amber-300">琥珀色高亮</span>
+                就是锚点;前后 ±2 句作为
+                <span className="text-amber-200/70">上下文浅色提示</span>.
+              </span>
+            </div>
+            <button
+              onClick={scrollFocusIntoCenter}
+              className="shrink-0 rounded-md bg-amber-500/25 px-2.5 py-1 text-xs font-medium text-amber-100 hover:bg-amber-500/35"
+              title="如果滚开了,点这里把锚点 再次居中到视口"
+            >
+              📌 重新居中
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {mounted && phase === "idle" && audioCaps.isIOSSafari ? (
         <div className="mt-4 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-xs text-sky-200">
           📱 检测到 iOS Safari。开会前请确保:1) 浏览器允许麦克风权限(设置 → Safari → 麦克风);2) 屏幕保持点亮且 Safari 处于前台;3) 点击「开始会议」时直接对着麦克风说话,不要离设备太远。
@@ -1671,9 +1749,13 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                 <ul className="space-y-3">
                   {userLines.map((l) => {
                     if (l.kind !== "user") return null;
-                    // v25.19 #3d: 实录锚点高亮
+                    // v25.19 #3d + v25.21: 实录锚点 + 上下文 高亮
                     const isFocused =
                       l.serverLineId != null && focusIds.has(l.serverLineId);
+                    const isContext =
+                      !isFocused &&
+                      l.serverLineId != null &&
+                      contextLineIds.has(l.serverLineId);
                     return (
                       <li
                         key={l.id}
@@ -1686,14 +1768,26 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                           l.final
                             ? "text-base leading-relaxed text-zinc-100"
                             : "text-base leading-relaxed text-zinc-400",
-                          // 锚点高亮 — 琥珀色背景 + 左边框 + 圆角
+                          // v25.21 锚点 — 加深背景 + 圆角 + 阴影发光 + ring 强调
                           isFocused
-                            ? "rounded-md border-l-4 border-amber-400 bg-amber-500/10 px-2 py-1 -mx-2 transition-colors"
+                            ? "relative rounded-lg border-l-4 border-amber-400 bg-amber-500/20 px-3 py-1.5 -mx-2 shadow-md shadow-amber-500/20 ring-1 ring-amber-400/40 transition-colors"
+                            : "",
+                          // v25.21 上下文 ±2 句 — 浅琥珀 + 左边窄条提示
+                          isContext
+                            ? "rounded-md border-l-2 border-amber-500/30 bg-amber-500/5 px-3 py-1 -mx-2"
                             : "",
                         ]
                           .filter(Boolean)
                           .join(" ")}
                       >
+                        {isFocused && (
+                          <span
+                            className="absolute -left-3 top-1/2 -translate-y-1/2 select-none text-amber-400"
+                            title="AI 抽待办时引用的锚点"
+                          >
+                            📍
+                          </span>
+                        )}
                         {l.startMs != null && (
                           <span
                             className="mr-2 font-mono text-xs text-zinc-500"
