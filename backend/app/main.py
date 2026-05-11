@@ -303,6 +303,13 @@ async def ws_stt(ws: WebSocket):
         worker_task = asyncio.create_task(
             identify_worker(meeting_uuid, on_change=notify_speakers_updated)
         )
+        # v25.8-#3: 记录 hot words(给 ASR vocabulary 配置 + cleaner 用)
+        try:
+            from .hot_words import collect_hot_words, log_hot_words
+            hw = await collect_hot_words(meeting_uuid)
+            log_hot_words(meeting_uuid, hw)
+        except Exception:
+            logger.exception("hot_words collect failed (non-fatal)")
 
     client = FunASRClient(emit)
     try:

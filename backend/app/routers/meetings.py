@@ -709,6 +709,47 @@ class IdentifyDebugOut(BaseModel):
     notes: list[str]
 
 
+class HotWordsOut(BaseModel):
+    attendee_names: list[str]
+    agent_keywords: list[str]
+    kb_titles: list[str]
+    total: int
+    suggestion: str
+
+
+@router.get("/{meeting_id}/hot-words", response_model=HotWordsOut)
+async def get_meeting_hot_words(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v25.8-#3: 列本会议自动收集的 hot words(参会人姓名 + agent.keywords + KB titles).
+
+    用途:
+      1. 用户拷贝列表 → 去 DashScope 控制台 创建 vocabulary → env 设
+         DASHSCOPE_STT_VOCABULARY_ID → ASR 自动识别这些词
+      2. 之后(可选)我们可以加 auto-vocab-create 端点
+    """
+    from ..hot_words import collect_hot_words
+
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    hw = await collect_hot_words(m.id, include_kb_filenames=True)
+    total = (
+        len(hw["attendee_names"]) + len(hw["agent_keywords"]) + len(hw["kb_titles"])
+    )
+    return HotWordsOut(
+        attendee_names=hw["attendee_names"],
+        agent_keywords=hw["agent_keywords"],
+        kb_titles=hw["kb_titles"],
+        total=total,
+        suggestion=(
+            f"将以上 {total} 词整理到 DashScope 控制台 vocabulary 里,"
+            f"然后 env 设 DASHSCOPE_STT_VOCABULARY_ID 即可让 ASR 优先识别"
+        ),
+    )
+
+
 @router.get("/{meeting_id}/identify/debug", response_model=IdentifyDebugOut)
 async def identify_debug(
     meeting_id: str,
