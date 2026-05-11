@@ -1154,91 +1154,141 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         </div>
       ) : null}
 
-      <section
-        ref={scrollRef}
-        className="mt-4 h-[55vh] overflow-y-auto rounded-xl border border-ink-700 bg-ink-900 p-6"
-      >
-        {lines.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-zinc-600">
-            点「开始会议」后开口说话。字幕实时出现，姓名稍后异步贴上。
-          </div>
-        ) : (
-          <ul className="space-y-3">
-            {lines.map((l) =>
-              l.kind === "user" ? (
-                <li
-                  key={l.id}
-                  className={
-                    l.final
-                      ? "text-base leading-relaxed text-zinc-100"
-                      : "text-base leading-relaxed text-zinc-400"
-                  }
-                >
-                  {/* v25-bug-fix W-4: 实录显示 [mm:ss] 时间戳 */}
-                  {l.startMs != null && (
-                    <span
-                      className="mr-2 font-mono text-xs text-zinc-500"
-                      title={`从会议开始 ${l.startMs}ms`}
-                    >
-                      [{Math.floor(l.startMs / 60000).toString().padStart(2, "0")}:
-                      {Math.floor((l.startMs % 60000) / 1000).toString().padStart(2, "0")}]
-                    </span>
-                  )}
-                  <SpeakerLabel
-                    line={l}
-                    canEdit={l.final && l.serverLineId !== null}
-                    isOpen={correctingLineId === l.serverLineId}
-                    onToggle={() =>
-                      setCorrectingLineId(
-                        correctingLineId === l.serverLineId ? null : l.serverLineId,
-                      )
-                    }
-                    attendees={attendees}
-                    onPick={(uid, name) => correctSpeaker(l.serverLineId!, uid, name)}
-                  />
-                  <span>{l.text}</span>
-                  {!l.final ? <span className="ml-1 animate-pulse">▌</span> : null}
-                </li>
+      {/* v25.7-#3: 双面板布局 — 实录(60%) + AI 专家发言(40%) */}
+      {(() => {
+        const userLines = lines.filter((l) => l.kind === "user");
+        const agentLines = lines.filter((l) => l.kind === "agent").slice().reverse();
+        return (
+          <section className="mt-4 grid gap-4 md:grid-cols-5">
+            {/* 左:实录(只有真人 / 未识别) — md+ 占 3/5 */}
+            <div
+              ref={scrollRef}
+              data-testid="transcript-panel"
+              className="md:col-span-3 h-[55vh] overflow-y-auto rounded-xl border border-ink-700 bg-ink-900 p-6"
+            >
+              <div className="mb-3 flex items-center justify-between border-b border-ink-800 pb-2">
+                <h2 className="text-sm font-medium text-zinc-300">📝 实录</h2>
+                <span className="text-[10px] text-zinc-500">
+                  {userLines.length} 句
+                </span>
+              </div>
+              {userLines.length === 0 ? (
+                <div className="flex h-[40vh] items-center justify-center text-sm text-zinc-600">
+                  点「开始会议」后开口说话。字幕实时出现,姓名稍后异步贴上。
+                </div>
               ) : (
-                <li
-                  key={l.id}
-                  className="rounded-lg border border-ink-700 bg-ink-950 p-3 text-base leading-relaxed"
-                  style={{ borderLeft: `3px solid ${tailwindColor(l.agentColor)}` }}
-                >
-                  <span
-                    className="mr-2 text-xs font-medium uppercase tracking-wider"
-                    style={{ color: tailwindColor(l.agentColor) }}
-                  >
-                    🤖 {l.agentName}
-                  </span>
-                  <span className="text-zinc-100 whitespace-pre-wrap">{l.text}</span>
-                  {!l.done ? <span className="ml-1 animate-pulse">▌</span> : null}
-                  {/* v24.3 #1: RAG 引用溯源 chips */}
-                  {l.done && l.citations && l.citations.length > 0 && (
-                    <div
-                      className="mt-2 flex flex-wrap gap-1 border-t border-ink-800 pt-2"
-                      data-testid="agent-citations"
-                    >
-                      <span className="text-[10px] text-zinc-500">📚 引用</span>
-                      {l.citations.map((c, i) => (
-                        <span
-                          key={c.chunk_id}
-                          title={`${c.snippet}${c.snippet.length >= 240 ? "…" : ""}\n\n相关度: ${(1 - c.distance).toFixed(2)}`}
-                          className="cursor-help rounded-full border border-ink-700 bg-ink-900 px-2 py-0.5 text-[10px] text-zinc-400 hover:border-violet-500/40 hover:text-violet-200"
-                        >
-                          [{i + 1}] {c.document_filename.length > 24
-                            ? c.document_filename.slice(0, 22) + "…"
-                            : c.document_filename}
-                        </span>
-                      ))}
-                    </div>
+                <ul className="space-y-3">
+                  {userLines.map((l) =>
+                    l.kind === "user" ? (
+                      <li
+                        key={l.id}
+                        className={
+                          l.final
+                            ? "text-base leading-relaxed text-zinc-100"
+                            : "text-base leading-relaxed text-zinc-400"
+                        }
+                      >
+                        {l.startMs != null && (
+                          <span
+                            className="mr-2 font-mono text-xs text-zinc-500"
+                            title={`从会议开始 ${l.startMs}ms`}
+                          >
+                            [{Math.floor(l.startMs / 60000).toString().padStart(2, "0")}:
+                            {Math.floor((l.startMs % 60000) / 1000).toString().padStart(2, "0")}]
+                          </span>
+                        )}
+                        <SpeakerLabel
+                          line={l}
+                          canEdit={l.final && l.serverLineId !== null}
+                          isOpen={correctingLineId === l.serverLineId}
+                          onToggle={() =>
+                            setCorrectingLineId(
+                              correctingLineId === l.serverLineId ? null : l.serverLineId,
+                            )
+                          }
+                          attendees={attendees}
+                          onPick={(uid, name) => correctSpeaker(l.serverLineId!, uid, name)}
+                        />
+                        <span>{l.text}</span>
+                        {!l.final ? <span className="ml-1 animate-pulse">▌</span> : null}
+                      </li>
+                    ) : null,
                   )}
-                </li>
-              ),
-            )}
-          </ul>
-        )}
-      </section>
+                </ul>
+              )}
+            </div>
+
+            {/* 右:AI 专家发言(倒序最新在上)— md+ 占 2/5 */}
+            <div
+              data-testid="agent-panel"
+              className="md:col-span-2 h-[55vh] overflow-y-auto rounded-xl border border-violet-500/30 bg-ink-900 p-5"
+            >
+              <div className="mb-3 flex items-center justify-between border-b border-violet-500/20 pb-2">
+                <h2 className="text-sm font-medium text-violet-200">🤖 AI 专家发言</h2>
+                <span className="text-[10px] text-zinc-500">
+                  {agentLines.length} 条
+                </span>
+              </div>
+              {agentLines.length === 0 ? (
+                <div className="flex h-[40vh] flex-col items-center justify-center gap-2 text-center text-xs text-zinc-600">
+                  <span className="text-2xl">🤖</span>
+                  <p>暂无 AI 发言</p>
+                  <p className="text-zinc-700">
+                    {`@AI 名 触发 / 关键词命中 / 顶部点 AI 头像 手动 invoke`}
+                  </p>
+                </div>
+              ) : (
+                <ul className="space-y-3">
+                  {agentLines.map((l) =>
+                    l.kind === "agent" ? (
+                      <li
+                        key={l.id}
+                        className="rounded-lg border border-ink-700 bg-ink-950 p-3 text-sm leading-relaxed"
+                        style={{ borderLeft: `3px solid ${tailwindColor(l.agentColor)}` }}
+                      >
+                        <div
+                          className="mb-1 flex items-center justify-between gap-2 text-xs font-medium uppercase tracking-wider"
+                          style={{ color: tailwindColor(l.agentColor) }}
+                        >
+                          <span>🤖 {l.agentName}</span>
+                          {!l.done && (
+                            <span className="rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] text-violet-300">
+                              生成中…
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-zinc-100 whitespace-pre-wrap">
+                          {l.text}
+                          {!l.done ? <span className="ml-1 animate-pulse">▌</span> : null}
+                        </div>
+                        {l.done && l.citations && l.citations.length > 0 && (
+                          <div
+                            className="mt-2 flex flex-wrap gap-1 border-t border-ink-800 pt-2"
+                            data-testid="agent-citations"
+                          >
+                            <span className="text-[10px] text-zinc-500">📚 引用</span>
+                            {l.citations.map((c, i) => (
+                              <span
+                                key={c.chunk_id}
+                                title={`${c.snippet}${c.snippet.length >= 240 ? "…" : ""}\n\n相关度: ${(1 - c.distance).toFixed(2)}`}
+                                className="cursor-help rounded-full border border-ink-700 bg-ink-900 px-2 py-0.5 text-[10px] text-zinc-400 hover:border-violet-500/40 hover:text-violet-200"
+                              >
+                                [{i + 1}] {c.document_filename.length > 24
+                                  ? c.document_filename.slice(0, 22) + "…"
+                                  : c.document_filename}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </li>
+                    ) : null,
+                  )}
+                </ul>
+              )}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* 文字录入(打字)— 麦克风的替代 / 自动化测试入口 */}
       {phase !== "ended" ? (
