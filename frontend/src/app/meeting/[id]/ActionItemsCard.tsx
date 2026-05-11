@@ -76,14 +76,21 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
   // so re-expanding is instant.
   const [comments, setComments] = useState<Record<string, CommentState>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // v25.23: 「⚠️ 重置并重跑」期间的进度条状态.
+  // v25.23 + v25.24: 「⚠️ 重置并重跑」期间的进度条状态.
   // null = idle;非 null = 跑中,UI 显进度条 + 禁用所有写按钮.
+  //
+  // 双阶段:
+  //   summaryReady=false → 阶段 A:等 LLM 生成 summary (~15-25s)
+  //   summaryReady=true  → 阶段 B:summary 好了,等 action_extractor (~5-15s)
+  //                       此时即使 summary 已 ready 也不能立即标 completed,
+  //                       要等 action items 实际出现 (避免 v25.23 的 race).
   type ResetState = {
     startedAt: number;
-    expectedMs: number;   // 估算 60s
+    expectedMs: number;     // 估算 60s
     completed: boolean;
-    failed?: string;      // 失败原因
-    summaryReady?: boolean;
+    failed?: string;        // 失败原因
+    summaryReady?: boolean; // 阶段 B 标志位
+    summaryReadyAt?: number;// 进入阶段 B 的时间戳 (Date.now)
   };
   const [resetState, setResetState] = useState<ResetState | null>(null);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
@@ -124,43 +131,84 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
     return () => window.clearInterval(h);
   }, [resetState]);
 
-  // v25.23: 重置 跑中 → 每 4s 轮询 summary status,看到 ready → 标完成
+  // v25.23 → v25.24 (fix race): 重置跑中 → 双阶段轮询
+  //
+  // 之前 race 现象:
+  //   summary.status='ready' 时立即标 completed → 但 action_extractor 是
+  //   asyncio.create_task fire-and-forget,还在跑.refresh 拿到的是空 items.
+  //   用户看到进度条 100% 但列表空,刷新页面才出来.
+  //
+  // 修复:双阶段
+  //   阶段 A: 4s 间隔 polling summary.status,等 'ready'
+  //   阶段 B: summary ready 后,2s 间隔 polling action items,直到
+  //          a) items.length > 0 (action_extractor 写入了),或
+  //          b) 距 summary ready 已过 20s (留够时间,且实录可能本来就没 actions)
+  //   两者任一满足 → setItems(r) + completed=true.
+  //
+  // 依赖只放 startedAt — summaryReadyAt / completed / failed 用 setState
+  // 触发其他 effect,本 effect 不重启.summaryReadyAt 用 useEffect 局部变量,
+  // 不进 state,避免 setState 触发 effect 重启 清掉自己.
   useEffect(() => {
     if (!resetState || resetState.completed || resetState.failed) return;
     let alive = true;
     let attempts = 0;
+    let summaryReadyAt: number | null = null;
+    let pendingTimeout: number | null = null;
+
     const poll = async () => {
       if (!alive) return;
       attempts++;
       try {
-        const r = await api.getMeetingSummary(meetingId);
-        if (!alive) return;
-        if (r.status === "ready") {
-          // summary 好了 → 刷一次 action items (action_extractor 紧跟 summary)
-          await refresh();
-          setResetState((s) => (s ? { ...s, completed: true, summaryReady: true } : s));
-          return;
-        }
-        if (r.status === "failed") {
-          setResetState((s) => (s ? { ...s, failed: "LLM 生成失败" } : s));
-          return;
-        }
-        if (r.status === "skipped") {
-          setResetState((s) => (s ? { ...s, failed: "实录过短,跳过" } : s));
-          return;
+        if (summaryReadyAt === null) {
+          // 阶段 A: 等 summary ready
+          const r = await api.getMeetingSummary(meetingId);
+          if (!alive) return;
+          if (r.status === "ready") {
+            summaryReadyAt = Date.now();
+            // 通知 UI 已进入 阶段 B — 进度条 + 文案 切换
+            setResetState((s) =>
+              s ? { ...s, summaryReady: true, summaryReadyAt: summaryReadyAt! } : s,
+            );
+            // 不 return — 阶段 B 接着继续轮询 action items
+          } else if (r.status === "failed") {
+            setResetState((s) =>
+              s ? { ...s, failed: "LLM 生成失败" } : s,
+            );
+            return;
+          } else if (r.status === "skipped") {
+            setResetState((s) =>
+              s ? { ...s, failed: "实录过短,跳过" } : s,
+            );
+            return;
+          }
+          // status === 'pending' / 'loading' / 'unconfigured' — 继续等
+        } else {
+          // 阶段 B: 等 action_extractor 写入(或 20s 后 give up)
+          const r = await api.listActionItems(meetingId);
+          if (!alive) return;
+          const elapsedSinceReady = Date.now() - summaryReadyAt;
+          if (r.length > 0 || elapsedSinceReady >= 20_000) {
+            setItems(r);
+            setResetState((s) => (s ? { ...s, completed: true } : s));
+            return;
+          }
+          // 还没出 items 且 < 20s → 继续轮询
         }
       } catch {
         /* 网络错误 不结束,下一轮再试 */
       }
-      if (attempts > 60) return; // 4s * 60 = 4 分钟 cap
-      const h = window.setTimeout(poll, 4000);
-      // 注:这里没法 cancel 单次 setTimeout 在 cleanup,因为 alive flag 已经保护
+      if (attempts > 90) return; // 兜底:summary 阶段 4s × 60 + actions 2s × 10 = ~280s
+      // 阶段 A 4s / 阶段 B 2s — 阶段 B 短一些,因为 action_extractor 通常 5-15s
+      const interval = summaryReadyAt === null ? 4000 : 2000;
+      pendingTimeout = window.setTimeout(poll, interval);
     };
+
     void poll();
     return () => {
       alive = false;
+      if (pendingTimeout !== null) window.clearTimeout(pendingTimeout);
     };
-  }, [resetState, meetingId, refresh]);
+  }, [resetState?.startedAt, meetingId]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // v25.23: 完成 / 失败 → 4 秒后自动收起进度条
   useEffect(() => {
@@ -170,13 +218,23 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
     return () => window.clearTimeout(h);
   }, [resetState]);
 
-  // 进度算法:0..95% 按 elapsed / expected;completed=100; failed=80(红色满到此)
+  // 进度算法:
+  //   阶段 A (summary 还没好): 0..80% 按 elapsed / expected
+  //   阶段 B (summary ready,等 actions): 80..95%(锁在这,避免冲过 100% 但 actions 没出)
+  //   completed=100; failed=80(红色满到此)
   const resetProgress = (() => {
     if (!resetState) return 0;
     if (resetState.completed) return 100;
     if (resetState.failed) return 80;
+    if (resetState.summaryReady && resetState.summaryReadyAt) {
+      // 阶段 B: 80% 起步,基于阶段 B 内的 elapsed 增长,每秒 +0.75% 直到 95%
+      // 20 秒后封顶 95%,正好对应 action_extractor 20s 兜底 timeout
+      const elapsedBSec = (nowTick - resetState.summaryReadyAt) / 1000;
+      return Math.min(95, 80 + elapsedBSec * 0.75);
+    }
+    // 阶段 A: 0..80% 按 elapsed / expected
     const elapsed = nowTick - resetState.startedAt;
-    return Math.min(95, Math.max(2, (elapsed / resetState.expectedMs) * 100));
+    return Math.min(80, Math.max(2, (elapsed / resetState.expectedMs) * 80));
   })();
   const resetElapsedSec = resetState
     ? Math.floor((nowTick - resetState.startedAt) / 1000)
@@ -185,13 +243,17 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
   const resetStagePhrase = (() => {
     if (!resetState) return "";
     if (resetState.failed) return resetState.failed;
-    if (resetState.completed) return "新纪要 + 行动项 已生成 — 上下滚动查看 ↑";
+    if (resetState.completed) return "新纪要 + 行动项 已生成 — 滚动查看 ↑↓";
+    // 阶段 B: summary 已出,正在抽行动项
+    if (resetState.summaryReady) {
+      return "📋 纪要已生成 — 正在抽取行动项 + 实录锚点 evidence…";
+    }
+    // 阶段 A: 还在跑 summary
     const pct = resetProgress;
-    if (pct < 15) return "🧹 清干净老数据(纪要 / 行动项 / 任务 / 通知 / AI 发言)…";
-    if (pct < 40) return "🔍 LLM 重新分析实录(qwen-max + 反幻觉 prompt)…";
-    if (pct < 70) return "📝 生成新纪要中…";
-    if (pct < 95) return "📋 抽取行动项 + 实录锚点 evidence …";
-    return "💾 收尾入库 — 应该快了…";
+    if (pct < 12) return "🧹 清干净老数据(纪要 / 行动项 / 任务 / 通知 / AI 发言)…";
+    if (pct < 35) return "🔍 LLM 重新分析实录(qwen-max + 反幻觉 prompt)…";
+    if (pct < 60) return "📝 生成新纪要中…";
+    return "📝 LLM 收尾纪要,马上轮到行动项…";
   })();
 
   const toggleStatus = useCallback(
