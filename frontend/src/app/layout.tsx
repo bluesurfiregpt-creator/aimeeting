@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import Script from "next/script";
+import AppLogo from "@/components/AppLogo";
 import AuthHeader from "@/components/AuthHeader";
 import Toaster from "@/components/Toaster";
 import VersionBadge from "@/components/VersionBadge";
@@ -18,6 +19,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body className="font-sans antialiased">
+        <AppLogo />
         <AuthHeader />
         {children}
         <Toaster />

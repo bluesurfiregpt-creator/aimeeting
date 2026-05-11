@@ -186,6 +186,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [statusText, setStatusText] = useState("待开始");
+  // v25.12-#2: Tab 化 — 实录 / 纪要 两个视图
+  const [viewTab, setViewTab] = useState<"live" | "minutes">("live");
   // Meeting metadata loaded on mount so we can:
   //   1. Show the actual meeting title in the H1 (was hardcoded to a feature
   //      description, which confused testers — see report v8 finding 4)
@@ -615,6 +617,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   const stop = useCallback(async () => {
     setStatusText("会议已结束，正在做最后一次声纹识别…");
     setPhase("ended");
+    setViewTab("minutes");  // v25.12-#2: 会议结束自动切到纪要 tab
     try { await captureRef.current?.stop(); } catch {}
     captureRef.current = null;
     try { socketRef.current?.close(); } catch {}
@@ -701,6 +704,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         });
         if (m.status === "processed" || m.status === "finished") {
           setPhase("ended");
+          setViewTab("minutes");  // v25.12-#2: 已结束会议默认 纪要 tab
           setStatusText(m.status === "processed" ? "✅ 已处理" : "已结束");
           // Pre-populate transcript + speaker names so the user sees
           // historical content immediately, not a "请点开始会议" empty state.
@@ -950,7 +954,6 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           </h1>
           <p className="mt-1 text-xs text-zinc-500">实时字幕 · 异步贴姓名</p>
         </div>
-        <Link href="/" className="text-sm text-zinc-400 hover:text-white">← 首页</Link>
       </header>
 
       <div className="mt-5 flex items-center gap-3">
@@ -983,6 +986,47 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         </button>
       </div>
 
+      {/* v25.12-#2: Tab 化 nav — 实录 / 纪要 */}
+      <nav className="mt-5 flex gap-1 border-b border-ink-700">
+        <button
+          onClick={() => setViewTab("live")}
+          data-testid="tab-live"
+          className={`rounded-t-lg px-4 py-2 text-sm transition ${
+            viewTab === "live"
+              ? "border-b-2 border-accent-500 text-white"
+              : "text-zinc-500 hover:text-zinc-200"
+          }`}
+        >
+          📝 实录与发言
+        </button>
+        <button
+          onClick={() => setViewTab("minutes")}
+          disabled={phase !== "ended"}
+          data-testid="tab-minutes"
+          className={`rounded-t-lg px-4 py-2 text-sm transition ${
+            viewTab === "minutes"
+              ? "border-b-2 border-accent-500 text-white"
+              : "text-zinc-500 hover:text-zinc-200"
+          } disabled:cursor-not-allowed disabled:opacity-40`}
+          title={phase === "ended" ? "会议纪要 / 行动项 / 追溯链" : "会议结束后才能查看"}
+        >
+          📋 纪要 + 行动项
+          {phase !== "ended" && (
+            <span className="ml-1 text-[10px] text-zinc-600">(会议结束后)</span>
+          )}
+        </button>
+      </nav>
+
+      {/* v25.12-#2: 纪要 tab — 仅 phase=ended */}
+      <div style={{ display: viewTab === "minutes" ? "block" : "none" }}>
+        {phase === "ended" ? <SummaryCard meetingId={meetingId} /> : null}
+        {phase === "ended" ? <ActionItemsCard meetingId={meetingId} /> : null}
+        {phase === "ended" ? <TraceCard meetingId={meetingId} /> : null}
+      </div>
+
+      {/* v25.12-#2: 实录 tab(默认) — 所有 live/idle 期内容 */}
+      <div style={{ display: viewTab === "live" ? "block" : "none" }}>
+
       {mounted && phase === "idle" && audioCaps.isIOSSafari ? (
         <div className="mt-4 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-xs text-sky-200">
           📱 检测到 iOS Safari。开会前请确保:1) 浏览器允许麦克风权限(设置 → Safari → 麦克风);2) 屏幕保持点亮且 Safari 处于前台;3) 点击「开始会议」时直接对着麦克风说话,不要离设备太远。
@@ -994,9 +1038,6 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         </div>
       ) : null}
       {phase === "idle" ? <BriefingCard meetingId={meetingId} /> : null}
-      {phase === "ended" ? <SummaryCard meetingId={meetingId} /> : null}
-      {phase === "ended" ? <ActionItemsCard meetingId={meetingId} /> : null}
-      {phase === "ended" ? <TraceCard meetingId={meetingId} /> : null}
 
       {/* v25.10 Bug 1: 只显示本会议邀请的 AI 专家(不是 workspace 全部) */}
       {(() => {
@@ -1415,8 +1456,10 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         </div>
       ) : null}
 
+      </div>  {/* end of viewTab === "live" wrapper */}
+
       <footer className="mt-3 text-xs text-zinc-600">
-        STT：DashScope · 声纹：pyannoteAI（约 45s 后台识别）· AI 专家：@关键词召唤 或点头像 / 文字打字
+        STT：DashScope · 声纹：pyannoteAI（约 45s 后台识别）· AI 专家:@关键词召唤 或点头像 / 文字打字
       </footer>
     </main>
   );
