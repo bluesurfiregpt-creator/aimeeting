@@ -82,6 +82,7 @@ function SpeakerLabel({
   onToggle,
   attendees,
   onPick,
+  onBatchPick,  // v25.10 Bug C: 此后 N 句
 }: {
   line: Extract<LiveLine, { kind: "user" }>;
   canEdit: boolean;
@@ -89,6 +90,7 @@ function SpeakerLabel({
   onToggle: () => void;
   attendees: Array<{ id: string; name: string }>;
   onPick: (userId: string | null, name: string | null) => void;
+  onBatchPick?: (userId: string, name: string, count: number) => void;
 }) {
   const labelText = line.speakerName ?? "未识别";
   const colorClass = colorOf(line.speakerUserId);
@@ -117,19 +119,42 @@ function SpeakerLabel({
         <span className="text-[10px] opacity-60">✏️</span>
       </button>
       {isOpen && (
-        <span className="absolute left-0 top-full z-20 mt-1 inline-flex min-w-[140px] flex-col rounded-lg border border-ink-700 bg-ink-950 p-1 shadow-lg">
+        <span className="absolute left-0 top-full z-20 inline-flex min-w-[200px] flex-col rounded-lg border border-ink-700 bg-ink-950 p-1 shadow-lg" style={{ marginTop: 4 }}>
           {attendees.length === 0 ? (
             <span className="px-2 py-1 text-xs text-zinc-600">无可选参会人</span>
           ) : (
             attendees.map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                onClick={() => onPick(a.id, a.name)}
-                className="rounded px-2 py-1 text-left text-xs text-zinc-200 hover:bg-ink-800"
-              >
-                {a.name}
-              </button>
+              <div key={a.id} className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => onPick(a.id, a.name)}
+                  className="flex-1 rounded px-2 py-1 text-left text-xs text-zinc-200 hover:bg-ink-800"
+                  title="只改这一句"
+                >
+                  {a.name}
+                </button>
+                {/* v25.10 Bug C: 批量改后续 5/10 句 */}
+                {onBatchPick && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onBatchPick(a.id, a.name, 5)}
+                      className="rounded px-1.5 py-1 text-[10px] text-amber-400 hover:bg-amber-500/15"
+                      title={`将此后 5 句都改为「${a.name}」(解决声纹连续误识)`}
+                    >
+                      +5
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onBatchPick(a.id, a.name, 10)}
+                      className="rounded px-1.5 py-1 text-[10px] text-amber-400 hover:bg-amber-500/15"
+                      title={`将此后 10 句都改为「${a.name}」`}
+                    >
+                      +10
+                    </button>
+                  </>
+                )}
+              </div>
             ))
           )}
           <button
@@ -171,6 +196,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     title: string;
     status: string;
     agenda: AgendaItem[] | null;
+    attendee_agent_ids: string[];  // v25.10 Bug 1: 邀请的 AI 才显示
   } | null>(null);
   const [audioCaps] = useState(() => probeAudioCapabilities());
   // `mounted` gates browser-only conditional UI (iOS Safari notice, insecure
@@ -667,7 +693,12 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     api.getMeeting(meetingId).then(
       (m) => {
         if (!alive) return;
-        setMeetingMeta({ title: m.title, status: m.status, agenda: m.agenda ?? null });
+        setMeetingMeta({
+          title: m.title,
+          status: m.status,
+          agenda: m.agenda ?? null,
+          attendee_agent_ids: m.attendee_agent_ids ?? [],
+        });
         if (m.status === "processed" || m.status === "finished") {
           setPhase("ended");
           setStatusText(m.status === "processed" ? "✅ 已处理" : "已结束");
@@ -878,6 +909,37 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     [meetingId],
   );
 
+  // v25.10 Bug C: 此后 N 句 都改为某人 — 一键解决连续误识
+  const batchCorrectSpeaker = useCallback(
+    async (fromLineId: number, count: number, speakerUserId: string, displayName: string) => {
+      try {
+        const r = await api.batchCorrectSpeaker(meetingId, fromLineId, count, speakerUserId);
+        // 本地 update:把 后续 r.updated 句都改
+        setLines((prev) => {
+          let remaining = r.updated;
+          let started = false;
+          return prev.map((l) => {
+            if (remaining <= 0) return l;
+            if (l.kind !== "user" || l.serverLineId == null) return l;
+            if (l.serverLineId === fromLineId) {
+              started = true;
+            }
+            if (started) {
+              remaining -= 1;
+              return { ...l, speakerUserId, speakerName: displayName };
+            }
+            return l;
+          });
+        });
+      } catch (e) {
+        console.error("batchCorrectSpeaker failed", e);
+      } finally {
+        setCorrectingLineId(null);
+      }
+    },
+    [meetingId],
+  );
+
   return (
     <main className="mx-auto flex min-h-screen max-w-4xl flex-col px-6 py-10">
       <header className="flex items-center justify-between">
@@ -936,11 +998,20 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       {phase === "ended" ? <ActionItemsCard meetingId={meetingId} /> : null}
       {phase === "ended" ? <TraceCard meetingId={meetingId} /> : null}
 
-      {agents.length > 0 ? (
+      {/* v25.10 Bug 1: 只显示本会议邀请的 AI 专家(不是 workspace 全部) */}
+      {(() => {
+        const invitedIds = new Set(meetingMeta?.attendee_agent_ids || []);
+        const invitedAgents =
+          invitedIds.size > 0
+            ? agents.filter((a) => invitedIds.has(a.id))
+            : [];
+        return invitedAgents.length > 0 ? (
         <div className="mt-6 rounded-xl border border-ink-700 bg-ink-900 px-4 py-3">
           <div className="flex items-center gap-3 overflow-x-auto">
-            <span className="shrink-0 text-xs uppercase tracking-wider text-zinc-500">AI 专家</span>
-            {agents.map((a) => {
+            <span className="shrink-0 text-xs uppercase tracking-wider text-zinc-500">
+              邀请 AI 专家 · {invitedAgents.length} 个
+            </span>
+            {invitedAgents.map((a) => {
               const busy = busyAgents.has(a.id);
               const enabled = phase === "live" && !busy;
               const color = tailwindColor(a.color ?? "violet");
@@ -986,7 +1057,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
             </Link>
           </div>
         </div>
-      ) : null}
+      ) : null;
+      })()}
 
       {recommendation && phase === "live" ? (
         <div
@@ -1208,6 +1280,9 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                           }
                           attendees={attendees}
                           onPick={(uid, name) => correctSpeaker(l.serverLineId!, uid, name)}
+                          onBatchPick={(uid, name, count) =>
+                            batchCorrectSpeaker(l.serverLineId!, count, uid, name)
+                          }
                         />
                         <span>{l.text}</span>
                         {!l.final ? <span className="ml-1 animate-pulse">▌</span> : null}

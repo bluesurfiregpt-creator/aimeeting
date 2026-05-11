@@ -995,6 +995,18 @@ export const api = {
   finalizeMeeting: (id: string) => jpost<Meeting>(`/api/meetings/${id}/finalize`, {}),
   meetingResult: (id: string) => jget<MeetingResult>(`/api/meetings/${id}/result`),
 
+  // v25.10 Bug C: 批量纠正"此后 N 句"
+  batchCorrectSpeaker: (
+    meetingId: string,
+    fromLineId: number,
+    count: number,
+    speakerUserId: string | null,
+  ) =>
+    jpost<{ updated: number; speaker_name: string | null }>(
+      `/api/meetings/${meetingId}/transcripts/batch-correct-speaker`,
+      { from_line_id: fromLineId, count, speaker_user_id: speakerUserId },
+    ),
+
   // v25.9: workspace 级 ASR 词表 admin
   getAsrVocabulary: () =>
     jget<{

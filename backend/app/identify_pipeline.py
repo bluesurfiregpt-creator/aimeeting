@@ -40,17 +40,23 @@ from . import session_state
 
 logger = logging.getLogger(__name__)
 
-# v25.7-#4 客户真人测试反馈:2 个声纹只识别了 1 个,另一个一句话都没识别.
-# 怀疑是 pyannote 阈值过严(0.75)导致第二人 confidence 落 0.5-0.74 全 reject.
-# 降到 0.55,允许更多 false positive,人工纠正 UI 已存在.
-CONF_THRESHOLD = 0.4  # was 0.5 — 给 align 时多机会保留 segment
+# v25.10 客户反馈:有人 80% 漏识 同时 别人的话被误识为他.
+# 漏识 vs 误识 取舍:**误识比漏识更糟**(看到错信息比看到"未识别"更愤怒).
+# 策略:
+#  - pyannote 阈值 0.55 → 0.65(只接受高 confidence segment,宁可漏不要错)
+#  - 加 neighborhood smoothing:某句 conf 低且邻居 都是同一人 → 顺延为同一人
+#  - 加 批量纠正 UI:用户一键标"此后 N 句都改为此人"
+CONF_THRESHOLD = 0.45  # was 0.4
 PERIODIC_INTERVAL_S = 45
 MIN_BUFFER_SECONDS = 20
-PYANNOTE_MATCH_THRESHOLD = 0.55  # was 0.75 — 客户测试 漏识半数
+PYANNOTE_MATCH_THRESHOLD = 0.65  # was 0.55 — 防误识为高优先,宁可漏不要错
 # 对齐 ASR 句到 pyannote segment 的最小重叠率
-MIN_LINE_OVERLAP_RATIO = 0.5  # was 0.7 — 降以便短句也能被对齐
-# 短于此的 segment 视为噪音
-MIN_SEGMENT_DURATION_MS = 800  # was 1000 — 略放宽,毕竟单字也可能成 segment
+MIN_LINE_OVERLAP_RATIO = 0.5
+MIN_SEGMENT_DURATION_MS = 800
+# v25.10: smoothing — 某句若 confidence 在 [0.40, 0.65) (拒识区) 但前后 N 句
+# 都同一用户 → 顺延.防 pyannote 偶发 false positive 抖动.
+SMOOTHING_WINDOW = 2   # 前 N 句 + 后 N 句 都同一人 → 平滑
+SMOOTHING_NEED_AGREE = 3  # 至少 3 个邻居 同一用户 才平滑
 
 
 async def identify_worker(
@@ -267,15 +273,53 @@ async def run_identify(meeting_id: uuid.UUID, *, final: bool = True) -> bool:
             )
         ).scalars().all()
 
+        # v25.10: 第一遍 — 普通 align,allow_low 让 align 把 low-conf 也算上(用 None 标但记 conf)
+        # 第二遍 — neighborhood smoothing:孤立的"未识别"/"低置信" 若邻居一致 → 跟随邻居
+        # manually_corrected / manually_unset 跳过两遍
+        # 先计算所有 line 的 (uid, conf, segment_user_candidate)
+        # 然后 smoothing pass
+
+        # Pass 1: align
+        line_results: list[tuple[MeetingTranscript, uuid.UUID | None, float | None, uuid.UUID | None]] = []
         for line in lines:
-            # Never overwrite a manual correction. If a user has explicitly
-            # set (or unset) a speaker via the correction UI, that wins —
-            # subsequent automatic identify passes must respect it.
             if line.speaker_status in ("manually_corrected", "manually_unset"):
+                line_results.append((line, line.speaker_user_id, line.confidence, None))
                 continue
             uid, conf = _align_line_to_segments(line, segments, label_to_user)
+            # candidate_uid — 即使 conf 低 / 重叠不足,也记下 best segment 对应的 user(供 smoothing 参考)
+            candidate = _candidate_user_for_line(line, segments, label_to_user)
+            line_results.append((line, uid, conf, candidate))
+
+        # Pass 2: smoothing
+        for i, (line, uid, conf, candidate) in enumerate(line_results):
+            if line.speaker_status in ("manually_corrected", "manually_unset"):
+                continue
+            if uid is not None:
+                # 已识别,但还要检查 是不是邻居都不是同一人(可能误识)
+                # 如果 self=X 但邻居 N 个都是 Y 而非 X → 信邻居(覆盖)
+                neighbor_uid = _neighborhood_majority(line_results, i)
+                if neighbor_uid is not None and neighbor_uid != uid:
+                    logger.info(
+                        "smoothing: line %d was %s but neighbors say %s; trusting neighbors",
+                        line.id, uid, neighbor_uid,
+                    )
+                    uid = neighbor_uid
+            else:
+                # 未识别;若 candidate 与邻居一致 → 升级为已识别
+                neighbor_uid = _neighborhood_majority(line_results, i)
+                if neighbor_uid is not None and (candidate is None or candidate == neighbor_uid):
+                    logger.info(
+                        "smoothing: line %d unknown but neighbors all %s; promote",
+                        line.id, neighbor_uid,
+                    )
+                    uid = neighbor_uid
+
             new_label = "auto_recognized" if uid else "UNKNOWN"
-            new_status = "auto_recognized" if uid else "low_confidence"
+            new_status = (
+                "auto_smoothed" if uid and conf is None else
+                "auto_recognized" if uid else
+                "low_confidence"
+            )
             if (
                 line.speaker_user_id != uid
                 or line.speaker_label != new_label
@@ -316,6 +360,55 @@ async def run_identify(meeting_id: uuid.UUID, *, final: bool = True) -> bool:
         meeting_id, len(segments), len(lines), changed, final,
     )
     return changed
+
+
+def _candidate_user_for_line(
+    line: MeetingTranscript,
+    segments: list[IdentifySegment],
+    label_to_user: dict[str, uuid.UUID],
+) -> uuid.UUID | None:
+    """与 _align 类似 但不卡 confidence / overlap 阈值,只返回 best-overlap segment 的 user.
+
+    用于 smoothing — 即使主流程拒识也保留一个 "猜测",看是否能被邻居印证.
+    """
+    if line.start_ms is None or line.end_ms is None:
+        return None
+    best_overlap = 0
+    best_seg: IdentifySegment | None = None
+    for seg in segments:
+        overlap = max(0, min(line.end_ms, seg.end_ms) - max(line.start_ms, seg.start_ms))
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best_seg = seg
+    if best_seg is None:
+        return None
+    return label_to_user.get(best_seg.label)
+
+
+def _neighborhood_majority(
+    line_results: list,  # list[(line, uid, conf, candidate)]
+    i: int,
+) -> uuid.UUID | None:
+    """检查 第 i 句 的前 N 后 N 邻居.若 ≥ SMOOTHING_NEED_AGREE 个一致,返回该 uid;否则 None.
+
+    跳过 未识别 / manually_unset 邻居.
+    """
+    counts: dict[uuid.UUID, int] = {}
+    for j in range(max(0, i - SMOOTHING_WINDOW), min(len(line_results), i + SMOOTHING_WINDOW + 1)):
+        if j == i:
+            continue
+        ln, uid, _, _ = line_results[j]
+        if uid is None:
+            continue
+        if ln.speaker_status == "manually_unset":
+            continue
+        counts[uid] = counts.get(uid, 0) + 1
+    if not counts:
+        return None
+    top_uid, top_n = max(counts.items(), key=lambda x: x[1])
+    if top_n >= SMOOTHING_NEED_AGREE:
+        return top_uid
+    return None
 
 
 def _align_line_to_segments(

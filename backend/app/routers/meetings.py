@@ -576,6 +576,76 @@ async def correct_speaker(
     )
 
 
+# v25.10 Bug C: 批量纠正 — 「此后 N 句都改为此人」
+class BatchCorrectIn(BaseModel):
+    from_line_id: int          # 起始行 id(含)
+    count: int                 # 改 N 句(含起始行)
+    speaker_user_id: Optional[uuid.UUID] = None
+
+
+class BatchCorrectOut(BaseModel):
+    updated: int
+    speaker_name: Optional[str] = None
+
+
+@router.post(
+    "/{meeting_id}/transcripts/batch-correct-speaker",
+    response_model=BatchCorrectOut,
+)
+async def batch_correct_speaker(
+    meeting_id: str,
+    payload: BatchCorrectIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v25.10: 把 from_line_id 起 连续 N 句 transcript 都改为同一说话人(或 unset).
+
+    解决场景:声纹引擎把幸世杰的连续 5-10 句话 误识为冯浪.用户 在第一句改对后,
+    一键标记 "此后 N 句都是幸世杰" — 比逐条点 ✏️ 快 10x.
+    """
+    await _load_owned_meeting(meeting_id, session, auth)
+    if payload.count < 1 or payload.count > 200:
+        raise HTTPException(400, "count 必须在 1-200 之间")
+
+    name: Optional[str] = None
+    if payload.speaker_user_id is not None:
+        u = (
+            await session.execute(
+                select(User).where(
+                    User.id == payload.speaker_user_id,
+                    User.workspace_id == auth.workspace.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not u:
+            raise HTTPException(404, "user not found")
+        name = u.name
+
+    # 拿 起始行起 N 行
+    lines = (
+        await session.execute(
+            select(MeetingTranscript)
+            .where(
+                MeetingTranscript.meeting_id == meeting_id,
+                MeetingTranscript.id >= payload.from_line_id,
+                MeetingTranscript.is_final.is_(True),
+            )
+            .order_by(MeetingTranscript.id)
+            .limit(payload.count)
+        )
+    ).scalars().all()
+    new_label = "manually_corrected" if payload.speaker_user_id else "UNKNOWN"
+    new_status = "manually_corrected" if payload.speaker_user_id else "manually_unset"
+    for line in lines:
+        line.speaker_user_id = payload.speaker_user_id
+        line.speaker_label = new_label
+        line.speaker_status = new_status
+        line.confidence = 1.0 if payload.speaker_user_id else None
+    await session.commit()
+    return BatchCorrectOut(updated=len(lines), speaker_name=name)
+
+
 @router.get("/{meeting_id}/result", response_model=MeetingResultOut)
 async def get_result(
     meeting_id: str,
