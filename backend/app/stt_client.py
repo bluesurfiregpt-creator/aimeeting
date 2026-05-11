@@ -111,15 +111,24 @@ class FunASRClient:
         if not self._settings.dashscope_api_key:
             raise RuntimeError("DASHSCOPE_API_KEY is not configured")
         cb = _Callback(self._loop, self._emitter)
-        self._recognition = Recognition(
-            model=self._settings.dashscope_stt_model,
-            format="pcm",
-            sample_rate=16000,
-            callback=cb,
-            api_key=self._settings.dashscope_api_key,
-        )
+        # v25.8-#3: 传 vocabulary_id 给 SDK(若 env 配了);v2 模型支持
+        kwargs: dict = {
+            "model": self._settings.dashscope_stt_model,
+            "format": "pcm",
+            "sample_rate": 16000,
+            "callback": cb,
+            "api_key": self._settings.dashscope_api_key,
+        }
+        vocab_id = (self._settings.dashscope_stt_vocabulary_id or "").strip()
+        if vocab_id:
+            kwargs["vocabulary_id"] = vocab_id
+        self._recognition = Recognition(**kwargs)
         self._recognition.start()
-        logger.info("DashScope Recognition started")
+        logger.info(
+            "DashScope Recognition started (model=%s vocab=%s)",
+            self._settings.dashscope_stt_model,
+            vocab_id or "(none)",
+        )
 
     def _close_recognition(self) -> None:
         if self._recognition is not None:

@@ -13,7 +13,11 @@ class Settings(BaseSettings):
     cors_allow_origins: str = "http://localhost:3000"
 
     dashscope_api_key: str = ""
-    dashscope_stt_model: str = "paraformer-realtime-v1"
+    # v25.8-#1: 升级到 v2 — 中文 WER 显著降低,业务术语识别率提升
+    dashscope_stt_model: str = "paraformer-realtime-v2"
+    # v25.8-#3: ASR 自定义词表 ID(在 DashScope 控制台创建一个 vocabulary,
+    # 填入业务术语 — 留空时不传,模型用通用词表)
+    dashscope_stt_vocabulary_id: str = ""
 
     pyannote_api_key: str = ""
     pyannote_base_url: str = "https://api.pyannote.ai"
