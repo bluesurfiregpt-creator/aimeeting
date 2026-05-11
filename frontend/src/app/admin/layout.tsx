@@ -70,6 +70,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <nav className="mt-6 flex gap-1 border-b border-ink-700">
         <AdminTab href="/admin/agents" label="AI 专家" />
         <AdminTab href="/admin/knowledge" label="知识库" />
+        <AdminTab href="/admin/asr-vocabulary" label="ASR 词表" />
         <AdminTab href="/admin/models" label="LLM 模型" />
         <AdminTab href="/admin/memory" label="长期记忆" />
         <AdminTab href="/admin/cron-rules" label="定期巡检" />

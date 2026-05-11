@@ -11,6 +11,7 @@ DashScope Paraformer 实时 STT 客户端
 import asyncio
 import logging
 import time
+import uuid
 from typing import Awaitable, Callable, Optional
 
 from dashscope.audio.asr import Recognition, RecognitionCallback, RecognitionResult
@@ -70,9 +71,15 @@ class FunASRClient:
         await client.stop()
     """
 
-    def __init__(self, emitter: ResultEmitter):
+    def __init__(
+        self,
+        emitter: ResultEmitter,
+        *,
+        workspace_id: Optional[uuid.UUID] = None,  # v25.9: workspace 级 vocab_id
+    ):
         self._settings = get_settings()
         self._emitter = emitter
+        self._workspace_id = workspace_id
         self._loop = asyncio.get_event_loop()
         self._queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=200)
         self._recognition: Optional[Recognition] = None
@@ -107,11 +114,10 @@ class FunASRClient:
 
     # --- internal ---
 
-    def _open_recognition(self) -> None:
+    async def _open_recognition(self) -> None:
         if not self._settings.dashscope_api_key:
             raise RuntimeError("DASHSCOPE_API_KEY is not configured")
         cb = _Callback(self._loop, self._emitter)
-        # v25.8-#3: 传 vocabulary_id 给 SDK(若 env 配了);v2 模型支持
         kwargs: dict = {
             "model": self._settings.dashscope_stt_model,
             "format": "pcm",
@@ -119,16 +125,41 @@ class FunASRClient:
             "callback": cb,
             "api_key": self._settings.dashscope_api_key,
         }
-        vocab_id = (self._settings.dashscope_stt_vocabulary_id or "").strip()
+        # v25.9: 优先 workspace 词表 vocab_id,fallback 到 env(v25.8-#1).
+        vocab_id = await self._resolve_vocab_id()
         if vocab_id:
             kwargs["vocabulary_id"] = vocab_id
         self._recognition = Recognition(**kwargs)
         self._recognition.start()
         logger.info(
-            "DashScope Recognition started (model=%s vocab=%s)",
+            "DashScope Recognition started (model=%s vocab=%s workspace=%s)",
             self._settings.dashscope_stt_model,
             vocab_id or "(none)",
+            self._workspace_id or "(none)",
         )
+
+    async def _resolve_vocab_id(self) -> Optional[str]:
+        """优先 workspace.preset.asr_vocabulary.dashscope_vocab_id;否则 env."""
+        env_id = (self._settings.dashscope_stt_vocabulary_id or "").strip() or None
+        if self._workspace_id is None:
+            return env_id
+        try:
+            from .db import SessionLocal
+            from .models import Workspace
+            from .asr_vocabulary import get_active_vocab_id
+            from sqlalchemy import select as _select
+            async with SessionLocal() as db:
+                ws = (
+                    await db.execute(
+                        _select(Workspace).where(Workspace.id == self._workspace_id)
+                    )
+                ).scalar_one_or_none()
+                if ws is None:
+                    return env_id
+                return get_active_vocab_id(ws)
+        except Exception:
+            logger.exception("workspace vocab_id 解析失败,fallback env")
+            return env_id
 
     def _close_recognition(self) -> None:
         if self._recognition is not None:
@@ -153,7 +184,7 @@ class FunASRClient:
                     continue
 
                 if self._recognition is None:
-                    self._open_recognition()
+                    await self._open_recognition()
 
                 try:
                     self._recognition.send_audio_frame(frame)

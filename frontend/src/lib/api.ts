@@ -995,6 +995,40 @@ export const api = {
   finalizeMeeting: (id: string) => jpost<Meeting>(`/api/meetings/${id}/finalize`, {}),
   meetingResult: (id: string) => jget<MeetingResult>(`/api/meetings/${id}/result`),
 
+  // v25.9: workspace 级 ASR 词表 admin
+  getAsrVocabulary: () =>
+    jget<{
+      dashscope_vocab_id: string | null;
+      entries: Array<{ text: string; weight: number; lang: string }>;
+      last_synced_at: string | null;
+      sync_status: string;
+      sync_error: string | null;
+      target_model: string;
+      max_entries: number;
+    }>(`/api/asr-vocabulary`),
+  saveAsrVocabulary: (entries: Array<string | { text: string; weight?: number; lang?: string }>) =>
+    jpost<{
+      dashscope_vocab_id: string | null;
+      entries: Array<{ text: string; weight: number; lang: string }>;
+      last_synced_at: string | null;
+      sync_status: string;
+      sync_error: string | null;
+      target_model: string;
+    }>(`/api/asr-vocabulary/save`, { entries }),
+  importAsrVocabFromMeeting: (meetingId: string) =>
+    jpost<{
+      entries: Array<{ text: string; weight: number; lang: string }>;
+      dashscope_vocab_id: string | null;
+      sync_status: string;
+    }>(`/api/asr-vocabulary/import-from-meeting/${meetingId}`, {}),
+  resyncAsrVocabulary: () =>
+    jpost<{
+      dashscope_vocab_id: string | null;
+      sync_status: string;
+      sync_error: string | null;
+      entries: Array<{ text: string; weight: number; lang: string }>;
+    }>(`/api/asr-vocabulary/resync`, {}),
+
   // v25.8-#4: 离线 ASR 复跑(高清,2-5 分钟)
   rerunOfflineAsr: (id: string) =>
     jpost<{

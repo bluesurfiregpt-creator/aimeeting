@@ -27,6 +27,7 @@ from .dissent_detector import maybe_detect_dissent
 from .auth import COOKIE_NAME, decode_token
 from .routers import access_requests as access_requests_router
 from .routers import agents as agents_router
+from .routers import asr_vocabulary as asr_vocabulary_router  # v25.9
 from .routers import audit as audit_router
 from .routers import auth as auth_router
 from .routers import cron_rules as cron_rules_router
@@ -110,6 +111,7 @@ app.include_router(cron_rules_router.router)
 app.include_router(access_requests_router.router)
 app.include_router(dashboard_router.router)
 app.include_router(reports_router.router)
+app.include_router(asr_vocabulary_router.router)  # v25.9
 
 
 @app.get("/healthz")
@@ -311,7 +313,7 @@ async def ws_stt(ws: WebSocket):
         except Exception:
             logger.exception("hot_words collect failed (non-fatal)")
 
-    client = FunASRClient(emit)
+    client = FunASRClient(emit, workspace_id=auth_workspace_id)  # v25.9
     try:
         await client.start()
         await ws.send_text(json.dumps({"type": "system", "msg": "ready"}))
