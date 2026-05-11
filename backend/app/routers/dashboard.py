@@ -1362,6 +1362,7 @@ async def scorched_earth_reset(
     """
     from sqlalchemy import delete
     from ..models import (
+        MeetingAttendee, MeetingSpeakerSegment, MeetingTranscript,
         ModelProviderConfig, PasswordResetToken, User, Voiceprint,
         Workspace, WorkspaceMembership,
     )
@@ -1388,7 +1389,7 @@ async def scorched_earth_reset(
     main_user_id = auth.user.id
     main_ws_id = auth.workspace.id
 
-    # Step 1: 主 workspace 内业务数据 全清
+    # Step 1: 主 workspace 内业务数据 全清(内部已 commit)
     counts = await wipe_workspace_business_data(
         session,
         workspace_id=main_ws_id,
@@ -1397,14 +1398,31 @@ async def scorched_earth_reset(
     )
     main_ws_total = sum(counts.values())
 
-    # Step 2: 删 其他 workspace(CASCADE 处理一切下挂数据)
+    # Step 2: 删 其他 workspace(CASCADE 删 meeting / agent / kb / task / 等)
+    # 单独 commit,确保 CASCADE 真正持久(后续 step 3 报错也不会回滚)
     res = await session.execute(
         delete(Workspace).where(Workspace.id != main_ws_id)
     )
     workspaces_deleted = int(res.rowcount or 0)
+    await session.commit()
 
-    # Step 3: 删 非 caller 用户 + memberships(membership 已被 ws CASCADE,
-    # 但主 workspace 内 非 caller 的 memberships 还在,删之)
+    # Step 2.5: 防御性删除 meeting_attendee / meeting_transcript 中
+    # 引用非 caller 用户的孤儿行.理论上 step 2 的 ws CASCADE 已通过 meeting →
+    # attendee/transcript ON DELETE CASCADE 处理,但这两表的 user_id FK 是
+    # 默认 RESTRICT — 如果有跨 workspace attendee(seed 时 caller 加进了
+    # 别的 ws meeting),这里需要显式删,否则 step 3 删 user 报 FK 错.
+    await session.execute(
+        delete(MeetingAttendee).where(MeetingAttendee.user_id.is_not(None))
+    )
+    await session.execute(
+        delete(MeetingTranscript).where(MeetingTranscript.speaker_user_id.is_not(None))
+    )
+    await session.execute(
+        delete(MeetingSpeakerSegment).where(MeetingSpeakerSegment.user_id.is_not(None))
+    )
+    await session.commit()
+
+    # Step 3: 删 非 caller 用户 + memberships
     await session.execute(
         delete(WorkspaceMembership).where(WorkspaceMembership.user_id != main_user_id)
     )
