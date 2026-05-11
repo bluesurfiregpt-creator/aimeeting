@@ -380,9 +380,28 @@ async def get_meeting_summary(
             status="skipped",
             message=msg_match.group(1) if msg_match else "纪要已跳过",
         )
-    # Status markers from identify pipeline (e.g. <!-- identify:skipped: ... -->)
-    # are written to summary_md before a real summary exists. Treat them as
-    # pending so the front-end keeps polling for the actual summary content.
+    # v25.13 fix: identify 的 skipped / failed marker 也是 terminal — 永远不会变
+    # ready(没音频 / 服务异常 等),早返回让 FE 停止轮询.之前误把它当 pending,
+    # FE 每次进会议页 polling 4s × 75 attempts = 5 分钟,体验巨慢.
+    if m.summary_md and m.summary_md.startswith("<!-- identify:skipped:"):
+        msg_match = re.search(r"<!-- identify:skipped: (.*?) -->", m.summary_md, re.S)
+        return SummaryOut(
+            summary_md=None,
+            status="skipped",
+            message=(
+                f"声纹识别已跳过:{msg_match.group(1)}" if msg_match else "声纹识别已跳过"
+            ) + ".(纪要依赖识别结果,请录音后再开会)",
+        )
+    if m.summary_md and m.summary_md.startswith("<!-- identify:failed:"):
+        msg_match = re.search(r"<!-- identify:failed: (.*?) -->", m.summary_md, re.S)
+        return SummaryOut(
+            summary_md=None,
+            status="failed",
+            message=(
+                f"声纹识别失败:{msg_match.group(1)}" if msg_match else "声纹识别失败"
+            ) + ".点「重新识别」可重试",
+        )
+    # 真 pending 仅:summary_md=None(会议还没结束/没跑过)
     return SummaryOut(summary_md=None, status="pending")
 
 
