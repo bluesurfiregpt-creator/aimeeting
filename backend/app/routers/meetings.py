@@ -576,6 +576,62 @@ async def correct_speaker(
     )
 
 
+# v25.11: 清掉 LLM 自动提取的 action items(history hallucination 用户可以一键删)
+class WipeAutoActionsOut(BaseModel):
+    deleted_actions: int
+    deleted_tasks: int
+
+
+@router.post(
+    "/{meeting_id}/action-items/wipe-auto-extracted",
+    response_model=WipeAutoActionsOut,
+)
+async def wipe_auto_extracted(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    清掉某场会议 由 LLM 自动提取的 action items(source_type='summary')+
+    对应 dual-write 的 Task.手动添加的不删.
+
+    解决场景:历史 hallucination 任务清理(例如 LLM 把 AI 专家建议
+    抽成"任务"+ 编了 2024 假日期).
+    """
+    from sqlalchemy import delete as _delete
+    m = await _load_owned_meeting(meeting_id, session, auth)
+
+    # 先拿要删的 action items 的 task_ids
+    actions = (
+        await session.execute(
+            select(MeetingActionItem).where(
+                MeetingActionItem.meeting_id == m.id,
+                MeetingActionItem.source_type == "summary",
+            )
+        )
+    ).scalars().all()
+    task_ids = [a.task_id for a in actions if a.task_id]
+
+    # 删 tasks
+    deleted_tasks = 0
+    if task_ids:
+        res = await session.execute(_delete(Task).where(Task.id.in_(task_ids)))
+        deleted_tasks = int(res.rowcount or 0)
+
+    # 删 action items
+    res = await session.execute(
+        _delete(MeetingActionItem).where(
+            MeetingActionItem.meeting_id == m.id,
+            MeetingActionItem.source_type == "summary",
+        )
+    )
+    deleted_actions = int(res.rowcount or 0)
+    await session.commit()
+    return WipeAutoActionsOut(
+        deleted_actions=deleted_actions, deleted_tasks=deleted_tasks,
+    )
+
+
 # v25.10 Bug C: 批量纠正 — 「此后 N 句都改为此人」
 class BatchCorrectIn(BaseModel):
     from_line_id: int          # 起始行 id(含)

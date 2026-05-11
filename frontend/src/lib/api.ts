@@ -995,6 +995,13 @@ export const api = {
   finalizeMeeting: (id: string) => jpost<Meeting>(`/api/meetings/${id}/finalize`, {}),
   meetingResult: (id: string) => jget<MeetingResult>(`/api/meetings/${id}/result`),
 
+  // v25.11: 清掉某会议 LLM 自动提取的 action items(history hallucination 一键清)
+  wipeAutoActions: (meetingId: string) =>
+    jpost<{ deleted_actions: number; deleted_tasks: number }>(
+      `/api/meetings/${meetingId}/action-items/wipe-auto-extracted`,
+      {},
+    ),
+
   // v25.10 Bug C: 批量纠正"此后 N 句"
   batchCorrectSpeaker: (
     meetingId: string,

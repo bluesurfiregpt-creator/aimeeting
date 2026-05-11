@@ -260,6 +260,25 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
             {items.length} 项 · {openCount} 待办
           </span>
         </div>
+        {/* v25.11: 清掉 LLM 自动提取的(hallucination 一键清) */}
+        <button
+          onClick={async () => {
+            if (!confirm("清掉本会议 所有 LLM 自动提取的 行动项 + 对应任务?\n\n手动添加的不删.")) return;
+            try {
+              const r = await api.wipeAutoActions(meetingId);
+              toast.success(`✅ 已清 ${r.deleted_actions} 行动项 + ${r.deleted_tasks} 任务`);
+              // refresh
+              const r2 = await api.listActionItems(meetingId);
+              setItems(r2);
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "清除失败");
+            }
+          }}
+          className="text-xs text-zinc-500 hover:text-rose-400"
+          title="清掉 LLM 自动提取的行动项(如果发现幻觉错误)— 手动添加的不删"
+        >
+          🗑️ 清自动提取
+        </button>
       </header>
 
       {items.length === 0 ? (
