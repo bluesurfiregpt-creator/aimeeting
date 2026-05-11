@@ -89,6 +89,10 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
     expectedMs: number;     // 估算 60s
     completed: boolean;
     failed?: string;        // 失败原因
+    // v25.25: race 修复 — polling 必须等 reset endpoint await 完才启动.
+    // 否则 getMeetingSummary 可能在后端 commit summary_md=NULL 之前 fire,
+    // 拿到 旧 summary_md → 立刻误判 ready → 进入阶段 B → 20s 超时 setItems([]).
+    resetEndpointDone?: boolean;
     summaryReady?: boolean; // 阶段 B 标志位
     summaryReadyAt?: number;// 进入阶段 B 的时间戳 (Date.now)
   };
@@ -131,25 +135,25 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
     return () => window.clearInterval(h);
   }, [resetState]);
 
-  // v25.23 → v25.24 (fix race): 重置跑中 → 双阶段轮询
+  // v25.23 → v25.24 → v25.25:重置跑中 → 双阶段轮询
   //
-  // 之前 race 现象:
-  //   summary.status='ready' 时立即标 completed → 但 action_extractor 是
-  //   asyncio.create_task fire-and-forget,还在跑.refresh 拿到的是空 items.
-  //   用户看到进度条 100% 但列表空,刷新页面才出来.
+  // race 历史:
+  //   v25.23  summary ready 即标 completed → 但 action_extractor 还在跑 → 列表空
+  //   v25.24  双阶段:summary ready → 再 polling actions 20s
+  //          但 polling 启动太早:在 reset endpoint await 返回前 就 fire,
+  //          getMeetingSummary 拿到 旧 summary_md='ready' (后端还没 commit NULL)
+  //          → 立即误判进入阶段 B → 20s 超时 setItems([]) + completed → 列表空
+  //   v25.25  加 resetEndpointDone gate:polling 必须等 reset endpoint await
+  //          返回后才启动 (此时后端已 commit summary_md=NULL,
+  //          getMeetingSummary 才会正确返回 pending,polling 正常等 ready).
   //
-  // 修复:双阶段
-  //   阶段 A: 4s 间隔 polling summary.status,等 'ready'
-  //   阶段 B: summary ready 后,2s 间隔 polling action items,直到
-  //          a) items.length > 0 (action_extractor 写入了),或
-  //          b) 距 summary ready 已过 20s (留够时间,且实录可能本来就没 actions)
-  //   两者任一满足 → setItems(r) + completed=true.
-  //
-  // 依赖只放 startedAt — summaryReadyAt / completed / failed 用 setState
-  // 触发其他 effect,本 effect 不重启.summaryReadyAt 用 useEffect 局部变量,
-  // 不进 state,避免 setState 触发 effect 重启 清掉自己.
+  // 依赖加 resetEndpointDone — 点击后第一次 useEffect run 时它是 false,
+  // guard 返回不 polling;reset endpoint 完成 setResetState 把它变 true,
+  // 依赖变化触发 useEffect 重启,这次 guard 通过,启动 polling.
   useEffect(() => {
     if (!resetState || resetState.completed || resetState.failed) return;
+    // v25.25 核心:必须等 reset endpoint await 完成才能 polling.
+    if (!resetState.resetEndpointDone) return;
     let alive = true;
     let attempts = 0;
     let summaryReadyAt: number | null = null;
@@ -208,7 +212,7 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
       alive = false;
       if (pendingTimeout !== null) window.clearTimeout(pendingTimeout);
     };
-  }, [resetState?.startedAt, meetingId]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [resetState?.startedAt, resetState?.resetEndpointDone, meetingId]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // v25.23: 完成 / 失败 → 4 秒后自动收起进度条
   useEffect(() => {
@@ -244,13 +248,16 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
     if (!resetState) return "";
     if (resetState.failed) return resetState.failed;
     if (resetState.completed) return "新纪要 + 行动项 已生成 — 滚动查看 ↑↓";
+    // v25.25 「clearing」阶段:reset endpoint 还在 await 中 (后端在清 DB)
+    if (!resetState.resetEndpointDone) {
+      return "🧹 清干净老数据(纪要 / 行动项 / 任务 / 通知 / AI 发言)…";
+    }
     // 阶段 B: summary 已出,正在抽行动项
     if (resetState.summaryReady) {
       return "📋 纪要已生成 — 正在抽取行动项 + 实录锚点 evidence…";
     }
-    // 阶段 A: 还在跑 summary
+    // 阶段 A: reset 完成,等 summary
     const pct = resetProgress;
-    if (pct < 12) return "🧹 清干净老数据(纪要 / 行动项 / 任务 / 通知 / AI 发言)…";
     if (pct < 35) return "🔍 LLM 重新分析实录(qwen-max + 反幻觉 prompt)…";
     if (pct < 60) return "📝 生成新纪要中…";
     return "📝 LLM 收尾纪要,马上轮到行动项…";
@@ -478,15 +485,24 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
                 )
               )
                 return;
-              // v25.23: 立刻启动进度条 — 用户看到反馈,期间禁用所有写按钮
+              // v25.23: 立刻启动进度条 — 用户看到反馈,期间禁用所有写按钮.
+              // v25.25: resetEndpointDone=false — polling 还不能启动(避免 race).
               setResetState({
                 startedAt: Date.now(),
                 expectedMs: 60_000,
                 completed: false,
+                resetEndpointDone: false,
               });
               setNowTick(Date.now());
               try {
                 const r = await api.resetMeetingDerived(meetingId);
+                // v25.25: 此时后端已 commit summary_md=NULL + 触发 bg task.
+                // 把 resetEndpointDone=true 打开 → 触发 useEffect 重启 →
+                // 启动 polling (这次 getMeetingSummary 肯定拿到 pending,不会
+                // 误读为 ready).
+                setResetState((s) =>
+                  s ? { ...s, resetEndpointDone: true } : s
+                );
                 toast.success(
                   `✅ 已清 ${r.deleted_actions} 行动项 / ${r.deleted_tasks} 任务 / ${r.deleted_notifications} 通知`,
                   {
