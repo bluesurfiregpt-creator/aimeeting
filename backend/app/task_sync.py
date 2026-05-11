@@ -43,6 +43,10 @@ def add_action_with_task(
     created_by_user_id: Optional[uuid.UUID] = None,
     evidence_quote: Optional[str] = None,  # v25.15: 实录依据原句(预览用)
     evidence_anchor_line_ids: Optional[list[int]] = None,  # v25.19: 实录行号锚点
+    # v26.0: agent-centric 派发
+    assignee_agent_id: Optional[uuid.UUID] = None,    # 主责 AI 专家
+    co_agent_ids: Optional[list[str]] = None,         # 协办 AI 专家 ids
+    topic_keywords: Optional[list[str]] = None,       # LLM 抽的主题关键词
 ) -> tuple[MeetingActionItem, Task]:
     """
     Add both rows to the session. Their ids are generated client-side so
@@ -63,12 +67,18 @@ def add_action_with_task(
         source_ref["evidence_quote"] = evidence_quote  # v25.15
     if evidence_anchor_line_ids:
         source_ref["evidence_anchor_line_ids"] = evidence_anchor_line_ids  # v25.19
+    if topic_keywords:
+        source_ref["topic_keywords"] = topic_keywords  # v26.0
+    if assignee_agent_id:
+        source_ref["assignee_agent_id"] = str(assignee_agent_id)  # v26.0
 
     task = Task(
         id=task_id,
         workspace_id=workspace_id,
         content=content,
         assignee_user_id=assignee_user_id,
+        assignee_agent_id=assignee_agent_id,             # v26.0
+        co_agent_ids=co_agent_ids,                       # v26.0
         created_by_user_id=created_by_user_id,
         due_at=due_at,
         status=status,

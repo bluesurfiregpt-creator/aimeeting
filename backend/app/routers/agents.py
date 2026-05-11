@@ -34,6 +34,8 @@ class AgentIn(BaseModel):
     dify_workflow_id: Optional[str] = None
     knowledge_base_ids: Optional[list[uuid.UUID]] = None
     is_active: bool = True
+    # v26.0: 该 AI 专家绑定的科室账号 (任务派给该 agent 时,实际操作的 user)
+    primary_user_id: Optional[uuid.UUID] = None
 
 
 class AgentOut(BaseModel):
@@ -54,12 +56,36 @@ class AgentOut(BaseModel):
     is_active: bool
     role: str = "expert"  # M3.0: 'moderator' for the workspace's built-in
     has_dify_key: bool = False  # don't echo the key itself
+    # v26.0: 科室账号 信息 — 派发时 task 实际 assignee_user_id 由此 derive
+    primary_user_id: Optional[uuid.UUID] = None
+    primary_user_name: Optional[str] = None
     created_at: datetime
 
 
-def _to_out(a: Agent) -> AgentOut:
-    d = {**a.__dict__, "has_dify_key": bool(a.dify_api_key)}
+def _to_out(a: Agent, primary_user_name: Optional[str] = None) -> AgentOut:
+    d = {
+        **a.__dict__,
+        "has_dify_key": bool(a.dify_api_key),
+        "primary_user_name": primary_user_name,
+    }
     return AgentOut.model_validate(d)
+
+
+async def _resolve_primary_user_names(
+    session: AsyncSession,
+    agents: list[Agent],
+) -> dict[uuid.UUID, str]:
+    """v26.0: 批量拿 agent.primary_user_id → user.name 映射."""
+    uids = {a.primary_user_id for a in agents if a.primary_user_id}
+    if not uids:
+        return {}
+    from ..models import User as _User
+    rows = (
+        await session.execute(
+            select(_User.id, _User.name).where(_User.id.in_(uids))
+        )
+    ).all()
+    return {r[0]: r[1] for r in rows}
 
 
 @router.get("", response_model=list[AgentOut])
@@ -81,7 +107,8 @@ async def list_agents(
         q = q.where(Agent.id == bound)
     q = q.order_by(Agent.created_at.desc())
     rows = (await session.execute(q)).scalars().all()
-    return [_to_out(a) for a in rows]
+    name_by_uid = await _resolve_primary_user_names(session, rows)
+    return [_to_out(a, name_by_uid.get(a.primary_user_id)) for a in rows]
 
 
 @router.post("", response_model=AgentOut)
@@ -90,7 +117,23 @@ async def create_agent(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    a = Agent(**payload.model_dump(), workspace_id=auth.workspace.id)
+    data = payload.model_dump()
+    # v26.0: 验证 primary_user_id 在同 workspace
+    if data.get("primary_user_id"):
+        from ..models import User as _User
+        u_check = (
+            await session.execute(
+                select(_User.id).where(
+                    _User.id == data["primary_user_id"],
+                    _User.workspace_id == auth.workspace.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if u_check is None:
+            raise HTTPException(
+                400, "primary_user_id 必须是 同 workspace 的用户"
+            )
+    a = Agent(**data, workspace_id=auth.workspace.id)
     session.add(a)
     await session.commit()
     await session.refresh(a)
@@ -99,7 +142,8 @@ async def create_agent(
         target_type="agent", target_id=str(a.id),
         payload={"name": a.name, "domain": a.domain},
     )
-    return _to_out(a)
+    name_by_uid = await _resolve_primary_user_names(session, [a])
+    return _to_out(a, name_by_uid.get(a.primary_user_id))
 
 
 async def _load_owned_agent(
@@ -123,7 +167,9 @@ async def get_agent(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    return _to_out(await _load_owned_agent(agent_id, session, auth))
+    a = await _load_owned_agent(agent_id, session, auth)
+    name_by_uid = await _resolve_primary_user_names(session, [a])
+    return _to_out(a, name_by_uid.get(a.primary_user_id))
 
 
 @router.patch("/{agent_id}", response_model=AgentOut)
@@ -134,8 +180,24 @@ async def update_agent(
     auth: AuthContext = Depends(get_current_auth),
 ):
     a = await _load_owned_agent(agent_id, session, auth)
-    changed = list(payload.model_dump(exclude_unset=True).keys())
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    # v26.0: 验证 primary_user_id 在同一 workspace 内
+    if "primary_user_id" in data and data["primary_user_id"] is not None:
+        from ..models import User as _User
+        u_check = (
+            await session.execute(
+                select(_User.id).where(
+                    _User.id == data["primary_user_id"],
+                    _User.workspace_id == auth.workspace.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if u_check is None:
+            raise HTTPException(
+                400, "primary_user_id 必须是 同 workspace 的用户"
+            )
+    changed = list(data.keys())
+    for k, v in data.items():
         setattr(a, k, v)
     await session.commit()
     await session.refresh(a)
@@ -144,7 +206,8 @@ async def update_agent(
         target_type="agent", target_id=str(a.id),
         payload={"name": a.name, "fields_changed": changed},
     )
-    return _to_out(a)
+    name_by_uid = await _resolve_primary_user_names(session, [a])
+    return _to_out(a, name_by_uid.get(a.primary_user_id))
 
 
 @router.delete("/{agent_id}", status_code=204)

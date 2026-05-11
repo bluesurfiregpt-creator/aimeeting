@@ -647,16 +647,31 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
                           {TASK_STATUS_LABEL[item.task_status] || item.task_status}
                         </span>
                       )}
-                      {/* 优先用 task 上的 assignee(可能被 leader 重派过),退到 action 的 */}
-                      {(item.task_assignee_name || assignee) ? (
-                        <span title={(item.task_id || item.assignee_user_id) ? "已绑定用户" : "仅记录姓名,未绑定"}>
+                      {/* v26.0: 主责 AI 专家 优先;其次 task assignee 用户;最后 action 上 hint.
+                          - 已派 AI 专家:🤖 [agent name] (操作: user 小字)
+                          - 未派 但有 LLM 推荐 hint:📋 (待派,AI 推荐: [hint])
+                          - 完全空:⚠️ 未派发 */}
+                      {item.assignee_agent_name ? (
+                        <span title="任务的主人(AI 专家),实际由科室账号操作">
+                          🤖 <b className="text-zinc-100">{item.assignee_agent_name}</b>
+                          {(item.task_assignee_name || assignee) && (
+                            <span className="ml-1 text-zinc-500">
+                              ({item.task_assignee_name || assignee})
+                            </span>
+                          )}
+                          {item.co_agent_count && item.co_agent_count > 0
+                            ? ` + ${item.co_agent_count} 协办 AI`
+                            : ""}
+                        </span>
+                      ) : (item.task_assignee_name || assignee) ? (
+                        <span title="老版本/手动 派给的真人">
                           👤 {item.task_assignee_name || assignee}
                           {item.task_co_assignees_count && item.task_co_assignees_count > 0
                             ? ` + ${item.task_co_assignees_count} 协办`
                             : ""}
                         </span>
                       ) : (
-                        <span className="text-zinc-600">⚠️ 未指定负责人</span>
+                        <span className="text-zinc-600">⚠️ 待派发(进任务详情让 AI 推荐)</span>
                       )}
                       {item.due_at ? (
                         <span>📅 {new Date(item.due_at).toLocaleDateString("zh-CN")}</span>

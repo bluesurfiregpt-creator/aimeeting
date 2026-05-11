@@ -236,6 +236,16 @@ export type ActionItem = {
   // v25.19: 实录行号锚点 — 前端拿到后 可跳转到 /meeting/{mid}?focus=<ids>
   // 实录页 useSearchParams 读 focus,自动滚动 + 高亮 + 展开上下文 ±3 句.
   evidence_anchor_line_ids?: number[] | null;
+  // v26.0: 主责 AI 专家 — 任务真正的主人(科室专家).assignee_user_id 现在
+  // 是 agent.primary_user_id (科室账号) 的 derive 字段.UI 优先 显示 agent.
+  assignee_agent_id?: string | null;
+  assignee_agent_name?: string | null;
+  assignee_agent_color?: string | null;
+  // v26.0: 协办 AI 专家(若有,会在任务办结时一并吸收知识库)
+  co_agent_ids?: string[] | null;
+  co_agent_count?: number;
+  // v26.0: LLM 抽取时给的主题关键词(用于诊断 + 后续重路由)
+  topic_keywords?: string[] | null;
 };
 
 /** v24.3 #1: 单条 RAG 引用(KB chunk)— 智慧住建文档 §3.1 引用溯源角标. */
@@ -302,6 +312,10 @@ export type Agent = {
    *  (built-in per workspace, drives agenda_monitor banners). */
   role: "expert" | "moderator";
   has_dify_key: boolean;
+  /** v26.0: 该 AI 专家 绑定 的 科室账号 — 任务派给 agent 时,实际接受任务的
+   *  user.UI 上 "主责" 显示 agent.name,旁标 "由 <primary_user.name> 操作". */
+  primary_user_id?: string | null;
+  primary_user_name?: string | null;
   created_at: string;
 };
 
@@ -530,6 +544,15 @@ export type MyTask = {
   source_ref: Record<string, unknown> | null;
   meeting_id: string | null;
   meeting_title: string | null;
+  /** v26.0: 主责 AI 专家(任务的真正主人).assignee_user_id 是 agent
+   *  绑定 的 科室账号 (= agent.primary_user_id),作为 derive 字段.UI 应该
+   *  优先显示 agent name + color + 头像;科员 user 是小字 / 二级信息. */
+  assignee_agent_id?: string | null;
+  assignee_agent_name?: string | null;
+  assignee_agent_color?: string | null;
+  /** v26.0: 协办 AI 专家 ids + names */
+  co_agent_ids?: string[];
+  co_agent_names?: string[];
   created_at: string;
   updated_at: string;
 };
@@ -814,29 +837,45 @@ export type SeedSCAgentsResult = {
   preset_set: boolean;
 };
 
-/** v24.1 #3: 4-维路由 单候选评分. */
+/** v24.1 #3 → v26.0: agent-centric 4(+1) 维路由 单候选评分.
+ *  v25 字段名 (keyword/capability, candidate_user_*) 保留作 兼容,
+ *  新前端用 v26 规范字段 (semantic/knowledge/availability, primary_user_*). */
 export type RouteScore = {
   agent_id: string;
   agent_name: string;
+  agent_color?: string | null;  // v26.0
   composite: number;
   breakdown: {
-    keyword: number;
+    // v26.0 维度
+    semantic?: number;
+    knowledge?: number;
+    availability?: number;
+    // v25 兼容字段名(仍可能在 老 client / 老数据 上看到)
+    keyword?: number;
+    capability?: number;
+    // 共用
     history: number;
     load: number;
-    capability: number;
     _hits?: string[];
     _history_count?: number;
     _candidate_load?: number;
   };
+  // v25 兼容字段
   candidate_user_id: string | null;
   candidate_user_name: string | null;
   candidate_user_active_count: number;
+  // v26.0 规范字段(同一个 user,只是命名清楚 — primary_user = agent 绑的科室账号)
+  primary_user_id?: string | null;
+  primary_user_name?: string | null;
+  primary_user_active_count?: number;
 };
 
 export type RoutePreview = {
   candidates: RouteScore[];  // 降序
   threshold: number;
   matched: boolean;  // 最高分是否过阈值
+  /** v26.0: high (≥0.60 auto-dispatch) | medium (0.40-0.60 推荐让 leader 确认) | low (<0.40 全手动) */
+  confidence_tier?: "high" | "medium" | "low";
 };
 
 export type AutoRouteResult = {
@@ -845,6 +884,8 @@ export type AutoRouteResult = {
   winner?: RouteScore | null;
   task?: MyTask | null;  // 派发后的最新 task
   candidates: RouteScore[];
+  /** v26.0 */
+  confidence_tier?: "high" | "medium" | "low";
 };
 
 /** v24.1 #2: 异常预警 force-check 单条结果. */
@@ -1198,6 +1239,7 @@ export const api = {
     }>(`/api/me/notifications/cleanup-orphans`, {}),
 
   // v17 → v19: Task lifecycle (派发 / 签收 / 退回 / 办理 / 上报 / 办结 / 归档 / 取消)
+  // v26.0: role 增 agent_rep (我作为 AI 专家的科室代表) + all_pending (admin 全局待派发)
   listMyTasks: (
     status:
       | "active"
@@ -1213,15 +1255,24 @@ export const api = {
       | "pending"
       | "working"
       | "review" = "active",
-    role: "assignee" | "reviewer" | "coassignee" = "assignee",
+    role:
+      | "assignee"
+      | "reviewer"
+      | "coassignee"
+      | "agent_rep"
+      | "all_pending" = "assignee",
   ) => jget<MyTask[]>(`/api/me/tasks?status=${status}&role=${role}`),
+  // v26.0: dispatchTask 加 assignee_agent_id 字段(派给 AI 专家);assignee_user_id
+  // 改为 optional (后端会从 agent.primary_user_id derive)
   dispatchTask: (
     taskId: string,
     body: {
-      assignee_user_id: string;
+      assignee_agent_id?: string;
+      assignee_user_id?: string;
       due_at?: string | null;
       note?: string | null;
       co_assignees?: string[] | null;
+      co_agent_ids?: string[] | null;
     },
   ) => jpost<MyTask>(`/api/me/tasks/${taskId}/dispatch`, body),
   acceptTask: (taskId: string) =>

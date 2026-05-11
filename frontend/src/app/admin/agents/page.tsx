@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type Agent, type KnowledgeBase } from "@/lib/api";
+import { api, type Agent, type KnowledgeBase, type User } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "@/lib/toast";
 
@@ -13,6 +13,7 @@ type Form = {
   color: string;
   knowledge_base_ids: Set<string>;
   is_active: boolean;
+  primary_user_id: string;  // v26.0: 绑定的科室账号(空字符串 = 未绑)
 };
 
 const EMPTY: Form = {
@@ -23,6 +24,7 @@ const EMPTY: Form = {
   color: "violet",
   knowledge_base_ids: new Set<string>(),
   is_active: true,
+  primary_user_id: "",
 };
 
 const COLORS = ["violet", "sky", "emerald", "amber", "rose", "teal"];
@@ -30,6 +32,8 @@ const COLORS = ["violet", "sky", "emerald", "amber", "rose", "teal"];
 export default function AgentsAdmin() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
+  // v26.0: workspace users for primary_user_id binding
+  const [users, setUsers] = useState<User[]>([]);
   // {id, name} of the agent the user is being asked to confirm deletion for.
   // null = no dialog open.
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
@@ -39,17 +43,19 @@ export default function AgentsAdmin() {
   const [msg, setMsg] = useState("");
 
   const refresh = useCallback(async () => {
-    const [as_, ks] = await Promise.all([
+    const [as_, ks, us] = await Promise.all([
       api.listAgents(),
       api.listKnowledgeBases().catch(() => [] as KnowledgeBase[]),
+      api.listUsers().catch(() => [] as User[]),  // v26.0
     ]);
     setAgents(as_);
     setKbs(ks);
+    setUsers(us);
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const reset = () => { setForm({ ...EMPTY, knowledge_base_ids: new Set() }); setEditing(null); setMsg(""); };
+  const reset = () => { setForm({ ...EMPTY, knowledge_base_ids: new Set(), primary_user_id: "" }); setEditing(null); setMsg(""); };
 
   const startEdit = (a: Agent) => {
     setEditing(a.id);
@@ -61,6 +67,7 @@ export default function AgentsAdmin() {
       color: a.color ?? "violet",
       knowledge_base_ids: new Set<string>(a.knowledge_base_ids ?? []),
       is_active: a.is_active,
+      primary_user_id: a.primary_user_id ?? "",  // v26.0
     });
     setMsg("");
   };
@@ -83,6 +90,8 @@ export default function AgentsAdmin() {
       color: form.color,
       knowledge_base_ids: Array.from(form.knowledge_base_ids),
       is_active: form.is_active,
+      // v26.0: 空 string → null (后端解 None = 未绑)
+      primary_user_id: form.primary_user_id || null,
     };
     try {
       if (editing) {
@@ -254,6 +263,30 @@ export default function AgentsAdmin() {
             )}
           </div>
 
+          {/* v26.0: 绑定科室账号 — 该 AI 专家 接到的任务,由这个 user 实际操作 */}
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+            <div className="text-xs uppercase tracking-wider text-amber-300">
+              🔗 绑定科室账号 (primary user)
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              该 AI 专家是 任务的「主人」,但实际操作 / 上传资料 / 工单闭环
+              由它绑定的科室账号来做.<b className="text-amber-200">没绑科室账号的 AI 专家
+              不能接受任务派发</b>.
+            </p>
+            <select
+              value={form.primary_user_id}
+              onChange={(e) => setForm({ ...form, primary_user_id: e.target.value })}
+              className="mt-2 w-full rounded-md border border-ink-700 bg-ink-950 px-2 py-1.5 text-sm text-zinc-100 focus:border-accent-500 focus:outline-none"
+            >
+              <option value="">— 未绑 (本 AI 不能接任务) —</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} ({u.email})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <label className="inline-flex items-center gap-2 text-sm text-zinc-300">
             <input
               type="checkbox"
@@ -335,6 +368,20 @@ export default function AgentsAdmin() {
                 {a.knowledge_base_ids && a.knowledge_base_ids.length > 0 && (
                   <p className="mt-2 text-xs text-zinc-500">
                     📚 已绑定 {a.knowledge_base_ids.length} 个知识库
+                  </p>
+                )}
+                {/* v26.0: 科室账号绑定状态 */}
+                {a.role !== "moderator" && (
+                  <p className="mt-1 text-xs">
+                    {a.primary_user_name ? (
+                      <span className="text-emerald-300">
+                        🔗 绑科室账号: {a.primary_user_name} ✅ 可接任务
+                      </span>
+                    ) : (
+                      <span className="text-amber-300">
+                        ⚠️ 未绑科室账号 — 不能接受任务派发,点 编辑 配置
+                      </span>
+                    )}
                   </p>
                 )}
               </li>

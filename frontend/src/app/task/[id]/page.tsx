@@ -110,11 +110,13 @@ function StarBar({ score }: { score: number }) {
   );
 }
 
-// v25.17: AI 派发助手 — 替代原来的 "AI 自动派发(4-维评分)" 区
-// 自适应置信度:
-//   ≥ 0.50 高置信 → 大字"建议派给 X" + 一键派发
-//   0.30-0.50 中等 → "倾向 X 但不确定" + 4 维分项 + top 3
-//   < 0.30 低置信 → "AI 没把握" + 解释 + 候选列表 让用户手选
+// v26.0: AI 派发助手 — agent-centric.
+// 系统现在派发的是 AI 专家(科室专家),不是真人.派给某个 agent 后,
+// 该 agent 绑定的 primary_user(科室账号)就是实际操作员.
+// 三档(跟 backend confidence_tier 对齐):
+//   high   ≥ 0.60 → 大字 "推荐派给 AI 专家 X" + 一键派发 (绿)
+//   medium 0.40-0.60 → "倾向 X 但不确定" + 维度分项 + top 3 (琥珀)
+//   low    < 0.40 → "AI 没把握" + 解释 + 候选列表 让用户手选 (玫红)
 function SmartDispatchSection({
   taskId,
   preview,
@@ -148,7 +150,7 @@ function SmartDispatchSection({
             <h2 className="text-sm font-semibold text-amber-200">AI 派发助手</h2>
             <div className="mt-2 flex items-center gap-2 text-xs text-zinc-400">
               <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-              AI 正在评估这条任务适合派给谁…
+              AI 正在评估这条任务适合派给哪个 AI 专家…
             </div>
           </div>
         </div>
@@ -161,43 +163,78 @@ function SmartDispatchSection({
 
   const topScore = preview.candidates[0]?.composite ?? 0;
   const topCand = preview.candidates[0];
-  const HIGH = 0.50;
-  const LOW = 0.30;
-  const level = topScore >= HIGH ? "high" : topScore >= LOW ? "mid" : "low";
+  // v26.0: 跟后端 tier 对齐
+  const tier = preview.confidence_tier ?? (
+    topScore >= 0.60 ? "high" : topScore >= 0.40 ? "medium" : "low"
+  );
 
+  // v26.0 5 维(兼容老数据的 keyword/capability 字段)
   const dimLabel: Record<string, string> = {
-    keyword: "关键词匹配",
+    semantic: "关键词 + 领域匹配",
+    knowledge: "知识库丰富度",
     history: "历史经验",
     load: "当前负载",
-    capability: "能力标签",
+    availability: "在岗状态",
   };
   const dimHelp: Record<string, string> = {
-    keyword: "任务内容与专家的擅长领域 是否吻合",
-    history: "该专家以前处理过类似任务的次数",
-    load: "该专家当前待办量(越低 / 派给他越合适)",
-    capability: "专家档案里 标注的关联领域是否覆盖",
+    semantic: "任务内容与该 AI 专家的擅长领域 / 关键词 是否吻合",
+    knowledge: "该 AI 专家 知识库 + 角色档案 是否丰富(v26.1 改 KB embedding)",
+    history: "该 AI 专家(及其科室账号)过去处理过同类任务的次数",
+    load: "该 AI 专家科室账号 当前待办量(越低 / 派给他越合适)",
+    availability: "科室账号 是否在岗(suspended_until / 假期标记)",
   };
 
-  const Dim = ({ name, score }: { name: keyof typeof dimLabel; score: number }) => (
-    <div className="flex items-center gap-2" title={dimHelp[name]}>
-      <span className="w-20 text-[10px] text-zinc-500">{dimLabel[name]}</span>
-      <div className="h-1.5 flex-1 rounded-full bg-ink-800">
-        <div
-          className="h-full rounded-full bg-amber-400"
-          style={{ width: `${Math.min(100, score * 100)}%` }}
-        />
+  const Dim = ({ name, score }: { name: keyof typeof dimLabel; score: number | undefined }) => {
+    if (typeof score !== "number") return null;
+    return (
+      <div className="flex items-center gap-2" title={dimHelp[name]}>
+        <span className="w-28 text-[10px] text-zinc-500">{dimLabel[name]}</span>
+        <div className="h-1.5 flex-1 rounded-full bg-ink-800">
+          <div
+            className="h-full rounded-full bg-amber-400"
+            style={{ width: `${Math.min(100, score * 100)}%` }}
+          />
+        </div>
+        <span className="w-9 font-mono text-[10px] text-amber-200">
+          {score.toFixed(2)}
+        </span>
       </div>
-      <span className="w-9 font-mono text-[10px] text-amber-200">
-        {score.toFixed(2)}
-      </span>
+    );
+  };
+
+  // 拿 v26 规范字段 (含 v25 老字段兜底);agentName / agentColor / userName 都从 RouteScore 取
+  const agentName = (c: typeof topCand) =>
+    c?.agent_name || "未知 AI 专家";
+  const userName = (c: typeof topCand) =>
+    c?.primary_user_name || c?.candidate_user_name || "(未绑定科室账号)";
+  const userActive = (c: typeof topCand) =>
+    c?.primary_user_active_count ?? c?.candidate_user_active_count ?? 0;
+  const semScore = (c: typeof topCand) =>
+    // v26 规范字段 优先,v25 keyword 兜底
+    c?.breakdown.semantic ?? c?.breakdown.keyword ?? 0;
+  const knScore = (c: typeof topCand) =>
+    c?.breakdown.knowledge ?? c?.breakdown.capability ?? 0;
+  const histScore = (c: typeof topCand) => c?.breakdown.history ?? 0;
+  const loadScore = (c: typeof topCand) => c?.breakdown.load ?? 0;
+  const availScore = (c: typeof topCand) => c?.breakdown.availability;
+
+  const DimList = ({ c }: { c: typeof topCand }) => (
+    <div className="space-y-1.5 text-xs">
+      <Dim name="semantic" score={semScore(c)} />
+      <Dim name="knowledge" score={knScore(c)} />
+      <Dim name="history" score={histScore(c)} />
+      <Dim name="load" score={loadScore(c)} />
+      <Dim name="availability" score={availScore(c)} />
     </div>
   );
 
-  // 高置信:醒目卡片 + 一键派发
-  if (level === "high" && topCand) {
+  // ===== 高置信 (high, ≥0.60) =====
+  if (tier === "high" && topCand) {
     return (
-      <section className="mt-6 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-5"
-        data-testid="task-detail-auto-route">
+      <section
+        className="mt-6 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-5"
+        data-testid="task-detail-auto-route"
+      >
         <div className="flex items-start gap-3">
           <span className="text-2xl">🤖</span>
           <div className="flex-1">
@@ -205,7 +242,8 @@ function SmartDispatchSection({
               AI 推荐 · 高置信
             </h2>
             <p className="mt-0.5 text-[11px] text-zinc-400">
-              AI 已评估完 — 这条任务最适合下面这位.确认后一键派发,生成正式工单.
+              这条任务最适合 下面这个 AI 专家.确认后一键派发,任务进入该专家的待办,
+              由其科室账号 实际操作 / 上传资料 / 闭环工单.
             </p>
 
             <div className="mt-4 rounded-lg border border-emerald-500/40 bg-ink-950/40 p-4">
@@ -213,10 +251,11 @@ function SmartDispatchSection({
                 <span className="text-2xl">🥇</span>
                 <div className="min-w-0 flex-1">
                   <div className="text-lg font-semibold text-white">
-                    {topCand.candidate_user_name || "?"}
+                    🤖 {agentName(topCand)}
                   </div>
                   <div className="text-xs text-zinc-500">
-                    匹配的 AI 专家:{topCand.agent_name} · 该专家目前 {topCand.candidate_user_active_count} 个进行中任务
+                    实际操作:科室账号 <b className="text-zinc-300">{userName(topCand)}</b>
+                    {" "}· 当前 {userActive(topCand)} 个进行中任务
                   </div>
                 </div>
                 <div className="text-right">
@@ -226,11 +265,8 @@ function SmartDispatchSection({
                   <div className="text-[10px] text-zinc-600">综合得分 / 满分 1.00</div>
                 </div>
               </div>
-              <div className="mt-3 space-y-1.5 text-xs">
-                <Dim name="keyword" score={topCand.breakdown.keyword} />
-                <Dim name="history" score={topCand.breakdown.history} />
-                <Dim name="load" score={topCand.breakdown.load} />
-                <Dim name="capability" score={topCand.breakdown.capability} />
+              <div className="mt-3">
+                <DimList c={topCand} />
               </div>
             </div>
 
@@ -241,7 +277,9 @@ function SmartDispatchSection({
                 data-testid="task-auto-route-btn"
                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
               >
-                {autoRouting ? "派发中…" : `✅ 确认派发给 ${topCand.candidate_user_name}`}
+                {autoRouting
+                  ? "派发中…"
+                  : `✅ 确认派发给 AI 专家「${agentName(topCand)}」`}
               </button>
               <button
                 onClick={loadPreview}
@@ -257,20 +295,23 @@ function SmartDispatchSection({
     );
   }
 
-  // 中等置信:倾向 X 但不确定 + 4 维分项 + top 3
-  if (level === "mid" && topCand) {
+  // ===== 中等 (medium, 0.40-0.60) =====
+  if (tier === "medium" && topCand) {
     return (
-      <section className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-5"
-        data-testid="task-detail-auto-route">
+      <section
+        className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-5"
+        data-testid="task-detail-auto-route"
+      >
         <div className="flex items-start gap-3">
           <span className="text-2xl">🤖</span>
           <div className="flex-1">
             <h2 className="text-sm font-semibold text-amber-200">
-              AI 推荐 · 中等置信
+              AI 推荐 · 中等置信 (要你拍板)
             </h2>
             <p className="mt-0.5 text-[11px] text-zinc-400">
-              AI 倾向派给 <b className="text-amber-200">{topCand.candidate_user_name}</b>,但
-              不太确定 — 可能这条任务跨多个领域 / 历史样本少.建议你看下评分后再拍板.
+              AI 倾向派给 <b className="text-amber-200">{agentName(topCand)}</b>,但
+              不太确定 — 可能这条任务跨多个领域 / 历史样本少 / 知识库覆盖不全.
+              下面 top 3 给你看,你自己拍.
             </p>
 
             <ol className="mt-3 space-y-2">
@@ -288,32 +329,31 @@ function SmartDispatchSection({
                       {i === 0 && "🥇 "}
                       {i === 1 && "🥈 "}
                       {i === 2 && "🥉 "}
-                      <b>{c.candidate_user_name || "?"}</b>
+                      <b>🤖 {agentName(c)}</b>
                       <span className="ml-2 text-[11px] text-zinc-500">
-                        ({c.agent_name})
+                        操作:{userName(c)}
                       </span>
                     </span>
                     <span className="font-mono text-sm text-amber-200">
                       {c.composite.toFixed(2)}
                     </span>
                   </div>
-                  <div className="mt-2 space-y-1 text-xs">
-                    <Dim name="keyword" score={c.breakdown.keyword} />
-                    <Dim name="history" score={c.breakdown.history} />
-                    <Dim name="load" score={c.breakdown.load} />
-                    <Dim name="capability" score={c.breakdown.capability} />
+                  <div className="mt-2">
+                    <DimList c={c} />
                   </div>
                 </li>
               ))}
             </ol>
 
-            <div className="mt-4 flex gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               <button
                 onClick={onAutoRoute}
                 disabled={autoRouting}
                 className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950 hover:bg-amber-400 disabled:opacity-50"
               >
-                {autoRouting ? "派发中…" : `🤖 派给 AI 首选 ${topCand.candidate_user_name}`}
+                {autoRouting
+                  ? "派发中…"
+                  : `🤖 派给 AI 首选「${agentName(topCand)}」`}
               </button>
               <button
                 onClick={loadPreview}
@@ -323,7 +363,7 @@ function SmartDispatchSection({
                 🔄 重新评估
               </button>
               <span className="self-center text-[11px] text-zinc-500">
-                或在 /me 页面 手动选 assignee
+                也可在 /me 工作台 手动选 其他 AI 专家
               </span>
             </div>
           </div>
@@ -332,36 +372,44 @@ function SmartDispatchSection({
     );
   }
 
-  // 低置信:AI 没把握 + 解释为什么 + 让用户手选
+  // ===== 低 (low, <0.40) =====
   return (
-    <section className="mt-6 rounded-lg border border-rose-500/30 bg-rose-500/5 p-5"
-      data-testid="task-detail-auto-route">
+    <section
+      className="mt-6 rounded-lg border border-rose-500/30 bg-rose-500/5 p-5"
+      data-testid="task-detail-auto-route"
+    >
       <div className="flex items-start gap-3">
         <span className="text-2xl">🤷</span>
         <div className="flex-1">
           <h2 className="text-sm font-semibold text-rose-200">
-            AI 没把握 — 请你手动选
+            AI 没把握 — 请你手动选 AI 专家
           </h2>
           <p className="mt-0.5 text-[11px] text-zinc-400">
-            AI 综合得分 {topScore.toFixed(2)} 低于 阈值 {preview.threshold.toFixed(2)}.可能的原因:
+            AI 综合得分 {topScore.toFixed(2)} 低于阈值 {preview.threshold.toFixed(2)}.可能的原因:
           </p>
           <ul className="mt-1 ml-4 list-disc space-y-0.5 text-[11px] text-zinc-500">
-            {topCand && topCand.breakdown.keyword < 0.2 && (
-              <li>任务内容里 没出现明确的业务术语 → 任何专家的关键词都没命中</li>
+            {topCand && semScore(topCand) < 0.2 && (
+              <li>任务内容里 没出现明确的业务术语 → 没匹配到任何 AI 专家的领域 / 关键词</li>
             )}
-            {topCand && topCand.breakdown.history < 0.2 && (
+            {topCand && knScore(topCand) < 0.2 && (
+              <li>AI 专家档案 / 知识库 还很薄 → 系统判断不出谁更擅长</li>
+            )}
+            {topCand && histScore(topCand) < 0.2 && (
               <li>没人处理过类似任务 → 没历史样本可参考</li>
             )}
-            {topCand && topCand.breakdown.capability < 0.05 && (
-              <li>这条任务的领域 没匹配到任何专家档案</li>
+            {!topCand && (
+              <li>
+                当前 workspace 没有<b className="text-rose-200">配置好科室账号</b>的 AI 专家.
+                需要 admin 去 <Link href="/workspace/agents" className="text-accent-400 hover:text-accent-300">workspace/agents</Link>
+                给每个 AI 专家绑定一个 primary_user(科室账号).
+              </li>
             )}
-            {!topCand && <li>当前 workspace 还没配置 active AI 专家</li>}
           </ul>
 
           {preview.candidates.length > 0 && (
             <>
               <p className="mt-3 text-xs text-zinc-400">
-                给你 全部 候选 + 各维得分,你自己拍:
+                全部候选 + 各维得分:
               </p>
               <ol className="mt-2 space-y-2">
                 {preview.candidates.slice(0, 5).map((c) => (
@@ -371,20 +419,17 @@ function SmartDispatchSection({
                   >
                     <div className="flex items-baseline justify-between">
                       <span className="text-sm text-zinc-100">
-                        <b>{c.candidate_user_name || "?"}</b>
+                        <b>🤖 {agentName(c)}</b>
                         <span className="ml-2 text-[11px] text-zinc-500">
-                          ({c.agent_name})
+                          操作:{userName(c)}
                         </span>
                       </span>
                       <span className="font-mono text-xs text-rose-200">
                         {c.composite.toFixed(2)}
                       </span>
                     </div>
-                    <div className="mt-2 space-y-1 text-xs">
-                      <Dim name="keyword" score={c.breakdown.keyword} />
-                      <Dim name="history" score={c.breakdown.history} />
-                      <Dim name="load" score={c.breakdown.load} />
-                      <Dim name="capability" score={c.breakdown.capability} />
+                    <div className="mt-2">
+                      <DimList c={c} />
                     </div>
                   </li>
                 ))}
@@ -393,8 +438,11 @@ function SmartDispatchSection({
           )}
 
           <p className="mt-3 text-[11px] text-zinc-500">
-            💡 手动指派:进 <Link href="/me" className="text-accent-400 hover:text-accent-300">我的工作台</Link>
-            ,找到本任务,点 「派发」 选 assignee.
+            💡 手动指派:进{" "}
+            <Link href="/me" className="text-accent-400 hover:text-accent-300">
+              我的工作台
+            </Link>
+            ,「待派发」tab,点本任务的 「派发」 按钮,选 AI 专家.
           </p>
         </div>
       </div>
@@ -461,22 +509,30 @@ export default function TaskDetailPage({
     try {
       const r = await api.autoRouteTask(taskId);
       if (r.matched && r.winner) {
+        // v26.0: 显示派给 AI 专家 + 科室账号
+        const w = r.winner;
+        const agentName = w.agent_name;
+        const userName = w.primary_user_name || w.candidate_user_name || "(科室账号)";
+        const sem = w.breakdown.semantic ?? w.breakdown.keyword ?? 0;
+        const kn = w.breakdown.knowledge ?? w.breakdown.capability ?? 0;
         toast.success(
-          `🤖 已派发给 ${r.winner.candidate_user_name || "(未知)"} (${r.winner.agent_name})`,
+          `🤖 已派发给 AI 专家「${agentName}」(由 ${userName} 操作)`,
           {
-            detail: `composite=${r.winner.composite} (kw ${r.winner.breakdown.keyword} · history ${r.winner.breakdown.history} · load ${r.winner.breakdown.load} · capability ${r.winner.breakdown.capability})`,
+            detail: `composite=${w.composite.toFixed(2)} · 关键词${sem.toFixed(2)} · 知识库${kn.toFixed(2)} · 历史${w.breakdown.history.toFixed(2)} · 负载${w.breakdown.load.toFixed(2)}`,
+            sticky: true,
           },
         );
         await load();  // 刷新 task 状态
       } else {
         toast.error(
-          `未达阈值 ${r.threshold} — ${r.candidates.length} 候选,最高分 ${r.candidates[0]?.composite ?? 0}。请手动派发。`,
+          `未达阈值 ${r.threshold.toFixed(2)} — ${r.candidates.length} 候选,最高分 ${(r.candidates[0]?.composite ?? 0).toFixed(2)}。请手动派发。`,
         );
         // 仍展开 preview 让 leader 能看
         setPreview({
           candidates: r.candidates,
           threshold: r.threshold,
           matched: false,
+          confidence_tier: r.confidence_tier,
         });
       }
     } catch (e) {
@@ -603,8 +659,27 @@ export default function TaskDetailPage({
           )}
         </div>
         <div>
+          {/* v26.0: 主责显示 AI 专家(优先) + 科室账号小字 */}
           <span className="text-zinc-500">主责:</span>{" "}
-          {t.assignee_name || "(未指派)"}
+          {t.assignee_agent_name ? (
+            <>
+              <span className="font-medium text-zinc-100">
+                🤖 {t.assignee_agent_name}
+              </span>
+              {t.assignee_name && (
+                <span className="ml-1 text-zinc-500">
+                  (由 {t.assignee_name} 操作)
+                </span>
+              )}
+            </>
+          ) : (
+            t.assignee_name || "(未指派)"
+          )}
+          {t.co_agent_names && t.co_agent_names.length > 0 && (
+            <span className="ml-2 text-[11px] text-zinc-500">
+              · 协办 AI: {t.co_agent_names.join("、")}
+            </span>
+          )}
           {t.dispatched_by_name && (
             <>
               {" · "}

@@ -250,6 +250,19 @@ class Agent(Base):
     # the delete button + Dify fields for moderators.
     role: Mapped[str] = mapped_column(String(16), default="expert")  # expert | moderator
 
+    # v26.0: 该 AI 专家绑定的「科室账号」 — 任务派给 agent 时,真正执行/上传
+    # 资料 / 闭环工单 的是这个 user.UI 上 "主责" 显示 agent 名字,小字标
+    # "由 <primary_user.name> 实际操作".
+    # 同一 user 可以是多个 agent 的 primary_user(一个科室管多个 AI 角色),
+    # 但实际多对 1 关系会让 routing 混乱 — 建议 1:1.
+    # SET NULL on delete:user 被删时 agent 失去操作员,routing 跳过它直到
+    # 重新绑定.
+    primary_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     version: Mapped[int] = mapped_column(Integer, default=1)
     stage: Mapped[str] = mapped_column(String(16), default="prod")  # test|prod
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -529,6 +542,19 @@ class Task(Base):
     assignee_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # v26.0: AI 专家 作为 主责 — 任务真正的主人.assignee_user_id 是 agent
+    # 绑的 primary_user(=该 agent 的科室账号),作为 derive 字段保留以兼容
+    # 老 routes / /me 工作台.routing 永远先决策 agent,再 mirror user.
+    assignee_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("agent.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # v26.0: 协办 AI 专家 ids 列表 (uuid string array).新会议自动派发时
+    # routing 算法 top 2-3 候选 中,非 winner 但 composite > 0.5 的进入这里.
+    # 任务办结 → 知识库沉淀时,co_agents 也吸收一份.
+    co_agent_ids: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
     created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
     )

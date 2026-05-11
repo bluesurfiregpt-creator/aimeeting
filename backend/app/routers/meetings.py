@@ -1312,6 +1312,15 @@ class ActionItemOut(BaseModel):
     evidence_quote: Optional[str] = None
     # v25.19: 实录行号锚点 — 前端拿到后能 跳转 meeting?focus=ids 高亮 + 展开上下文
     evidence_anchor_line_ids: Optional[list[int]] = None
+    # v26.0: 主责 AI 专家 — 任务真正的主人(科室专家)
+    assignee_agent_id: Optional[uuid.UUID] = None
+    assignee_agent_name: Optional[str] = None
+    assignee_agent_color: Optional[str] = None
+    # v26.0: 协办 AI 专家 ids (字符串数组)
+    co_agent_ids: Optional[list[str]] = None
+    co_agent_count: int = 0
+    # v26.0: LLM 抽取时给的主题关键词 (用于诊断 + 后续重路由)
+    topic_keywords: Optional[list[str]] = None
 
 
 class ActionItemIn(BaseModel):
@@ -1331,8 +1340,16 @@ def _action_to_out(
     row: MeetingActionItem,
     name_by_id: dict[uuid.UUID, str],
     task_info_by_id: Optional[dict[uuid.UUID, dict]] = None,  # v25.14
+    agent_info_by_id: Optional[dict[uuid.UUID, dict]] = None,  # v26.0
 ) -> ActionItemOut:
     ti = (task_info_by_id or {}).get(row.task_id) if row.task_id else None
+    # v26.0: task.assignee_agent_id → agent info (name/color)
+    agent_id = ti.get("assignee_agent_id") if ti else None
+    ai = (agent_info_by_id or {}).get(agent_id) if agent_id else None
+    co_agent_ids = ti.get("co_agent_ids") if ti else None
+    topic_kws = None
+    if ti and isinstance(ti.get("source_ref"), dict):
+        topic_kws = ti["source_ref"].get("topic_keywords")
     return ActionItemOut(
         id=row.id,
         meeting_id=row.meeting_id,
@@ -1351,6 +1368,13 @@ def _action_to_out(
         task_co_assignees_count=ti["co_count"] if ti else 0,
         evidence_quote=row.evidence_quote,  # v25.15
         evidence_anchor_line_ids=row.evidence_anchor_line_ids,  # v25.19
+        # v26.0
+        assignee_agent_id=agent_id,
+        assignee_agent_name=ai["name"] if ai else None,
+        assignee_agent_color=ai["color"] if ai else None,
+        co_agent_ids=co_agent_ids,
+        co_agent_count=len(co_agent_ids) if co_agent_ids else 0,
+        topic_keywords=topic_kws,
     )
 
 
@@ -1377,6 +1401,7 @@ async def list_action_items(
     # v25.14: 拉关联 Task 的状态
     task_ids = [r.task_id for r in rows if r.task_id]
     task_info_by_id: dict[uuid.UUID, dict] = {}
+    agent_ids: set[uuid.UUID] = set()  # v26.0
     if task_ids:
         tasks = (
             await session.execute(select(Task).where(Task.id.in_(task_ids)))
@@ -1384,10 +1409,15 @@ async def list_action_items(
         for t in tasks:
             if t.assignee_user_id:
                 user_ids.add(t.assignee_user_id)
+            if t.assignee_agent_id:  # v26.0
+                agent_ids.add(t.assignee_agent_id)
             task_info_by_id[t.id] = {
                 "status": t.status,
                 "assignee_user_id": t.assignee_user_id,
+                "assignee_agent_id": t.assignee_agent_id,    # v26.0
+                "co_agent_ids": t.co_agent_ids,              # v26.0
                 "co_count": len(t.co_assignees) if t.co_assignees else 0,
+                "source_ref": t.source_ref,                  # v26.0 (topic_keywords)
             }
     name_by_id: dict[uuid.UUID, str] = {}
     if user_ids:
@@ -1395,11 +1425,19 @@ async def list_action_items(
             await session.execute(select(User).where(User.id.in_(user_ids)))
         ).scalars().all()
         name_by_id = {u.id: u.name for u in users}
+    # v26.0: 拉 agent info (name, color)
+    from ..models import Agent
+    agent_info_by_id: dict[uuid.UUID, dict] = {}
+    if agent_ids:
+        agents = (
+            await session.execute(select(Agent).where(Agent.id.in_(agent_ids)))
+        ).scalars().all()
+        agent_info_by_id = {a.id: {"name": a.name, "color": a.color} for a in agents}
     # 把 assignee_name 注入 task_info
     for tid, info in task_info_by_id.items():
         aid = info.get("assignee_user_id")
         info["assignee_name"] = name_by_id.get(aid) if aid else None
-    return [_action_to_out(r, name_by_id, task_info_by_id) for r in rows]
+    return [_action_to_out(r, name_by_id, task_info_by_id, agent_info_by_id) for r in rows]
 
 
 # v23.5: 会议追溯链 ----------------------------------------------------------

@@ -1,34 +1,33 @@
 """
-v24.1 #3 — 4-维自动派发路由.
+v26.0 — Agent-centric 4(+1) 维 自动派发路由.
 
-智慧住建文档 §4.2 派发路由:
-> 系统按"关键词匹配、历史关联、负载均衡、能力标签"四维得分自动匹配责任
-> AI 专家.若自动匹配失败或人工介入,则转为手动指派.
+智慧住建文档 §4.2 派发路由 + v26 北极星:
+> 任务的主人是 AI 专家(科室专家),而不是真人.真人是 AI 专家绑的科室账号
+> (primary_user)的实际操作员.任务办结后资料 沉淀回 AI 专家 的知识库.
 
-公式(per D1 默认权重):
-  composite = 0.4 * keyword + 0.3 * history + 0.2 * load + 0.1 * capability
+公式 (v26 默认权重):
+  composite = 0.40 * semantic   + 0.25 * knowledge
+            + 0.15 * history    + 0.15 * load
+            + 0.05 * availability
 
 各维度 [0, 1]:
-  keyword     Task.content 命中 Agent.keywords 的比例(去停用词后)
-  history     该 Agent 关联用户最近 30d 处理过的任务里命中相同 keywords 的数
-              / 5(5+ 历史满分)
-  load        反向:1 - current_load / (workspace_avg * 2),clamp 到 [0,1]
-  capability  Agent.domain 是否覆盖 task 主题(简化:domain 字符串里有
-              至少 1 个命中 keyword)→ 1.0 / 0.5
+  semantic     Task.content vs Agent.keywords / Agent.domain 字面 + token 匹配
+               (后续 v26.1 可加 embedding 语义)
+  knowledge    Task.content embedding 检索 Agent.kb (knowledge_base_ids),top-K
+               chunk 平均相似度 (v26.0 placeholder: 暂用 agent.knowledge_base_ids
+               非空 + persona/domain 长度作为「丰富度」近似;v26.1 上 embedding)
+  history      该 Agent 过去 30d 关联 task 中,完成 + 成功的比例 + 数量
+  load         该 Agent.primary_user 当前 active task 反向 (workspace 平均参照)
+  availability primary_user.suspended_until / 未配置 primary_user 等
 
-阈值 _MIN_COMPOSITE_THRESHOLD = 0.30:
-  - 最高分 < 阈值 → 视为「自动匹配失败」,fallback 手动派发
-  - >= 阈值 → 选 winner Agent 名下负载最轻的 bound user
+阈值 (v26):
+  composite >= 0.60  自动派 (高置信,绿)
+  0.40 - 0.60        AI 推荐 top 3,leader 一键确认 (中,琥珀)
+  < 0.40             候选全列出,要求 leader 手动选 AI 专家 (低,玫红)
 
-为什么不用 LLM scoring:
-  1. 派发请求量级大,LLM 慢且贵
-  2. 政务可解释性要求高,规则清晰可调
-  3. 后期(v25+)可加 LLM fallback 当所有规则都低分时兜底
-
-后端用法:
-  decision = await find_best_assignee_for_task(session, ws_id, task_content)
-  if decision is not None:
-      # auto-dispatch to decision.user_id
+候选池 (v26 关键变化):
+  active=True AND primary_user_id IS NOT NULL 的 Agent.
+  user 这一层不再独立做候选 — 选定 agent 后,assignee_user_id = agent.primary_user_id.
 """
 
 from __future__ import annotations
@@ -43,25 +42,26 @@ from typing import Any, Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import Agent, Task, User, WorkspaceMembership
+from .models import Agent, Task, User
 
 logger = logging.getLogger(__name__)
 
-# ---- 阈值 ------------------------------------------------------------------
-# composite < 0.30 → 视为自动匹配失败.阈值偏低是因为 4 维都满分太苛刻(尤其
-# history 在新 workspace 没数据时永远 0).客户上线一段时间后再可调高.
-_MIN_COMPOSITE_THRESHOLD = 0.30
 
-# 维度权重(per D1 默认值)
-_W_KEYWORD = 0.4
-_W_HISTORY = 0.3
-_W_LOAD = 0.2
-_W_CAPABILITY = 0.1
+# ---- 阈值 / 权重 (v26) -----------------------------------------------------
+_HIGH_CONFIDENCE_THRESHOLD = 0.60   # 自动派
+_MIN_COMPOSITE_THRESHOLD = 0.40     # AI 推荐 (中等置信)
+# < 0.40 = 玫红 (低,手动)
 
-# history scoring:5+ 条命中即满分
-_HISTORY_FULL_COUNT = 5
+_W_SEMANTIC = 0.40
+_W_KNOWLEDGE = 0.25
+_W_HISTORY = 0.15
+_W_LOAD = 0.15
+_W_AVAILABILITY = 0.05
+
 # history 看最近多少天
 _HISTORY_WINDOW_DAYS = 30
+# history 满分计数:30d 内做完 5+ 同主题任务 = 满分
+_HISTORY_FULL_COUNT = 5
 
 # 负载活跃任务统计的 status
 _ACTIVE_STATUSES = ("dispatched", "accepted", "in_progress", "submitted")
@@ -72,22 +72,25 @@ _ACTIVE_STATUSES = ("dispatched", "accepted", "in_progress", "submitted")
 
 @dataclass
 class RoutingScore:
-    """单个 Agent 的得分(候选).用于 debug + audit + 让 UI 解释「为啥选他」."""
+    """单个 Agent 的得分.v26: 候选直接是 Agent,user 是 derive(primary_user)."""
     agent_id: uuid.UUID
     agent_name: str
+    agent_color: Optional[str]
     composite: float
-    breakdown: dict[str, float]  # {keyword, history, load, capability}
-    candidate_user_id: Optional[uuid.UUID]  # Agent 下负载最轻的 bound user
-    candidate_user_name: Optional[str]
-    candidate_user_active_count: int
+    breakdown: dict[str, Any]  # {semantic, knowledge, history, load, availability, _hits, _history_count}
+    # primary_user (= agent 绑的科室账号 — task 真正的 assignee_user_id)
+    primary_user_id: Optional[uuid.UUID]
+    primary_user_name: Optional[str]
+    primary_user_active_count: int
 
 
 @dataclass
 class RoutingDecision:
-    """选中的最佳 (Agent, User) + 全候选评分(用于解释)."""
+    """选中的最佳 Agent + 全候选评分 (用于解释 + UI top-3)."""
     winner: RoutingScore
-    all_candidates: list[RoutingScore]  # 排序后(高分在前),含 winner
+    all_candidates: list[RoutingScore]  # 排序后 (高分在前),含 winner
     threshold: float
+    confidence_tier: str  # 'high' | 'medium' | 'low'
 
 
 # ---- helpers ---------------------------------------------------------------
@@ -97,119 +100,176 @@ def _tokenize(text: str) -> set[str]:
     """简单中英 tokenization:抽连续字母/数字/汉字串."""
     if not text:
         return set()
-    # 中文按单字 + 英文按词
     en_tokens = re.findall(r"[a-zA-Z0-9]+", text.lower())
     cn_tokens = re.findall(r"[一-龥]+", text)
     return set(en_tokens + cn_tokens)
 
 
-def _keyword_match_score(task_text: str, keywords: Optional[list[str]]) -> tuple[float, list[str]]:
+def _semantic_match_score(
+    task_text: str,
+    keywords: Optional[list[str]],
+    domain: Optional[str],
+    extra_topic_kws: Optional[list[str]] = None,
+) -> tuple[float, list[str]]:
     """
-    Returns (score, hits).
-    keyword 命中比例 — 命中数 / agent.keywords 总数(避免「关键词列表越长越占便宜」).
-    keyword 在 task_text 里出现(子串或 token 重叠) → 命中.
+    v26: semantic = keywords 命中 + domain 命中 + 主题词命中 综合.
+    返回 (score in [0,1], hits 列表 用于诊断 / history 计算).
+
+    分子 = 命中数 (去重);分母 = keywords + domain tokens + topic_kws 总数 cap.
     """
-    if not keywords:
-        return 0.0, []
     text_lower = (task_text or "").lower()
-    hits = []
-    for kw in keywords:
-        kw_low = (kw or "").strip().lower()
-        if not kw_low:
+    hits: set[str] = set()
+
+    all_terms: list[str] = []
+    if keywords:
+        all_terms.extend([(k or "").strip().lower() for k in keywords if (k or "").strip()])
+    if domain:
+        all_terms.extend([t.lower() for t in _tokenize(domain) if len(t) >= 2])
+    if extra_topic_kws:
+        all_terms.extend([(k or "").strip().lower() for k in extra_topic_kws if (k or "").strip()])
+
+    all_terms = list(dict.fromkeys(all_terms))  # de-dup keep order
+    if not all_terms:
+        return 0.0, []
+
+    for term in all_terms:
+        if not term:
             continue
-        # 子串匹配(中文友好)
-        if kw_low in text_lower:
-            hits.append(kw)
-    score = len(hits) / len(keywords) if keywords else 0.0
-    return min(score, 1.0), hits
+        if term in text_lower:
+            hits.add(term)
+
+    denom = max(3, min(len(all_terms), 8))  # cap denom to [3, 8] for stability
+    score = len(hits) / denom
+    return min(1.0, score), sorted(hits)
+
+
+def _knowledge_score(agent: Agent) -> float:
+    """
+    v26.0 placeholder — 真正的 KB embedding 检索 留 v26.1.
+    现在用近似指标:agent 有多少 配置丰富度 来代表 "知识沉淀广度".
+      • knowledge_base_ids 非空 + 数量 → +0.4
+      • persona 长 (>200 chars) → +0.3
+      • domain 非空 → +0.2
+      • keywords ≥ 3 → +0.1
+    最高 1.0.
+    """
+    score = 0.0
+    if agent.knowledge_base_ids:
+        n_kb = len(agent.knowledge_base_ids)
+        score += min(0.4, 0.15 + 0.10 * min(n_kb, 3))
+    if agent.persona and len(agent.persona) > 200:
+        score += 0.3
+    elif agent.persona and len(agent.persona) > 50:
+        score += 0.15
+    if agent.domain:
+        score += 0.2
+    if agent.keywords and len(agent.keywords) >= 3:
+        score += 0.1
+    return min(1.0, score)
 
 
 async def _history_score(
     session: AsyncSession,
     workspace_id: uuid.UUID,
-    bound_user_ids: list[uuid.UUID],
-    task_keywords: set[str],
+    agent_id: uuid.UUID,
+    primary_user_id: Optional[uuid.UUID],
+    task_hits: set[str],
 ) -> tuple[float, int]:
     """
-    Returns (score, matched_count).
-    最近 30d 这些 bound user 处理过的 task,有几条 content 含 task_keywords 至少一个.
+    v26: 看 该 agent 关联的 user 过去 30 天 做过 多少条 命中相同 keyword
+    且 status='done' 的 task.
     """
-    if not bound_user_ids or not task_keywords:
+    if not primary_user_id or not task_hits:
         return 0.0, 0
-    cutoff = datetime.now(timezone.utc) - timedelta(days=_HISTORY_WINDOW_DAYS)
+    since = datetime.now(timezone.utc) - timedelta(days=_HISTORY_WINDOW_DAYS)
+
+    # 拿该 user 完成 / 在办的 task content 中命中过 hit 的条数
     rows = (
         await session.execute(
             select(Task.content).where(
                 Task.workspace_id == workspace_id,
-                Task.assignee_user_id.in_(bound_user_ids),
-                Task.created_at >= cutoff,
+                Task.assignee_user_id == primary_user_id,
+                Task.status.in_(("done", "archived")),
+                Task.created_at >= since,
             )
         )
     ).all()
     if not rows:
         return 0.0, 0
-    matched = 0
+    hit_count = 0
     for (content,) in rows:
-        text_low = (content or "").lower()
-        if any(kw.lower() in text_low for kw in task_keywords):
-            matched += 1
-    score = min(matched / _HISTORY_FULL_COUNT, 1.0)
-    return score, matched
+        text_lower = (content or "").lower()
+        for kw in task_hits:
+            if kw in text_lower:
+                hit_count += 1
+                break
+    score = min(1.0, hit_count / _HISTORY_FULL_COUNT)
+    return score, hit_count
 
 
 def _load_score(current_load: int, workspace_avg: float) -> float:
-    """反向负载:1 - current_load / (avg * 2),clamp [0, 1]."""
+    """负载反向:负载越低 分越高."""
     if workspace_avg <= 0:
+        # 工作区还没 task → 大家都满分
         return 1.0
-    raw = 1.0 - current_load / (workspace_avg * 2)
-    return max(0.0, min(1.0, raw))
+    # 当前负载 / (2x 平均) → 反向
+    relative = current_load / (workspace_avg * 2)
+    return max(0.0, min(1.0, 1.0 - relative))
 
 
-def _capability_score(agent: Agent, hit_keywords: list[str]) -> float:
-    """
-    Agent.domain 字符串里包含至少 1 个命中 keyword → 1.0,否则 0.5.
-    避免 0 分:即使 domain 不直接覆盖,Agent 也算「能干一些」.
-    """
-    if not agent.domain or not hit_keywords:
-        return 0.5
-    domain_low = agent.domain.lower()
-    if any(kw.lower() in domain_low for kw in hit_keywords):
-        return 1.0
-    return 0.5
+def _availability_score(primary_user: Optional[User]) -> float:
+    """primary_user 在不在岗.suspended_until 在未来 → 0;否则 1."""
+    if primary_user is None:
+        return 0.0
+    if (
+        primary_user.suspended_until is not None
+        and primary_user.suspended_until > datetime.now(timezone.utc)
+    ):
+        return 0.0
+    return 1.0
 
 
 # ---- core ------------------------------------------------------------------
 
 
-async def find_best_assignee_for_task(
+async def find_best_agent_for_task(
     session: AsyncSession,
     workspace_id: uuid.UUID,
     task_content: str,
     *,
+    topic_keywords: Optional[list[str]] = None,
     threshold: float = _MIN_COMPOSITE_THRESHOLD,
-    exclude_user_ids: Optional[set[uuid.UUID]] = None,
+    exclude_agent_ids: Optional[set[uuid.UUID]] = None,
 ) -> Optional[RoutingDecision]:
     """
-    Score every active Agent in workspace, pick winner + their best bound user.
-    Returns None if winner < threshold (caller does manual dispatch).
+    v26: Score every active Agent in workspace, pick winner (AI 专家).
+    Returns None if no candidates (e.g. no active agent with primary_user).
 
-    `exclude_user_ids`:不要派给这些用户(例如发起人自己).
+    `topic_keywords`:LLM 抽 task 时同时给出的主题关键词 list,加入 semantic 维度.
+    `threshold`:低于此 视为 medium/low 置信(caller 应展示给 leader 选,而非自动派).
+    `exclude_agent_ids`:排除指定 agent (例如召集人不想用某个).
     """
-    exclude = exclude_user_ids or set()
+    exclude = exclude_agent_ids or set()
 
-    # 拿所有 active Agent
+    # 拿所有 active Agent.v26 要求 primary_user_id 非空 (没绑科室账号的 agent
+    # 没法接活).如果是 moderator 也跳过 (它是议程监督,不接 task).
     agents = (
         await session.execute(
             select(Agent).where(
                 Agent.workspace_id == workspace_id,
                 Agent.is_active.is_(True),
+                Agent.primary_user_id.is_not(None),
+                Agent.role != "moderator",
             )
         )
     ).scalars().all()
     if not agents:
         return None
+    agents = [a for a in agents if a.id not in exclude]
+    if not agents:
+        return None
 
-    # 拿 workspace 平均负载(per-user 活跃 task 数)— 一次查询
+    # 拿 workspace 平均负载 (per-user 活跃 task 数)
     load_rows = (
         await session.execute(
             select(Task.assignee_user_id, func.count(Task.id))
@@ -226,120 +286,151 @@ async def find_best_assignee_for_task(
         sum(load_by_user.values()) / len(load_by_user) if load_by_user else 0.0
     )
 
-    # 拿 workspace 内所有 user 的名字(避免 N+1)
-    all_user_ids: set[uuid.UUID] = set(load_by_user.keys())
-    # 也要包含 0-load 用户(不在 load_rows 里),后面用 bound_users 关联拿
-    name_by_uid: dict[uuid.UUID, str] = {}
+    # 拿所有 涉及的 user (primary_user) 的 record - 一次性
+    primary_uids = {a.primary_user_id for a in agents if a.primary_user_id}
+    primary_user_by_id: dict[uuid.UUID, User] = {}
+    if primary_uids:
+        urows = (
+            await session.execute(select(User).where(User.id.in_(primary_uids)))
+        ).scalars().all()
+        primary_user_by_id = {u.id: u for u in urows}
 
     candidates: list[RoutingScore] = []
 
     for agent in agents:
-        # 该 Agent 的 bound users
-        bound_rows = (
-            await session.execute(
-                select(WorkspaceMembership.user_id).where(
-                    WorkspaceMembership.workspace_id == workspace_id,
-                    WorkspaceMembership.bound_agent_id == agent.id,
-                )
-            )
-        ).all()
-        bound_uids = [r[0] for r in bound_rows if r[0] not in exclude]
-        # 没人 bound — 该 Agent 不能接活,跳过
-        if not bound_uids:
-            continue
+        primary_user = primary_user_by_id.get(agent.primary_user_id) if agent.primary_user_id else None
 
-        # 4 维 score
-        kw_score, kw_hits = _keyword_match_score(task_content, agent.keywords)
-        task_kws = set(kw_hits)  # 实际命中的(用于 history 计算)
-        if not task_kws:
-            # 关键词一个都没命中 → 历史也没意义,直接 0
-            history_score, history_count = 0.0, 0
-        else:
-            history_score, history_count = await _history_score(
-                session, workspace_id, bound_uids, task_kws
-            )
-
-        # 选 bound user 里负载最轻的(也是这个 Agent 的「候选 assignee」)
-        candidate_uid = min(bound_uids, key=lambda u: load_by_user.get(u, 0))
-        candidate_load = load_by_user.get(candidate_uid, 0)
-        load_score = _load_score(candidate_load, workspace_avg)
-
-        cap_score = _capability_score(agent, kw_hits)
-
-        composite = (
-            _W_KEYWORD * kw_score
-            + _W_HISTORY * history_score
-            + _W_LOAD * load_score
-            + _W_CAPABILITY * cap_score
+        # 1) 语义匹配 (keywords + domain + LLM 给的 topic_keywords)
+        sem_score, hits = _semantic_match_score(
+            task_content, agent.keywords, agent.domain, topic_keywords
         )
 
-        all_user_ids.add(candidate_uid)
+        # 2) 知识库 (v26.0 placeholder,v26.1 改 embedding)
+        kn_score = _knowledge_score(agent)
+
+        # 3) 历史经验
+        hits_set = set(hits)
+        if topic_keywords:
+            hits_set.update([k.lower() for k in topic_keywords if k])
+        history_score, history_count = await _history_score(
+            session, workspace_id, agent.id, agent.primary_user_id, hits_set
+        )
+
+        # 4) 负载 (primary_user 的活跃 task)
+        candidate_load = (
+            load_by_user.get(agent.primary_user_id, 0)
+            if agent.primary_user_id else 0
+        )
+        load_score = _load_score(candidate_load, workspace_avg)
+
+        # 5) 在岗
+        avail_score = _availability_score(primary_user)
+
+        composite = (
+            _W_SEMANTIC * sem_score
+            + _W_KNOWLEDGE * kn_score
+            + _W_HISTORY * history_score
+            + _W_LOAD * load_score
+            + _W_AVAILABILITY * avail_score
+        )
+
         candidates.append(
             RoutingScore(
                 agent_id=agent.id,
                 agent_name=agent.name,
+                agent_color=agent.color,
                 composite=round(composite, 4),
                 breakdown={
-                    "keyword": round(kw_score, 4),
+                    "semantic": round(sem_score, 4),
+                    "knowledge": round(kn_score, 4),
                     "history": round(history_score, 4),
                     "load": round(load_score, 4),
-                    "capability": round(cap_score, 4),
-                    "_hits": kw_hits,  # debug-only
+                    "availability": round(avail_score, 4),
+                    "_hits": hits,
                     "_history_count": history_count,
                     "_candidate_load": candidate_load,
                 },
-                candidate_user_id=candidate_uid,
-                candidate_user_name=None,  # fill after batch user lookup
-                candidate_user_active_count=candidate_load,
+                primary_user_id=agent.primary_user_id,
+                primary_user_name=primary_user.name if primary_user else None,
+                primary_user_active_count=candidate_load,
             )
         )
 
     if not candidates:
         return None
 
-    # 批量取 user 名字(避免 N+1)
-    if all_user_ids:
-        urows = (
-            await session.execute(
-                select(User.id, User.name).where(User.id.in_(all_user_ids))
-            )
-        ).all()
-        name_by_uid = {u: n for u, n in urows}
-    for c in candidates:
-        if c.candidate_user_id:
-            c.candidate_user_name = name_by_uid.get(c.candidate_user_id)
-
-    # 按 composite 降序排
+    # 按 composite 降序
     candidates.sort(key=lambda c: c.composite, reverse=True)
     winner = candidates[0]
 
-    if winner.composite < threshold or winner.candidate_user_id is None:
-        # 自动匹配失败 — 全榜送回去给 caller 做诊断
+    # 判置信档
+    if winner.composite >= _HIGH_CONFIDENCE_THRESHOLD:
+        tier = "high"
+    elif winner.composite >= _MIN_COMPOSITE_THRESHOLD:
+        tier = "medium"
+    else:
+        tier = "low"
+
+    # threshold=0 时 caller 想拿全候选 (preview 场景),即使最低分也返回
+    if winner.composite < threshold:
+        # caller 设了 threshold (不是 0) — 说明它只想要 medium+,不要 low
         logger.info(
-            "routing: no winner above threshold (best=%.3f < %.3f)",
-            winner.composite, threshold,
+            "routing: no winner above threshold (best=%.3f < %.3f) — tier=%s",
+            winner.composite, threshold, tier,
         )
-        return None
+        return RoutingDecision(
+            winner=winner,
+            all_candidates=candidates,
+            threshold=threshold,
+            confidence_tier=tier,
+        )
 
     return RoutingDecision(
         winner=winner,
         all_candidates=candidates,
         threshold=threshold,
+        confidence_tier=tier,
     )
 
 
-# ---- 让 RoutingDecision / Score 易序列化(Pydantic 友好)---------------------
+# v25 兼容:旧 import 路径仍可用,但 deprecated.内部 forward 到 v26.
+# 这样 老代码 (例如 routers/me.py 里几个老 endpoint) 不会立刻 crash.
+async def find_best_assignee_for_task(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    task_content: str,
+    *,
+    threshold: float = _MIN_COMPOSITE_THRESHOLD,
+    exclude_user_ids: Optional[set[uuid.UUID]] = None,  # v26 ignored
+) -> Optional[RoutingDecision]:
+    """v25 兼容 shim — 调用方应改用 find_best_agent_for_task."""
+    logger.warning(
+        "find_best_assignee_for_task is v25 deprecated; use find_best_agent_for_task"
+    )
+    return await find_best_agent_for_task(
+        session, workspace_id, task_content,
+        threshold=threshold,
+    )
+
+
+# ---- 序列化 (Pydantic 友好) -------------------------------------------------
 
 
 def routing_score_to_dict(s: RoutingScore) -> dict[str, Any]:
     return {
         "agent_id": str(s.agent_id),
         "agent_name": s.agent_name,
+        "agent_color": s.agent_color,
         "composite": s.composite,
         "breakdown": s.breakdown,
-        "candidate_user_id": str(s.candidate_user_id) if s.candidate_user_id else None,
-        "candidate_user_name": s.candidate_user_name,
-        "candidate_user_active_count": s.candidate_user_active_count,
+        # v25 兼容字段名 — UI/老调用方需要 candidate_user_*
+        "candidate_user_id": str(s.primary_user_id) if s.primary_user_id else None,
+        "candidate_user_name": s.primary_user_name,
+        "candidate_user_active_count": s.primary_user_active_count,
+        # v26 规范名
+        "primary_user_id": str(s.primary_user_id) if s.primary_user_id else None,
+        "primary_user_name": s.primary_user_name,
+        "primary_user_active_count": s.primary_user_active_count,
     }
 
 
@@ -348,4 +439,5 @@ def routing_decision_to_dict(d: RoutingDecision) -> dict[str, Any]:
         "winner": routing_score_to_dict(d.winner),
         "all_candidates": [routing_score_to_dict(c) for c in d.all_candidates],
         "threshold": d.threshold,
+        "confidence_tier": d.confidence_tier,
     }

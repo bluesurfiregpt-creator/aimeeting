@@ -176,6 +176,12 @@ class MyTaskOut(BaseModel):
     # Convenience for the meeting-source case — saves the FE a join.
     meeting_id: Optional[uuid.UUID] = None
     meeting_title: Optional[str] = None
+    # v26.0: 主责 AI 专家 + 协办 AI 专家
+    assignee_agent_id: Optional[uuid.UUID] = None
+    assignee_agent_name: Optional[str] = None
+    assignee_agent_color: Optional[str] = None
+    co_agent_ids: list[uuid.UUID] = []
+    co_agent_names: list[str] = []
     created_at: datetime
     updated_at: datetime
 
@@ -186,7 +192,11 @@ async def list_my_tasks(
         "active",
         regex="^(open|all|done|in_progress|dispatched|accepted|submitted|archived|cancelled|active|pending|working|review)$",
     ),
-    role: str = Query("assignee", regex="^(assignee|reviewer|coassignee)$"),
+    # v26.0: role 加 agent_rep (我作为 AI 专家的科室代表) + all_pending (admin 全局)
+    role: str = Query(
+        "assignee",
+        regex="^(assignee|reviewer|coassignee|agent_rep|all_pending)$",
+    ),
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
@@ -237,6 +247,24 @@ async def list_my_tasks(
             text("(task.co_assignees @> CAST(:me AS jsonb))").bindparams(
                 me=f'["{auth.user.id}"]'
             ),
+        )
+    elif role == "agent_rep":
+        # v26.0: 我作为 AI 专家的科室代表 — 我是某个 agent.primary_user_id,
+        # 所有派给那个 agent 的任务都让我看到 (= 派给 该 agent 绑的 我).
+        # 实际上 task.assignee_user_id 就是 agent.primary_user_id,所以查询
+        # 跟 role='assignee' 等价 — 但 UI 上语义不同,前端会拿 agent name 头部
+        # 展示.这里也接受 同义查询.
+        q = select(Task).where(
+            Task.assignee_user_id == auth.user.id,
+            Task.workspace_id == auth.workspace.id,
+        )
+    elif role == "all_pending":
+        # v26.0: leader/admin 全局视图 — 看 workspace 内所有 status=open 的 task.
+        # 用于「待我派发」 dashboard.要求 leader/admin 权限.
+        await require_leader_or_admin(session, auth)
+        q = select(Task).where(
+            Task.workspace_id == auth.workspace.id,
+            Task.status == "open",
         )
     else:
         q = select(Task).where(
@@ -306,6 +334,19 @@ async def list_my_tasks(
         for tid, uid in co_rows:
             co_submitted_map.setdefault(tid, []).append(uid)
 
+    # v26.0: 批量拉所有相关 agent (主责 + 协办) 的 name + color
+    all_agent_ids: set[uuid.UUID] = set()
+    for t in tasks:
+        if t.assignee_agent_id:
+            all_agent_ids.add(t.assignee_agent_id)
+        if t.co_agent_ids:
+            for cid in t.co_agent_ids:
+                try:
+                    all_agent_ids.add(uuid.UUID(cid))
+                except (TypeError, ValueError):
+                    continue
+    agent_info_map = await _lookup_agent_info(session, all_agent_ids)
+
     out: list[MyTaskOut] = []
     for t in tasks:
         meeting_id: Optional[uuid.UUID] = None
@@ -319,26 +360,11 @@ async def list_my_tasks(
                 except ValueError:
                     pass
         out.append(
-            MyTaskOut(
-                id=t.id,
-                title=t.title,
-                content=t.content,
-                assignee_user_id=t.assignee_user_id,
-                due_at=t.due_at,
-                status=t.status,
-                dispatched_at=t.dispatched_at,
-                dispatched_by_user_id=t.dispatched_by_user_id,
-                accepted_at=t.accepted_at,
-                started_at=t.started_at,
-                data_classification=t.data_classification or "general",
-                co_assignees=_parse_co_assignees(t),
-                co_submitted_user_ids=co_submitted_map.get(t.id, []),
-                source_type=t.source_type,
-                source_ref=t.source_ref,
-                meeting_id=meeting_id,
-                meeting_title=meeting_title,
-                created_at=t.created_at,
-                updated_at=t.updated_at,
+            _task_to_my_out(
+                t,
+                meeting_pair=(meeting_id, meeting_title) if meeting_id else None,
+                co_submitted=co_submitted_map.get(t.id, []),
+                agent_info=agent_info_map,
             )
         )
     return out
@@ -348,12 +374,18 @@ async def list_my_tasks(
 
 
 class DispatchIn(BaseModel):
-    assignee_user_id: uuid.UUID
+    # v26.0: 优先用 assignee_agent_id (派给 AI 专家);assignee_user_id 兼容
+    # 老 client 仍可单独传(走 v25 风格).如果给了 agent_id,从 agent.primary_user_id
+    # derive user_id;两个都给 时以 agent_id 为准 + user_id 必须等于 agent.primary_user_id.
+    assignee_agent_id: Optional[uuid.UUID] = None
+    assignee_user_id: Optional[uuid.UUID] = None
     due_at: Optional[datetime] = None
     note: Optional[str] = None  # optional context line for the assignee
     # v22.5: 协办列表(最多 5 人,不能含主责自己,所有都必须在 workspace).
     # None = 退化到单 assignee 模式,与 v18-v22 完全兼容.
     co_assignees: Optional[list[uuid.UUID]] = None
+    # v26.0: 协办 AI 专家 ids
+    co_agent_ids: Optional[list[uuid.UUID]] = None
 
 
 class ReturnIn(BaseModel):
@@ -439,11 +471,41 @@ async def dispatch_task(
     t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
     new_status = transition(TASK_ACTION_DISPATCH, t.status)
 
-    # Verify assignee is in this workspace.
+    # v26.0: 优先解析 assignee_agent_id → derive assignee_user_id 为该 agent
+    # 的 primary_user_id.若 client 只传 user_id (v25 兼容路径) 走老逻辑.
+    resolved_agent_id: Optional[uuid.UUID] = None
+    resolved_user_id: Optional[uuid.UUID] = payload.assignee_user_id
+    if payload.assignee_agent_id is not None:
+        from ..models import Agent
+        ag = (
+            await session.execute(
+                select(Agent).where(
+                    Agent.id == payload.assignee_agent_id,
+                    Agent.workspace_id == auth.workspace.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not ag:
+            raise HTTPException(400, "assignee_agent_id not in this workspace")
+        if ag.primary_user_id is None:
+            raise HTTPException(
+                400,
+                f"AI 专家「{ag.name}」未配置科室账号(primary_user),"
+                "无法接受任务派发.请先在 /workspace/agents 配置."
+            )
+        resolved_agent_id = ag.id
+        resolved_user_id = ag.primary_user_id
+
+    if resolved_user_id is None:
+        raise HTTPException(
+            400, "必须指定 assignee_agent_id 或 assignee_user_id 之一"
+        )
+
+    # Verify assignee user is in this workspace.
     u = (
         await session.execute(
             select(User).where(
-                User.id == payload.assignee_user_id,
+                User.id == resolved_user_id,
                 User.workspace_id == auth.workspace.id,
             )
         )
@@ -468,7 +530,7 @@ async def dispatch_task(
         # 去重 + 不能含主责自己
         seen: set[uuid.UUID] = set()
         for cid in payload.co_assignees:
-            if cid == payload.assignee_user_id:
+            if cid == resolved_user_id:
                 raise HTTPException(400, "协办不能包含主责自己")
             if cid in seen:
                 continue
@@ -493,18 +555,22 @@ async def dispatch_task(
                 )
 
     now = datetime.now(timezone.utc)
-    t.assignee_user_id = payload.assignee_user_id
+    t.assignee_agent_id = resolved_agent_id  # v26.0
+    t.assignee_user_id = resolved_user_id
     if payload.due_at is not None:
         t.due_at = payload.due_at
     t.status = new_status
     t.dispatched_at = now
     t.dispatched_by_user_id = auth.user.id
     t.co_assignees = [str(x) for x in co_uuids] if co_uuids else None
+    # v26.0: 协办 AI 专家
+    if payload.co_agent_ids:
+        t.co_agent_ids = [str(x) for x in payload.co_agent_ids[:5]]
 
     await _mirror_status_to_action(session, t)
 
     # 通知主责
-    if payload.assignee_user_id != auth.user.id:
+    if resolved_user_id != auth.user.id:
         notify_payload = _task_to_meeting_payload(t)
         notify_payload["due_at"] = t.due_at.isoformat() if t.due_at else None
         notify_payload["dispatched_by"] = auth.user.name
@@ -512,10 +578,12 @@ async def dispatch_task(
             notify_payload["note"] = payload.note[:200]
         if co_uuids:
             notify_payload["co_assignees_count"] = len(co_uuids)
+        if resolved_agent_id:
+            notify_payload["assignee_agent_id"] = str(resolved_agent_id)
         await emit_notification(
             session,
             workspace_id=auth.workspace.id,
-            user_id=payload.assignee_user_id,
+            user_id=resolved_user_id,
             kind="task_dispatched",
             payload=notify_payload,
         )
@@ -527,7 +595,7 @@ async def dispatch_task(
         co_payload = _task_to_meeting_payload(t)
         co_payload["due_at"] = t.due_at.isoformat() if t.due_at else None
         co_payload["dispatched_by"] = auth.user.name
-        co_payload["coordinator_user_id"] = str(payload.assignee_user_id)
+        co_payload["coordinator_user_id"] = str(resolved_user_id)
         co_payload["coordinator_name"] = u.name
         if payload.note:
             co_payload["note"] = payload.note[:200]
@@ -543,7 +611,8 @@ async def dispatch_task(
         session, auth, "task.dispatch",
         target_type="task", target_id=str(t.id),
         payload={
-            "assignee_user_id": str(payload.assignee_user_id),
+            "assignee_user_id": str(resolved_user_id),
+            "assignee_agent_id": str(resolved_agent_id) if resolved_agent_id else None,
             "co_assignees_count": len(co_uuids),
             "due_at": t.due_at.isoformat() if t.due_at else None,
         },
@@ -1159,18 +1228,26 @@ async def draft_submission_endpoint(
 class RouteScoreOut(BaseModel):
     agent_id: uuid.UUID
     agent_name: str
+    agent_color: Optional[str] = None  # v26.0
     composite: float
-    breakdown: dict  # {keyword, history, load, capability, _hits, _history_count, _candidate_load}
+    # v26.0 breakdown:{semantic, knowledge, history, load, availability, _hits, _history_count, _candidate_load}
+    # v25 兼容字段:还会有 keyword/capability key 当 caller 是旧版,我们不阻挡 extra keys
+    breakdown: dict
+    # v25 兼容字段名 (candidate_user_*) 与 v26 规范字段 (primary_user_*)
     candidate_user_id: Optional[uuid.UUID] = None
     candidate_user_name: Optional[str] = None
     candidate_user_active_count: int = 0
+    primary_user_id: Optional[uuid.UUID] = None
+    primary_user_name: Optional[str] = None
+    primary_user_active_count: int = 0
 
 
 class RoutePreviewOut(BaseModel):
-    """所有候选 Agent 的评分(降序),winner 是第一个 + 是否过阈值."""
+    """所有候选 AI 专家 的评分(降序),winner 是第一个 + 是否过阈值."""
     candidates: list[RouteScoreOut]
     threshold: float
-    matched: bool  # 最高分是否 >= threshold(可以 auto-dispatch)
+    matched: bool  # winner.composite 是否 >= 阈值
+    confidence_tier: str = "low"  # v26.0: high / medium / low
 
 
 class AutoRouteOut(BaseModel):
@@ -1180,6 +1257,7 @@ class AutoRouteOut(BaseModel):
     winner: Optional[RouteScoreOut] = None
     task: Optional[MyTaskOut] = None  # 派发后的最新 task 状态
     candidates: list[RouteScoreOut] = []  # 全候选(降序),给 UI 展示「为啥选他」
+    confidence_tier: str = "low"  # v26.0
 
 
 # v25-bug-fix #5: 内容/指令 级别的 4-维路由别名 endpoint(测试用例期望)
@@ -1202,36 +1280,31 @@ async def dispatch_recommend_by_content(
 
     返回 同 /tasks/{id}/route-preview.
     """
-    from ..routing import find_best_assignee_for_task, routing_score_to_dict
+    from ..routing import find_best_agent_for_task, routing_score_to_dict, _MIN_COMPOSITE_THRESHOLD
 
     text = (payload.content or "").strip()
     if not text:
         raise HTTPException(400, "content required")
 
-    decision = await find_best_assignee_for_task(
+    # v26.0: 跑一次 threshold=0 拿全候选,然后看 confidence_tier 决定 matched
+    decision = await find_best_agent_for_task(
         session, auth.workspace.id, text,
-        exclude_user_ids={auth.user.id},
+        threshold=0.0,
     )
     if decision is None:
-        from ..routing import _MIN_COMPOSITE_THRESHOLD
-        all_decision = await find_best_assignee_for_task(
-            session, auth.workspace.id, text, threshold=0.0,
-            exclude_user_ids={auth.user.id},
-        )
-        cands = (
-            [routing_score_to_dict(s) for s in all_decision.all_candidates]
-            if all_decision else []
-        )
         return RoutePreviewOut(
-            candidates=[RouteScoreOut(**c) for c in cands],
+            candidates=[],
             threshold=_MIN_COMPOSITE_THRESHOLD,
             matched=False,
+            confidence_tier="low",
         )
     cands = [routing_score_to_dict(s) for s in decision.all_candidates]
+    matched = decision.confidence_tier in ("high", "medium")
     return RoutePreviewOut(
         candidates=[RouteScoreOut(**c) for c in cands],
-        threshold=decision.threshold,
-        matched=True,
+        threshold=_MIN_COMPOSITE_THRESHOLD,
+        matched=matched,
+        confidence_tier=decision.confidence_tier,
     )
 
 
@@ -1278,36 +1351,33 @@ async def preview_route(
       - leader 派发前先看「系统建议派给谁,凭什么」
       - 客户演示时「让 AI 决策」
     """
-    from ..routing import find_best_assignee_for_task, routing_score_to_dict
+    from ..routing import find_best_agent_for_task, routing_score_to_dict, _MIN_COMPOSITE_THRESHOLD
 
     t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
-    decision = await find_best_assignee_for_task(
+    # v26.0: 取 task.source_ref 里的 topic_keywords (action_extractor 抽时记的)
+    topic_kws: list[str] = []
+    if isinstance(t.source_ref, dict):
+        tk = t.source_ref.get("topic_keywords")
+        if isinstance(tk, list):
+            topic_kws = [s for s in tk if isinstance(s, str)]
+    decision = await find_best_agent_for_task(
         session, auth.workspace.id, t.content,
-        exclude_user_ids={t.created_by_user_id} if t.created_by_user_id else None,
+        topic_keywords=topic_kws or None,
+        threshold=0.0,  # preview 拿全候选
     )
     if decision is None:
-        # 没 winner,可能 0 候选或者全低于阈值.我们再单独跑一遍拿全候选(无 threshold)
-        from ..routing import _MIN_COMPOSITE_THRESHOLD
-        from ..routing import find_best_assignee_for_task as _f
-        # 跑一次低阈值的 — 这是「展示」场景,要把所有候选给出来
-        all_decision = await _f(
-            session, auth.workspace.id, t.content,
-            threshold=0.0,
-            exclude_user_ids={t.created_by_user_id} if t.created_by_user_id else None,
-        )
-        candidates = (
-            [routing_score_to_dict(c) for c in all_decision.all_candidates]
-            if all_decision else []
-        )
         return RoutePreviewOut(
-            candidates=[RouteScoreOut(**c) for c in candidates],
+            candidates=[],
             threshold=_MIN_COMPOSITE_THRESHOLD,
             matched=False,
+            confidence_tier="low",
         )
+    matched = decision.confidence_tier in ("high", "medium")
     return RoutePreviewOut(
         candidates=[RouteScoreOut(**routing_score_to_dict(c)) for c in decision.all_candidates],
-        threshold=decision.threshold,
-        matched=True,
+        threshold=_MIN_COMPOSITE_THRESHOLD,
+        matched=matched,
+        confidence_tier=decision.confidence_tier,
     )
 
 
@@ -1324,7 +1394,7 @@ async def auto_route_task(
     leader/admin only.失败(无 winner / 阈值不达 / Task 已派) → 返回 matched=False
     + 全候选,UI 让用户手动选.
     """
-    from ..routing import find_best_assignee_for_task, routing_score_to_dict
+    from ..routing import find_best_agent_for_task, routing_score_to_dict, _MIN_COMPOSITE_THRESHOLD
 
     await require_leader_or_admin(session, auth)
     t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
@@ -1333,17 +1403,30 @@ async def auto_route_task(
             409, f"task 当前状态 {t.status},只能对 open 状态的 task 自动派发"
         )
 
-    decision = await find_best_assignee_for_task(
+    # v26.0: 跑 agent routing.threshold=0.40 (medium 起步).
+    topic_kws: list[str] = []
+    if isinstance(t.source_ref, dict):
+        tk = t.source_ref.get("topic_keywords")
+        if isinstance(tk, list):
+            topic_kws = [s for s in tk if isinstance(s, str)]
+    decision = await find_best_agent_for_task(
         session, auth.workspace.id, t.content,
-        exclude_user_ids={t.created_by_user_id} if t.created_by_user_id else None,
+        topic_keywords=topic_kws or None,
+        threshold=_MIN_COMPOSITE_THRESHOLD,
     )
-    if decision is None or decision.winner.candidate_user_id is None:
-        # 把所有候选拿出来给 UI(threshold=0 跑一次)
-        from ..routing import _MIN_COMPOSITE_THRESHOLD
-        all_decision = await find_best_assignee_for_task(
+
+    # v26.0: medium / low 都不自动派 — 让 UI 让 leader 看 候选 + 手动选.
+    # 只有 high (≥0.60) 才走 auto-dispatch.
+    if (
+        decision is None
+        or decision.confidence_tier != "high"
+        or decision.winner.primary_user_id is None
+    ):
+        # 拉全候选给 UI
+        all_decision = await find_best_agent_for_task(
             session, auth.workspace.id, t.content,
+            topic_keywords=topic_kws or None,
             threshold=0.0,
-            exclude_user_ids={t.created_by_user_id} if t.created_by_user_id else None,
         )
         candidates_dicts = (
             [routing_score_to_dict(c) for c in all_decision.all_candidates]
@@ -1355,25 +1438,34 @@ async def auto_route_task(
             winner=None,
             task=None,
             candidates=[RouteScoreOut(**c) for c in candidates_dicts],
+            confidence_tier=decision.confidence_tier if decision else "low",
         )
 
-    # 命中!走 dispatch 流程(复用状态机)
+    # 命中 high 置信!走 dispatch 流程(复用状态机)
     new_status = transition(TASK_ACTION_DISPATCH, t.status)
     now = datetime.now(timezone.utc)
-    t.assignee_user_id = decision.winner.candidate_user_id
+    t.assignee_agent_id = decision.winner.agent_id  # v26.0: 真正的主人
+    t.assignee_user_id = decision.winner.primary_user_id  # derive: agent 绑的科室账号
     t.status = new_status
     t.dispatched_at = now
     t.dispatched_by_user_id = auth.user.id
+    # 把 composite > 0.5 的非 winner 候选记为协办
+    co_agents = [
+        str(c.agent_id) for c in decision.all_candidates[1:3] if c.composite > 0.5
+    ]
+    if co_agents:
+        t.co_agent_ids = co_agents
 
     await _mirror_status_to_action(session, t)
 
-    if t.assignee_user_id != auth.user.id:
+    if t.assignee_user_id and t.assignee_user_id != auth.user.id:
         notify_payload = _task_to_meeting_payload(t)
         notify_payload["due_at"] = t.due_at.isoformat() if t.due_at else None
         notify_payload["dispatched_by"] = auth.user.name
         notify_payload["auto_routed"] = True
         notify_payload["routing_composite"] = decision.winner.composite
         notify_payload["routing_agent"] = decision.winner.agent_name
+        notify_payload["routing_tier"] = decision.confidence_tier
         await emit_notification(
             session,
             workspace_id=auth.workspace.id,
@@ -1388,10 +1480,11 @@ async def auto_route_task(
         payload={
             "winner_agent_id": str(decision.winner.agent_id),
             "winner_agent_name": decision.winner.agent_name,
-            "winner_user_id": str(decision.winner.candidate_user_id),
+            "winner_user_id": str(decision.winner.primary_user_id) if decision.winner.primary_user_id else None,
             "composite": decision.winner.composite,
             "breakdown": decision.winner.breakdown,
             "threshold": decision.threshold,
+            "tier": decision.confidence_tier,
         },
         autocommit=False,
     )
@@ -1410,6 +1503,7 @@ async def auto_route_task(
         winner=RouteScoreOut(**routing_score_to_dict(decision.winner)),
         task=out_task,
         candidates=candidates,
+        confidence_tier=decision.confidence_tier,
     )
 
 
@@ -1948,7 +2042,19 @@ async def get_task_detail(
     # ---- 复用 _task_to_my_out 拼基础部分,然后扩展 ----
     co_submitted_uids = [cp.co_assignee_user_id for cp in cp_rows]
     meeting_pair = await _meeting_title_for(session, t)
-    base = _task_to_my_out(t, meeting_pair, co_submitted=co_submitted_uids)
+    # v26.0: 同步拉 agent info 注入 base
+    agent_ids_for_detail: set[uuid.UUID] = set()
+    if t.assignee_agent_id:
+        agent_ids_for_detail.add(t.assignee_agent_id)
+    co_agent_uuids_detail = _parse_co_agent_ids(t)
+    agent_ids_for_detail.update(co_agent_uuids_detail)
+    agent_info_detail = await _lookup_agent_info(session, agent_ids_for_detail)
+    base = _task_to_my_out(
+        t, meeting_pair,
+        co_submitted=co_submitted_uids,
+        agent_info=agent_info_detail,
+        co_agent_uuids=co_agent_uuids_detail,
+    )
 
     return TaskDetailOut(
         **base.model_dump(),
@@ -2833,6 +2939,35 @@ def _parse_co_assignees(t: Task) -> list[uuid.UUID]:
     return out
 
 
+def _parse_co_agent_ids(t: Task) -> list[uuid.UUID]:
+    """v26.0: 协办 AI 专家 ids."""
+    out: list[uuid.UUID] = []
+    if not t.co_agent_ids:
+        return out
+    for s in t.co_agent_ids:
+        try:
+            out.append(uuid.UUID(s))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+async def _lookup_agent_info(
+    session: AsyncSession,
+    agent_ids: set[uuid.UUID],
+) -> dict[uuid.UUID, dict]:
+    """v26.0: 批量拉 agent 名字 + 颜色."""
+    if not agent_ids:
+        return {}
+    from ..models import Agent
+    rows = (
+        await session.execute(
+            select(Agent.id, Agent.name, Agent.color).where(Agent.id.in_(agent_ids))
+        )
+    ).all()
+    return {r[0]: {"name": r[1], "color": r[2]} for r in rows}
+
+
 async def _task_to_my_out_with_lookup(
     session: AsyncSession,
     t: Task,
@@ -2845,14 +2980,35 @@ async def _task_to_my_out_with_lookup(
     co_submitted = (
         await _co_submitted_for(session, t.id) if t.co_assignees else []
     )
-    return _task_to_my_out(t, meeting_pair, co_submitted=co_submitted)
+    # v26.0: 拉 agent name + color
+    agent_ids: set[uuid.UUID] = set()
+    if t.assignee_agent_id:
+        agent_ids.add(t.assignee_agent_id)
+    co_agents = _parse_co_agent_ids(t)
+    agent_ids.update(co_agents)
+    agent_info = await _lookup_agent_info(session, agent_ids)
+    return _task_to_my_out(
+        t, meeting_pair,
+        co_submitted=co_submitted,
+        agent_info=agent_info,
+        co_agent_uuids=co_agents,
+    )
 
 
 def _task_to_my_out(
     t: Task,
     meeting_pair: Optional[tuple[uuid.UUID, str]],
     co_submitted: Optional[list[uuid.UUID]] = None,
+    agent_info: Optional[dict[uuid.UUID, dict]] = None,    # v26.0
+    co_agent_uuids: Optional[list[uuid.UUID]] = None,      # v26.0
 ) -> MyTaskOut:
+    agent_info = agent_info or {}
+    co_agent_uuids = co_agent_uuids if co_agent_uuids is not None else _parse_co_agent_ids(t)
+    ag_main = agent_info.get(t.assignee_agent_id) if t.assignee_agent_id else None
+    co_agent_names = [
+        agent_info[uid]["name"] for uid in co_agent_uuids
+        if uid in agent_info
+    ]
     return MyTaskOut(
         id=t.id,
         title=t.title,
@@ -2871,6 +3027,12 @@ def _task_to_my_out(
         source_ref=t.source_ref,
         meeting_id=meeting_pair[0] if meeting_pair else None,
         meeting_title=meeting_pair[1] if meeting_pair else None,
+        # v26.0
+        assignee_agent_id=t.assignee_agent_id,
+        assignee_agent_name=ag_main["name"] if ag_main else None,
+        assignee_agent_color=ag_main["color"] if ag_main else None,
+        co_agent_ids=co_agent_uuids,
+        co_agent_names=co_agent_names,
         created_at=t.created_at,
         updated_at=t.updated_at,
     )

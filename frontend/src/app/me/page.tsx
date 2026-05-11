@@ -35,6 +35,7 @@ type TaskTab =
   | "review"      // 待审核 (submitted)
   | "done"        // 已完成
   | "all"         // 全部 (active + done — excludes archived/cancelled)
+  | "all_pending" // v26.0: leader 全局 — 所有待派发任务 (admin only)
   | "directives"  // v25 fix #4: 领导指令(过往拆解记录 + 当前 draft)
   | "upper_docs"; // v25 fix #4: 上级文件(过往上传 + 当前 draft)
 
@@ -44,12 +45,13 @@ const TAB_LABELS: Record<TaskTab, string> = {
   review: "待审核",
   done: "已完成",
   all: "全部",
+  all_pending: "🎯 全局待派发",  // v26.0
   directives: "领导指令",
   upper_docs: "上级文件",
 };
 
 const TAB_ORDER: TaskTab[] = [
-  "pending", "working", "review", "done", "all",
+  "pending", "working", "review", "done", "all", "all_pending",
   "directives", "upper_docs",
 ];
 
@@ -216,8 +218,14 @@ export default function MePage() {
     if (t === "directives" || t === "upper_docs") return;
     setTasksLoading(true);
     try {
-      const r = await api.listMyTasks(t, "assignee");
-      setTasks(r);
+      // v26.0: all_pending = workspace 全局 status=open (admin only)
+      if (t === "all_pending") {
+        const r = await api.listMyTasks("active", "all_pending");
+        setTasks(r);
+      } else {
+        const r = await api.listMyTasks(t, "assignee");
+        setTasks(r);
+      }
     } catch {
       setTasks([]);
     } finally {
@@ -529,6 +537,12 @@ export default function MePage() {
               {t.content}
             </Link>
             <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-500">
+              {/* v26.0: 主责 AI 专家(若已派) */}
+              {t.assignee_agent_name && (
+                <span className="text-zinc-300">
+                  🤖 主责: <b className="text-zinc-100">{t.assignee_agent_name}</b>
+                </span>
+              )}
               {meetingId ? (
                 <Link
                   href={`/meeting/${meetingId}`}

@@ -88,6 +88,10 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     # v25.19: action item 实录锚点(LLM 输出的行号数组,JSON 数组).
     # 配合 evidence_quote 让前端能 跳转到 实录精确位置 高亮上下文.
     ("meeting_action_item", "evidence_anchor_line_ids", "JSON"),
+    # v26.0: agent-centric 派发 — 任务派给 AI 专家,真人 user 只是它的科室操作员
+    ("agent", "primary_user_id", "UUID"),
+    ("task", "assignee_agent_id", "UUID"),
+    ("task", "co_agent_ids", "JSON"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).
