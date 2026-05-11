@@ -41,6 +41,7 @@ def add_action_with_task(
     status: str = "open",
     action_source_type: str = "manual",
     created_by_user_id: Optional[uuid.UUID] = None,
+    evidence_quote: Optional[str] = None,  # v25.15: 实录依据原句
 ) -> tuple[MeetingActionItem, Task]:
     """
     Add both rows to the session. Their ids are generated client-side so
@@ -52,6 +53,14 @@ def add_action_with_task(
     action_id = _new_uuid()
     task_id = _new_uuid()
 
+    source_ref: dict = {
+        "meeting_id": str(meeting_id),
+        "action_item_id": str(action_id),
+        "action_source_type": action_source_type,
+    }
+    if evidence_quote:
+        source_ref["evidence_quote"] = evidence_quote  # v25.15
+
     task = Task(
         id=task_id,
         workspace_id=workspace_id,
@@ -61,11 +70,7 @@ def add_action_with_task(
         due_at=due_at,
         status=status,
         source_type="meeting",
-        source_ref={
-            "meeting_id": str(meeting_id),
-            "action_item_id": str(action_id),
-            "action_source_type": action_source_type,
-        },
+        source_ref=source_ref,
     )
     action = MeetingActionItem(
         id=action_id,
@@ -78,6 +83,7 @@ def add_action_with_task(
         status=status,
         source_type=action_source_type,
         task_id=task_id,
+        evidence_quote=evidence_quote,  # v25.15
     )
     session.add(task)
     session.add(action)

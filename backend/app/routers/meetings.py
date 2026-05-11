@@ -1166,9 +1166,11 @@ class ActionItemOut(BaseModel):
     updated_at: datetime
     # v25.14: 关联 Task 的状态信息(用户视角:行动项 + 流转 是一回事)
     task_id: Optional[uuid.UUID] = None
-    task_status: Optional[str] = None  # open / dispatched / accepted / in_progress / submitted / done / archived / cancelled
-    task_assignee_name: Optional[str] = None  # 可能与 action.assignee 不同(被 leader 重新分派后)
+    task_status: Optional[str] = None
+    task_assignee_name: Optional[str] = None
     task_co_assignees_count: int = 0
+    # v25.15: 实录依据 — LLM 抽出待办时记下的纪要原文支撑句
+    evidence_quote: Optional[str] = None
 
 
 class ActionItemIn(BaseModel):
@@ -1206,6 +1208,7 @@ def _action_to_out(
         task_status=ti["status"] if ti else None,
         task_assignee_name=ti["assignee_name"] if ti else None,
         task_co_assignees_count=ti["co_count"] if ti else 0,
+        evidence_quote=row.evidence_quote,  # v25.15
     )
 
 

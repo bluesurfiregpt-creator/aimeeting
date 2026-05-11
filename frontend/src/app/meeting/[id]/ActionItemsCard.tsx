@@ -373,7 +373,7 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
                       {/* v25.14: 一键 进 任务详情(派发 / 审核 / 沉淀 等) */}
                       {item.task_id && (
                         <Link
-                          href={`/task/${item.task_id}`}
+                          href={`/task/${item.task_id}?from=meeting&mid=${meetingId}`}
                           className="ml-auto text-[10px] text-accent-400 hover:text-accent-300"
                           title="进入任务详情 — 派发 / 签收 / 评分 / 沉淀"
                         >
@@ -381,6 +381,17 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
                         </Link>
                       )}
                     </div>
+
+                    {/* v25.15: 实录依据 — 这条待办来自纪要的哪一句 */}
+                    {item.evidence_quote && (
+                      <div
+                        className="mt-1.5 rounded-lg border-l-2 border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[11px] text-zinc-400"
+                        title="📜 实录依据 — 这条待办是因为纪要里出现了这句话"
+                      >
+                        <span className="mr-1 text-amber-400">📜 依据:</span>
+                        <span className="italic">「{item.evidence_quote}」</span>
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={() => toggleThread(item.id)}

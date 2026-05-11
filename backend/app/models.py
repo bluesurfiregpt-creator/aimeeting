@@ -418,6 +418,10 @@ class MeetingActionItem(Base):
     task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("task.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # v25.15: 实录依据 — action_extractor 抽出待办时,记下纪要/实录中的支撑句.
+    # 让用户/leader 看 "为什么生成这条待办" — 闭环里的关键透明度.
+    # 也写到 dual-write 的 Task.source_ref.evidence_quote 让任务详情页能取到.
+    evidence_quote: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

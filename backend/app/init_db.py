@@ -83,6 +83,8 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     # v24.3 #5 (ABAC 雏形):user.department + attributes JSONB.
     ('"user"', "department", "VARCHAR(128)"),
     ('"user"', "attributes", "JSONB"),
+    # v25.15: action item 实录依据 — 让 用户看 待办的来源句
+    ("meeting_action_item", "evidence_quote", "TEXT"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

@@ -1,7 +1,8 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   api,
   CLASSIFICATION_BADGE_CLASSES,
@@ -115,6 +116,17 @@ export default function TaskDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id: taskId } = use(params);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // v25.15: 智能返回 — 拿 ?from=meeting&mid=xxx 决定返回到哪
+  const fromMeeting = useMemo(() => {
+    const f = searchParams?.get("from");
+    const mid = searchParams?.get("mid");
+    return f === "meeting" && mid ? mid : null;
+  }, [searchParams]);
+  const backHref = fromMeeting ? `/meeting/${fromMeeting}` : "/me";
+  const backLabel = fromMeeting ? "← 返回会议" : "← 我的";
+
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -203,10 +215,10 @@ export default function TaskDetailPage({
         data-testid="task-detail-error"
       >
         <Link
-          href="/me"
+          href={backHref}
           className="text-xs text-zinc-500 hover:text-zinc-200"
         >
-          ← 返回我的
+          {backLabel}
         </Link>
         <div className="mt-4 text-sm text-rose-400">
           {error || "任务不存在"}
@@ -234,10 +246,11 @@ export default function TaskDetailPage({
       <header>
         <div className="mb-2 flex items-center gap-2">
           <Link
-            href="/me"
+            href={backHref}
             className="text-xs text-zinc-500 hover:text-zinc-200"
+            data-testid="task-detail-back"
           >
-            ← 我的
+            {backLabel}
           </Link>
           <span className="text-zinc-700">·</span>
           <span className="text-xs text-zinc-500">任务详情</span>
@@ -340,6 +353,43 @@ export default function TaskDetailPage({
           </div>
         )}
       </section>
+
+      {/* v25.15: 实录依据 / 会议来源(从 source_ref 拿 — 来自 LLM 抽取时记下的) */}
+      {(() => {
+        const sref = (t.source_ref as Record<string, unknown> | null | undefined) || {};
+        const evidence = typeof sref.evidence_quote === "string" ? sref.evidence_quote : null;
+        const meetingId = typeof sref.meeting_id === "string" ? sref.meeting_id : null;
+        if (!evidence && !meetingId) return null;
+        return (
+          <section
+            className="mt-6 rounded-lg border border-amber-500/20 bg-amber-500/5 p-4"
+            data-testid="task-detail-evidence"
+          >
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-amber-200">
+              <span>📜</span> 这条任务从哪来
+            </h2>
+            <p className="mt-0.5 text-[11px] text-zinc-500">
+              AI 抽取本待办时记下的会议实录原文.闭环透明 — 你可以追溯回会议讨论.
+            </p>
+            {evidence && (
+              <blockquote className="mt-2 rounded-md border-l-2 border-amber-400/60 bg-ink-950/50 px-3 py-2 text-sm italic text-zinc-200">
+                「{evidence}」
+              </blockquote>
+            )}
+            {meetingId && t.meeting_title && (
+              <div className="mt-2 text-xs text-zinc-500">
+                来自会议:
+                <Link
+                  href={`/meeting/${meetingId}`}
+                  className="ml-1 text-accent-400 hover:text-accent-300"
+                >
+                  《{t.meeting_title}》→
+                </Link>
+              </div>
+            )}
+          </section>
+        );
+      })()}
 
       {/* v24.1 #3: 自动派发(只在 open 状态显示) */}
       {t.status === "open" && (

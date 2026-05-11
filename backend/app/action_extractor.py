@@ -43,7 +43,13 @@ logger = logging.getLogger(__name__)
 _SYSTEM_PROMPT = """你是一名会议秘书。从会议纪要里抽取 **确定要做** 的工作型待办行动项 (Action Items).
 
 **严格 JSON 单行** 输出,不要包代码块,不要任何其他文字:
-{"items": [{"content": "<待办内容,简短>", "assignee_name": "<负责人姓名,可空字符串>", "due_at": "YYYY-MM-DD 或空字符串"}]}
+{"items": [{"content": "<待办内容,简短>", "assignee_name": "<负责人姓名,可空字符串>", "due_at": "YYYY-MM-DD 或空字符串", "evidence_quote": "<纪要原文里能支撑这条待办的句子,逐字摘抄,30-100 字>"}]}
+
+evidence_quote 字段是新加的关键追溯信息:
+  - 必填,不能空字符串
+  - **必须**是纪要原文的逐字摘抄(可截前后但不能改字)
+  - 后续 UI 会把 evidence_quote 显示给用户看 "为什么生成这条待办"
+  - 找不到原文支撑 → 整条 待办 不抽(违反规则 A)
 
 【最高优先级 反幻觉规则】违反任一条 都比 不抽 更糟:
 
@@ -78,8 +84,8 @@ F. **闲聊 / 私人安排 / 模糊想法 / 没有清晰承诺**: 一律不抽.
 示例 2 (真人承诺 → 抽):
 输入: 「邓西负责本周五前提交 PRD V2。中午去吃拉面。李法务下周三前出合规意见。」
 输出: {"items": [
-  {"content":"提交 PRD V2","assignee_name":"邓西","due_at":""},
-  {"content":"出具合规意见","assignee_name":"李法务","due_at":""}
+  {"content":"提交 PRD V2","assignee_name":"邓西","due_at":"","evidence_quote":"邓西负责本周五前提交 PRD V2"},
+  {"content":"出具合规意见","assignee_name":"李法务","due_at":"","evidence_quote":"李法务下周三前出合规意见"}
 ]}
 (注意:吃拉面被剔除;due_at 因「下周三前」是相对时间没法确定具体日期 → 留空,严禁编)
 """
@@ -180,11 +186,12 @@ async def extract_and_store_actions(
                 continue
             assignee_name = (it.get("assignee_name") or "").strip()
             due_str = (it.get("due_at") or "").strip()
+            evidence = (it.get("evidence_quote") or "").strip()  # v25.15
             assignee_user_id = _match_user(ws_users, assignee_name)
 
             # v17 dual-write: every summary-extracted action also creates
-            # its 1:1 Task (source_type='meeting'). The helper picks ids
-            # client-side so cross-linking is one transaction.
+            # its 1:1 Task (source_type='meeting').
+            # v25.15: evidence_quote 一并写到 action + task.source_ref.
             add_action_with_task(
                 db,
                 workspace_id=m.workspace_id,
@@ -199,7 +206,8 @@ async def extract_and_store_actions(
                 due_at=_parse_due(due_str),
                 status="open",
                 action_source_type="summary",
-                created_by_user_id=None,  # extractor is system-driven
+                created_by_user_id=None,
+                evidence_quote=evidence[:500] or None,  # v25.15
             )
             inserted += 1
 

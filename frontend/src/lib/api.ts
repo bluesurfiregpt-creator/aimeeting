@@ -231,6 +231,8 @@ export type ActionItem = {
   task_status?: string | null;
   task_assignee_name?: string | null;
   task_co_assignees_count?: number;
+  // v25.15: 实录依据(LLM 抽时记下的支撑句)
+  evidence_quote?: string | null;
 };
 
 /** v24.3 #1: 单条 RAG 引用(KB chunk)— 智慧住建文档 §3.1 引用溯源角标. */
