@@ -29,6 +29,7 @@ from ..models import (
     MeetingAttendee,
     MeetingSpeakerSegment,
     MeetingTranscript,
+    Notification,
     Task,
     User,
 )
@@ -648,6 +649,144 @@ async def wipe_auto_extracted(
     await session.commit()
     return WipeAutoActionsOut(
         deleted_actions=deleted_actions, deleted_tasks=deleted_tasks,
+    )
+
+
+# v25.18: ⚠️ 完整重置派生数据 — 比「清自动提取」更彻底
+class ResetDerivedOut(BaseModel):
+    deleted_actions: int
+    deleted_tasks: int
+    deleted_action_comments: int
+    deleted_agent_messages: int
+    deleted_speaker_segments: int
+    deleted_notifications: int
+    summary_cleared: bool
+    regenerate_scheduled: bool
+
+
+@router.post(
+    "/{meeting_id}/derived/reset",
+    response_model=ResetDerivedOut,
+)
+async def reset_derived_data(
+    meeting_id: str,
+    bg: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v25.18: ⚠️ 把会议的【全部派生数据】清掉,然后从实录重跑 summary → action_extractor → tasks.
+
+    比「🗑️ 清自动提取」更彻底:那个只清 source_type='summary' 的 action_item + task,
+    但是 cron 跑过 due_reminder 产生的 notification 还在 notification 表里(没 FK
+    关联,工作台 还能看到 "逾期 N 天" 的红点).
+
+    本接口一次清干净 + 异步触发重跑.适合演示前的 reset 或 历史脏数据兜底.
+
+    清(全部针对本场会议):
+      - meeting.summary_md = NULL
+      - meeting_action_item (所有 source_type) + 对应 task + 评论
+      - meeting_agent_message (AI 专家发言)
+      - meeting_speaker_segment (pyannote 切片)
+      - notification (payload->>meeting_id 等于本场)
+
+    保留:
+      - meeting 本体 + agenda
+      - meeting_attendee (参会名单)
+      - meeting_transcript (实录,含已识别的 speaker_user_id)
+      - voiceprint / user / workspace 等全局数据
+
+    之后异步触发 generate_summary(force=True),它会自动链 action_extractor.
+    前端在 SummaryCard 上轮询 /summary 端点即可看到新结果.
+    """
+    from sqlalchemy import delete as _delete
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    mid_str = str(m.id)
+
+    # 1) 拿要删的 action_items 的 task_ids 和 action_ids
+    actions = (
+        await session.execute(
+            select(MeetingActionItem).where(MeetingActionItem.meeting_id == m.id)
+        )
+    ).scalars().all()
+    action_ids = [a.id for a in actions]
+    task_ids = [a.task_id for a in actions if a.task_id]
+
+    # 2) 删 action_item_comment (action_item CASCADE 也行,但显式更稳)
+    deleted_comments = 0
+    if action_ids:
+        res = await session.execute(
+            _delete(MeetingActionItemComment).where(
+                MeetingActionItemComment.action_item_id.in_(action_ids)
+            )
+        )
+        deleted_comments = int(res.rowcount or 0)
+
+    # 3) 删 task
+    deleted_tasks = 0
+    if task_ids:
+        res = await session.execute(_delete(Task).where(Task.id.in_(task_ids)))
+        deleted_tasks = int(res.rowcount or 0)
+
+    # 4) 删 action_item
+    res = await session.execute(
+        _delete(MeetingActionItem).where(MeetingActionItem.meeting_id == m.id)
+    )
+    deleted_actions = int(res.rowcount or 0)
+
+    # 5) 删 agent_message (AI 专家发言)
+    res = await session.execute(
+        _delete(MeetingAgentMessage).where(MeetingAgentMessage.meeting_id == m.id)
+    )
+    deleted_agent_messages = int(res.rowcount or 0)
+
+    # 6) 删 speaker_segment (pyannote 输出)
+    res = await session.execute(
+        _delete(MeetingSpeakerSegment).where(MeetingSpeakerSegment.meeting_id == m.id)
+    )
+    deleted_speaker_segments = int(res.rowcount or 0)
+
+    # 7) 删 notification (payload.meeting_id 等于本场;PG JSON ->> 操作符)
+    # 注意:仅本场会议生出的通知,跨会议的通知不动.
+    # 用 raw SQL 避开 SQLAlchemy JSON vs JSONB dialect 差异 — payload 列
+    # 在 models.py 是 JSON (非 JSONB),只有 PG 的 ->> 运算符稳.
+    from sqlalchemy import text as _sa_text
+    res = await session.execute(
+        _sa_text("DELETE FROM notification WHERE payload->>'meeting_id' = :mid"),
+        {"mid": mid_str},
+    )
+    deleted_notifications = int(res.rowcount or 0)
+
+    # 8) 清 summary_md (让 SummaryCard 显示 loading)
+    await session.execute(
+        update(Meeting).where(Meeting.id == m.id).values(summary_md=None)
+    )
+
+    await session.commit()
+
+    # 9) 异步重跑 — generate_summary 内部会链式触发 action_extractor + memory_extractor
+    bg.add_task(generate_summary, m.id, force=True)
+
+    logger.info(
+        "reset_derived meeting=%s actions=%d tasks=%d comments=%d agent_msgs=%d segments=%d notifs=%d",
+        mid_str,
+        deleted_actions,
+        deleted_tasks,
+        deleted_comments,
+        deleted_agent_messages,
+        deleted_speaker_segments,
+        deleted_notifications,
+    )
+
+    return ResetDerivedOut(
+        deleted_actions=deleted_actions,
+        deleted_tasks=deleted_tasks,
+        deleted_action_comments=deleted_comments,
+        deleted_agent_messages=deleted_agent_messages,
+        deleted_speaker_segments=deleted_speaker_segments,
+        deleted_notifications=deleted_notifications,
+        summary_cleared=True,
+        regenerate_scheduled=True,
     )
 
 

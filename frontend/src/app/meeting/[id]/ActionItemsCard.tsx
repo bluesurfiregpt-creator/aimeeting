@@ -286,25 +286,71 @@ export default function ActionItemsCard({ meetingId }: { meetingId: string }) {
             (会议中讨论形成 · AI 自动抽取 + 手动添加)
           </span>
         </div>
-        {/* v25.11: 清掉 LLM 自动提取的(hallucination 一键清) */}
-        <button
-          onClick={async () => {
-            if (!confirm("清掉本会议 所有 LLM 自动提取的 行动项 + 对应任务?\n\n手动添加的不删.")) return;
-            try {
-              const r = await api.wipeAutoActions(meetingId);
-              toast.success(`✅ 已清 ${r.deleted_actions} 行动项 + ${r.deleted_tasks} 任务`);
-              // refresh
-              const r2 = await api.listActionItems(meetingId);
-              setItems(r2);
-            } catch (e) {
-              toast.error(e instanceof Error ? e.message : "清除失败");
-            }
-          }}
-          className="text-xs text-zinc-500 hover:text-rose-400"
-          title="清掉 LLM 自动提取的行动项(如果发现幻觉错误)— 手动添加的不删"
-        >
-          🗑️ 清自动提取
-        </button>
+        <div className="flex items-center gap-3">
+          {/* v25.11: 清掉 LLM 自动提取的(hallucination 一键清) */}
+          <button
+            onClick={async () => {
+              if (!confirm("清掉本会议 所有 LLM 自动提取的 行动项 + 对应任务?\n\n手动添加的不删.")) return;
+              try {
+                const r = await api.wipeAutoActions(meetingId);
+                toast.success(`✅ 已清 ${r.deleted_actions} 行动项 + ${r.deleted_tasks} 任务`);
+                // refresh
+                const r2 = await api.listActionItems(meetingId);
+                setItems(r2);
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "清除失败");
+              }
+            }}
+            className="text-xs text-zinc-500 hover:text-rose-400"
+            title="清掉 LLM 自动提取的行动项(如果发现幻觉错误)— 手动添加的不删"
+          >
+            🗑️ 清自动提取
+          </button>
+          {/* v25.18: ⚠️ 完整重置派生数据 — 比 清自动提取 更彻底,连 工作台通知 也清 */}
+          <button
+            onClick={async () => {
+              if (
+                !confirm(
+                  "⚠️ 危险:重置本场会议的【全部派生数据】并重跑?\n\n" +
+                    "会清:\n" +
+                    "  • 会议纪要(summary_md)\n" +
+                    "  • 所有行动项 + 任务 + 评论(含手动添加)\n" +
+                    "  • AI 专家在会议中的发言\n" +
+                    "  • pyannote 声纹切片\n" +
+                    "  • 本场会议产生的全部通知(工作台'逾期 X 天'也会消失)\n\n" +
+                    "保留:\n" +
+                    "  • 实录原文 + 参会名单 + 议程\n\n" +
+                    "之后自动重跑 纪要 + 行动项 抽取.约 30-60 秒可见新结果."
+                )
+              )
+                return;
+              try {
+                const r = await api.resetMeetingDerived(meetingId);
+                toast.success(
+                  `✅ 清干净 + 重跑已触发`,
+                  {
+                    detail: `行动 ${r.deleted_actions} · 任务 ${r.deleted_tasks} · AI 发言 ${r.deleted_agent_messages} · 声纹切片 ${r.deleted_speaker_segments} · 通知 ${r.deleted_notifications}`,
+                    sticky: true,
+                  }
+                );
+                const r2 = await api.listActionItems(meetingId);
+                setItems(r2);
+                // 通知用户:summary 会异步刷,自己切到 纪要 tab 看
+                setTimeout(() => {
+                  toast.info("纪要生成中,可切到「纪要」tab 看 loading 骨架屏…", {
+                    sticky: true,
+                  });
+                }, 1200);
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "重置失败");
+              }
+            }}
+            className="text-xs text-zinc-500 hover:text-amber-400"
+            title="重置本场会议的全部派生数据(纪要 / 行动项 / 任务 / 通知 / AI 发言),然后从实录重跑.演示前的兜底."
+          >
+            ⚠️ 重置并重跑
+          </button>
+        </div>
       </header>
 
       {items.length === 0 ? (

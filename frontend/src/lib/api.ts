@@ -1009,6 +1009,21 @@ export const api = {
       {},
     ),
 
+  // v25.18: ⚠️ 完整重置派生数据 — 清掉 summary / action_items / tasks / agent_msgs /
+  // speaker_segments / notifications,然后异步重跑 summary → action_extractor.
+  // 只保留 实录 + 参会名单.
+  resetMeetingDerived: (meetingId: string) =>
+    jpost<{
+      deleted_actions: number;
+      deleted_tasks: number;
+      deleted_action_comments: number;
+      deleted_agent_messages: number;
+      deleted_speaker_segments: number;
+      deleted_notifications: number;
+      summary_cleared: boolean;
+      regenerate_scheduled: boolean;
+    }>(`/api/meetings/${meetingId}/derived/reset`, {}),
+
   // v25.10 Bug C: 批量纠正"此后 N 句"
   batchCorrectSpeaker: (
     meetingId: string,
