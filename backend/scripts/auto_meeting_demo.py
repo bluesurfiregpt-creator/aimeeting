@@ -71,14 +71,24 @@ logger = logging.getLogger("v26.3-demo")
 # Demo 配置
 # ============================================================================
 
+# ===== 默认场景:公积金 5 议程,各专家互补 (--scenario default) =====
 DEMO_TITLE = "新房产政策下的深圳市公积金管理办法研究"
-
 DEMO_AGENDA = [
     "现行《深圳市公积金管理办法》核心条款梳理",
     "新房产政策(2025 Q1)对公积金缴存 / 提取的潜在影响",
     "管理办法修订方向初步建议",
     "与上位法(《住房公积金管理条例》)的衔接合规性",
     "修订后的实施路径与风险防范",
+]
+
+# ===== 分歧验证场景 (--scenario dissent) =====
+# 议程刻意设计成"二选一"的互斥决策,且 prompt 让 agent 选定立场.
+# 用于验证 CONSENSUS_SYSTEM 改严后是否还能 catch 真分歧(不是 over-detect).
+DISSENT_TITLE = "[分歧验证测试] 公积金管理办法激进改革 vs 稳健调整"
+DISSENT_AGENDA = [
+    "公积金提取条件:全面放宽(取消房产相关限制)vs 严格保留(只允许购房 / 房贷)",
+    "缴存比例:应上调至 15% 强化保障 vs 应下调至 8% 减轻企业负担",
+    "保障性住房专项:设立 30% 资金池强制划拨 vs 不设立专项,资金统筹使用",
 ]
 
 MAX_TURNS_PER_AGENDA = 6
@@ -157,6 +167,29 @@ AGENT_REPLY_USER = """当前议程项:"{title}"
   3) 【整合】把前面 2-3 个观点 拢成一个执行方案
 
 100-300 字.直接说观点,不要客套."""
+
+
+# --scenario=dissent 时用的发言 prompt — 强迫 agent 选定一方立场
+AGENT_REPLY_USER_DISSENT = """当前议程项是一个 **互斥二选一** 决策:"{title}"
+
+前面已发言(按时间顺序):
+{prev_messages}
+
+【本议程的特殊要求】
+作为 {agent_name},你必须从该议程的 二选一 选项中 **明确选定一个立场**
+(支持 A / 支持 B / 中立但理由充分必须显式说明),并阐述理由.
+
+格式:
+  开头第一句必须明示立场,例如:
+    "我支持【A 选项】"
+    "我反对【B 选项】"
+    "我倾向【A 但需附条件】"
+  然后给出 100-250 字论证 — 用你的知识库 + 经验.
+
+若前面专家已 propose A,而你 基于你的领域 应主张 B,请明确反对 + 给替代.
+若你与某专家立场一致 — 也明确说"我同意 X 专家的 A 立场,补充理由如下..."
+
+绝不能 模糊处理(如 "需要综合考虑两方面 / 各有利弊")— 这是政务决策会,要的是立场."""
 
 
 CONSENSUS_SYSTEM = """你是政务会议秘书,从会议讨论中识别 共识 与 分歧.
@@ -437,13 +470,15 @@ async def run_agenda_item(
     *,
     dry_run: bool,
     skip_consensus: bool,
+    scenario: str = "default",
+    total_count: int = 5,
 ) -> AgendaResult:
     result = AgendaResult(idx=agenda_idx, title=title)
     t_start = time.time()
 
     # ----------- 1. moderator intro -----------
     print(f"\n{'═' * 72}")
-    print(f"📋 议程 {agenda_idx + 1}/{len(DEMO_AGENDA)}: {title}")
+    print(f"📋 议程 {agenda_idx + 1}/{total_count}: {title}")
     print("═" * 72)
 
     intro_content, tok, elapsed = await _call_llm(
@@ -480,9 +515,17 @@ async def run_agenda_item(
             domain=next_agent.domain or next_agent.name,
             persona=(next_agent.persona or "(无 persona,使用 domain 兜底)")[:800],
         )
-        user_prompt = AGENT_REPLY_USER.format(
-            title=title, prev_messages=prev_formatted
-        )
+        # v26.3-01: scenario=dissent 时用强立场 prompt;否则默认互补 prompt
+        if scenario == "dissent":
+            user_prompt = AGENT_REPLY_USER_DISSENT.format(
+                title=title,
+                prev_messages=prev_formatted,
+                agent_name=next_agent.name,
+            )
+        else:
+            user_prompt = AGENT_REPLY_USER.format(
+                title=title, prev_messages=prev_formatted
+            )
 
         try:
             reply, tok, elapsed = await _call_llm(
@@ -623,8 +666,17 @@ async def run_demo(
     dry_run: bool,
     skip_consensus: bool,
     output_path: Optional[Path],
+    scenario: str = "default",
 ) -> MeetingResult:
     ws, moderator, experts = await load_workspace_and_agents(workspace_name, max_experts)
+
+    # v26.3-01: 选场景
+    if scenario == "dissent":
+        title = DISSENT_TITLE
+        agenda = DISSENT_AGENDA
+    else:
+        title = DEMO_TITLE
+        agenda = DEMO_AGENDA
 
     # LLM provider
     if not dry_run:
@@ -637,7 +689,7 @@ async def run_demo(
         provider = None
 
     result = MeetingResult(
-        title=DEMO_TITLE,
+        title=title,
         started_at=datetime.now(timezone.utc),
         moderator_name=moderator.name,
         experts=[
@@ -649,16 +701,18 @@ async def run_demo(
 
     print(f"\n{'█' * 72}")
     print(f"  📋 v26.3-01 全 AI 自主会议 端到端 demo")
-    print(f"  主题: {DEMO_TITLE}")
-    print(f"  议程: {len(DEMO_AGENDA)} 项 · 主持: {moderator.name}")
+    print(f"  场景: {scenario}")
+    print(f"  主题: {title}")
+    print(f"  议程: {len(agenda)} 项 · 主持: {moderator.name}")
     print(f"  专家: {' / '.join(a.name for a in experts)}")
     print(f"  模式: {'DRY-RUN (mock LLM)' if dry_run else 'REAL (qwen-max)'}")
     print(f"{'█' * 72}")
 
-    for idx, agenda_title in enumerate(DEMO_AGENDA):
+    for idx, agenda_title in enumerate(agenda):
         ar = await run_agenda_item(
             provider, moderator, experts, idx, agenda_title,
             dry_run=dry_run, skip_consensus=skip_consensus,
+            scenario=scenario, total_count=len(agenda),
         )
         result.agenda_results.append(ar)
 
@@ -708,7 +762,7 @@ def _write_report(result: MeetingResult, path: Path) -> None:
     lines.append(f"# v26.3-01 全 AI 自主会议 demo 报告")
     lines.append("")
     lines.append(f"- **主题**:{result.title}")
-    lines.append(f"- **议程**:{len(DEMO_AGENDA)} 项")
+    lines.append(f"- **议程**:{len(result.agenda_results)} 项")
     lines.append(f"- **主持**:{result.moderator_name}")
     lines.append(f"- **专家**:{', '.join(e['name'] for e in result.experts)}")
     lines.append(f"- **模式**:{'DRY-RUN (mock LLM)' if result.dry_run else 'REAL (qwen-max-latest)'}")
@@ -770,6 +824,13 @@ def main():
     p.add_argument("--dry-run", action="store_true", help="mock LLM (验证调度逻辑)")
     p.add_argument("--skip-consensus", action="store_true", help="跳过 consensus 收集步骤")
     p.add_argument("--output", type=str, default=None, help="输出 md 报告路径")
+    p.add_argument(
+        "--scenario",
+        choices=["default", "dissent"],
+        default="default",
+        help="default = 5 议程公积金研究(互补 prompt);"
+             "dissent = 3 议程刻意互斥议题(强立场 prompt,验证 dissent 识别)",
+    )
     args = p.parse_args()
 
     output = Path(args.output) if args.output else None
@@ -780,6 +841,7 @@ def main():
             dry_run=args.dry_run,
             skip_consensus=args.skip_consensus,
             output_path=output,
+            scenario=args.scenario,
         ))
     except KeyboardInterrupt:
         print("\n中断.")
