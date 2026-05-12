@@ -4543,6 +4543,232 @@
       },
     });
 
+    // ==========================================================================
+    // ---------- V26.3 series · 召集人模式 (全 AI 自主会议) ---------------------
+    // ==========================================================================
+    //
+    // 跑思路:
+    //   - 不实际等 LLM 跑完一整场会议 (≥90s,贵且慢),全部 cowork case 不做端到端
+    //   - 只验证 schema / 权限 / 状态机 / 错误码 — 这些是 0 LLM 调用 的快速路径
+    //   - 端到端验证 (启动 → 跑 → 裁决 → 沉淀) 由 Kimi 用例 (docs/kimi-tests/) 覆盖
+    //
+    // 系列覆盖 7 个 case:
+    //   V26.3-1  POST /api/meetings mode=auto 创建会议 → 返回 mode + auto_state
+    //   V26.3-2  POST /api/meetings mode=auto + 议程 < 2 → 400
+    //   V26.3-3  POST /api/meetings mode=auto + expert < 3 → 400
+    //   V26.3-4  GET  /api/meetings/{id}/orchestrate/state shape (v26.3-08 新字段)
+    //   V26.3-5  POST /api/meetings/{id}/orchestrate/cancel 直接 cancel 无副作用
+    //   V26.3-6  POST /api/meetings/{id}/consensus/{idx}/review 错路径 → 400
+    //   V26.3-7  POST /api/meetings/{id}/consensus/{idx}/review mode=hybrid → 400
+
+    R.register({
+      id: "V26.3-1",
+      series: "V26.3",
+      title: "POST /api/meetings mode=auto 创建 → 返回 mode='auto' + auto_state",
+      async run() {
+        // 拿 3 个 expert agent (v26.3 auto 校验需要 ≥3 expert)
+        const agents = await GET("/api/agents");
+        if (!agents.ok) return { ok: false, error: `list agents: ${agents.status}` };
+        const experts = (agents.body || []).filter((a) => a.role === "expert" && a.active);
+        if (experts.length < 3) {
+          return { ok: false, error: `需 ≥3 active expert agent, 实际 ${experts.length}` };
+        }
+        const m = await POST("/api/meetings", {
+          title: `${PREFIX}_V26.3-1`,
+          attendee_user_ids: [],
+          attendee_agent_ids: experts.slice(0, 3).map((a) => a.id),
+          agenda: [{ title: "议程一" }, { title: "议程二" }],
+          mode: "auto",
+        });
+        if (!m.ok) return { ok: false, error: `create: ${m.status} ${JSON.stringify(m.body)}` };
+        created("meeting", m.body.id, "V26.3-1");
+        if (m.body.mode !== "auto") return { ok: false, error: `mode=${m.body.mode}` };
+        if (!m.body.auto_state || m.body.auto_state.phase !== "idle") {
+          return { ok: false, error: `auto_state phase=${m.body.auto_state?.phase}` };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `meeting=${m.body.id} mode=auto phase=idle` },
+        };
+      },
+    });
+
+    R.register({
+      id: "V26.3-2",
+      series: "V26.3",
+      title: "POST /api/meetings mode=auto + 议程 1 项 → 400 (need ≥2)",
+      async run() {
+        const agents = await GET("/api/agents");
+        const experts = (agents.body || []).filter((a) => a.role === "expert" && a.active);
+        if (experts.length < 3) return { ok: false, error: "fixture experts<3" };
+        const r = await POST("/api/meetings", {
+          title: `${PREFIX}_V26.3-2`,
+          attendee_user_ids: [],
+          attendee_agent_ids: experts.slice(0, 3).map((a) => a.id),
+          agenda: [{ title: "唯一议程" }],
+          mode: "auto",
+        });
+        if (r.status !== 400) {
+          if (r.ok) created("meeting", r.body.id, "V26.3-2-leak");
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: r.body?.detail || "400 OK" } };
+      },
+    });
+
+    R.register({
+      id: "V26.3-3",
+      series: "V26.3",
+      title: "POST /api/meetings mode=auto + expert 2 个 → 400 (need ≥3)",
+      async run() {
+        const agents = await GET("/api/agents");
+        const experts = (agents.body || []).filter((a) => a.role === "expert" && a.active);
+        if (experts.length < 2) return { ok: false, error: "fixture experts<2" };
+        const r = await POST("/api/meetings", {
+          title: `${PREFIX}_V26.3-3`,
+          attendee_user_ids: [],
+          attendee_agent_ids: experts.slice(0, 2).map((a) => a.id),
+          agenda: [{ title: "议程一" }, { title: "议程二" }],
+          mode: "auto",
+        });
+        if (r.status !== 400) {
+          if (r.ok) created("meeting", r.body.id, "V26.3-3-leak");
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        return { ok: true, evidence: { _note: r.body?.detail || "400 OK" } };
+      },
+    });
+
+    R.register({
+      id: "V26.3-4",
+      series: "V26.3",
+      title: "GET /orchestrate/state shape · v26.3-08 字段齐全",
+      async run() {
+        // 复用 V26.3-1 创建的会议(若失败,本 case 也 fail — 这是设计)
+        const agents = await GET("/api/agents");
+        const experts = (agents.body || []).filter((a) => a.role === "expert" && a.active);
+        if (experts.length < 3) return { ok: false, error: "fixture experts<3" };
+        const m = await POST("/api/meetings", {
+          title: `${PREFIX}_V26.3-4`,
+          attendee_user_ids: [],
+          attendee_agent_ids: experts.slice(0, 3).map((a) => a.id),
+          agenda: [{ title: "A" }, { title: "B" }],
+          mode: "auto",
+        });
+        if (!m.ok) return { ok: false, error: `setup: ${m.status}` };
+        created("meeting", m.body.id, "V26.3-4");
+        const s = await GET(`/api/meetings/${m.body.id}/orchestrate/state`);
+        if (!s.ok) return { ok: false, error: `state: ${s.status}` };
+        const required = [
+          "phase",
+          "current_agenda_idx",
+          "turn_count",
+          "dissent_count",
+          "completed_agenda_count",
+          "total_agenda_count",
+          "running_elapsed_sec",
+          "max_meeting_sec",
+        ];
+        for (const k of required) {
+          if (!(k in s.body)) return { ok: false, error: `missing field: ${k}` };
+        }
+        if (s.body.max_meeting_sec !== 45 * 60) {
+          return { ok: false, error: `max_meeting_sec=${s.body.max_meeting_sec}, expected 2700` };
+        }
+        if (s.body.phase !== "idle") return { ok: false, error: `phase=${s.body.phase}` };
+        if (s.body.running_elapsed_sec !== 0) {
+          return { ok: false, error: `idle elapsed=${s.body.running_elapsed_sec}` };
+        }
+        return {
+          ok: true,
+          evidence: { _note: `max=2700 idle running=0 all 8 fields present` },
+        };
+      },
+    });
+
+    R.register({
+      id: "V26.3-5",
+      series: "V26.3",
+      title: "POST /orchestrate/cancel 从 idle 直接 cancel → phase=cancelled",
+      async run() {
+        const agents = await GET("/api/agents");
+        const experts = (agents.body || []).filter((a) => a.role === "expert" && a.active);
+        if (experts.length < 3) return { ok: false, error: "fixture experts<3" };
+        const m = await POST("/api/meetings", {
+          title: `${PREFIX}_V26.3-5`,
+          attendee_user_ids: [],
+          attendee_agent_ids: experts.slice(0, 3).map((a) => a.id),
+          agenda: [{ title: "A" }, { title: "B" }],
+          mode: "auto",
+        });
+        if (!m.ok) return { ok: false, error: `setup: ${m.status}` };
+        created("meeting", m.body.id, "V26.3-5");
+        const c = await POST(`/api/meetings/${m.body.id}/orchestrate/cancel`, {});
+        if (!c.ok) return { ok: false, error: `cancel: ${c.status} ${JSON.stringify(c.body)}` };
+        if (c.body.phase !== "cancelled") {
+          return { ok: false, error: `expected cancelled, got ${c.body.phase}` };
+        }
+        return { ok: true, evidence: { _note: `idle → cancelled OK` } };
+      },
+    });
+
+    R.register({
+      id: "V26.3-6",
+      series: "V26.3",
+      title: "POST /consensus/{idx}/review · agenda_idx 越界 → 404",
+      async run() {
+        const agents = await GET("/api/agents");
+        const experts = (agents.body || []).filter((a) => a.role === "expert" && a.active);
+        if (experts.length < 3) return { ok: false, error: "fixture experts<3" };
+        const m = await POST("/api/meetings", {
+          title: `${PREFIX}_V26.3-6`,
+          attendee_user_ids: [],
+          attendee_agent_ids: experts.slice(0, 3).map((a) => a.id),
+          agenda: [{ title: "A" }, { title: "B" }],
+          mode: "auto",
+        });
+        if (!m.ok) return { ok: false, error: `setup: ${m.status}` };
+        created("meeting", m.body.id, "V26.3-6");
+        // 议程 idx=99 不存在 (该 meeting 还没跑过任何议程,consensus 表无行)
+        const r = await POST(`/api/meetings/${m.body.id}/consensus/99/review`, {
+          reviews: [{ dissent_idx: 0, action: "pick_a", rationale: "测试拒绝十字以上理由" }],
+        });
+        if (r.status !== 404) {
+          return { ok: false, error: `expected 404, got ${r.status} ${JSON.stringify(r.body)}` };
+        }
+        return { ok: true, evidence: { _note: `404 ${r.body?.detail || ""}` } };
+      },
+    });
+
+    R.register({
+      id: "V26.3-7",
+      series: "V26.3",
+      title: "POST /consensus/0/review · mode=hybrid 会议 → 400",
+      async run() {
+        // 创建一个 hybrid (默认) 会议
+        const m = await POST("/api/meetings", {
+          title: `${PREFIX}_V26.3-7-hybrid`,
+          attendee_user_ids: [],
+          attendee_agent_ids: [],
+        });
+        if (!m.ok) return { ok: false, error: `setup: ${m.status}` };
+        created("meeting", m.body.id, "V26.3-7");
+        if (m.body.mode !== "hybrid") {
+          return { ok: false, error: `unexpected mode=${m.body.mode}` };
+        }
+        const r = await POST(`/api/meetings/${m.body.id}/consensus/0/review`, {
+          reviews: [{ dissent_idx: 0, action: "pick_a", rationale: "测试拒绝十字以上理由" }],
+        });
+        if (r.status !== 400) {
+          return { ok: false, error: `expected 400, got ${r.status}` };
+        }
+        if (!String(r.body?.detail || "").includes("only auto meetings")) {
+          return { ok: false, error: `wrong detail: ${r.body?.detail}` };
+        }
+        return { ok: true, evidence: { _note: r.body.detail } };
+      },
+    });
+
     // ---------- Skipped (documented) ---------------------------------------
     const skipReasons = {
       B: "需要真人朗读 35-45s",
@@ -4553,6 +4779,8 @@
       "X-22": "需要 live banner UI 倒计时(WS + 浏览器)",
       "X-23": "需要 live UI",
       "X-24": "需要 live UI",
+      // V26.3 端到端 由 Kimi 用例覆盖,suite 内只验证 schema + 错误路径
+      "V26.3-E2E": "全 AI 会议端到端 ≥90s 且 LLM 成本 ~¥3/次,见 docs/kimi-tests/v26.3-07-kimi.md",
     };
     for (const [id, reason] of Object.entries(skipReasons)) {
       R.register({
