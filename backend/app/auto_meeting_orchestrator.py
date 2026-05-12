@@ -782,15 +782,18 @@ async def _run_auto_meeting(meeting_id: uuid.UUID) -> None:
         # 触发 action_extractor (它会读 summary_md + 抽 topic_keywords + 派给 agent)
         # v26.3: 显式传 mode='auto' — 让 prompt 跳过"AI 发言不算依据"规则,
         # 否则全 AI 会议会抽 0 task.
+        # await 而不是 create_task — orchestrator 是 已经在 background task 里跑,
+        # 这里再 fire-and-forget 嵌套 一是没必要 二是 在测试环境(一次性进程) child
+        # task 会被 cancel.直接 await 跑完更可靠,只多等 ~10s.
         try:
             from .action_extractor import extract_and_store_actions
-            asyncio.create_task(
-                extract_and_store_actions(
-                    meeting_id, summary_md=summary_md, mode="auto",
-                )
+            n_actions = await extract_and_store_actions(
+                meeting_id, summary_md=summary_md, mode="auto",
             )
+            logger.info("orchestrator meeting=%s 抽出 %d action items",
+                       meeting_id, n_actions)
         except Exception:
-            logger.exception("orchestrator action_extractor 触发失败 meeting=%s", meeting_id)
+            logger.exception("orchestrator action_extractor 失败 meeting=%s", meeting_id)
 
         logger.info("orchestrator DONE meeting=%s (%d dissents 待裁决,summary %d 字)",
                    meeting_id, total_dissents, len(summary_md))
