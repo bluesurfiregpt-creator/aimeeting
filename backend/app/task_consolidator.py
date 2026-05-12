@@ -48,7 +48,6 @@ from .models import (
     KnowledgeBase,
     KnowledgeChunk,
     KnowledgeDocument,
-    MeetingActionItemComment,
     Task,
     TaskCoProgress,
     User,
@@ -162,23 +161,10 @@ async def generate_closure_summary(task_id: uuid.UUID) -> str:
             for cp, uname in co_rows:
                 parts.append(f"- {uname}: {(cp.content or '(无说明)')[:200]}")
 
-        # 行动项评论 (通过 action_item 反查;一个 task 最多对应一个 action_item)
-        if t.id:
-            comment_rows = (
-                await db.execute(
-                    select(MeetingActionItemComment, User.name)
-                    .outerjoin(User, User.id == MeetingActionItemComment.author_user_id)
-                    .join(
-                        # action_item 通过 task_id 关联(action_item.task_id 反查)
-                        # 但 SQLAlchemy 不能直接 join MeetingActionItemComment <-> Task,
-                        # 用 raw SQL.省事的做法:子查询
-                        # 这里简化 — 直接从 sref 拿 action_item_id
-                        # 略过 — 真要拿评论太复杂,先 skip 这一段,后续优化
-                    )
-                    .where(False)  # placeholder — 评论 暂不抽
-                )
-            ).all()
-            # NB: comment 链路 v26.2.1 再加;这版先跳
+        # v26.2.1 TODO: 行动项评论 (MeetingActionItemComment) 也喂给 LLM.
+        # 当前版本先跳 — 通过 action_item.task_id 反查 + outer join Comment + User
+        # 需要两段 SQL,留 v26.2.1 加.
+        # (注:之前这里有个 broken .join() 残留导致 V26.2-1 GET preview 500,已删.)
 
         user_prompt = "\n".join(parts)
 

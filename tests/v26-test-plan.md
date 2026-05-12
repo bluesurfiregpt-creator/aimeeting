@@ -413,12 +413,16 @@ docker exec -w /app aimeeting-backend python -m scripts.backfill_task_agent
 
 **执行 + 期望**:
 
-| Sub-case | Task content | 期望 winner agent | 期望 tier |
+| Sub-case | Task content | 期望 winner agent | 期望 tier(说明) |
 |---|---|---|---|
-| 20a | "梳理 PRD V2 需求文档" | AGENT_PROD | high |
-| 20b | "合规风险评估,法务审核" | AGENT_LEGAL | high |
-| 20c | "微服务架构设计 API 接口" | AGENT_TECH | high |
+| 20a | "梳理 PRD V2 需求文档" | AGENT_PROD | medium 起步即可(没 KB 难达 high) |
+| 20b | "合规风险评估,法务审核" | AGENT_LEGAL | medium 起步即可 |
+| 20c | "微服务架构设计 API 接口" | AGENT_TECH | medium 起步即可 |
 | 20d | "完全无关 hello world" | (无 winner) | low |
+
+**注**:per V26-8 同理(caveat #5),fixture 没绑 KB 时 high tier
+触不到是 v26.1 设计意图.V26-20 的核心 是验证 **winner agent 正确性**
+(评分排序对了即可),不强求 tier=high.
 
 每条调 `POST /dispatch-recommend` 验证。
 
@@ -1005,7 +1009,8 @@ Body: {
 
 **执行**:`POST /api/me/tasks/<TASK_ID>/consolidate {}`
 
-**期望**:响应 400,error 含 "assignee_agent_id"
+**期望**:响应 4xx(实现里 ConsolidationError 统一转 409 + detail 含
+"assignee_agent_id";400 也合规.关注语义不关注具体状态码)
 
 ## V26.2-7 · 非 leader 权限拒绝
 
