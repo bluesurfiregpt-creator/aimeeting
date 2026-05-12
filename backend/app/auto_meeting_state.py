@@ -63,6 +63,7 @@ AUTO_ACTION_RESUME = "resume"          # leader 恢复
 AUTO_ACTION_DISSENT_WAIT = "dissent_wait"     # v26.3.1 预留:进入 consensus_wait
 AUTO_ACTION_DISSENT_RESOLVE = "dissent_resolve"  # v26.3.1 预留:出 consensus_wait
 AUTO_ACTION_COMPLETE = "complete"      # 所有议程跑完
+AUTO_ACTION_TIMEOUT = "timeout"        # v26.3-08 整场超过 45 分钟(running 累计) — 走软 COMPLETE 链
 AUTO_ACTION_FAIL = "fail"              # 不可恢复错误
 AUTO_ACTION_CANCEL = "cancel"          # leader 主动取消
 
@@ -89,6 +90,12 @@ _TRANSITIONS: dict[str, dict[str, str]] = {
     AUTO_ACTION_COMPLETE: {
         PHASE_RUNNING: PHASE_DONE,
         PHASE_CONSENSUS_WAIT: PHASE_DONE,   # consensus_wait 也可直接完成
+    },
+    AUTO_ACTION_TIMEOUT: {
+        # v26.3-08 Q6=B 软 COMPLETE:超时也走 done,已跑完议程的 consensus 保留 + 触发 finalize.
+        # 跟 COMPLETE 区别只在 last_error 字段(='meeting_timeout')和 summary_md 头部提示.
+        PHASE_RUNNING: PHASE_DONE,
+        PHASE_PAUSED: PHASE_DONE,    # 召集人长期暂停 但 running 已累计过 45 → 也允许从 paused 直接 timeout
     },
     AUTO_ACTION_FAIL: {
         # 任何 非终态 都可挂掉
@@ -153,6 +160,12 @@ def default_auto_state() -> dict[str, Any]:
         "turn_count": 0,
         "dissent_count": 0,
         "last_error": None,
+        # v26.3-08 Q8=B:只算 phase=running 的累计 wall-clock 秒数 (paused 时间不算).
+        # START 时设 running_started_at;PAUSE 时把 (now - running_started_at) 累加到
+        # paused_running_seconds + 清 running_started_at;RESUME 时再设 running_started_at.
+        # 任意时刻总 elapsed = paused_running_seconds + (running_started_at ? now - it : 0)
+        "running_started_at": None,
+        "paused_running_seconds": 0.0,
     }
 
 
@@ -180,36 +193,99 @@ def apply_transition(
 
     side effects:
       - phase 更新
-      - action=start: started_at = now
-      - action=pause: paused_at + paused_by_user_id
-      - action=resume: paused_at + paused_by_user_id 清空
-      - action=fail: last_error 从 extra['error'] 取
+      - action=start:  started_at = now;running_started_at = now (启动 running 计时)
+      - action=pause:  paused_at + paused_by_user_id;把 (now - running_started_at)
+                       累加到 paused_running_seconds + 清 running_started_at
+      - action=resume: paused_at + paused_by_user_id 清空;running_started_at = now
+                       (重新开始 running 计时,累计字段不动)
+      - action=timeout/complete/fail/cancel: 同上 把 running 段累加进 paused_running_seconds
+                       + 清 running_started_at(冻结计时)
+      - action=fail:    last_error 从 extra['error'] 取
+      - action=timeout: last_error = 'meeting_timeout' (固定字串,UI/summary 用它识别)
     """
     current = get_phase(meeting_auto_state)
     new_phase = transition_phase(action, current)
 
     base = dict(meeting_auto_state) if isinstance(meeting_auto_state, dict) else default_auto_state()
     base["phase"] = new_phase
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_dt = datetime.now(timezone.utc)
+    now_iso = now_dt.isoformat()
+
+    # 给老 meeting(v26.3-08 之前创建)补默认值,避免 KeyError
+    base.setdefault("running_started_at", None)
+    base.setdefault("paused_running_seconds", 0.0)
+
+    def _freeze_running_segment() -> None:
+        """把当前 (now - running_started_at) 这段 加到 paused_running_seconds 并清 running_started_at."""
+        rs = base.get("running_started_at")
+        if not rs:
+            return
+        try:
+            rs_dt = datetime.fromisoformat(rs)
+        except (TypeError, ValueError):
+            return
+        elapsed = (now_dt - rs_dt).total_seconds()
+        if elapsed > 0:
+            base["paused_running_seconds"] = float(base.get("paused_running_seconds") or 0.0) + elapsed
+        base["running_started_at"] = None
 
     if action == AUTO_ACTION_START:
         base["started_at"] = now_iso
+        # 进入第一段 running 计时
+        base["running_started_at"] = now_iso
+        base["paused_running_seconds"] = 0.0
     elif action == AUTO_ACTION_PAUSE:
         base["paused_at"] = now_iso
         if actor_user_id:
             base["paused_by_user_id"] = actor_user_id
+        _freeze_running_segment()
     elif action == AUTO_ACTION_RESUME:
         base["paused_at"] = None
         base["paused_by_user_id"] = None
-    elif action == AUTO_ACTION_FAIL:
-        if extra and "error" in extra:
+        # 重新进入 running 段计时
+        base["running_started_at"] = now_iso
+    elif action == AUTO_ACTION_TIMEOUT:
+        _freeze_running_segment()
+        # 固定字串 — UI 和 summary 用它识别 timeout 路径
+        base["last_error"] = "meeting_timeout"
+    elif action in (AUTO_ACTION_COMPLETE, AUTO_ACTION_FAIL, AUTO_ACTION_CANCEL):
+        _freeze_running_segment()
+        if action == AUTO_ACTION_FAIL and extra and "error" in extra:
             base["last_error"] = str(extra["error"])[:500]
 
     if extra:
-        # 允许 caller 额外注入(比如 current_agenda_idx 推进)
+        # 允许 caller 额外注入(比如 current_agenda_idx 推进 / completed_agenda_count)
         for k, v in extra.items():
             if k == "error":
                 continue
             base[k] = v
 
     return base
+
+
+# ---- v26.3-08 elapsed running 计算 ----------------------------------------
+
+
+def running_elapsed_seconds(meeting_auto_state: Optional[dict[str, Any]]) -> float:
+    """
+    返回 当前 running 累计秒数 (paused 时间不算).
+
+    用法:
+      - orchestrator 主循环每议程前 调用,跟 MAX_MEETING_SECONDS 比对
+      - GET /orchestrate/state 端点 返给前端 显示 "已用 X/45 min"
+
+    实现:paused_running_seconds + (running_started_at 非空 ? now - it : 0)
+    """
+    if not isinstance(meeting_auto_state, dict):
+        return 0.0
+    accum = float(meeting_auto_state.get("paused_running_seconds") or 0.0)
+    rs = meeting_auto_state.get("running_started_at")
+    if rs:
+        try:
+            rs_dt = datetime.fromisoformat(rs)
+        except (TypeError, ValueError):
+            return accum
+        delta = (datetime.now(timezone.utc) - rs_dt).total_seconds()
+        if delta > 0:
+            accum += delta
+    return accum

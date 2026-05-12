@@ -1103,6 +1103,9 @@ export const api = {
       last_error: string | null;
       completed_agenda_count: number;
       total_agenda_count: number;
+      // v26.3-08: 已 running 累计秒数 (paused 不算) + 整场硬上限
+      running_elapsed_sec: number;
+      max_meeting_sec: number;
     }>(`/api/meetings/${meetingId}/orchestrate/state`),
   orchestrateStart: (meetingId: string) =>
     jpost(`/api/meetings/${meetingId}/orchestrate/start`, {}),

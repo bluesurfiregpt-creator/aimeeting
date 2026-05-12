@@ -35,6 +35,7 @@ from .auto_meeting_state import (
     AUTO_ACTION_COMPLETE,
     AUTO_ACTION_FAIL,
     AUTO_ACTION_START,
+    AUTO_ACTION_TIMEOUT,
     PHASE_DONE,
     PHASE_FAILED,
     PHASE_PAUSED,
@@ -43,6 +44,7 @@ from .auto_meeting_state import (
     apply_transition,
     get_phase,
     is_terminal,
+    running_elapsed_seconds,
 )
 from .db import SessionLocal
 from .llm_direct import LlmError, get_active_provider, stream_chat
@@ -61,6 +63,14 @@ AGENT_REPLY_MAX_CHARS = 800
 
 # 检查 pause 信号的轮询粒度(在长 LLM 调用之间也 check 一次)
 PAUSE_CHECK_INTERVAL_SEC = 2.0
+
+# v26.3-08 整场会议(running 累计)硬上限.超过则走软 COMPLETE 链:
+# - 当前议程跑完后不进入下一议程
+# - 已完成议程的 consensus 保留 + 触发 summary + action_extractor
+# - summary_md 顶部加 "⚠️ 因 45 分钟硬上限提前 finalize" 提示
+# - phase → done,last_error = 'meeting_timeout' (UI/summary 用它识别)
+# Q7=A 决策:全局常量先做,v26.3.1 再升级为 Meeting 字段
+MAX_MEETING_SECONDS = 45 * 60
 
 # orchestrator 全局注册表:meeting_id → asyncio.Task
 # 用于 防止 同一会议 重复启动 + 召集人 pause/resume/cancel 信号传递.
@@ -209,6 +219,21 @@ async def _read_current_phase(meeting_id: uuid.UUID) -> str:
         if not m:
             return PHASE_FAILED
         return get_phase(m.auto_state)
+
+
+async def _read_auto_state(meeting_id: uuid.UUID) -> Optional[dict[str, Any]]:
+    """v26.3-08:读完整 auto_state(给 timeout 计算用,需要 running_started_at + paused_running_seconds).
+
+    比 _read_current_phase 多一次 DB hit 不可避免 — 但只在议程切换间隔调用(N=议程数,通常 ≤6),
+    成本忽略.
+    """
+    async with SessionLocal() as db:
+        m = (
+            await db.execute(select(Meeting).where(Meeting.id == meeting_id))
+        ).scalar_one_or_none()
+        if not m:
+            return None
+        return dict(m.auto_state) if isinstance(m.auto_state, dict) else None
 
 
 async def _update_phase(
@@ -595,6 +620,9 @@ async def _run_agenda_item(
 async def _build_summary_from_consensus(
     meeting_id: uuid.UUID,
     agenda: list[dict],
+    *,
+    timed_out: bool = False,
+    completed_agenda_count: Optional[int] = None,
 ) -> str:
     """
     把 meeting_consensus 行 + 议程标题 拼成一份 markdown summary.
@@ -602,6 +630,9 @@ async def _build_summary_from_consensus(
     真人 transcript,auto 会议没真人发言).
 
     输出供 action_extractor 抽 task 用 — 包含 共识(具体建议)+ 分歧(需裁决).
+
+    v26.3-08c: 当 timed_out=True 时,顶部插入 45 分钟硬上限提示 banner;
+    completed_agenda_count 用来告知"已跑 N/M 议程,后续未跑"(供客户清楚知情).
     """
     async with SessionLocal() as db:
         m = (
@@ -619,6 +650,18 @@ async def _build_summary_from_consensus(
     title = m.title if m else "AI 自主会议"
     lines.append(f"# {title}")
     lines.append("")
+
+    # v26.3-08c: 整场超时时 在标题下立即给出"未跑完"提示 — 让客户 / leader 一眼看到
+    if timed_out:
+        done_n = completed_agenda_count if completed_agenda_count is not None else len(consenses)
+        total_n = len(agenda)
+        remaining = max(total_n - done_n, 0)
+        lines.append(
+            f"> ⚠️ **本次会议因 45 分钟硬上限触发提前 finalize**.已完成议程 {done_n}/{total_n}"
+            + (f",未跑 {remaining} 项可在下次会议带回." if remaining > 0 else ".")
+        )
+        lines.append("")
+
     lines.append(
         f"_本会议由 v26.3 召集人模式 自动跑出,议程 {len(agenda)} 项,"
         f"经 N 个 AI 专家轮流发言 + 议程主持收敛形成._"
@@ -743,35 +786,63 @@ async def _run_auto_meeting(meeting_id: uuid.UUID) -> None:
             await _update_phase(meeting_id, AUTO_ACTION_START)
 
         total_dissents = 0
+        timed_out = False         # v26.3-08:整场超时(Q6=B 软 COMPLETE)
+        completed_agenda_count = 0
         for idx, item in enumerate(agenda):
             phase = await _wait_if_paused(meeting_id)
             if is_terminal(phase):
                 logger.info("orchestrator meeting=%s 在议程 %d 前 phase=%s,退出", meeting_id, idx, phase)
                 return
+
+            # v26.3-08 在每议程开始前 check 整场是否超时.检查点 选议程开始前
+            # 而非议程中 — 让当前议程能跑完(stats 含 wrap_up + consensus),不丢工作.
+            # 已完成议程的 consensus 全保留.
+            state = await _read_auto_state(meeting_id)
+            elapsed = running_elapsed_seconds(state)
+            if elapsed >= MAX_MEETING_SECONDS:
+                logger.warning(
+                    "orchestrator meeting=%s 整场超时 (%.1fs >= %ds),提前 finalize · "
+                    "已完成议程 %d/%d",
+                    meeting_id, elapsed, MAX_MEETING_SECONDS, idx, len(agenda),
+                )
+                timed_out = True
+                break
+
             title = (item.get("title") if isinstance(item, dict) else str(item)) or f"议程 {idx + 1}"
-            logger.info("orchestrator meeting=%s 议程 %d/%d: %s",
-                       meeting_id, idx + 1, len(agenda), title)
+            logger.info("orchestrator meeting=%s 议程 %d/%d: %s (elapsed %.1fs)",
+                       meeting_id, idx + 1, len(agenda), title, elapsed)
             try:
                 stats = await _run_agenda_item(
                     meeting_id, moderator, experts, idx, title, provider,
                 )
                 total_dissents += stats["dissent_count"]
+                completed_agenda_count += 1
             except Exception as e:
                 logger.exception("orchestrator agenda %d 失败 meeting=%s", idx, meeting_id)
                 await _update_phase(meeting_id, AUTO_ACTION_FAIL,
                                    extra={"error": f"agenda {idx}: {e}"})
                 return
 
-        # 全部议程跑完 → 直接合成 summary_md(用各议程 consensus 拼)
+        # 全部议程跑完(或超时提前 break) → 直接合成 summary_md(用各议程 consensus 拼)
         # 不调 summary_generator(它只看 transcript 表,auto 会议没真人发言).
         # 然后 链 action_extractor + 沉淀(v26.0/.2 链路).
-        summary_md = await _build_summary_from_consensus(meeting_id, agenda)
+        summary_md = await _build_summary_from_consensus(
+            meeting_id, agenda,
+            timed_out=timed_out,
+            completed_agenda_count=completed_agenda_count,
+        )
 
+        # v26.3-08:正常结束走 COMPLETE,整场超时走 TIMEOUT(都进 PHASE_DONE,差别在 last_error)
+        finalize_action = AUTO_ACTION_TIMEOUT if timed_out else AUTO_ACTION_COMPLETE
         async with SessionLocal() as db:
             mm = (await db.execute(select(Meeting).where(Meeting.id == meeting_id))).scalar_one()
             new_st = apply_transition(
-                mm.auto_state, AUTO_ACTION_COMPLETE,
-                extra={"dissent_count": total_dissents},
+                mm.auto_state, finalize_action,
+                extra={
+                    "dissent_count": total_dissents,
+                    "completed_agenda_count": completed_agenda_count,
+                    "total_agenda_count": len(agenda),
+                },
             )
             mm.auto_state = new_st
             mm.status = "finished"

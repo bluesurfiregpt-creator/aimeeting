@@ -44,7 +44,27 @@ type OrchestrateState = {
   last_error: string | null;
   completed_agenda_count: number;
   total_agenda_count: number;
+  // v26.3-08: 整场运行累计 (秒,paused 不算) + 硬上限
+  running_elapsed_sec: number;
+  max_meeting_sec: number;
 };
+
+/** v26.3-08: m:ss 格式化已用 / 上限.例 "12:34". */
+function fmtMinSec(totalSec: number): string {
+  const safe = Math.max(0, Math.floor(totalSec));
+  const m = Math.floor(safe / 60);
+  const s = safe % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+/** v26.3-08: 已用 vs 上限 → 颜色三档 (灰/amber/rose). */
+function elapsedTone(elapsed: number, max: number): string {
+  if (max <= 0) return "text-zinc-400";
+  const ratio = elapsed / max;
+  if (ratio >= 40 / 45) return "text-rose-300";       // 最后 5 分钟红
+  if (ratio >= 30 / 45) return "text-amber-300";      // 30~40 分钟琥珀
+  return "text-zinc-400";
+}
 
 const PHASE_LABEL: Record<Phase, string> = {
   idle: "未启动",
@@ -269,6 +289,19 @@ export default function OrchestratePage({
             <span className="text-xs text-zinc-500">
               {state.completed_agenda_count} / {state.total_agenda_count} 议程完成
             </span>
+            {/* v26.3-08: 已用 / 上限,颜色三档.idle 时不显示 (还没启动). */}
+            {state.phase !== "idle" && state.max_meeting_sec > 0 && (
+              <span
+                className={`text-xs tabular-nums ${elapsedTone(
+                  state.running_elapsed_sec,
+                  state.max_meeting_sec,
+                )}`}
+                title="整场 running 累计 (paused 时间不算).到 45 分钟会触发硬上限提前 finalize."
+              >
+                ⏱ {fmtMinSec(state.running_elapsed_sec)} /{" "}
+                {fmtMinSec(state.max_meeting_sec)}
+              </span>
+            )}
           </div>
         )}
       </header>
@@ -346,7 +379,15 @@ export default function OrchestratePage({
           </div>
         )}
 
-        {state?.last_error && (
+        {/* v26.3-08: 超时是 软完成,用 amber 提示而非 rose 报错 */}
+        {state?.last_error === "meeting_timeout" && (
+          <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            ⏱ 本会议因 45 分钟整场硬上限提前 finalize.已完成议程
+            {" "}{state.completed_agenda_count}/{state.total_agenda_count},未跑议程可在下次会议带回.
+            <br />已完成议程的共识 + 摘要 + 行动项 均正常保留.
+          </div>
+        )}
+        {state?.last_error && state.last_error !== "meeting_timeout" && (
           <div className="mt-2 rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-rose-300">
             ⚠️ 最近错误:{state.last_error}
           </div>

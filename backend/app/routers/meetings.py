@@ -362,6 +362,10 @@ class OrchestrateStateOut(BaseModel):
     # 完成的议程项数(查 meeting_consensus count)
     completed_agenda_count: int = 0
     total_agenda_count: int = 0
+    # v26.3-08:整场已 running 累计秒数 (paused 不算 — Q8=B).
+    # 前端用它 + max_meeting_seconds 显示"已用 12:34 / 45:00" + 颜色三档.
+    running_elapsed_sec: float = 0.0
+    max_meeting_sec: int = 45 * 60
 
 
 @router.get("/{meeting_id}/orchestrate/state", response_model=OrchestrateStateOut)
@@ -370,8 +374,12 @@ async def get_orchestrate_state(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    """v26.3-03: 前端轮询 当前 orchestrator 状态(在 v26.3-04 WS 上之前用)."""
-    from ..auto_meeting_state import get_phase
+    """v26.3-03: 前端轮询 当前 orchestrator 状态(在 v26.3-04 WS 上之前用).
+
+    v26.3-08: 多返 running_elapsed_sec + max_meeting_sec — 前端显示"已用 X/45 min".
+    """
+    from ..auto_meeting_state import get_phase, running_elapsed_seconds
+    from ..auto_meeting_orchestrator import MAX_MEETING_SECONDS
     from ..models import MeetingConsensus
     m = await _load_owned_meeting(meeting_id, session, auth)
     st = m.auto_state or {}
@@ -396,6 +404,8 @@ async def get_orchestrate_state(
         last_error=st.get("last_error"),
         completed_agenda_count=int(completed),
         total_agenda_count=len(m.agenda or []),
+        running_elapsed_sec=running_elapsed_seconds(st),
+        max_meeting_sec=MAX_MEETING_SECONDS,
     )
 
 
