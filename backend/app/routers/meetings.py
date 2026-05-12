@@ -2433,7 +2433,8 @@ async def review_meeting_consensus(
             "meeting_id": str(m.id),
             "agenda_idx": agenda_idx,
             "dissent_count": len(dissents),
-            "actions": [r.action for r in review_payload],
+            # review_payload 是 dict 列表 (上面转过了),不是 Pydantic 对象,所以用 r["action"]
+            "actions": [r["action"] for r in review_payload],
         },
     )
 

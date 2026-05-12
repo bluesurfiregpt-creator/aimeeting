@@ -1153,35 +1153,48 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         </div>
       </header>
 
-      {/* v26.3-07f auto 会议 顶部 banner: 标识 + 跳 orchestrate + 分歧待裁决 */}
+      {/* v26.3-07f auto 会议 顶部 banner: 标识 + 跳 orchestrate + 分歧待裁决.
+          v26.3-07-fix1: pending 时 banner 整体变 violet,pill 本身可点击直接跳裁决面板. */}
       {meetingMeta?.mode === "auto" && (
         <div
-          className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs"
+          className={`mt-4 flex flex-wrap items-center gap-3 rounded-xl border px-4 py-2.5 text-xs ${
+            autoMeetingInfo && autoMeetingInfo.pendingReviewCount > 0
+              ? "border-violet-500/40 bg-violet-500/10"
+              : "border-amber-500/30 bg-amber-500/10"
+          }`}
           data-testid="auto-meeting-banner"
         >
-          <span className="text-amber-200">
+          <span className={
+            autoMeetingInfo && autoMeetingInfo.pendingReviewCount > 0
+              ? "text-violet-200"
+              : "text-amber-200"
+          }>
             🤖 此会议为 v26.3 召集人模式 · 全 AI 自主开会
           </span>
           {autoMeetingInfo && autoMeetingInfo.pendingReviewCount > 0 && (
-            <span
-              className="rounded-md bg-violet-500/20 px-2 py-0.5 text-violet-200"
+            <Link
+              href={`/meeting/${meetingId}/orchestrate`}
+              className="rounded-md bg-violet-500 px-2.5 py-1 font-medium text-violet-950 hover:bg-violet-400"
               data-testid="pending-review-pill"
             >
-              ⚠️ {autoMeetingInfo.pendingReviewCount} 议程 ·{" "}
-              {autoMeetingInfo.totalDissents} 处分歧 待裁决
-            </span>
+              ⚖️ 立即裁决 {autoMeetingInfo.totalDissents} 处分歧
+              ({autoMeetingInfo.pendingReviewCount} 议程) →
+            </Link>
           )}
           {autoMeetingInfo && autoMeetingInfo.reviewedCount > 0 && (
             <span className="text-zinc-400">
               ✓ {autoMeetingInfo.reviewedCount} 议程 已裁决
             </span>
           )}
-          <Link
-            href={`/meeting/${meetingId}/orchestrate`}
-            className="ml-auto rounded-md bg-amber-500 px-3 py-1 text-amber-950 hover:bg-amber-400"
-          >
-            打开 Orchestrate 控制台 →
-          </Link>
+          {/* 仅在没有待裁决时,显示通用 "打开控制台" 链 (避免与 立即裁决 按钮抢眼) */}
+          {!(autoMeetingInfo && autoMeetingInfo.pendingReviewCount > 0) && (
+            <Link
+              href={`/meeting/${meetingId}/orchestrate`}
+              className="ml-auto rounded-md bg-amber-500 px-3 py-1 text-amber-950 hover:bg-amber-400"
+            >
+              打开 Orchestrate 控制台 →
+            </Link>
+          )}
         </div>
       )}
 
