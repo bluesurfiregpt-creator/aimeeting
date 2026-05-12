@@ -115,6 +115,9 @@ export default function OrchestratePage({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // v26.3-07e 分歧裁决 modal
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   // 初始加载 meeting + agents (一次)
@@ -400,13 +403,41 @@ export default function OrchestratePage({
           className="mb-6 rounded-xl border-l-4 border-violet-400 bg-violet-500/10 px-4 py-3"
           data-testid="dissent-banner"
         >
-          <h3 className="text-sm font-semibold text-violet-200">
-            ⚠️ 本场会议 有 {totalDissents} 处分歧 待你裁决
-          </h3>
-          <p className="mt-1 text-[11px] text-zinc-400">
-            会议跑完后,系统按 v26.3 Q3 决策 D 批量收集分歧 — 由你审阅后写入会议纪要.
-            裁决前 这些议程的 task 不会自动派.
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-violet-200">
+                ⚠️ 本场会议 有 {totalDissents} 处分歧 待你裁决
+              </h3>
+              <p className="mt-1 text-[11px] text-zinc-400">
+                会议跑完后,系统按 v26.3 Q3 决策 D 批量收集分歧 — 由你审阅后写入会议纪要.
+                裁决会沉淀回涉及 AI 专家的知识库,影响 它们后续类似议题的判断.
+              </p>
+              {/* 已裁决进度 */}
+              {(() => {
+                const pending = consenses.filter(
+                  (c) =>
+                    (c.dissents?.length || 0) > 0 &&
+                    c.needs_human_review &&
+                    !c.reviewed_at,
+                );
+                const reviewed = consenses.filter(
+                  (c) => (c.dissents?.length || 0) > 0 && c.reviewed_at,
+                );
+                return (
+                  <p className="mt-1 text-[11px] text-violet-300">
+                    待裁决议程 {pending.length} 项 · 已裁决 {reviewed.length} 项
+                  </p>
+                );
+              })()}
+            </div>
+            <button
+              onClick={() => setReviewModalOpen(true)}
+              className="shrink-0 rounded-lg bg-violet-500 px-3 py-1.5 text-xs font-medium text-violet-950 hover:bg-violet-400"
+              data-testid="open-review-modal"
+            >
+              ⚖️ 打开裁决面板
+            </button>
+          </div>
         </section>
       )}
 
@@ -542,6 +573,298 @@ export default function OrchestratePage({
           {err}
         </p>
       )}
+
+      {/* v26.3-07e 分歧裁决 modal */}
+      {reviewModalOpen && (
+        <DissentReviewModal
+          meetingId={meetingId}
+          consenses={consenses}
+          agendaItems={agenda}
+          agentsById={agentsById}
+          onClose={() => setReviewModalOpen(false)}
+          onReviewed={() => fetchAll()}
+        />
+      )}
     </main>
+  );
+}
+
+
+// ============================================================================
+// v26.3-07e 分歧裁决 Modal
+// ============================================================================
+
+const REVIEW_ACTION_LABEL: Record<string, string> = {
+  pick_a: "采纳 A 方",
+  pick_b: "采纳 B 方",
+  compromise: "折衷裁决",
+  defer: "搁置 / 待后续",
+};
+
+const REVIEW_RATIONALE_MIN = 10;
+
+function DissentReviewModal({
+  meetingId,
+  consenses,
+  agendaItems,
+  agentsById,
+  onClose,
+  onReviewed,
+}: {
+  meetingId: string;
+  consenses: MeetingConsensus[];
+  agendaItems: { title?: string }[];
+  agentsById: Record<string, Agent>;
+  onClose: () => void;
+  onReviewed: () => void;
+}) {
+  // 把 待裁决 (needs_human_review && !reviewed_at) 和 已裁决 分开
+  const pending = useMemo(
+    () =>
+      consenses.filter(
+        (c) => (c.dissents?.length || 0) > 0 && c.needs_human_review && !c.reviewed_at,
+      ),
+    [consenses],
+  );
+  const reviewed = useMemo(
+    () => consenses.filter((c) => (c.dissents?.length || 0) > 0 && c.reviewed_at),
+    [consenses],
+  );
+
+  // 表单状态:key = `${agendaIdx}-${dissentIdx}` → {action, rationale}
+  const [form, setForm] = useState<Record<string, { action?: string; rationale: string }>>({});
+  const [submitting, setSubmitting] = useState<number | null>(null); // 正在提交哪个 agendaIdx
+  const [submitErr, setSubmitErr] = useState<string | null>(null);
+
+  const setField = (agendaIdx: number, dissentIdx: number, patch: Partial<{ action: string; rationale: string }>) => {
+    const key = `${agendaIdx}-${dissentIdx}`;
+    setForm((prev) => {
+      const cur = prev[key] || { rationale: "" };
+      return { ...prev, [key]: { ...cur, ...patch } };
+    });
+  };
+
+  const submit = async (c: MeetingConsensus) => {
+    setSubmitErr(null);
+    const dissents = c.dissents || [];
+    const reviews: { dissent_idx: number; action: "pick_a" | "pick_b" | "compromise" | "defer"; rationale: string }[] = [];
+    for (let i = 0; i < dissents.length; i++) {
+      const key = `${c.agenda_idx}-${i}`;
+      const f = form[key];
+      if (!f?.action) {
+        setSubmitErr(`议程 ${c.agenda_idx + 1} 第 ${i + 1} 处分歧 还没选 action`);
+        return;
+      }
+      if (!["pick_a", "pick_b", "compromise", "defer"].includes(f.action)) {
+        setSubmitErr(`议程 ${c.agenda_idx + 1} 第 ${i + 1} 处 action 非法`);
+        return;
+      }
+      const r = (f.rationale || "").trim();
+      if (r.length < REVIEW_RATIONALE_MIN) {
+        setSubmitErr(`议程 ${c.agenda_idx + 1} 第 ${i + 1} 处 rationale 太短 (≥${REVIEW_RATIONALE_MIN} 字)`);
+        return;
+      }
+      reviews.push({ dissent_idx: i, action: f.action as "pick_a" | "pick_b" | "compromise" | "defer", rationale: r });
+    }
+    try {
+      setSubmitting(c.agenda_idx);
+      await api.reviewMeetingConsensus(meetingId, c.agenda_idx, { reviews });
+      toast.success(`议程 ${c.agenda_idx + 1} 裁决完成,正在沉淀到 AI 知识库…`);
+      onReviewed();
+      // 该议程的表单字段清掉(已落库)
+      setForm((prev) => {
+        const next = { ...prev };
+        for (let i = 0; i < dissents.length; i++) delete next[`${c.agenda_idx}-${i}`];
+        return next;
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "裁决失败";
+      setSubmitErr(msg);
+      toast.error(msg);
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+      data-testid="dissent-modal"
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-ink-700 bg-ink-950 p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-center justify-between border-b border-ink-800 pb-3">
+          <h2 className="text-lg font-semibold text-white">
+            ⚖️ 召集人 · 分歧批量裁决
+          </h2>
+          <button
+            onClick={onClose}
+            className="rounded-md p-1 text-zinc-400 hover:bg-ink-800 hover:text-white"
+            aria-label="关闭"
+          >
+            ✕
+          </button>
+        </header>
+
+        <p className="mt-3 text-xs text-zinc-400">
+          每个议程项的所有分歧 必须 一起裁决.4 选 1 + 理由 ≥ {REVIEW_RATIONALE_MIN} 字.
+          裁决后系统会自动把决议沉淀到涉及 AI 专家的知识库,影响其后续判断.
+        </p>
+
+        {submitErr && (
+          <div className="mt-3 rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-rose-300">
+            ⚠️ {submitErr}
+          </div>
+        )}
+
+        {/* 待裁决 */}
+        {pending.length === 0 && (
+          <p className="mt-6 text-center text-sm text-zinc-500">
+            ✓ 所有分歧 都已 裁决
+          </p>
+        )}
+        {pending.map((c) => {
+          const agTitle = c.agenda_title || agendaItems[c.agenda_idx]?.title || `议程 ${c.agenda_idx + 1}`;
+          const dissents = c.dissents || [];
+          return (
+            <section
+              key={c.id}
+              className="mt-4 rounded-lg border border-violet-500/30 bg-violet-500/5 p-4"
+              data-testid={`dissent-card-${c.agenda_idx}`}
+            >
+              <h3 className="text-sm font-medium text-violet-100">
+                议程 {c.agenda_idx + 1}:{agTitle} · {dissents.length} 处分歧
+              </h3>
+              <ul className="mt-3 space-y-3">
+                {dissents.map((d, di) => {
+                  const key = `${c.agenda_idx}-${di}`;
+                  const f = form[key];
+                  const involved = (d.involved_agents || []) as string[];
+                  return (
+                    <li
+                      key={di}
+                      className="rounded-md border border-ink-700 bg-ink-900 p-3 text-xs"
+                    >
+                      <div className="mb-2">
+                        <span className="font-semibold text-violet-200">分歧 {di + 1}:</span>{" "}
+                        <span className="text-white">{d.point || "(无标题)"}</span>
+                      </div>
+                      <p className="mb-2 text-zinc-400">
+                        <span className="text-zinc-500">立场摘要:</span>
+                        {d.summary || "(摘要缺失)"}
+                      </p>
+                      {involved.length > 0 && (
+                        <p className="mb-3 text-zinc-500">
+                          涉及专家:{involved.join(" / ")}
+                        </p>
+                      )}
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        {(["pick_a", "pick_b", "compromise", "defer"] as const).map((act) => (
+                          <label
+                            key={act}
+                            className={`cursor-pointer rounded-md border px-2 py-1 text-[11px] ${
+                              f?.action === act
+                                ? "border-emerald-500 bg-emerald-500/10 text-emerald-200"
+                                : "border-ink-700 text-zinc-400 hover:border-zinc-500"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name={key}
+                              value={act}
+                              checked={f?.action === act}
+                              onChange={() => setField(c.agenda_idx, di, { action: act })}
+                              className="sr-only"
+                            />
+                            {REVIEW_ACTION_LABEL[act]}
+                          </label>
+                        ))}
+                      </div>
+                      <textarea
+                        value={f?.rationale || ""}
+                        onChange={(e) => setField(c.agenda_idx, di, { rationale: e.target.value })}
+                        placeholder={`说明裁决理由 (≥${REVIEW_RATIONALE_MIN} 字)`}
+                        rows={2}
+                        className="mt-1 w-full rounded-md border border-ink-700 bg-ink-950 px-2 py-1 text-[11px] text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+                      />
+                      <p className="mt-0.5 text-[10px] text-zinc-600">
+                        {(f?.rationale || "").trim().length}/{REVIEW_RATIONALE_MIN}+ 字
+                      </p>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="mt-3 flex justify-end">
+                <button
+                  onClick={() => submit(c)}
+                  disabled={submitting === c.agenda_idx}
+                  className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-medium text-emerald-950 hover:bg-emerald-400 disabled:opacity-50"
+                  data-testid={`submit-${c.agenda_idx}`}
+                >
+                  {submitting === c.agenda_idx ? "裁决中…" : "✓ 裁决并归档"}
+                </button>
+              </div>
+            </section>
+          );
+        })}
+
+        {/* 已裁决 (折叠展示) */}
+        {reviewed.length > 0 && (
+          <section className="mt-6">
+            <h3 className="mb-2 text-xs font-medium text-zinc-400">
+              ✓ 已裁决 ({reviewed.length})
+            </h3>
+            <ul className="space-y-1.5">
+              {reviewed.map((c) => {
+                let parsed: { dissent_idx: number; action: string; rationale: string }[] | null = null;
+                try {
+                  parsed = c.review_decision ? JSON.parse(c.review_decision) : null;
+                } catch {
+                  parsed = null;
+                }
+                return (
+                  <li
+                    key={c.id}
+                    className="rounded-md border border-ink-800 bg-ink-900 px-3 py-2 text-[11px]"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-zinc-300">
+                        议程 {c.agenda_idx + 1}:{c.agenda_title || "?"}
+                      </span>
+                      <span className="text-zinc-600">
+                        {c.reviewed_at ? new Date(c.reviewed_at).toLocaleString("zh-CN") : ""}
+                      </span>
+                    </div>
+                    {parsed && parsed.length > 0 && (
+                      <ul className="mt-1 space-y-0.5 text-zinc-500">
+                        {parsed.map((r, i) => (
+                          <li key={i}>
+                            分歧 {r.dissent_idx + 1}:
+                            <span className="text-emerald-300">{REVIEW_ACTION_LABEL[r.action] || r.action}</span>
+                            <span className="text-zinc-600"> · {r.rationale.slice(0, 50)}{r.rationale.length > 50 ? "…" : ""}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+
+        <footer className="mt-6 flex justify-end border-t border-ink-800 pt-3">
+          <button
+            onClick={onClose}
+            className="rounded-md border border-ink-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-ink-800"
+          >
+            关闭
+          </button>
+        </footer>
+      </div>
+    </div>
   );
 }

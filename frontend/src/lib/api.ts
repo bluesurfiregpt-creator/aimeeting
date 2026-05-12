@@ -1090,6 +1090,23 @@ export const api = {
   listMeetingConsensus: (meetingId: string) =>
     jget<MeetingConsensus[]>(`/api/meetings/${meetingId}/consensus`),
 
+  // v26.3-07: 召集人会后批量裁决分歧 (Q1=A 4选1 + 必填 rationale)
+  reviewMeetingConsensus: (
+    meetingId: string,
+    agendaIdx: number,
+    body: {
+      reviews: Array<{
+        dissent_idx: number;
+        action: "pick_a" | "pick_b" | "compromise" | "defer";
+        rationale: string;
+      }>;
+    },
+  ) =>
+    jpost<MeetingConsensus>(
+      `/api/meetings/${meetingId}/consensus/${agendaIdx}/review`,
+      body,
+    ),
+
   // v26.3-03: Auto Meeting Orchestrator 控制
   getOrchestrateState: (meetingId: string) =>
     jget<{

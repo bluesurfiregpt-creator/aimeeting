@@ -2294,3 +2294,171 @@ async def list_meeting_consensus(
         )
         for r in rows
     ]
+
+
+# ============================================================================
+# v26.3-07 · 召集人会后批量裁决分歧 (Q3=D 决策落地)
+# ============================================================================
+
+
+class ConsensusReviewItem(BaseModel):
+    """单条 dissent 的裁决.dissent_idx 跟 MeetingConsensus.dissents 数组对齐."""
+    dissent_idx: int
+    action: str   # 'pick_a' | 'pick_b' | 'compromise' | 'defer' (Q1=A)
+    rationale: str
+
+
+class ConsensusReviewInput(BaseModel):
+    """整议程的批量裁决.必须 覆盖 该议程的 所有 dissent (一锅端,避免半批)."""
+    reviews: list[ConsensusReviewItem]
+
+
+_REVIEW_ACTIONS: frozenset[str] = frozenset({"pick_a", "pick_b", "compromise", "defer"})
+_REVIEW_RATIONALE_MIN_CHARS = 10
+
+
+@router.post(
+    "/{meeting_id}/consensus/{agenda_idx}/review",
+    response_model=ConsensusOut,
+)
+async def review_meeting_consensus(
+    meeting_id: str,
+    agenda_idx: int,
+    body: ConsensusReviewInput,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v26.3-07a (Q3=D · 会后批量裁决):召集人对一议程项里的所有 dissent 一次性裁决.
+
+    - 权限 (Q5 实操化): workspace role in (owner, admin, leader) 才能裁决.
+      (spec 原 Q5=A 仅 organizer,但 Meeting 无 organizer_user_id 字段,
+       退一步到 leader 三角色.收口范围跟 spec 精神一致 — 不开放给 attendee.)
+    - 校验:
+      1. meeting.mode='auto' (hybrid 没有 consensus 表)
+      2. consensus 行存在 + needs_human_review=True (无 dissent 不允许裁决)
+      3. 未裁决过 (reviewed_at IS NULL) — 已裁决返 409 (本期不支持改判)
+      4. reviews 数组 长度 == len(dissents) 且 dissent_idx 覆盖 0..N-1 不重复
+      5. 每条 action ∈ {pick_a, pick_b, compromise, defer}
+      6. 每条 rationale ≥ 10 字
+    - 落库:
+      - review_decision = json.dumps(reviews 数组)
+      - reviewed_by_user_id, reviewed_at
+      - needs_human_review 保持 True (历史可回看 "这是当时被裁决的分歧")
+    - 副作用:
+      - audit_log 'dissent.review'
+      - fire-and-forget schedule_consensus_consolidate (沉淀回 涉及 agent 的 KB)
+    """
+    import json as _json
+    from datetime import datetime, timezone
+
+    from ..audit import audit_log
+    from ..auth import is_leader_or_admin
+    from ..models import MeetingConsensus
+
+    # --- 1. 加载 meeting + 鉴权 ---
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    if m.mode != "auto":
+        raise HTTPException(400, f"only auto meetings have consensus to review (mode={m.mode})")
+    if not await is_leader_or_admin(session, auth):
+        raise HTTPException(403, "only owner/admin/leader can review dissents")
+
+    # --- 2. 加载 consensus 行 ---
+    row = (
+        await session.execute(
+            select(MeetingConsensus).where(
+                MeetingConsensus.meeting_id == m.id,
+                MeetingConsensus.agenda_idx == agenda_idx,
+            )
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, f"consensus for agenda_idx={agenda_idx} not found")
+    if not row.needs_human_review:
+        raise HTTPException(400, "this agenda has no dissent to review")
+    if row.reviewed_at is not None:
+        raise HTTPException(
+            409,
+            f"already reviewed at {row.reviewed_at.isoformat()} by user "
+            f"{row.reviewed_by_user_id}; re-review not supported in v26.3",
+        )
+
+    dissents = row.dissents or []
+    if len(dissents) == 0:
+        # 与 needs_human_review 不一致 — 防御性
+        raise HTTPException(500, "consensus marks needs_review but dissents 数组为空 — 数据异常")
+
+    # --- 3. 校验 reviews ---
+    if len(body.reviews) != len(dissents):
+        raise HTTPException(
+            400,
+            f"reviews 数 ({len(body.reviews)}) ≠ dissents 数 ({len(dissents)}); "
+            "必须 一次裁决该议程全部 dissent (Q1 决策 4选1 + 必填理由)",
+        )
+    seen_idx: set[int] = set()
+    for r in body.reviews:
+        if r.action not in _REVIEW_ACTIONS:
+            raise HTTPException(400, f"invalid action '{r.action}'; 允许:{sorted(_REVIEW_ACTIONS)}")
+        if r.dissent_idx < 0 or r.dissent_idx >= len(dissents):
+            raise HTTPException(400, f"dissent_idx {r.dissent_idx} 越界 (0..{len(dissents)-1})")
+        if r.dissent_idx in seen_idx:
+            raise HTTPException(400, f"dissent_idx {r.dissent_idx} 重复出现")
+        seen_idx.add(r.dissent_idx)
+        if len(r.rationale.strip()) < _REVIEW_RATIONALE_MIN_CHARS:
+            raise HTTPException(
+                400,
+                f"dissent {r.dissent_idx} 的 rationale 太短 (≥ {_REVIEW_RATIONALE_MIN_CHARS} 字)",
+            )
+
+    # --- 4. 落库 ---
+    review_payload = [
+        {"dissent_idx": r.dissent_idx, "action": r.action, "rationale": r.rationale.strip()}
+        for r in sorted(body.reviews, key=lambda x: x.dissent_idx)
+    ]
+    now = datetime.now(timezone.utc)
+    row.review_decision = _json.dumps(review_payload, ensure_ascii=False)
+    row.reviewed_by_user_id = auth.user.id
+    row.reviewed_at = now
+    await session.commit()
+    await session.refresh(row)
+
+    # --- 5. audit ---
+    await audit_log(
+        session,
+        auth,
+        "dissent.review",
+        target_type="meeting_consensus",
+        target_id=str(row.id),
+        payload={
+            "meeting_id": str(m.id),
+            "agenda_idx": agenda_idx,
+            "dissent_count": len(dissents),
+            "actions": [r.action for r in review_payload],
+        },
+    )
+
+    # --- 6. fire-and-forget 沉淀 ---
+    try:
+        from ..consensus_consolidator import schedule_consensus_consolidate
+        schedule_consensus_consolidate(row.id)
+    except Exception:
+        import logging as _logging
+        _logging.getLogger(__name__).exception(
+            "schedule_consensus_consolidate 失败 (review 已落库,沉淀 missed)"
+        )
+
+    return ConsensusOut(
+        id=row.id,
+        agenda_idx=row.agenda_idx,
+        agenda_title=row.agenda_title,
+        consensus_md=row.consensus_md,
+        dissents=row.dissents or [],
+        needs_human_review=row.needs_human_review,
+        reviewed_by_user_id=row.reviewed_by_user_id,
+        reviewed_at=row.reviewed_at,
+        review_decision=row.review_decision,
+        turn_count=row.turn_count,
+        token_estimate=row.token_estimate,
+        elapsed_sec=row.elapsed_sec,
+        created_at=row.created_at,
+    )

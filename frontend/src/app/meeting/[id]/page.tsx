@@ -287,6 +287,13 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     status: string;
     agenda: AgendaItem[] | null;
     attendee_agent_ids: string[];  // v25.10 Bug 1: 邀请的 AI 才显示
+    mode?: "human" | "hybrid" | "auto";   // v26.3
+  } | null>(null);
+  // v26.3-07f: auto 会议 分歧统计 (横幅显示 + 跳 orchestrate)
+  const [autoMeetingInfo, setAutoMeetingInfo] = useState<{
+    pendingReviewCount: number;
+    reviewedCount: number;
+    totalDissents: number;
   } | null>(null);
   const [audioCaps] = useState(() => probeAudioCapabilities());
   // `mounted` gates browser-only conditional UI (iOS Safari notice, insecure
@@ -864,7 +871,29 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           status: m.status,
           agenda: m.agenda ?? null,
           attendee_agent_ids: m.attendee_agent_ids ?? [],
+          mode: m.mode,
         });
+        // v26.3-07f: auto 会议 拉 consensus 统计 (分歧 banner 用)
+        if (m.mode === "auto") {
+          api.listMeetingConsensus(meetingId).then(
+            (cs) => {
+              if (!alive) return;
+              const withDissent = cs.filter((c) => (c.dissents?.length || 0) > 0);
+              const pending = withDissent.filter((c) => c.needs_human_review && !c.reviewed_at);
+              const reviewed = withDissent.filter((c) => !!c.reviewed_at);
+              const totalDissents = withDissent.reduce(
+                (acc, c) => acc + (c.dissents?.length || 0),
+                0,
+              );
+              setAutoMeetingInfo({
+                pendingReviewCount: pending.length,
+                reviewedCount: reviewed.length,
+                totalDissents,
+              });
+            },
+            () => {},
+          );
+        }
         if (m.status === "processed" || m.status === "finished") {
           setPhase("ended");
           // v25.12-#2: 已结束会议默认 纪要 tab
@@ -1123,6 +1152,38 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           <p className="mt-1 text-xs text-zinc-500">实时字幕 · 异步贴姓名</p>
         </div>
       </header>
+
+      {/* v26.3-07f auto 会议 顶部 banner: 标识 + 跳 orchestrate + 分歧待裁决 */}
+      {meetingMeta?.mode === "auto" && (
+        <div
+          className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs"
+          data-testid="auto-meeting-banner"
+        >
+          <span className="text-amber-200">
+            🤖 此会议为 v26.3 召集人模式 · 全 AI 自主开会
+          </span>
+          {autoMeetingInfo && autoMeetingInfo.pendingReviewCount > 0 && (
+            <span
+              className="rounded-md bg-violet-500/20 px-2 py-0.5 text-violet-200"
+              data-testid="pending-review-pill"
+            >
+              ⚠️ {autoMeetingInfo.pendingReviewCount} 议程 ·{" "}
+              {autoMeetingInfo.totalDissents} 处分歧 待裁决
+            </span>
+          )}
+          {autoMeetingInfo && autoMeetingInfo.reviewedCount > 0 && (
+            <span className="text-zinc-400">
+              ✓ {autoMeetingInfo.reviewedCount} 议程 已裁决
+            </span>
+          )}
+          <Link
+            href={`/meeting/${meetingId}/orchestrate`}
+            className="ml-auto rounded-md bg-amber-500 px-3 py-1 text-amber-950 hover:bg-amber-400"
+          >
+            打开 Orchestrate 控制台 →
+          </Link>
+        </div>
+      )}
 
       <div className="mt-5 flex items-center gap-3">
         <span
