@@ -98,6 +98,13 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("knowledge_document", "source_agent_id", "UUID"),
     ("knowledge_document", "curated_by_user_id", "UUID"),
     ("knowledge_document", "curated_at", "TIMESTAMPTZ"),
+    # v26.3: 召集人模式 (全 AI 会议)
+    #   mode = human / hybrid / auto;auto_state JSON 存调度状态
+    ("meeting", "mode", "VARCHAR(16) DEFAULT 'hybrid'"),
+    ("meeting", "auto_state", "JSON"),
+    # v26.3: agent message 加线程化 + 议程索引
+    ("meeting_agent_message", "reply_to_agent_message_id", "BIGINT"),
+    ("meeting_agent_message", "agenda_idx", "INTEGER"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

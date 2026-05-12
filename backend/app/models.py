@@ -291,6 +291,27 @@ class Meeting(Base):
     # When absent (None), no monitoring runs (legacy meetings stay untouched).
     agenda: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
 
+    # v26.3: 会议模式
+    #   human  — 传统真人会议(v17-v25 默认行为)
+    #   hybrid — v26.0/.1/.2 默认:真人 + AI 混合(AI 触发式发言)
+    #   auto   — v26.3 召集人模式:全 AI 自主推进 + 召集人轻触
+    # 老数据 backfill 'hybrid' (向后兼容).新创建会议默认 'hybrid'.
+    mode: Mapped[str] = mapped_column(String(16), default="hybrid", index=True)
+    # v26.3 auto 模式调度状态(JSONB).schema:
+    #   {
+    #     "phase": "idle|running|paused|consensus_wait|done|failed",
+    #     "current_agenda_idx": 0,
+    #     "current_speaker_agent_id": "uuid",
+    #     "started_at": "ISO",
+    #     "paused_at": null,
+    #     "paused_by_user_id": null,
+    #     "turn_count": 0,
+    #     "dissent_count": 0,
+    #     "last_error": null
+    #   }
+    # mode='auto' 时 必填;其他 mode 留 NULL.worker 重启时 扫 phase=running 自动 resume.
+    auto_state: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     attendees: Mapped[list["MeetingAttendee"]] = relationship(back_populates="meeting", cascade="all, delete-orphan")
@@ -348,13 +369,24 @@ class MeetingAgentMessage(Base):
     )
     agent_id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), ForeignKey("agent.id"))
     text: Mapped[str] = mapped_column(Text)
-    trigger: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # at_mention|keyword|manual
+    trigger: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # at_mention|keyword|manual|auto_orchestrator
     trigger_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     # v24.3 #1: 引用溯源 — RAG 检索命中的 KB chunks(智慧住建文档 §3.1).
     # 格式: [{chunk_id, document_id, document_filename, chunk_index,
     #        snippet (<= 240 chars), distance}, ...]
     # 长期记忆引用(LongTermMemory)留 v25 也并入此处.
     citations: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, nullable=True)
+    # v26.3: 该发言是否在 回应之前 某个 agent_message — 让 UI 渲染"线程式"对话
+    # ON DELETE SET NULL:被回应的消息删了,本条仍保留(只断链).
+    reply_to_agent_message_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey("meeting_agent_message.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # v26.3: 该发言属于会议第几个议程项(从 0 开始).index 让 consensus
+    # collector / wrap_up 能高效查"本议程所有发言".
+    # mode='hybrid' / 'human' 时可留 NULL(老数据没此概念).
+    agenda_idx: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -1005,6 +1037,64 @@ class MeetingSpeakerSegment(Base):
     status: Mapped[str] = mapped_column(String(32), default="auto_recognized")  # auto_recognized|manually_corrected
 
     meeting: Mapped[Meeting] = relationship(back_populates="speaker_segments")
+
+
+# --- v26.3 召集人模式:议程项 共识 + 分歧 -----------------------------------
+
+class MeetingConsensus(Base):
+    """
+    v26.3 — 全 AI 会议(mode='auto')每个议程项跑完时,
+    consensus collector LLM 输出一行共识 + 分歧 → 写入这里.
+
+    与 meeting.summary_md 区别:
+      - summary_md 是 整场会议 LLM 汇总(v17 已存在),粒度粗
+      - meeting_consensus 是 每议程项 一行,粒度细;且 含 dissents 数组
+        让召集人会后批量裁决(per v26.3 Q3 用户决策 D · 会后批量裁决)
+
+    生命周期:
+      auto orchestrator 跑完一议程项 → INSERT 一行 (needs_human_review =
+      len(dissents) > 0)
+      召集人在 会议详情 看到「⚠️ N 处分歧待裁决」 → 点开 → 写 review_decision →
+      reviewed_by_user_id + reviewed_at + 该议程项 重跑 action_extractor 产 task
+
+    UNIQUE (meeting_id, agenda_idx):一议程项一行(force 重跑时 先 DELETE 再 INSERT).
+    """
+    __tablename__ = "meeting_consensus"
+    __table_args__ = (
+        UniqueConstraint("meeting_id", "agenda_idx", name="uq_consensus_meeting_agenda"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    meeting_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("meeting.id", ondelete="CASCADE"),
+        index=True,
+    )
+    agenda_idx: Mapped[int] = mapped_column(Integer)
+    agenda_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # LLM 收尾时生成的共识 markdown(整合 wrap_up 的 N 条建议)
+    consensus_md: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 分歧列表 JSONB,格式:[{point, summary, involved_agents: [name1, name2]}, ...]
+    # 空数组 [] = 无分歧;非空 = 待召集人裁决
+    dissents: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, nullable=True)
+    # len(dissents) > 0 时 true,会议详情 UI 显示「⚠️ N 处分歧待裁决」横幅
+    needs_human_review: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # 召集人裁决记录
+    reviewed_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_decision: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 统计:本议程项 用了多少轮发言 + 多少 token (debug + 成本审计)
+    turn_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    token_estimate: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    elapsed_sec: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 # --- Model provider configuration --------------------------------------------
