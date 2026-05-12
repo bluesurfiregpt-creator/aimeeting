@@ -130,12 +130,16 @@ async def extract_and_store_actions(
     meeting_id: uuid.UUID,
     *,
     summary_md: Optional[str] = None,
+    mode: Optional[str] = None,
 ) -> int:
     """
     Returns count of action items inserted. 0 means none extractable
     (which is normal for many meetings — not all have explicit TODOs).
 
     `summary_md` is optional — if not passed, we re-load from DB.
+    `mode` — v26.3:'auto' 时跳过 "AI 发言不算依据" 规则 E.原因:
+       hybrid 模式 真人才是决策者, AI 只是辅助 → 规则 E 防 AI 建议被当 task.
+       auto 模式 全场 AI 自主讨论,AI 发言就是会议决策 → 规则 E 反而把全部 task 都过滤掉.
     """
     async with SessionLocal() as db:
         m = (
@@ -215,12 +219,26 @@ async def extract_and_store_actions(
             f"的真实数字,通常 2-6 个,严禁编造."
         )
 
+        # v26.3: auto 模式跳 规则 E "AI 发言不算依据" — 全场是 AI 自主讨论,
+        # 那就是 决策本身.加一段 system_prompt override.
+        system_prompt = _SYSTEM_PROMPT
+        if mode == "auto":
+            system_prompt = (
+                _SYSTEM_PROMPT
+                + "\n\n【v26.3 auto 模式 特殊规则】\n"
+                "本会议是 mode='auto' 全 AI 自主会议(无真人发言).因此:\n"
+                "  - 规则 E 失效 — AI 专家的发言 / 共识 = 本会议的决策,正常抽取\n"
+                "  - evidence_quote 从 议程的共识 / wrap_up 摘抄(那里就是 AI 共识)\n"
+                "  - evidence_anchor_line_ids 留 空数组 []（auto 会议无 transcript line_id）\n"
+                "  - assignee_name 留空(routing 算法会按 topic_keywords 派给 主责 AI)\n"
+            )
+
         chunks: list[str] = []
         try:
             # v25.11: 用 qwen-max + temperature=0 + top_p=0.1 反幻觉
             async for c in stream_chat(
                 provider=provider,
-                system_prompt=_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 model_override="qwen-max-latest",
                 temperature=0.0,

@@ -780,10 +780,14 @@ async def _run_auto_meeting(meeting_id: uuid.UUID) -> None:
             await db.commit()
 
         # 触发 action_extractor (它会读 summary_md + 抽 topic_keywords + 派给 agent)
+        # v26.3: 显式传 mode='auto' — 让 prompt 跳过"AI 发言不算依据"规则,
+        # 否则全 AI 会议会抽 0 task.
         try:
             from .action_extractor import extract_and_store_actions
             asyncio.create_task(
-                extract_and_store_actions(meeting_id, summary_md=summary_md)
+                extract_and_store_actions(
+                    meeting_id, summary_md=summary_md, mode="auto",
+                )
             )
         except Exception:
             logger.exception("orchestrator action_extractor 触发失败 meeting=%s", meeting_id)
