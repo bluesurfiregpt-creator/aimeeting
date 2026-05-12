@@ -40,6 +40,8 @@ export default function Home() {
   const [agendaRows, setAgendaRows] = useState<DraftAgendaRow[]>([
     { title: "", time_budget_min: "" },
   ]);
+  // v26.3 召集人模式 — hybrid (默认,v26.0/.1/.2 行为) / auto (全 AI 自主)
+  const [mode, setMode] = useState<"hybrid" | "auto">("hybrid");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -69,6 +71,18 @@ export default function Home() {
 
   const start = async () => {
     setErr("");
+    // v26.3 auto 前端校验
+    if (mode === "auto") {
+      const validAgendaCount = agendaRows.filter((r) => r.title.trim()).length;
+      if (validAgendaCount < 2) {
+        setErr("AI 自主会议 至少 2 个议程项");
+        return;
+      }
+      if (pickedAgents.size < 3) {
+        setErr("AI 自主会议 至少邀请 3 个 AI 专家");
+        return;
+      }
+    }
     setBusy(true);
     try {
       const cleaned: AgendaItem[] = agendaRows
@@ -84,8 +98,10 @@ export default function Home() {
         Array.from(picked),
         cleaned.length ? cleaned : null,
         Array.from(pickedAgents),  // v25.7-#1
+        mode,  // v26.3
       );
-      router.push(`/meeting/${m.id}`);
+      // v26.3 auto 模式直接跳 orchestrate 控制台
+      router.push(mode === "auto" ? `/meeting/${m.id}/orchestrate` : `/meeting/${m.id}`);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "创建失败");
       setBusy(false);
@@ -163,10 +179,65 @@ export default function Home() {
           className="mt-4 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
         />
 
+        {/* v26.3 会议模式选择 */}
+        <div className="mt-4" data-testid="mode-selector">
+          <div className="text-xs text-zinc-500">会议模式</div>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <label
+              className={`flex cursor-pointer flex-col rounded-lg border px-3 py-2.5 transition ${
+                mode === "hybrid"
+                  ? "border-accent-500 bg-accent-500/10 text-white"
+                  : "border-ink-700 bg-ink-950 text-zinc-300 hover:border-zinc-600"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  checked={mode === "hybrid"}
+                  onChange={() => setMode("hybrid")}
+                  className="h-4 w-4 accent-accent-500"
+                />
+                <span className="text-sm font-medium">👥 真人 + AI 混合(默认)</span>
+              </div>
+              <span className="ml-6 mt-0.5 text-[11px] text-zinc-500">
+                传统会议体验.真人发言 + @AI 触发 + 关键词激活 AI 专家.
+              </span>
+            </label>
+            <label
+              className={`flex cursor-pointer flex-col rounded-lg border px-3 py-2.5 transition ${
+                mode === "auto"
+                  ? "border-amber-500 bg-amber-500/10 text-white"
+                  : "border-ink-700 bg-ink-950 text-zinc-300 hover:border-zinc-600"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  checked={mode === "auto"}
+                  onChange={() => setMode("auto")}
+                  className="h-4 w-4 accent-amber-500"
+                />
+                <span className="text-sm font-medium">🤖 AI 自主会议(v26.3)</span>
+              </div>
+              <span className="ml-6 mt-0.5 text-[11px] text-zinc-500">
+                召集人 + N 个 AI 专家,系统自动推进议程,AI 轮流发言收敛共识,
+                无需真人参会.要求 ≥2 议程 + ≥3 AI 专家.
+              </span>
+            </label>
+          </div>
+        </div>
+
         {/* M3.0: 议程（可选）— 填了就启动 agenda monitor 跑题/时间预警 */}
         <div className="mt-4" data-testid="agenda-section">
           <div className="text-xs text-zinc-500">
-            议程项（可选 · 填了系统会自动监督跑题 + 时间预算)
+            议程项
+            {mode === "auto" ? (
+              <span className="ml-1 text-amber-300">
+                (AI 自主模式必填 · 至少 2 项 · 系统按顺序自动推进)
+              </span>
+            ) : (
+              <span> (可选 · 填了系统会自动监督跑题 + 时间预算)</span>
+            )}
           </div>
           <ul className="mt-2 space-y-2">
             {agendaRows.map((r, i) => (
@@ -209,7 +280,14 @@ export default function Home() {
         </div>
 
         <div className="mt-4">
-          <div className="text-xs text-zinc-500">勾选参会人（须先在「录入声纹」页录过）</div>
+          <div className="text-xs text-zinc-500">
+            勾选参会人（须先在「录入声纹」页录过）
+            {mode === "auto" && (
+              <span className="ml-1 text-amber-300">
+                (AI 自主模式 不需勾真人;召集人即你自己)
+              </span>
+            )}
+          </div>
           {users.length === 0 ? (
             <p className="mt-2 text-sm text-zinc-600">
               还没有人录入声纹 — 先去 <Link href="/enroll" className="text-accent-400">录入</Link>。
@@ -253,7 +331,17 @@ export default function Home() {
         <div className="mt-6">
           <div className="flex items-center justify-between">
             <div className="text-xs text-zinc-500">
-              邀请 AI 专家 <span className="text-zinc-600">(可多选;不勾则会议中没有 AI 自动发言)</span>
+              邀请 AI 专家
+              {mode === "auto" ? (
+                <span className="ml-1 text-amber-300">
+                  (AI 自主模式必勾 · 至少 3 个 · 系统会让它们轮流发言;
+                  必须先在 admin 给每个 AI 专家绑科室账号才能接任务)
+                </span>
+              ) : (
+                <span className="text-zinc-600">
+                  {" "}(可多选;不勾则会议中没有 AI 自动发言)
+                </span>
+              )}
             </div>
             <Link href="/admin/agents" className="text-xs text-zinc-600 hover:text-accent-400">
               + 管理 AI 专家
@@ -303,12 +391,22 @@ export default function Home() {
           <button
             onClick={start}
             disabled={busy}
-            className="rounded-lg bg-accent-500 px-5 py-2.5 text-sm font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent-400 transition"
+            className={`rounded-lg px-5 py-2.5 text-sm font-medium shadow disabled:cursor-not-allowed disabled:opacity-50 transition ${
+              mode === "auto"
+                ? "bg-amber-500 text-amber-950 hover:bg-amber-400"
+                : "bg-accent-500 text-white hover:bg-accent-400"
+            }`}
           >
-            {busy ? "创建中..." : "开始会议"}
+            {busy
+              ? "创建中..."
+              : mode === "auto"
+              ? "🤖 创建 AI 自主会议"
+              : "开始会议"}
           </button>
           <span className="text-xs text-zinc-600">
-            提示：创建后会跳转到会议室，开始字幕；结束后系统自动给每句话贴姓名。
+            {mode === "auto"
+              ? "创建后会跳转到 Orchestrate 控制台,点 「启动」 让 AI 开会."
+              : "创建后会跳转到会议室，开始字幕；结束后系统自动给每句话贴姓名。"}
           </span>
         </div>
         {err && <p className="mt-3 text-sm text-rose-400">{err}</p>}

@@ -2176,6 +2176,9 @@ class AgentMessageOut(BaseModel):
     trigger: Optional[str] = None
     citations: list[AgentCitationOut] = []  # v24.3 #1
     created_at: datetime
+    # v26.3-03: 线程化 + 议程索引
+    reply_to_agent_message_id: Optional[int] = None
+    agenda_idx: Optional[int] = None
 
 
 @router.get("/{meeting_id}/agent-messages", response_model=list[AgentMessageOut])
@@ -2221,6 +2224,63 @@ async def list_agent_messages(
                 trigger=r.trigger,
                 citations=cits,
                 created_at=r.created_at,
+                reply_to_agent_message_id=r.reply_to_agent_message_id,
+                agenda_idx=r.agenda_idx,
             )
         )
     return out
+
+
+# v26.3-03: 议程项 共识 + 分歧 list (auto 会议)
+
+
+class ConsensusOut(BaseModel):
+    id: uuid.UUID
+    agenda_idx: int
+    agenda_title: Optional[str] = None
+    consensus_md: Optional[str] = None
+    dissents: list[dict] = []
+    needs_human_review: bool = False
+    reviewed_by_user_id: Optional[uuid.UUID] = None
+    reviewed_at: Optional[datetime] = None
+    review_decision: Optional[str] = None
+    turn_count: Optional[int] = None
+    token_estimate: Optional[int] = None
+    elapsed_sec: Optional[float] = None
+    created_at: datetime
+
+
+@router.get("/{meeting_id}/consensus", response_model=list[ConsensusOut])
+async def list_meeting_consensus(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.3-03: 拉所有议程项的 共识 + 分歧.UI 弹"分歧待裁决"横幅用."""
+    from ..models import MeetingConsensus
+    await _load_owned_meeting(meeting_id, session, auth)
+    rows = (
+        await session.execute(
+            select(MeetingConsensus).where(
+                MeetingConsensus.meeting_id == meeting_id
+            ).order_by(MeetingConsensus.agenda_idx)
+        )
+    ).scalars().all()
+    return [
+        ConsensusOut(
+            id=r.id,
+            agenda_idx=r.agenda_idx,
+            agenda_title=r.agenda_title,
+            consensus_md=r.consensus_md,
+            dissents=r.dissents or [],
+            needs_human_review=r.needs_human_review,
+            reviewed_by_user_id=r.reviewed_by_user_id,
+            reviewed_at=r.reviewed_at,
+            review_decision=r.review_decision,
+            turn_count=r.turn_count,
+            token_estimate=r.token_estimate,
+            elapsed_sec=r.elapsed_sec,
+            created_at=r.created_at,
+        )
+        for r in rows
+    ]

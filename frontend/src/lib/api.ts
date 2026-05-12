@@ -211,6 +211,9 @@ export type Meeting = {
   attendee_user_ids: string[];
   attendee_agent_ids?: string[];  // v25.7-#1: 邀请的 AI 专家
   agenda?: AgendaItem[] | null;
+  // v26.3 召集人模式
+  mode?: "human" | "hybrid" | "auto";
+  auto_state?: Record<string, unknown> | null;
 };
 
 /** M3.0: a tracked TODO from a meeting (auto-extracted or manually added). */
@@ -268,6 +271,37 @@ export type AgentMessage = {
   trigger: string | null;
   /** v24.3 #1: 该回答引用的 KB chunks(0-4 条) */
   citations: AgentCitation[];
+  created_at: string;
+  /** v26.3-02: 同议程内 reply chain (consensus 收集时填). Hybrid 会议为 null. */
+  reply_to_agent_message_id?: number | null;
+  /** v26.3-02: 该发言所属议程序号 (auto/hybrid 均填). 旧数据为 null. */
+  agenda_idx?: number | null;
+};
+
+/** v26.3-02: 每议程一行的 consensus + dissent 记录. 全 AI auto 会议产物;
+ *  hybrid 会议暂不写入. */
+export type MeetingDissent = {
+  point: string;
+  summary: string;
+  involved_agents: string[];
+};
+
+export type MeetingConsensus = {
+  id: string;
+  agenda_idx: number;
+  agenda_title: string | null;
+  consensus_md: string | null;
+  dissents: MeetingDissent[];
+  needs_human_review: boolean;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+  review_decision: string | null;
+  /** Adequacy 判断后 agenda 实际跑了几轮 (含 moderator wrap_up). */
+  turn_count: number | null;
+  /** Orchestrator 估算的 token 数 (None 表示未估算). */
+  token_estimate: number | null;
+  /** 该议程从 intro 到 wrap_up 的耗时(秒). */
+  elapsed_sec: number | null;
   created_at: string;
 };
 
@@ -1037,6 +1071,7 @@ export const api = {
     attendeeUserIds: string[],
     agenda?: AgendaItem[] | null,
     attendeeAgentIds?: string[],  // v25.7-#1
+    mode?: "human" | "hybrid" | "auto",  // v26.3
   ) =>
     jpost<Meeting>("/api/meetings", {
       title,
@@ -1045,10 +1080,38 @@ export const api = {
       ...(attendeeAgentIds && attendeeAgentIds.length
         ? { attendee_agent_ids: attendeeAgentIds }
         : {}),
+      ...(mode ? { mode } : {}),
     }),
   getMeeting: (id: string) => jget<Meeting>(`/api/meetings/${id}`),
   finalizeMeeting: (id: string) => jpost<Meeting>(`/api/meetings/${id}/finalize`, {}),
   meetingResult: (id: string) => jget<MeetingResult>(`/api/meetings/${id}/result`),
+
+  // v26.3-03: agent messages + consensus
+  listMeetingConsensus: (meetingId: string) =>
+    jget<MeetingConsensus[]>(`/api/meetings/${meetingId}/consensus`),
+
+  // v26.3-03: Auto Meeting Orchestrator 控制
+  getOrchestrateState: (meetingId: string) =>
+    jget<{
+      phase: "idle" | "running" | "paused" | "consensus_wait" | "done" | "failed" | "cancelled";
+      current_agenda_idx: number;
+      current_speaker_agent_id: string | null;
+      turn_count: number;
+      dissent_count: number;
+      started_at: string | null;
+      paused_at: string | null;
+      last_error: string | null;
+      completed_agenda_count: number;
+      total_agenda_count: number;
+    }>(`/api/meetings/${meetingId}/orchestrate/state`),
+  orchestrateStart: (meetingId: string) =>
+    jpost(`/api/meetings/${meetingId}/orchestrate/start`, {}),
+  orchestratePause: (meetingId: string) =>
+    jpost(`/api/meetings/${meetingId}/orchestrate/pause`, {}),
+  orchestrateResume: (meetingId: string) =>
+    jpost(`/api/meetings/${meetingId}/orchestrate/resume`, {}),
+  orchestrateCancel: (meetingId: string) =>
+    jpost(`/api/meetings/${meetingId}/orchestrate/cancel`, {}),
 
   // v25.11: 清掉某会议 LLM 自动提取的 action items(history hallucination 一键清)
   wipeAutoActions: (meetingId: string) =>
@@ -1606,7 +1669,8 @@ export const api = {
       {},
     ),
 
-  // M3.0 agent message history (Cowork-friendly read-only)
+  // M3.0 agent message history (Cowork-friendly read-only).
+  // v26.3-02: reply_to_agent_message_id + agenda_idx 由 backend 一并返回.
   listAgentMessages: (meetingId: string) =>
     jget<AgentMessage[]>(`/api/meetings/${meetingId}/agent-messages`),
 
