@@ -168,18 +168,18 @@ function SmartDispatchSection({
     topScore >= 0.60 ? "high" : topScore >= 0.40 ? "medium" : "low"
   );
 
-  // v26.0 5 维(兼容老数据的 keyword/capability 字段)
+  // v26.1 5 维(兼容老 v25 keyword/capability 数据)
   const dimLabel: Record<string, string> = {
     semantic: "关键词 + 领域匹配",
-    knowledge: "知识库丰富度",
+    knowledge: "KB 语义相关度",
     history: "历史经验",
     load: "当前负载",
     availability: "在岗状态",
   };
   const dimHelp: Record<string, string> = {
     semantic: "任务内容与该 AI 专家的擅长领域 / 关键词 是否吻合",
-    knowledge: "该 AI 专家 知识库 + 角色档案 是否丰富(v26.1 改 KB embedding)",
-    history: "该 AI 专家(及其科室账号)过去处理过同类任务的次数",
+    knowledge: "用 task 内容向量检索该 AI 知识库 — 命中 chunk 越多 / 距离越近 越高分(v26.1)",
+    history: "该 AI 30 天内完成的同主题任务数 × 完成率 (v26.1: 加完成率因子)",
     load: "该 AI 专家科室账号 当前待办量(越低 / 派给他越合适)",
     availability: "科室账号 是否在岗(suspended_until / 假期标记)",
   };
@@ -509,16 +509,18 @@ export default function TaskDetailPage({
     try {
       const r = await api.autoRouteTask(taskId);
       if (r.matched && r.winner) {
-        // v26.0: 显示派给 AI 专家 + 科室账号
+        // v26.1: 显示 5 维 + 是否真用了 embedding
         const w = r.winner;
         const agentName = w.agent_name;
         const userName = w.primary_user_name || w.candidate_user_name || "(科室账号)";
         const sem = w.breakdown.semantic ?? w.breakdown.keyword ?? 0;
         const kn = w.breakdown.knowledge ?? w.breakdown.capability ?? 0;
+        const usedEmb =
+          (w.breakdown as Record<string, unknown>)._kb_used_embedding === true;
         toast.success(
           `🤖 已派发给 AI 专家「${agentName}」(由 ${userName} 操作)`,
           {
-            detail: `composite=${w.composite.toFixed(2)} · 关键词${sem.toFixed(2)} · 知识库${kn.toFixed(2)} · 历史${w.breakdown.history.toFixed(2)} · 负载${w.breakdown.load.toFixed(2)}`,
+            detail: `composite=${w.composite.toFixed(2)} · 关键词${sem.toFixed(2)} · KB${kn.toFixed(2)}${usedEmb ? "[向量]" : "[近似]"} · 历史${w.breakdown.history.toFixed(2)} · 负载${w.breakdown.load.toFixed(2)}`,
             sticky: true,
           },
         );

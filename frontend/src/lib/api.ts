@@ -846,7 +846,7 @@ export type RouteScore = {
   agent_color?: string | null;  // v26.0
   composite: number;
   breakdown: {
-    // v26.0 维度
+    // v26.0+ 维度
     semantic?: number;
     knowledge?: number;
     availability?: number;
@@ -859,6 +859,10 @@ export type RouteScore = {
     _hits?: string[];
     _history_count?: number;
     _candidate_load?: number;
+    // v26.1 诊断字段
+    _completion_rate?: number;       // 历史任务完成率 (0-1)
+    _kb_hits?: number;               // KB 检索命中 chunk 数
+    _kb_used_embedding?: boolean;    // 是否真用了 embedding (false = 退化到配置近似)
   };
   // v25 兼容字段
   candidate_user_id: string | null;

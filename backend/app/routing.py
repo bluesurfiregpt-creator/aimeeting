@@ -42,26 +42,33 @@ from typing import Any, Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import Agent, Task, User
+from .embeddings import EmbeddingError, compute_embedding
+from .models import Agent, KnowledgeChunk, Task, User
 
 logger = logging.getLogger(__name__)
 
 
-# ---- 阈值 / 权重 (v26) -----------------------------------------------------
+# ---- 阈值 / 权重 (v26.1) ---------------------------------------------------
+# v26.1 调权:knowledge ↑ (KB 检索 实测后 含金量高);history ↓ (新 workspace
+# 没历史不能压制其他维度).load 同步降以保证 sum=1.00.
 _HIGH_CONFIDENCE_THRESHOLD = 0.60   # 自动派
 _MIN_COMPOSITE_THRESHOLD = 0.40     # AI 推荐 (中等置信)
 # < 0.40 = 玫红 (低,手动)
 
-_W_SEMANTIC = 0.40
-_W_KNOWLEDGE = 0.25
-_W_HISTORY = 0.15
-_W_LOAD = 0.15
+_W_SEMANTIC = 0.40      # 关键词 + domain 字面匹配
+_W_KNOWLEDGE = 0.35     # v26.1: KB embedding 检索(从 0.25 提到 0.35)
+_W_HISTORY = 0.10       # v26.1: 完成数 × 完成率(从 0.15 降到 0.10)
+_W_LOAD = 0.10          # v26.1: 同步降到 0.10 (保 sum=1.00)
 _W_AVAILABILITY = 0.05
 
 # history 看最近多少天
 _HISTORY_WINDOW_DAYS = 30
 # history 满分计数:30d 内做完 5+ 同主题任务 = 满分
 _HISTORY_FULL_COUNT = 5
+
+# v26.1 KB 检索参数
+_KB_TOP_K = 5              # 每个 agent 取 top-K chunk
+_KB_MAX_DISTANCE = 0.55    # > 0.55 视为不相关 (与 knowledge_retrieval 一致)
 
 # 负载活跃任务统计的 status
 _ACTIVE_STATUSES = ("dispatched", "accepted", "in_progress", "submitted")
@@ -143,15 +150,81 @@ def _semantic_match_score(
     return min(1.0, score), sorted(hits)
 
 
-def _knowledge_score(agent: Agent) -> float:
+async def _knowledge_score(
+    session: AsyncSession,
+    qvec: Optional[list[float]],
+    agent: Agent,
+) -> tuple[float, int]:
     """
-    v26.0 placeholder — 真正的 KB embedding 检索 留 v26.1.
-    现在用近似指标:agent 有多少 配置丰富度 来代表 "知识沉淀广度".
+    v26.1: agent 知识库 embedding 检索 → score in [0,1].
+    Returns (score, hit_count).
+
+    实现:
+      1. 用预先 embed 好的 task.content 向量(qvec)在 agent.knowledge_base_ids
+         里跑 cosine_distance 检索 top K
+      2. 过滤 distance > MAX_DISTANCE 的(不相关)
+      3. similarity = 1 - distance (clamp [0,1])
+      4. score = avg(similarity) × count_weight
+         - count_weight = min(1, hit_count / TOP_K)
+         - 这样 5 个全命中且 都很近 → ≈ avg_sim
+         - 1 个命中(其他 4 个都太远)→ 打 0.2 折(避免单点 KB 假高分)
+         - 0 命中 → 0
+
+    Fallback:
+      qvec=None (embedding 失败 / 没配 provider) → 退到 v26.0 的配置丰富度近似.
+      这样新部署 / 测试环境 仍能跑.
+    """
+    if qvec is None or not agent.knowledge_base_ids:
+        return _knowledge_score_fallback(agent), 0
+
+    # 用 SQLAlchemy 跑 pgvector cosine_distance
+    distance_expr = KnowledgeChunk.embedding.cosine_distance(qvec).label("distance")
+    stmt = (
+        select(distance_expr)
+        .where(KnowledgeChunk.kb_id.in_(list(agent.knowledge_base_ids)))
+        .order_by(distance_expr)
+        .limit(_KB_TOP_K)
+    )
+    try:
+        rows = (await session.execute(stmt)).all()
+    except Exception:
+        # KB 查询出错 — 不让整个 routing 崩,fallback
+        logger.exception("KB 检索失败 for agent %s — fallback to config 近似", agent.id)
+        return _knowledge_score_fallback(agent), 0
+
+    if not rows:
+        # agent 绑了 KB 但里面是空的 / 没 embeddings → fallback
+        return _knowledge_score_fallback(agent), 0
+
+    similarities: list[float] = []
+    for (dist,) in rows:
+        if dist is None:
+            continue
+        d = float(dist)
+        if d > _KB_MAX_DISTANCE:
+            continue
+        sim = max(0.0, min(1.0, 1.0 - d))
+        similarities.append(sim)
+
+    if not similarities:
+        # KB 里全是不相关 chunk → 真正"该 AI 不懂这个" → 给一个小分,不是 0
+        # 完全 0 会让 knowledge 维度直接抹掉 35% 权重过激;给配置丰富度的 30%
+        # 作为兜底.
+        return _knowledge_score_fallback(agent) * 0.3, 0
+
+    avg_sim = sum(similarities) / len(similarities)
+    count_weight = min(1.0, len(similarities) / _KB_TOP_K)
+    score = avg_sim * count_weight
+    return min(1.0, score), len(similarities)
+
+
+def _knowledge_score_fallback(agent: Agent) -> float:
+    """
+    v26.0 风格的 近似指标:用 agent 配置丰富度 当 KB 检索失败时的兜底.
       • knowledge_base_ids 非空 + 数量 → +0.4
       • persona 长 (>200 chars) → +0.3
       • domain 非空 → +0.2
       • keywords ≥ 3 → +0.1
-    最高 1.0.
     """
     score = 0.0
     if agent.knowledge_base_ids:
@@ -174,37 +247,53 @@ async def _history_score(
     agent_id: uuid.UUID,
     primary_user_id: Optional[uuid.UUID],
     task_hits: set[str],
-) -> tuple[float, int]:
+) -> tuple[float, int, float]:
     """
-    v26: 看 该 agent 关联的 user 过去 30 天 做过 多少条 命中相同 keyword
-    且 status='done' 的 task.
+    v26.1: history = count_factor × completion_rate
+
+    count_factor    = min(1, completed / 5)         # 做过 5+ 同主题为满分
+    completion_rate = completed / total_with_topic  # 完成率(0-1)
+    score           = count_factor × completion_rate
+
+    新增 completion_rate 因子,避免"做过但做砸"的 AI 拿满分.
+
+    Returns (score, completed_count, completion_rate).
     """
     if not primary_user_id or not task_hits:
-        return 0.0, 0
+        return 0.0, 0, 0.0
     since = datetime.now(timezone.utc) - timedelta(days=_HISTORY_WINDOW_DAYS)
 
-    # 拿该 user 完成 / 在办的 task content 中命中过 hit 的条数
+    # 拿该 primary_user 过去 30d 所有 task(各 status)
     rows = (
         await session.execute(
-            select(Task.content).where(
+            select(Task.content, Task.status).where(
                 Task.workspace_id == workspace_id,
                 Task.assignee_user_id == primary_user_id,
-                Task.status.in_(("done", "archived")),
                 Task.created_at >= since,
             )
         )
     ).all()
     if not rows:
-        return 0.0, 0
-    hit_count = 0
-    for (content,) in rows:
+        return 0.0, 0, 0.0
+
+    completed = 0     # 命中关键词 且 已 done/archived
+    total_hit = 0     # 命中关键词 的所有(含未完成 / cancelled / open)
+    for content, status in rows:
         text_lower = (content or "").lower()
-        for kw in task_hits:
-            if kw in text_lower:
-                hit_count += 1
-                break
-    score = min(1.0, hit_count / _HISTORY_FULL_COUNT)
-    return score, hit_count
+        is_hit = any(kw in text_lower for kw in task_hits)
+        if not is_hit:
+            continue
+        total_hit += 1
+        if status in ("done", "archived"):
+            completed += 1
+
+    if total_hit == 0:
+        return 0.0, 0, 0.0
+
+    count_factor = min(1.0, completed / _HISTORY_FULL_COUNT)
+    completion_rate = completed / total_hit
+    score = count_factor * completion_rate
+    return min(1.0, score), completed, completion_rate
 
 
 def _load_score(current_load: int, workspace_avg: float) -> float:
@@ -295,6 +384,22 @@ async def find_best_agent_for_task(
         ).scalars().all()
         primary_user_by_id = {u.id: u for u in urows}
 
+    # v26.1: embed task.content **一次**,所有 agent 复用.
+    # query 包括 task_content + topic_keywords(用户决策:content 全文优先)
+    qvec: Optional[list[float]] = None
+    if task_content and task_content.strip():
+        query_text = task_content.strip()
+        if topic_keywords:
+            # 附加 关键词 进一步聚焦语义
+            query_text = query_text + " " + " ".join(topic_keywords)
+        try:
+            qvec = await compute_embedding(query_text)
+        except EmbeddingError:
+            logger.warning(
+                "routing: embedding failed — knowledge dimension falls back to config 近似"
+            )
+            qvec = None
+
     candidates: list[RoutingScore] = []
 
     for agent in agents:
@@ -305,14 +410,14 @@ async def find_best_agent_for_task(
             task_content, agent.keywords, agent.domain, topic_keywords
         )
 
-        # 2) 知识库 (v26.0 placeholder,v26.1 改 embedding)
-        kn_score = _knowledge_score(agent)
+        # 2) v26.1: 知识库 — KB embedding 检索
+        kn_score, kn_hits = await _knowledge_score(session, qvec, agent)
 
-        # 3) 历史经验
+        # 3) v26.1: 历史经验 — 完成数 × 完成率
         hits_set = set(hits)
         if topic_keywords:
             hits_set.update([k.lower() for k in topic_keywords if k])
-        history_score, history_count = await _history_score(
+        history_score, history_count, completion_rate = await _history_score(
             session, workspace_id, agent.id, agent.primary_user_id, hits_set
         )
 
@@ -348,7 +453,10 @@ async def find_best_agent_for_task(
                     "availability": round(avail_score, 4),
                     "_hits": hits,
                     "_history_count": history_count,
+                    "_completion_rate": round(completion_rate, 3),
+                    "_kb_hits": kn_hits,            # v26.1: KB 命中 chunk 数
                     "_candidate_load": candidate_load,
+                    "_kb_used_embedding": qvec is not None,  # 是否真跑了 embedding
                 },
                 primary_user_id=agent.primary_user_id,
                 primary_user_name=primary_user.name if primary_user else None,
