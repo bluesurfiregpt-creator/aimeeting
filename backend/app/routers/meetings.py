@@ -17,7 +17,7 @@ from .. import session_state
 from ..agenda_monitor import maybe_check_agenda
 from ..agent_router import maybe_invoke_agents
 from ..audit import audit_log
-from ..auth import AuthContext, get_current_auth
+from ..auth import AuthContext, get_current_auth, require_leader_or_admin
 from ..db import get_session
 from ..dissent_detector import maybe_detect_dissent
 from ..identify_pipeline import run_identify
@@ -96,6 +96,10 @@ async def create_meeting(
     if mode not in ("human", "hybrid", "auto"):
         raise HTTPException(400, f"invalid mode: {mode}")
     if mode == "auto":
+        # v26.3.1 ABAC P0 #1: auto 会议是"跨科室决策",由 leader/admin/owner 召集.
+        # expert 是科室代表,不应代表全局开会 — 想跟其他 AI 协作走 hybrid.
+        # member 跟 v26.3 召集人模式 0 交集.
+        await require_leader_or_admin(session, auth)
         # auto 模式必须 ≥2 议程项 + ≥3 邀请 AI(per v26.3-spec)
         if not payload.agenda or len(payload.agenda) < 2:
             raise HTTPException(400, "auto 模式 至少 2 个议程项")
@@ -415,12 +419,13 @@ async def orchestrate_start(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    """v26.3-03: leader 启动 auto 会议."""
+    """v26.3-03: leader 启动 auto 会议.v26.3.1 P0: 仅 owner/admin/leader."""
     from ..auto_meeting_orchestrator import start_auto_meeting
     from ..auto_meeting_state import get_phase, PHASE_IDLE
     m = await _load_owned_meeting(meeting_id, session, auth)
     if m.mode != "auto":
         raise HTTPException(400, f"meeting mode={m.mode}, 只 auto 可启动")
+    await require_leader_or_admin(session, auth)
     phase = get_phase(m.auto_state)
     if phase != PHASE_IDLE:
         raise HTTPException(409, f"phase={phase} 不能 start (只 idle 可启动)")
@@ -436,11 +441,13 @@ async def orchestrate_pause(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    """v26.3-03: leader 暂停(orchestrator 会在下一个 LLM 调用前 block)."""
+    """v26.3-03: leader 暂停(orchestrator 会在下一个 LLM 调用前 block).
+    v26.3.1 P0: 仅 owner/admin/leader."""
     from ..auto_meeting_state import apply_transition, AUTO_ACTION_PAUSE, IllegalPhaseTransition
     m = await _load_owned_meeting(meeting_id, session, auth)
     if m.mode != "auto":
         raise HTTPException(400, "only mode=auto can be paused")
+    await require_leader_or_admin(session, auth)
     try:
         new_state = apply_transition(
             m.auto_state, AUTO_ACTION_PAUSE,
@@ -461,11 +468,12 @@ async def orchestrate_resume(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    """v26.3-03: leader 恢复暂停的会议."""
+    """v26.3-03: leader 恢复暂停的会议.v26.3.1 P0: 仅 owner/admin/leader."""
     from ..auto_meeting_state import apply_transition, AUTO_ACTION_RESUME, IllegalPhaseTransition
     m = await _load_owned_meeting(meeting_id, session, auth)
     if m.mode != "auto":
         raise HTTPException(400, "only mode=auto can be resumed")
+    await require_leader_or_admin(session, auth)
     try:
         new_state = apply_transition(m.auto_state, AUTO_ACTION_RESUME)
     except IllegalPhaseTransition as e:
@@ -483,11 +491,13 @@ async def orchestrate_cancel(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    """v26.3-03: leader 取消(终态,不可恢复).meeting.status 也切到 'cancelled'."""
+    """v26.3-03: leader 取消(终态,不可恢复).meeting.status 也切到 'cancelled'.
+    v26.3.1 P0: 仅 owner/admin/leader."""
     from ..auto_meeting_state import apply_transition, AUTO_ACTION_CANCEL, IllegalPhaseTransition
     m = await _load_owned_meeting(meeting_id, session, auth)
     if m.mode != "auto":
         raise HTTPException(400, "only mode=auto can be cancelled")
+    await require_leader_or_admin(session, auth)
     try:
         new_state = apply_transition(
             m.auto_state, AUTO_ACTION_CANCEL,

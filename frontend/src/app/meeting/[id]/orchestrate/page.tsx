@@ -19,10 +19,14 @@ import {
   api,
   type Agent,
   type AgentMessage,
+  type Me,
   type Meeting,
   type MeetingConsensus,
 } from "@/lib/api";
 import { toast } from "@/lib/toast";
+
+// v26.3.1: 谁能调 orchestrate 写端点 / 看到 裁决按钮.跟后端 require_leader_or_admin 对齐.
+const WRITE_ROLES = new Set(["owner", "admin", "leader"]);
 
 type Phase =
   | "idle"
@@ -112,6 +116,7 @@ export default function OrchestratePage({
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [consenses, setConsenses] = useState<MeetingConsensus[]>([]);
   const [agentsById, setAgentsById] = useState<Record<string, Agent>>({});
+  const [me, setMe] = useState<Me | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -120,17 +125,22 @@ export default function OrchestratePage({
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  // 初始加载 meeting + agents (一次)
+  // v26.3.1: caller 是否有写权限 (启动 / 暂停 / 恢复 / 取消 / 裁决)
+  const canWrite = !!me && WRITE_ROLES.has(me.role);
+
+  // 初始加载 meeting + agents + me (一次)
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [m, ags] = await Promise.all([
+        const [m, ags, meRes] = await Promise.all([
           api.getMeeting(meetingId),
           api.listAgents(),
+          api.me(),
         ]);
         if (!alive) return;
         setMeeting(m);
+        setMe(meRes);
         setAgentsById(Object.fromEntries(ags.map((a) => [a.id, a])));
       } catch (e) {
         setErr(e instanceof Error ? e.message : "加载会议失败");
@@ -309,44 +319,57 @@ export default function OrchestratePage({
         )}
       </header>
 
-      {/* 控制条 */}
+      {/* 控制条.v26.3.1: 写按钮仅 owner/admin/leader 可见;expert/member read-only. */}
       <section className="mb-6 rounded-xl border border-ink-700 bg-ink-900 px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
-          {state?.phase === "idle" && (
+          {canWrite && state?.phase === "idle" && (
             <button
               onClick={onStart}
               disabled={busy}
               className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950 hover:bg-amber-400 disabled:opacity-50"
+              data-testid="ctrl-start"
             >
               🚀 启动 AI 自主讨论
             </button>
           )}
-          {state?.phase === "running" && (
+          {canWrite && state?.phase === "running" && (
             <button
               onClick={onPause}
               disabled={busy}
               className="rounded-lg border border-amber-500/50 px-3 py-1.5 text-sm text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+              data-testid="ctrl-pause"
             >
               ⏸️ 暂停
             </button>
           )}
-          {state?.phase === "paused" && (
+          {canWrite && state?.phase === "paused" && (
             <button
               onClick={onResume}
               disabled={busy}
               className="rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-medium text-emerald-950 hover:bg-emerald-400 disabled:opacity-50"
+              data-testid="ctrl-resume"
             >
               ▶️ 恢复
             </button>
           )}
-          {state && !FINAL_PHASES.includes(state.phase) && (
+          {canWrite && state && !FINAL_PHASES.includes(state.phase) && (
             <button
               onClick={onCancel}
               disabled={busy}
               className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-sm text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
+              data-testid="ctrl-cancel"
             >
               ❌ 取消
             </button>
+          )}
+          {/* read-only 角色 提示 */}
+          {!canWrite && me && (
+            <span
+              className="rounded-md border border-ink-700 px-3 py-1.5 text-xs text-zinc-500"
+              data-testid="readonly-hint"
+            >
+              👁️ 只读视图 · {me.role} 角色无控制权限
+            </span>
           )}
           {state && FINAL_PHASES.includes(state.phase) && (
             <Link
@@ -430,13 +453,23 @@ export default function OrchestratePage({
                 );
               })()}
             </div>
-            <button
-              onClick={() => setReviewModalOpen(true)}
-              className="shrink-0 rounded-lg bg-violet-500 px-3 py-1.5 text-xs font-medium text-violet-950 hover:bg-violet-400"
-              data-testid="open-review-modal"
-            >
-              ⚖️ 打开裁决面板
-            </button>
+            {canWrite ? (
+              <button
+                onClick={() => setReviewModalOpen(true)}
+                className="shrink-0 rounded-lg bg-violet-500 px-3 py-1.5 text-xs font-medium text-violet-950 hover:bg-violet-400"
+                data-testid="open-review-modal"
+              >
+                ⚖️ 打开裁决面板
+              </button>
+            ) : (
+              <span
+                className="shrink-0 rounded-md border border-violet-500/30 px-2.5 py-1 text-[11px] text-violet-300"
+                data-testid="readonly-review-hint"
+                title="仅 owner/admin/leader 角色可裁决.expert/member 为只读视图."
+              >
+                🔒 仅领导可裁决
+              </span>
+            )}
           </div>
         </section>
       )}

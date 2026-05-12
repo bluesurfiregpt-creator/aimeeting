@@ -11,7 +11,10 @@ import {
 } from "@/lib/audioCapture";
 import { toast } from "@/lib/toast";
 import { openSttSocket, type SttEvent, type SttSocket } from "@/lib/sttSocket";
-import { api, type Agent, type AgendaItem, type TranscriptLine } from "@/lib/api";
+import { api, type Agent, type AgendaItem, type Me, type TranscriptLine } from "@/lib/api";
+
+// v26.3.1: 谁能 看到/调 裁决按钮.跟后端 require_leader_or_admin 对齐.
+const WRITE_ROLES = new Set(["owner", "admin", "leader"]);
 import BriefingCard from "./BriefingCard";
 import SummaryCard from "./SummaryCard";
 import ActionItemsCard from "./ActionItemsCard";
@@ -295,6 +298,9 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     reviewedCount: number;
     totalDissents: number;
   } | null>(null);
+  // v26.3.1: 当前用户 role,banner 上的"立即裁决"按钮仅 leader_or_admin 可见.
+  const [me, setMe] = useState<Me | null>(null);
+  const canWrite = !!me && WRITE_ROLES.has(me.role);
   const [audioCaps] = useState(() => probeAudioCapabilities());
   // `mounted` gates browser-only conditional UI (iOS Safari notice, insecure
   // context warning) so SSR + first hydration render identical markup. Without
@@ -863,6 +869,12 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   // surface meeting title for the H1.
   useEffect(() => {
     let alive = true;
+    // v26.3.1: 拉 me 给 banner 用 (确定 是否显示"立即裁决"按钮 vs 只读链)
+    api.me().then(
+      (meRes) => { if (alive) setMe(meRes); },
+      () => {},
+    );
+
     api.getMeeting(meetingId).then(
       (m) => {
         if (!alive) return;
@@ -1171,7 +1183,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           }>
             🤖 此会议为 v26.3 召集人模式 · 全 AI 自主开会
           </span>
-          {autoMeetingInfo && autoMeetingInfo.pendingReviewCount > 0 && (
+          {/* v26.3.1: leader/admin/owner 看到可点击"立即裁决"按钮;expert/member 看只读标签 */}
+          {autoMeetingInfo && autoMeetingInfo.pendingReviewCount > 0 && canWrite && (
             <Link
               href={`/meeting/${meetingId}/orchestrate`}
               className="rounded-md bg-violet-500 px-2.5 py-1 font-medium text-violet-950 hover:bg-violet-400"
@@ -1180,6 +1193,15 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
               ⚖️ 立即裁决 {autoMeetingInfo.totalDissents} 处分歧
               ({autoMeetingInfo.pendingReviewCount} 议程) →
             </Link>
+          )}
+          {autoMeetingInfo && autoMeetingInfo.pendingReviewCount > 0 && !canWrite && me && (
+            <span
+              className="rounded-md border border-violet-500/30 px-2.5 py-1 text-[11px] text-violet-300"
+              data-testid="pending-review-readonly"
+              title="仅 owner/admin/leader 角色可裁决"
+            >
+              🔒 {autoMeetingInfo.totalDissents} 处分歧 待领导裁决
+            </span>
           )}
           {autoMeetingInfo && autoMeetingInfo.reviewedCount > 0 && (
             <span className="text-zinc-400">

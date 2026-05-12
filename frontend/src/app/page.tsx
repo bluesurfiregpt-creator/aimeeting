@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, type Agent, type AgendaItem, type User } from "@/lib/api";
+import { api, type Agent, type AgendaItem, type Me, type User } from "@/lib/api";
+
+// v26.3.1: 谁能创建 auto 会议.跟后端 require_leader_or_admin 对齐.
+const AUTO_CREATE_ROLES = new Set(["owner", "admin", "leader"]);
 
 type DraftAgendaRow = { title: string; time_budget_min: string }; // string for input
 
@@ -44,6 +47,9 @@ export default function Home() {
   const [mode, setMode] = useState<"hybrid" | "auto">("hybrid");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  // v26.3.1: 当前用户 role,expert/member 不能选 auto 模式
+  const [me, setMe] = useState<Me | null>(null);
+  const canCreateAuto = !!me && AUTO_CREATE_ROLES.has(me.role);
 
   useEffect(() => {
     api
@@ -55,6 +61,8 @@ export default function Home() {
       .listAgents()
       .then((rows) => setAgents(rows.filter((a) => a.is_active)))
       .catch(() => setAgents([]));
+    // v26.3.1: 拉 me 用于决定是否显示 auto 模式 radio
+    api.me().then(setMe).catch(() => setMe(null));
   }, []);
 
   const toggle = (id: string) => {
@@ -204,24 +212,36 @@ export default function Home() {
               </span>
             </label>
             <label
-              className={`flex cursor-pointer flex-col rounded-lg border px-3 py-2.5 transition ${
-                mode === "auto"
-                  ? "border-amber-500 bg-amber-500/10 text-white"
-                  : "border-ink-700 bg-ink-950 text-zinc-300 hover:border-zinc-600"
+              className={`flex flex-col rounded-lg border px-3 py-2.5 transition ${
+                !canCreateAuto
+                  ? "cursor-not-allowed border-ink-800 bg-ink-950 text-zinc-600 opacity-60"
+                  : mode === "auto"
+                  ? "cursor-pointer border-amber-500 bg-amber-500/10 text-white"
+                  : "cursor-pointer border-ink-700 bg-ink-950 text-zinc-300 hover:border-zinc-600"
               }`}
+              title={!canCreateAuto ? "仅 owner/admin/leader 角色可创建 AI 自主会议" : undefined}
             >
               <div className="flex items-center gap-2">
                 <input
                   type="radio"
                   checked={mode === "auto"}
-                  onChange={() => setMode("auto")}
-                  className="h-4 w-4 accent-amber-500"
+                  onChange={() => canCreateAuto && setMode("auto")}
+                  disabled={!canCreateAuto}
+                  className="h-4 w-4 accent-amber-500 disabled:cursor-not-allowed"
                 />
-                <span className="text-sm font-medium">🤖 AI 自主会议(v26.3)</span>
+                <span className="text-sm font-medium">
+                  🤖 AI 自主会议(v26.3){!canCreateAuto && " 🔒"}
+                </span>
               </div>
               <span className="ml-6 mt-0.5 text-[11px] text-zinc-500">
-                召集人 + N 个 AI 专家,系统自动推进议程,AI 轮流发言收敛共识,
-                无需真人参会.要求 ≥2 议程 + ≥3 AI 专家.
+                {canCreateAuto ? (
+                  <>
+                    召集人 + N 个 AI 专家,系统自动推进议程,AI 轮流发言收敛共识,
+                    无需真人参会.要求 ≥2 议程 + ≥3 AI 专家.
+                  </>
+                ) : (
+                  <>仅 owner / admin / leader 角色可创建.跨科室决策需领导召集.</>
+                )}
               </span>
             </label>
           </div>
