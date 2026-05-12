@@ -207,17 +207,37 @@ async def extract_and_store_actions(
             kept_ids = set(int(x) for x in re.findall(r"\[(\d+)\]", transcript_text))
             valid_line_ids = valid_line_ids & kept_ids
 
-        user_prompt = (
-            f"会议标题: {m.title or '未命名会议'}\n\n"
-            f"=== 会议纪要 (Markdown,用来定 待办内容 / 负责人 / 截止) ===\n\n"
-            f"{summary_md}\n\n"
-            f"=== 会议实录 原文(逐句,行号在前,用来摘 evidence_quote + anchor)===\n\n"
-            f"{transcript_text or '(实录为空)'}\n\n"
-            f"=== 任务 ===\n\n"
-            f"按规则抽取 action items.evidence_quote 必须从【实录原文】摘 — "
-            f"不是从【纪要】重抄.evidence_anchor_line_ids 必须是上面实录前面方括号里 "
-            f"的真实数字,通常 2-6 个,严禁编造."
-        )
+        if mode == "auto":
+            # v26.3 auto 模式:全 AI 会议,没真人 transcript.
+            # 直接从 summary_md (orchestrator 拼的各议程 consensus) 抽 task.
+            # evidence_quote 从 consensus 摘,anchor_line_ids 留 [].
+            user_prompt = (
+                f"会议标题: {m.title or '未命名会议'} (mode=auto 全 AI 会议)\n\n"
+                f"=== 会议纪要 (各议程 AI 共识汇总;就是 task 的来源)===\n\n"
+                f"{summary_md}\n\n"
+                f"=== 任务 ===\n\n"
+                f"从上面纪要中,把每条 AI 共识 / 行动建议 抽成 action item.\n"
+                f"  - content: 简短任务描述\n"
+                f"  - topic_keywords: 2-5 个业务关键词(供 routing 派给主责 AI 专家)\n"
+                f"  - evidence_quote: 从纪要摘原文 30-100 字\n"
+                f"  - evidence_anchor_line_ids: 留 []  (auto 会议无 transcript 行号)\n"
+                f"  - assignee_name: 留 ''  (routing 自动派,无需指定真人)\n"
+                f"  - due_at: 留 ''  (纪要里没明确日期,严禁编)\n\n"
+                f"重要:**纪要里 每条具体的 共识建议** 都应抽成 task.不要漏!"
+                f"  例如纪要写「建议增设跨部门预审机制」 → 抽 task:增设跨部门预审机制.\n"
+            )
+        else:
+            user_prompt = (
+                f"会议标题: {m.title or '未命名会议'}\n\n"
+                f"=== 会议纪要 (Markdown,用来定 待办内容 / 负责人 / 截止) ===\n\n"
+                f"{summary_md}\n\n"
+                f"=== 会议实录 原文(逐句,行号在前,用来摘 evidence_quote + anchor)===\n\n"
+                f"{transcript_text or '(实录为空)'}\n\n"
+                f"=== 任务 ===\n\n"
+                f"按规则抽取 action items.evidence_quote 必须从【实录原文】摘 — "
+                f"不是从【纪要】重抄.evidence_anchor_line_ids 必须是上面实录前面方括号里 "
+                f"的真实数字,通常 2-6 个,严禁编造."
+            )
 
         # v26.3: auto 模式跳 规则 E "AI 发言不算依据" — 全场是 AI 自主讨论,
         # 那就是 决策本身.加一段 system_prompt override.
