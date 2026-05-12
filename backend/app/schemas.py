@@ -40,6 +40,9 @@ class MeetingCreate(BaseModel):
     # 之前 agent_router 默认 fallback 全部 active agents → 一个会议被 16+ AI 满天乱蹦.
     attendee_agent_ids: list[uuid.UUID] = []
     agenda: Optional[list[AgendaItem]] = None
+    # v26.3: 会议模式 — human / hybrid (默认) / auto
+    # mode='auto' 时要求:agenda ≥ 2 项,attendee_agent_ids ≥ 3 个 expert
+    mode: str = "hybrid"
 
 
 class MeetingOut(BaseModel):
@@ -52,6 +55,9 @@ class MeetingOut(BaseModel):
     attendee_user_ids: list[uuid.UUID] = []
     attendee_agent_ids: list[uuid.UUID] = []  # v25.7-#1
     agenda: Optional[list[AgendaItem]] = None
+    # v26.3: 会议模式 + auto 调度状态
+    mode: str = "hybrid"
+    auto_state: Optional[dict] = None
 
 
 class TranscriptLine(BaseModel):

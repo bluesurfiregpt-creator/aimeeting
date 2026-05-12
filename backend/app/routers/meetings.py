@@ -8,7 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import asyncio
@@ -78,6 +78,9 @@ def _to_meeting_out(
             "attendee_user_ids": attendee_user_ids,
             "attendee_agent_ids": attendee_agent_ids or [],
             "agenda": m.agenda,
+            # v26.3
+            "mode": m.mode or "hybrid",
+            "auto_state": m.auto_state,
         }
     )
 
@@ -88,10 +91,28 @@ async def create_meeting(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    # v26.3: mode 校验
+    mode = (payload.mode or "hybrid").lower()
+    if mode not in ("human", "hybrid", "auto"):
+        raise HTTPException(400, f"invalid mode: {mode}")
+    if mode == "auto":
+        # auto 模式必须 ≥2 议程项 + ≥3 邀请 AI(per v26.3-spec)
+        if not payload.agenda or len(payload.agenda) < 2:
+            raise HTTPException(400, "auto 模式 至少 2 个议程项")
+        if len(payload.attendee_agent_ids) < 3:
+            raise HTTPException(400, "auto 模式 至少邀请 3 个 AI 专家")
+
+    auto_state = None
+    if mode == "auto":
+        from ..auto_meeting_state import default_auto_state
+        auto_state = default_auto_state()
+
     m = Meeting(
         title=payload.title or "未命名会议",
         status="scheduled",
         workspace_id=auth.workspace.id,
+        mode=mode,
+        auto_state=auto_state,
         agenda=(
             [a.model_dump(exclude_none=True) for a in payload.agenda]
             if payload.agenda
@@ -129,6 +150,23 @@ async def create_meeting(
         for aid in bound_agent_ids:
             session.add(MeetingAttendee(meeting_id=m.id, agent_id=aid))
 
+    # v26.3 auto 模式 校验 邀请的 AI 中实际 是 expert (不能全是 moderator)
+    if mode == "auto" and bound_agent_ids:
+        from ..models import Agent
+        expert_count = (
+            await session.execute(
+                select(func.count()).select_from(Agent).where(
+                    Agent.id.in_(bound_agent_ids),
+                    Agent.role == "expert",
+                    Agent.is_active.is_(True),
+                )
+            )
+        ).scalar_one()
+        if expert_count < 3:
+            raise HTTPException(
+                400, f"auto 模式 至少邀请 3 个 active expert agent (现 {expert_count})"
+            )
+
     await session.commit()
     await session.refresh(m)
     await audit_log(
@@ -136,8 +174,10 @@ async def create_meeting(
         target_type="meeting", target_id=str(m.id),
         payload={
             "title": m.title,
+            "mode": mode,
             "attendee_count": len(payload.attendee_user_ids),
             "agent_count": len(bound_agent_ids),
+            "agenda_count": len(payload.agenda or []),
         },
     )
     return _to_meeting_out(m, list(payload.attendee_user_ids), bound_agent_ids)
@@ -304,6 +344,155 @@ async def get_meeting(
     user_ids = [r.user_id for r in rows if r.user_id is not None]
     agent_ids = [r.agent_id for r in rows if r.agent_id is not None]
     return _to_meeting_out(m, user_ids, agent_ids)
+
+
+# v26.3-03: Auto Meeting (mode='auto') Orchestrator 控制 endpoints --------
+
+
+class OrchestrateStateOut(BaseModel):
+    """GET /orchestrate/state — 召集人 / 前端拉调度状态."""
+    phase: str
+    current_agenda_idx: int = 0
+    current_speaker_agent_id: Optional[uuid.UUID] = None
+    turn_count: int = 0
+    dissent_count: int = 0
+    started_at: Optional[str] = None
+    paused_at: Optional[str] = None
+    last_error: Optional[str] = None
+    # 完成的议程项数(查 meeting_consensus count)
+    completed_agenda_count: int = 0
+    total_agenda_count: int = 0
+
+
+@router.get("/{meeting_id}/orchestrate/state", response_model=OrchestrateStateOut)
+async def get_orchestrate_state(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.3-03: 前端轮询 当前 orchestrator 状态(在 v26.3-04 WS 上之前用)."""
+    from ..auto_meeting_state import get_phase
+    from ..models import MeetingConsensus
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    st = m.auto_state or {}
+    completed = (
+        await session.execute(
+            select(func.count()).select_from(MeetingConsensus).where(
+                MeetingConsensus.meeting_id == m.id
+            )
+        )
+    ).scalar_one() or 0
+    return OrchestrateStateOut(
+        phase=get_phase(st),
+        current_agenda_idx=int(st.get("current_agenda_idx", 0) or 0),
+        current_speaker_agent_id=(
+            uuid.UUID(st["current_speaker_agent_id"])
+            if st.get("current_speaker_agent_id") else None
+        ),
+        turn_count=int(st.get("turn_count", 0) or 0),
+        dissent_count=int(st.get("dissent_count", 0) or 0),
+        started_at=st.get("started_at"),
+        paused_at=st.get("paused_at"),
+        last_error=st.get("last_error"),
+        completed_agenda_count=int(completed),
+        total_agenda_count=len(m.agenda or []),
+    )
+
+
+@router.post("/{meeting_id}/orchestrate/start", response_model=OrchestrateStateOut)
+async def orchestrate_start(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.3-03: leader 启动 auto 会议."""
+    from ..auto_meeting_orchestrator import start_auto_meeting
+    from ..auto_meeting_state import get_phase, PHASE_IDLE
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    if m.mode != "auto":
+        raise HTTPException(400, f"meeting mode={m.mode}, 只 auto 可启动")
+    phase = get_phase(m.auto_state)
+    if phase != PHASE_IDLE:
+        raise HTTPException(409, f"phase={phase} 不能 start (只 idle 可启动)")
+    # fire-and-forget 启动 orchestrator
+    start_auto_meeting(m.id)
+    # immediate state(可能还没切到 running,但 lifespan 内会很快)
+    return await get_orchestrate_state(meeting_id, session, auth)
+
+
+@router.post("/{meeting_id}/orchestrate/pause", response_model=OrchestrateStateOut)
+async def orchestrate_pause(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.3-03: leader 暂停(orchestrator 会在下一个 LLM 调用前 block)."""
+    from ..auto_meeting_state import apply_transition, AUTO_ACTION_PAUSE, IllegalPhaseTransition
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    if m.mode != "auto":
+        raise HTTPException(400, "only mode=auto can be paused")
+    try:
+        new_state = apply_transition(
+            m.auto_state, AUTO_ACTION_PAUSE,
+            actor_user_id=str(auth.user.id),
+        )
+    except IllegalPhaseTransition as e:
+        raise HTTPException(409, str(e))
+    await session.execute(
+        update(Meeting).where(Meeting.id == m.id).values(auto_state=new_state)
+    )
+    await session.commit()
+    return await get_orchestrate_state(meeting_id, session, auth)
+
+
+@router.post("/{meeting_id}/orchestrate/resume", response_model=OrchestrateStateOut)
+async def orchestrate_resume(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.3-03: leader 恢复暂停的会议."""
+    from ..auto_meeting_state import apply_transition, AUTO_ACTION_RESUME, IllegalPhaseTransition
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    if m.mode != "auto":
+        raise HTTPException(400, "only mode=auto can be resumed")
+    try:
+        new_state = apply_transition(m.auto_state, AUTO_ACTION_RESUME)
+    except IllegalPhaseTransition as e:
+        raise HTTPException(409, str(e))
+    await session.execute(
+        update(Meeting).where(Meeting.id == m.id).values(auto_state=new_state)
+    )
+    await session.commit()
+    return await get_orchestrate_state(meeting_id, session, auth)
+
+
+@router.post("/{meeting_id}/orchestrate/cancel", response_model=OrchestrateStateOut)
+async def orchestrate_cancel(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.3-03: leader 取消(终态,不可恢复).meeting.status 也切到 'cancelled'."""
+    from ..auto_meeting_state import apply_transition, AUTO_ACTION_CANCEL, IllegalPhaseTransition
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    if m.mode != "auto":
+        raise HTTPException(400, "only mode=auto can be cancelled")
+    try:
+        new_state = apply_transition(
+            m.auto_state, AUTO_ACTION_CANCEL,
+            actor_user_id=str(auth.user.id),
+        )
+    except IllegalPhaseTransition as e:
+        raise HTTPException(409, str(e))
+    await session.execute(
+        update(Meeting).where(Meeting.id == m.id).values(
+            auto_state=new_state,
+            status="finished",  # 视为已结束 + cancelled phase
+        )
+    )
+    await session.commit()
+    return await get_orchestrate_state(meeting_id, session, auth)
 
 
 @router.post("/{meeting_id}/finalize", response_model=MeetingOut)

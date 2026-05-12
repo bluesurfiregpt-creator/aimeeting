@@ -68,6 +68,18 @@ async def lifespan(_app: FastAPI):
     cron_task = asyncio.create_task(cron_runner_loop(stop_event))
     alert_task = asyncio.create_task(alert_monitor_loop(stop_event))
     monthly_eval_task = asyncio.create_task(monthly_eval_loop(stop_event))
+
+    # v26.3-03: 启动时扫所有 mode=auto 且 phase∈(running, paused, idle) 的 meeting,
+    # 把 orchestrator 重新起来.worker 重启 / web 进程重启时关键 — 否则 跑中的
+    # auto 会议会"挂"在那里.
+    try:
+        from .auto_meeting_orchestrator import resume_running_meetings
+        resumed = await resume_running_meetings()
+        if resumed > 0:
+            logger.info("lifespan: resumed %d auto meetings", resumed)
+    except Exception:
+        logger.exception("auto meeting resume failed (non-fatal)")
+
     try:
         yield
     finally:
