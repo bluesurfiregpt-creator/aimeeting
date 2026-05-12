@@ -588,6 +588,69 @@ async def _run_agenda_item(
 
 
 # ============================================================================
+# Auto 会议 summary 拼装 (议程 consensus → meeting.summary_md)
+# ============================================================================
+
+
+async def _build_summary_from_consensus(
+    meeting_id: uuid.UUID,
+    agenda: list[dict],
+) -> str:
+    """
+    把 meeting_consensus 行 + 议程标题 拼成一份 markdown summary.
+    这是 mode='auto' 会议的 finalize 产物(替代 summary_generator,因为它只看
+    真人 transcript,auto 会议没真人发言).
+
+    输出供 action_extractor 抽 task 用 — 包含 共识(具体建议)+ 分歧(需裁决).
+    """
+    async with SessionLocal() as db:
+        m = (
+            await db.execute(select(Meeting).where(Meeting.id == meeting_id))
+        ).scalar_one_or_none()
+        consenses = (
+            await db.execute(
+                select(MeetingConsensus).where(
+                    MeetingConsensus.meeting_id == meeting_id
+                ).order_by(MeetingConsensus.agenda_idx)
+            )
+        ).scalars().all()
+
+    lines: list[str] = []
+    title = m.title if m else "AI 自主会议"
+    lines.append(f"# {title}")
+    lines.append("")
+    lines.append(
+        f"_本会议由 v26.3 召集人模式 自动跑出,议程 {len(agenda)} 项,"
+        f"经 N 个 AI 专家轮流发言 + 议程主持收敛形成._"
+    )
+    lines.append("")
+
+    for c in consenses:
+        ag_title = c.agenda_title or f"议程 {c.agenda_idx + 1}"
+        lines.append(f"## 议程 {c.agenda_idx + 1}:{ag_title}")
+        lines.append("")
+        if c.consensus_md:
+            lines.append(c.consensus_md)
+            lines.append("")
+        if c.dissents:
+            lines.append(f"**⚠️ 待召集人裁决的分歧({len(c.dissents)} 处):**")
+            lines.append("")
+            for d in c.dissents:
+                point = d.get("point", "?")
+                summary = d.get("summary", "")
+                involved = d.get("involved_agents", [])
+                lines.append(f"- **{point}**")
+                lines.append(f"  - {summary}")
+                if involved:
+                    lines.append(f"  - 涉及专家:{', '.join(str(x) for x in involved)}")
+            lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+# ============================================================================
 # Meeting 主循环
 # ============================================================================
 
@@ -699,7 +762,11 @@ async def _run_auto_meeting(meeting_id: uuid.UUID) -> None:
                                    extra={"error": f"agenda {idx}: {e}"})
                 return
 
-        # 全部议程跑完 → COMPLETE + 触发 finalize 链路(action_extractor + 沉淀)
+        # 全部议程跑完 → 直接合成 summary_md(用各议程 consensus 拼)
+        # 不调 summary_generator(它只看 transcript 表,auto 会议没真人发言).
+        # 然后 链 action_extractor + 沉淀(v26.0/.2 链路).
+        summary_md = await _build_summary_from_consensus(meeting_id, agenda)
+
         async with SessionLocal() as db:
             mm = (await db.execute(select(Meeting).where(Meeting.id == meeting_id))).scalar_one()
             new_st = apply_transition(
@@ -709,17 +776,20 @@ async def _run_auto_meeting(meeting_id: uuid.UUID) -> None:
             mm.auto_state = new_st
             mm.status = "finished"
             mm.ended_at = datetime.now(timezone.utc)
+            mm.summary_md = summary_md
             await db.commit()
 
-        # 触发 v25 的 summary + action_extractor 链路
+        # 触发 action_extractor (它会读 summary_md + 抽 topic_keywords + 派给 agent)
         try:
-            from .summary_generator import generate_summary
-            await generate_summary(meeting_id, force=True)
+            from .action_extractor import extract_and_store_actions
+            asyncio.create_task(
+                extract_and_store_actions(meeting_id, summary_md=summary_md)
+            )
         except Exception:
-            logger.exception("orchestrator finalize summary failed meeting=%s", meeting_id)
+            logger.exception("orchestrator action_extractor 触发失败 meeting=%s", meeting_id)
 
-        logger.info("orchestrator DONE meeting=%s (%d dissents 待裁决)",
-                   meeting_id, total_dissents)
+        logger.info("orchestrator DONE meeting=%s (%d dissents 待裁决,summary %d 字)",
+                   meeting_id, total_dissents, len(summary_md))
     except Exception as e:
         logger.exception("orchestrator 不可恢复异常 meeting=%s", meeting_id)
         try:
