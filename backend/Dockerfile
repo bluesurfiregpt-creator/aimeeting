@@ -15,6 +15,9 @@ COPY requirements.txt ./
 RUN pip install -r requirements.txt
 
 COPY app ./app
+# v26.0+: 一次性脚本(backfill / demo / migration helpers)— 从容器内
+# 用 `docker exec ... python -m scripts.<name>` 跑.不参与 server 进程.
+COPY scripts ./scripts
 
 EXPOSE 8000
 
