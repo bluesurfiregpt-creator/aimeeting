@@ -1008,14 +1008,202 @@ async def approve_task(
     await session.commit()
     await session.refresh(t)
 
-    # v24.2 #1: 办结 → KB 沉淀联动(智慧住建文档 §5.2).
+    # v26.2: 办结 → AI 专家 KB 沉淀联动.
+    # v24.2 closure_curator 用 user-centric 模型,跟 v26 不一致,已替换为
+    # task_consolidator (agent-centric:沉淀给 task.assignee_agent_id 的 KB).
     # fire-and-forget — LLM 5-15s 不应阻塞 approve API 响应.
-    # 用户在 TaskDetail 重刷或 KB 列表里很快看到「[自动沉淀]」文档.
-    import asyncio
-    from ..closure_curator import curate_closed_task
-    asyncio.create_task(curate_closed_task(t.id))
+    # 沉淀完成后 task.source_ref.consolidated_at / consolidated_kb_id 写入.
+    from ..task_consolidator import schedule_auto_consolidate
+    schedule_auto_consolidate(t.id, curator_user_id=auth.user.id)
 
     return await _task_to_my_out_with_lookup(session, t, await _meeting_title_for(session, t))
+
+
+# v26.2: 任务办结 → AI 专家 KB 沉淀 ---------------------------------------------
+
+
+class ConsolidatePreviewOut(BaseModel):
+    """GET /tasks/{id}/consolidate/preview — 预览 LLM 摘要,不写入."""
+    preview_markdown: str          # LLM 生成的 4 段摘要
+    target_kb_id: Optional[uuid.UUID] = None     # 命中 已绑 KB 时返回
+    target_kb_name: str            # 即将写入的 KB 名(若不存在会显示"<agent> · 任务沉淀(将新建)")
+    target_kb_exists: bool         # False = 这次沉淀会顺便创建该 KB
+    target_agent_id: uuid.UUID
+    target_agent_name: str
+    warnings: list[str] = []       # 用户该知道的(已沉淀过 / data_classification 高 等)
+    already_consolidated: bool = False
+    consolidated_at: Optional[datetime] = None
+
+
+class ConsolidateIn(BaseModel):
+    override_summary: Optional[str] = None    # leader 编辑过的摘要
+    force: bool = False                       # 已沉淀过强制重沉
+    target_agent_id: Optional[uuid.UUID] = None  # 默认 task.assignee_agent_id
+
+
+class ConsolidateOut(BaseModel):
+    document_id: uuid.UUID
+    kb_id: uuid.UUID
+    kb_name: str
+    kb_created: bool
+    agent_id: uuid.UUID
+    agent_name: str
+    chunk_count: int
+    char_count: int
+    used_override: bool
+
+
+@router.get("/tasks/{task_id}/consolidate/preview", response_model=ConsolidatePreviewOut)
+async def preview_consolidate_task(
+    task_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v26.2: 跑 LLM 生成办结摘要,不写入 KB.给前端 modal 预览 + 编辑.
+
+    权限:leader / admin (与 consolidate endpoint 一致).
+    """
+    from ..task_consolidator import (
+        ConsolidationError,
+        generate_closure_summary,
+        _resolve_or_create_kb,
+    )
+    from ..models import Agent
+
+    await require_leader_or_admin(session, auth)
+    t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
+
+    sref = t.source_ref if isinstance(t.source_ref, dict) else {}
+    warnings: list[str] = []
+    already = bool(sref.get("consolidated_at"))
+    if already:
+        warnings.append(
+            f"已于 {sref.get('consolidated_at')} 沉淀过.若 force 重沉,旧 KB 文档会被删除.")
+
+    # 目标 agent
+    if not t.assignee_agent_id:
+        raise HTTPException(
+            400,
+            "task 没有主责 AI 专家(assignee_agent_id 空) — 先派发再沉淀,"
+            "或在前端选 target_agent_id 显式指定."
+        )
+    agent = (
+        await session.execute(select(Agent).where(Agent.id == t.assignee_agent_id))
+    ).scalar_one_or_none()
+    if not agent:
+        raise HTTPException(404, "assignee agent not found")
+
+    # 推断目标 KB(不实际创建,仅判断)
+    kb_id_to_use: Optional[uuid.UUID] = None
+    kb_name_to_use = f"{agent.name} · 任务沉淀(将新建)"
+    kb_exists = False
+    if agent.knowledge_base_ids:
+        existing_id = agent.knowledge_base_ids[0]
+        from ..models import KnowledgeBase
+        kb = (
+            await session.execute(
+                select(KnowledgeBase).where(
+                    KnowledgeBase.id == existing_id,
+                    KnowledgeBase.workspace_id == auth.workspace.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if kb:
+            kb_id_to_use = kb.id
+            kb_name_to_use = kb.name
+            kb_exists = True
+
+    # 数据分级提示
+    if t.data_classification in ("core", "important"):
+        warnings.append(
+            f"数据分级:{t.data_classification} — 沉淀后 KB chunk 继承同分级,"
+            "检索时按 ABAC 过滤可见性."
+        )
+
+    # 跑 LLM(慢操作,可能 5-15s)
+    try:
+        preview_md = await generate_closure_summary(t.id)
+    except ConsolidationError as e:
+        raise HTTPException(500, f"LLM 摘要生成失败: {e}")
+
+    return ConsolidatePreviewOut(
+        preview_markdown=preview_md,
+        target_kb_id=kb_id_to_use,
+        target_kb_name=kb_name_to_use,
+        target_kb_exists=kb_exists,
+        target_agent_id=agent.id,
+        target_agent_name=agent.name,
+        warnings=warnings,
+        already_consolidated=already,
+        consolidated_at=(
+            datetime.fromisoformat(sref["consolidated_at"]) if already else None
+        ),
+    )
+
+
+@router.post("/tasks/{task_id}/consolidate", response_model=ConsolidateOut)
+async def consolidate_task(
+    task_id: str,
+    payload: ConsolidateIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """
+    v26.2: leader 显式沉淀按钮.
+
+    与 approve_task 自动触发的区别:
+      - 即使 status != done 也允许(leader 强制沉淀,适合过期但有价值的 task)
+      - 支持 override_summary (leader 在 preview 后编辑)
+      - 支持 force 重沉(覆盖旧 KB 文档)
+      - 同步返回(不像 auto trigger 是 fire-and-forget)
+
+    权限:leader / admin.
+    """
+    from ..task_consolidator import (
+        ConsolidationError,
+        consolidate_task_to_agent_kb,
+    )
+
+    await require_leader_or_admin(session, auth)
+    t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
+
+    try:
+        result = await consolidate_task_to_agent_kb(
+            t.id,
+            target_agent_id=payload.target_agent_id,
+            override_summary=payload.override_summary,
+            curator_user_id=auth.user.id,
+            force=payload.force,
+        )
+    except ConsolidationError as e:
+        # 业务错(已沉淀过 / 没绑 agent 等)→ 409 让前端展开提示
+        raise HTTPException(409, str(e))
+
+    await audit_log(
+        session, auth, "task.consolidate",
+        target_type="task", target_id=str(t.id),
+        payload={
+            "agent_id": str(result.agent_id),
+            "kb_id": str(result.kb_id),
+            "doc_id": str(result.document_id),
+            "kb_created": result.kb_created,
+            "force": payload.force,
+            "used_override": result.used_override,
+        },
+    )
+
+    return ConsolidateOut(
+        document_id=result.document_id,
+        kb_id=result.kb_id,
+        kb_name=result.kb_name,
+        kb_created=result.kb_created,
+        agent_id=result.agent_id,
+        agent_name=result.agent_name,
+        chunk_count=result.chunk_count,
+        char_count=result.char_count,
+        used_override=result.used_override,
+    )
 
 
 @router.post("/tasks/{task_id}/reject", response_model=MyTaskOut)

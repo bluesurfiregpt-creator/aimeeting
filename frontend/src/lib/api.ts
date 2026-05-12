@@ -1242,6 +1242,39 @@ export const api = {
       deleted_orphans: number;
     }>(`/api/me/notifications/cleanup-orphans`, {}),
 
+  // v26.2: 任务办结 → AI 专家 KB 沉淀
+  previewConsolidateTask: (taskId: string) =>
+    jget<{
+      preview_markdown: string;
+      target_kb_id: string | null;
+      target_kb_name: string;
+      target_kb_exists: boolean;
+      target_agent_id: string;
+      target_agent_name: string;
+      warnings: string[];
+      already_consolidated: boolean;
+      consolidated_at: string | null;
+    }>(`/api/me/tasks/${taskId}/consolidate/preview`),
+  consolidateTask: (
+    taskId: string,
+    body: {
+      override_summary?: string | null;
+      force?: boolean;
+      target_agent_id?: string | null;
+    },
+  ) =>
+    jpost<{
+      document_id: string;
+      kb_id: string;
+      kb_name: string;
+      kb_created: boolean;
+      agent_id: string;
+      agent_name: string;
+      chunk_count: number;
+      char_count: number;
+      used_override: boolean;
+    }>(`/api/me/tasks/${taskId}/consolidate`, body),
+
   // v17 → v19: Task lifecycle (派发 / 签收 / 退回 / 办理 / 上报 / 办结 / 归档 / 取消)
   // v26.0: role 增 agent_rep (我作为 AI 专家的科室代表) + all_pending (admin 全局待派发)
   listMyTasks: (

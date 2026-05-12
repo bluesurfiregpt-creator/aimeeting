@@ -451,6 +451,303 @@ function SmartDispatchSection({
 }
 
 
+// v26.2: 办结沉淀 — section + 弹窗.独立组件,task 详情页里嵌一份.
+function ConsolidateSection({
+  task,
+  onAfter,
+}: {
+  task: TaskDetail;
+  onAfter: () => Promise<void>;
+}) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewData, setPreviewData] = useState<{
+    preview_markdown: string;
+    target_kb_id: string | null;
+    target_kb_name: string;
+    target_kb_exists: boolean;
+    target_agent_id: string;
+    target_agent_name: string;
+    warnings: string[];
+    already_consolidated: boolean;
+    consolidated_at: string | null;
+  } | null>(null);
+  const [editedSummary, setEditedSummary] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // 从 source_ref 读 v26.2 沉淀状态
+  const sref = (task.source_ref || {}) as Record<string, unknown>;
+  const consolidatedAt = typeof sref.consolidated_at === "string" ? sref.consolidated_at : null;
+  const consolidatedKbId = typeof sref.consolidated_kb_id === "string" ? sref.consolidated_kb_id : null;
+  const consolidatedAgentId = typeof sref.consolidated_agent_id === "string"
+    ? sref.consolidated_agent_id
+    : null;
+  const isConsolidated = !!consolidatedAt;
+
+  // 缺 agent 不让沉淀(后端会 400)
+  const lacksAgent = !task.assignee_agent_id;
+
+  const openModal = useCallback(async () => {
+    setModalOpen(true);
+    setPreviewLoading(true);
+    setPreviewData(null);
+    setEditedSummary("");
+    try {
+      const r = await api.previewConsolidateTask(task.id);
+      setPreviewData(r);
+      setEditedSummary(r.preview_markdown);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "预览失败");
+      setModalOpen(false);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [task.id]);
+
+  const closeModal = useCallback(() => {
+    if (submitting) return;
+    setModalOpen(false);
+    setPreviewData(null);
+    setEditedSummary("");
+  }, [submitting]);
+
+  const doConsolidate = useCallback(async () => {
+    if (!previewData || submitting) return;
+    setSubmitting(true);
+    try {
+      const r = await api.consolidateTask(task.id, {
+        override_summary: editedSummary === previewData.preview_markdown ? null : editedSummary,
+        force: previewData.already_consolidated,
+      });
+      toast.success(
+        `📚 已沉淀到「${r.kb_name}」`,
+        {
+          detail: `${r.chunk_count} 个 chunk · ${r.char_count} 字 · 主责: ${r.agent_name}${r.kb_created ? " · KB 新建" : ""}`,
+          sticky: true,
+        },
+      );
+      setModalOpen(false);
+      await onAfter();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "沉淀失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [previewData, editedSummary, task.id, submitting, onAfter]);
+
+  // 已沉淀 → 显示绿色徽章 + 重新沉淀按钮
+  if (isConsolidated) {
+    return (
+      <>
+        <section
+          className="mt-6 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4"
+          data-testid="task-detail-consolidated-v26"
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-2xl" aria-hidden>📚</span>
+            <div className="flex-1">
+              <h2 className="text-sm font-semibold text-emerald-200">
+                已沉淀到 AI 专家知识库 (v26.2)
+              </h2>
+              <p className="mt-0.5 text-[11px] text-zinc-500">
+                任务全过程已经被 LLM 摘要 + 入 KB.该 AI 专家在下一场会议
+                / 同主题 task 推荐 评分中会引用此条经验.
+              </p>
+              <p className="mt-1 text-[11px] text-zinc-400">
+                沉淀时间:{new Date(consolidatedAt).toLocaleString("zh-CN")}
+              </p>
+              <div className="mt-2 flex gap-3 text-xs">
+                {consolidatedKbId && (
+                  <Link
+                    href={`/admin/knowledge/${consolidatedKbId}`}
+                    className="text-accent-300 hover:text-accent-200"
+                  >
+                    → 去知识库查看
+                  </Link>
+                )}
+                <button
+                  onClick={openModal}
+                  className="text-amber-400 hover:text-amber-300"
+                  title="重新生成 LLM 摘要 + 删旧建新"
+                >
+                  🔄 重新沉淀(force)
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+        {modalOpen && (
+          <ConsolidateModal
+            previewLoading={previewLoading}
+            previewData={previewData}
+            editedSummary={editedSummary}
+            setEditedSummary={setEditedSummary}
+            submitting={submitting}
+            doConsolidate={doConsolidate}
+            closeModal={closeModal}
+          />
+        )}
+      </>
+    );
+  }
+
+  // 未沉淀 → 显示按钮
+  return (
+    <>
+      <section
+        className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4"
+        data-testid="task-detail-consolidate-cta"
+      >
+        <div className="flex items-start gap-3">
+          <span className="text-2xl" aria-hidden>📚</span>
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold text-amber-200">沉淀到 AI 专家知识库</h2>
+            <p className="mt-0.5 text-[11px] text-zinc-500">
+              把这条任务的全过程(内容 / 评论 / 协办交付)经 LLM 摘要后,
+              写入主责 AI 专家的 KB,让它越用越聪明.
+              <br />
+              {task.status === "done" || task.status === "archived"
+                ? "任务已办结,系统应该已自动沉淀过 — 没有 是因为没绑主责 AI / LLM 失败."
+                : "通常 task 审核通过(done)时自动沉淀.这里允许 leader 提前沉淀."}
+            </p>
+            {lacksAgent && (
+              <p className="mt-1 rounded-md bg-rose-500/10 px-2 py-1 text-[11px] text-rose-300">
+                ⚠️ 任务没绑主责 AI 专家,无法沉淀.先派发再来.
+              </p>
+            )}
+            <button
+              onClick={openModal}
+              disabled={lacksAgent}
+              className="mt-3 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              📚 沉淀到 AI 专家知识库
+            </button>
+          </div>
+        </div>
+      </section>
+      {modalOpen && (
+        <ConsolidateModal
+          previewLoading={previewLoading}
+          previewData={previewData}
+          editedSummary={editedSummary}
+          setEditedSummary={setEditedSummary}
+          submitting={submitting}
+          doConsolidate={doConsolidate}
+          closeModal={closeModal}
+        />
+      )}
+    </>
+  );
+}
+
+
+function ConsolidateModal({
+  previewLoading,
+  previewData,
+  editedSummary,
+  setEditedSummary,
+  submitting,
+  doConsolidate,
+  closeModal,
+}: {
+  previewLoading: boolean;
+  previewData: {
+    target_kb_name: string;
+    target_kb_exists: boolean;
+    target_agent_name: string;
+    warnings: string[];
+    already_consolidated: boolean;
+    preview_markdown: string;
+  } | null;
+  editedSummary: string;
+  setEditedSummary: (v: string) => void;
+  submitting: boolean;
+  doConsolidate: () => Promise<void>;
+  closeModal: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={closeModal}
+    >
+      <div
+        className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-ink-700 bg-ink-900 p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-medium text-white">
+          📚 沉淀任务到 AI 专家知识库
+        </h3>
+
+        {previewLoading || !previewData ? (
+          <div className="mt-4 flex items-center gap-3 text-sm text-zinc-400">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+            LLM (qwen-max) 正在生成办结摘要,约 10-30 秒…
+          </div>
+        ) : (
+          <>
+            <div className="mt-3 space-y-1 text-xs text-zinc-400">
+              <div>
+                目标 AI 专家:
+                <span className="ml-1 font-medium text-zinc-100">
+                  🤖 {previewData.target_agent_name}
+                </span>
+              </div>
+              <div>
+                目标 KB:
+                <span className="ml-1 text-zinc-100">{previewData.target_kb_name}</span>
+                {!previewData.target_kb_exists && (
+                  <span className="ml-1 text-amber-400">(将新建)</span>
+                )}
+              </div>
+            </div>
+
+            {previewData.warnings.length > 0 && (
+              <div className="mt-3 space-y-1 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-200">
+                {previewData.warnings.map((w, i) => (
+                  <div key={i}>⚠️ {w}</div>
+                ))}
+              </div>
+            )}
+
+            <p className="mt-3 text-xs text-zinc-500">
+              LLM 摘要预览(可编辑.提交时若有改动,后端用你的版本而不是 LLM 的):
+            </p>
+            <textarea
+              value={editedSummary}
+              onChange={(e) => setEditedSummary(e.target.value)}
+              rows={14}
+              className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 font-mono text-xs text-zinc-100 focus:border-accent-500 focus:outline-none"
+              placeholder="LLM 摘要..."
+            />
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={closeModal}
+                disabled={submitting}
+                className="rounded-lg border border-ink-700 px-3 py-2 text-xs text-zinc-300 hover:bg-ink-800 disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={doConsolidate}
+                disabled={submitting || !editedSummary.trim()}
+                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {submitting
+                  ? "沉淀中…"
+                  : previewData.already_consolidated
+                  ? "✅ 确认重新沉淀(覆盖旧)"
+                  : "✅ 确认沉淀"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 export default function TaskDetailPage({
   params,
 }: {
@@ -806,7 +1103,13 @@ export default function TaskDetailPage({
         ></section>
       )}
 
-      {/* v24.2 #1: 办结沉淀徽章(若有) */}
+      {/* v26.2: 沉淀按钮 + 已沉淀状态徽章
+          - 已沉淀(source_ref.consolidated_at 非空) → 绿徽 + 「🔄 重新沉淀」按钮
+          - 未沉淀 → 「📚 沉淀到 AI 专家知识库」按钮
+          - 缺 agent → 按钮 disabled + 提示 */}
+      <ConsolidateSection task={t} onAfter={load} />
+
+      {/* v24.2 #1: 办结沉淀徽章(若有,老 user-centric 数据)— v26.2 之后逐步淘汰 */}
       {(() => {
         const curated = (t.source_ref as Record<string, unknown> | null | undefined)?.curated;
         if (!curated) return null;

@@ -1103,6 +1103,24 @@ class KnowledgeDocument(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # v21: 数据 5 级分级.同 Task.data_classification 的语义.
     data_classification: Mapped[str] = mapped_column(String(16), default="general", index=True)
+    # v26.2: 沉淀来源 — 标识这个 KB 文档是从哪里来的:
+    #   'manual'  — 人工上传(默认,老数据)
+    #   'task'    — 任务办结自动沉淀,source_task_id 指向原 task
+    #   'meeting' — 会议纪要沉淀(预留)
+    source_type: Mapped[str] = mapped_column(String(16), default="manual", index=True)
+    # v26.2: 反向链 到 任务 / agent / 审批人 — 用于 KB document 页 显示
+    # "来源:任务《xxx》 by AI <agent>",以及 ABAC 决定可见性.
+    # ON DELETE SET NULL:任务被删 doc 不连带删,但 link 失效.
+    source_task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("task.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    source_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("agent.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    curated_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    curated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

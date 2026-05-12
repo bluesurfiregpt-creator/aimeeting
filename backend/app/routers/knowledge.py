@@ -55,6 +55,14 @@ class DocOut(BaseModel):
     char_count: Optional[int] = None
     chunk_count: Optional[int] = None
     error_message: Optional[str] = None
+    # v21: 数据分级
+    data_classification: str = "general"
+    # v26.2: 沉淀来源元数据 — UI 可显示 "来源:任务《xxx》by AI 专家"
+    source_type: str = "manual"
+    source_task_id: Optional[uuid.UUID] = None
+    source_agent_id: Optional[uuid.UUID] = None
+    curated_by_user_id: Optional[uuid.UUID] = None
+    curated_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

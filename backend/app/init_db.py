@@ -92,6 +92,12 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("agent", "primary_user_id", "UUID"),
     ("task", "assignee_agent_id", "UUID"),
     ("task", "co_agent_ids", "JSON"),
+    # v26.2: 任务办结沉淀回 KB — KnowledgeDocument 加 来源元数据
+    ("knowledge_document", "source_type", "VARCHAR(16) DEFAULT 'manual'"),
+    ("knowledge_document", "source_task_id", "UUID"),
+    ("knowledge_document", "source_agent_id", "UUID"),
+    ("knowledge_document", "curated_by_user_id", "UUID"),
+    ("knowledge_document", "curated_at", "TIMESTAMPTZ"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

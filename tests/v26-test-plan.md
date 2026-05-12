@@ -920,3 +920,324 @@ FAIL: 0 (或列出失败 + response body)
 3. **leader 权限**:V26-10 (all_pending) 需要登录账号是 workspace owner/admin/leader。如果是 member,期望 403,case 改为验证 403。
 4. **存量数据干扰**:V26-3 / V26-16 等 case 依赖 workspace 至少 1 个 active 已绑 primary_user 的 agent。建议跑前先看 `GET /api/agents` 确保有 ≥1 个符合的。
 5. **High tier 阈值与 fixture 关系**(v26.1 设计意图):没绑 KB / persona 短 / 关键词少 的 agent **故意**触不到 high (≥0.60),逼运营把 KB 配齐才能享受自动派发。所以 V26-8 用 minimal fixture 时,evidence 看到 `tier=medium` 或 `matched=false` 是**正确行为**,不是 bug。完整 high path 见 V26-15 / V26-20。
+
+---
+
+# v26.2 测试用例(任务办结沉淀)
+
+## V26.2-1 · preview endpoint 返回 LLM 摘要 + 不写入 KB
+
+**目的**:GET preview 跑 LLM 拿到摘要 markdown,不写 KB。
+
+**准备**:
+- 沿用 V26-5 创建的 task(`ctx.v26_5_task_id`),已派给 v26_agent_with_user
+
+**执行**:`GET /api/me/tasks/<TASK_ID>/consolidate/preview`
+
+**期望**:
+- 响应 200
+- `preview_markdown` 是 markdown 字符串,长度 > 100
+- 含 `## 背景` / `## 处理过程` / `## 结果` 等结构化段落
+- `target_agent_id === ctx.v26_agent_with_user`
+- `target_agent_name` 不为 null
+- `target_kb_exists` 是 bool
+- `already_consolidated` 是 bool
+- 跑完后 task 的 `source_ref.consolidated_at` **仍然为 null**(没写入)
+
+## V26.2-2 · POST consolidate 写入 KB
+
+**执行**:
+```
+POST /api/me/tasks/<TASK_ID>/consolidate
+Body: {}    # 用 LLM 摘要(不 override)
+```
+
+**期望**:
+- 响应 200
+- `document_id`, `kb_id`, `kb_name` 都有
+- `chunk_count ≥ 1`
+- `used_override === false`(没传 override_summary)
+- 后续 `GET /api/me/tasks/<TASK_ID>/detail`:
+  - `source_ref.consolidated_at` 是 ISO 字符串
+  - `source_ref.consolidated_kb_id === kb_id`
+  - `source_ref.consolidated_document_id === document_id`
+
+## V26.2-3 · 重复沉淀返回 409
+
+**执行**:再 POST 一次同样的 consolidate(不传 force)
+
+**期望**:
+- 响应 409
+- error message 含 "already consolidated"
+
+## V26.2-4 · force=true 删旧重沉
+
+**执行**:
+```
+POST /api/me/tasks/<TASK_ID>/consolidate
+Body: { "force": true }
+```
+
+**期望**:
+- 响应 200
+- 新 `document_id` ≠ 上一次的(旧 doc 已删)
+- `kb_id` 通常相同(KB 不删,只换 doc)
+
+## V26.2-5 · override_summary 优先
+
+**执行**:
+```
+POST /api/me/tasks/<TASK_ID>/consolidate
+Body: {
+  "force": true,
+  "override_summary": "## 测试自定义\n这是 leader 手动改过的摘要"
+}
+```
+
+**期望**:
+- 响应 200
+- `used_override === true`
+- 后续 GET KB document 内容应含 "测试自定义"(不是 LLM 摘要)
+
+## V26.2-6 · 没绑 agent 的 task 不能沉淀
+
+**准备**:创建一个 task 不派给任何 agent
+
+**执行**:`POST /api/me/tasks/<TASK_ID>/consolidate {}`
+
+**期望**:响应 400,error 含 "assignee_agent_id"
+
+## V26.2-7 · 非 leader 权限拒绝
+
+**执行**:用 member 账号(非 leader/admin)调 consolidate
+
+**期望**:响应 403
+
+## V26.2-8 · KnowledgeDocument 含 v26.2 元数据
+
+**执行**:沉淀完成后,`GET /api/knowledge-bases/<KB_ID>/documents` 找到刚沉淀的 doc
+
+**期望**:
+- `source_type === "task"`
+- `source_task_id === <TASK_ID>`
+- `source_agent_id === <AGENT_ID>`
+- `curated_by_user_id === <我>`
+- `curated_at` 非空
+
+## V26.2-9 · 沉淀后 agent KB knowledge 维度评分 ↑
+
+**目的**:验证沉淀的 KB chunk 真的能被 routing 检索到(端到端闭环)。
+
+**执行**:
+- 创建 task 内容与已沉淀 task 同主题
+- `POST /api/me/dispatch-recommend { content: "<同主题>" }`
+
+**期望**:
+- 该 agent 的 `breakdown.knowledge ≥ 0.30`(被检索命中)
+- `breakdown._kb_hits ≥ 1`
+- `breakdown._kb_used_embedding === true`
+
+---
+
+# v26.2 代码片段(粘进 cowork_suite.js,V26 series 之后)
+
+```javascript
+    // ---------- V26.2 series · 任务办结沉淀 ----------
+    R.register({
+      id: "V26.2-1",
+      series: "V26.2",
+      title: "preview consolidate 不写入 KB",
+      async run(ctx) {
+        if (!ctx.v26_5_task_id) return { ok: false, error: "SKIP_DEP_FAILED:V26-5" };
+        const r = await GET(`/api/me/tasks/${ctx.v26_5_task_id}/consolidate/preview`);
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        if (!r.body.preview_markdown || r.body.preview_markdown.length < 50)
+          return { ok: false, error: "preview_markdown too short" };
+        if (!r.body.target_agent_id) return { ok: false, error: "no target_agent_id" };
+        // 验证未写入
+        const d = await GET(`/api/me/tasks/${ctx.v26_5_task_id}/detail`);
+        if (d.body.source_ref?.consolidated_at)
+          return { ok: false, error: "preview 不该写入 consolidated_at" };
+        ctx.v26_2_preview = r.body;
+        return { ok: true, evidence: { _note: `preview ${r.body.preview_markdown.length} chars` } };
+      },
+    });
+
+    R.register({
+      id: "V26.2-2",
+      series: "V26.2",
+      title: "POST consolidate 写入 KB + task.source_ref 标记",
+      async run(ctx) {
+        if (!ctx.v26_5_task_id) return { ok: false, error: "SKIP_DEP_FAILED:V26-5" };
+        const r = await POST(`/api/me/tasks/${ctx.v26_5_task_id}/consolidate`, {});
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        if (!r.body.document_id) return { ok: false, error: "no document_id" };
+        if (!r.body.kb_id) return { ok: false, error: "no kb_id" };
+        if (r.body.chunk_count < 1) return { ok: false, error: "chunk_count = 0" };
+        if (r.body.used_override !== false)
+          return { ok: false, error: "used_override should be false" };
+        ctx.v26_2_doc_id = r.body.document_id;
+        ctx.v26_2_kb_id = r.body.kb_id;
+        // 验证 task.source_ref
+        const d = await GET(`/api/me/tasks/${ctx.v26_5_task_id}/detail`);
+        const sr = d.body.source_ref || {};
+        if (!sr.consolidated_at) return { ok: false, error: "consolidated_at not set" };
+        if (sr.consolidated_kb_id !== r.body.kb_id)
+          return { ok: false, error: `kb_id mismatch in source_ref` };
+        return {
+          ok: true,
+          evidence: { _note: `${r.body.chunk_count} chunks → KB ${r.body.kb_name}` },
+        };
+      },
+    });
+
+    R.register({
+      id: "V26.2-3",
+      series: "V26.2",
+      title: "重复沉淀返回 409",
+      async run(ctx) {
+        if (!ctx.v26_5_task_id || !ctx.v26_2_doc_id)
+          return { ok: false, error: "SKIP_DEP_FAILED:V26.2-2" };
+        const r = await POST(`/api/me/tasks/${ctx.v26_5_task_id}/consolidate`, {});
+        if (r.ok) return { ok: false, error: `expected 409 got 200` };
+        if (r.status !== 409) return { ok: false, error: `expected 409 got ${r.status}` };
+        return { ok: true, evidence: { _note: `409 as expected` } };
+      },
+    });
+
+    R.register({
+      id: "V26.2-4",
+      series: "V26.2",
+      title: "force=true 删旧重沉,document_id 变",
+      async run(ctx) {
+        if (!ctx.v26_5_task_id || !ctx.v26_2_doc_id)
+          return { ok: false, error: "SKIP_DEP_FAILED:V26.2-2" };
+        const r = await POST(`/api/me/tasks/${ctx.v26_5_task_id}/consolidate`, {
+          force: true,
+        });
+        if (!r.ok) return { ok: false, error: `${r.status} ${JSON.stringify(r.body)}` };
+        if (r.body.document_id === ctx.v26_2_doc_id)
+          return { ok: false, error: `document_id 没变,force 没删旧` };
+        ctx.v26_2_doc_id = r.body.document_id;
+        return { ok: true, evidence: { _note: `new doc ${r.body.document_id.slice(0, 8)}` } };
+      },
+    });
+
+    R.register({
+      id: "V26.2-5",
+      series: "V26.2",
+      title: "override_summary 优先 + used_override=true",
+      async run(ctx) {
+        if (!ctx.v26_5_task_id) return { ok: false, error: "SKIP_DEP_FAILED:V26-5" };
+        const customSummary = "## 测试自定义\n这是 leader 手动改过的摘要 marker_xyzzy";
+        const r = await POST(`/api/me/tasks/${ctx.v26_5_task_id}/consolidate`, {
+          force: true,
+          override_summary: customSummary,
+        });
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        if (r.body.used_override !== true)
+          return { ok: false, error: `used_override should be true` };
+        return { ok: true, evidence: { _note: `override accepted, chunks=${r.body.chunk_count}` } };
+      },
+    });
+
+    R.register({
+      id: "V26.2-6",
+      series: "V26.2",
+      title: "没绑 agent 的 task 不能沉淀 → 400",
+      async run(ctx) {
+        // 创建一个新 task 不派
+        const m = await POST("/api/meetings", {
+          title: `${PREFIX}_v26_2_6`,
+          attendee_user_ids: [],
+        });
+        created("meeting", m.body.id, "v26.2-6");
+        const ai = await POST(`/api/meetings/${m.body.id}/action-items`, {
+          content: "未派的 task",
+        });
+        if (!ai.ok) return { ok: false, error: `add action: ${ai.status}` };
+        const tid = ai.body.task_id;
+
+        const r = await POST(`/api/me/tasks/${tid}/consolidate`, {});
+        if (r.ok) return { ok: false, error: `expected 400 got 200` };
+        if (r.status !== 400) return { ok: false, error: `expected 400 got ${r.status}` };
+        return { ok: true, evidence: { _note: `400 as expected (no agent)` } };
+      },
+    });
+
+    R.register({
+      id: "V26.2-8",
+      series: "V26.2",
+      title: "KnowledgeDocument 含 v26.2 元数据(source_type/source_task_id 等)",
+      async run(ctx) {
+        if (!ctx.v26_2_kb_id || !ctx.v26_5_task_id)
+          return { ok: false, error: "SKIP_DEP_FAILED:V26.2-2" };
+        const r = await GET(`/api/knowledge-bases/${ctx.v26_2_kb_id}/documents`);
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const docs = r.body || [];
+        // 找最新一个 source_type='task' + source_task_id = ctx.v26_5_task_id 的
+        const ours = docs.find(
+          (d) => d.source_type === "task" && d.source_task_id === ctx.v26_5_task_id,
+        );
+        if (!ours) {
+          return {
+            ok: false,
+            error: `KB ${ctx.v26_2_kb_id} 里没找到来源是 v26_5_task 的 doc`,
+            evidence: { found: docs.length, kinds: docs.map((d) => d.source_type) },
+          };
+        }
+        for (const k of ["source_type", "source_task_id", "source_agent_id", "curated_at"])
+          if (!ours[k]) return { ok: false, error: `missing ${k}` };
+        return {
+          ok: true,
+          evidence: { _note: `doc ${ours.id.slice(0, 8)} fully tagged` },
+        };
+      },
+    });
+
+    R.register({
+      id: "V26.2-9",
+      series: "V26.2",
+      title: "沉淀后 agent KB 检索命中 (knowledge dim ↑)",
+      async run(ctx) {
+        if (!ctx.v26_5_task_id) return { ok: false, error: "SKIP_DEP_FAILED:V26-5" };
+        // 用同主题再跑一次 dispatch-recommend
+        const r = await POST("/api/me/dispatch-recommend", {
+          content: "v26-5 测试待办 — 跟之前已沉淀的同主题",
+        });
+        if (!r.ok) return { ok: false, error: `${r.status}` };
+        const c = r.body.candidates?.find((x) => x.agent_id === ctx.v26_agent_with_user);
+        if (!c) return { ok: false, error: "v26_agent not in candidates" };
+        const kbHits = c.breakdown._kb_hits;
+        const usedEmb = c.breakdown._kb_used_embedding;
+        if (!usedEmb)
+          return {
+            ok: false,
+            error: `KB embedding 没启动 (used_embedding=false)`,
+            evidence: { breakdown: c.breakdown },
+          };
+        if (typeof kbHits !== "number" || kbHits < 1)
+          return {
+            ok: false,
+            error: `KB chunk 没命中 (hits=${kbHits})`,
+            evidence: { knowledge: c.breakdown.knowledge },
+          };
+        return {
+          ok: true,
+          evidence: {
+            _note: `kb_hits=${kbHits} knowledge=${c.breakdown.knowledge.toFixed(2)}`,
+          },
+        };
+      },
+    });
+    // ---------- end V26.2 series ----------
+```
+
+---
+
+## V26.2 已知 caveats
+
+1. **LLM 摘要慢**:V26.2-1 / V26.2-2 / V26.2-4 / V26.2-5 都会调 LLM (qwen-max),每次 ~10-30 秒。一次 V26.2 全跑下来约 60-90 秒。
+2. **DashScope embedding**:V26.2-2 需要 embedding 可用(沉淀后的 chunks 要 embed)。配额耗尽时 chunk 写入但 embedding=null,V26.2-9 会 fail。
+3. **V26.2-7 权限测试需要 member 账号**:Cowork 跑时如果当前账号是 leader,跳过此 case。手动验时换 member 账号。
+4. **KB list endpoint 是否暴露 source_type 字段**:V26.2-8 假设 `GET /api/knowledge-bases/<id>/documents` 返回 KnowledgeDocument 完整字段(含 source_type 等 v26.2 新字段)。如果该 endpoint 只 select 部分字段,需要扩(已在 v26.2-12 待办)。
