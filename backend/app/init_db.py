@@ -116,6 +116,11 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     # v26.5-02b P1: memory 归属 AI 专家. nullable — NULL = workspace 通用记忆.
     # FK 在 _FK_MIGRATIONS 里加 ON DELETE CASCADE (memory 跟着 AI 走).
     ("long_term_memory", "agent_id", "UUID"),
+    # v26.5-Lineage: Memory 显式溯源 — 让 前端血缘图 能 JOIN 出 来源会议.
+    ("long_term_memory", "source_meeting_id", "UUID"),
+    ("long_term_memory", "source_action_item_id", "UUID"),
+    ("long_term_memory", "curated_by_user_id", "UUID"),
+    ("long_term_memory", "curated_at", "TIMESTAMPTZ"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).
@@ -331,7 +336,61 @@ async def init_db() -> None:
                        ON DELETE CASCADE;
                     RAISE NOTICE '[v26.5-02b] 加 FK long_term_memory.agent_id → agent ON DELETE CASCADE';
                 END IF;
+
+                -- v26.5-Lineage: LTM.source_meeting_id → meeting.id  ON DELETE SET NULL
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints tc
+                      JOIN information_schema.key_column_usage kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                           AND tc.constraint_schema = kcu.constraint_schema
+                     WHERE tc.table_name = 'long_term_memory'
+                       AND kcu.column_name = 'source_meeting_id'
+                       AND tc.constraint_type = 'FOREIGN KEY'
+                       AND tc.table_schema = 'public'
+                ) THEN
+                    UPDATE long_term_memory SET source_meeting_id = NULL
+                     WHERE source_meeting_id IS NOT NULL
+                       AND source_meeting_id NOT IN (SELECT id FROM meeting);
+                    ALTER TABLE long_term_memory
+                       ADD CONSTRAINT long_term_memory_source_meeting_fk
+                       FOREIGN KEY (source_meeting_id) REFERENCES meeting(id)
+                       ON DELETE SET NULL;
+                    RAISE NOTICE '[v26.5-Lineage] 加 FK long_term_memory.source_meeting_id';
+                END IF;
+
+                -- v26.5-Lineage: LTM.curated_by_user_id → user.id  ON DELETE SET NULL
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints tc
+                      JOIN information_schema.key_column_usage kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                           AND tc.constraint_schema = kcu.constraint_schema
+                     WHERE tc.table_name = 'long_term_memory'
+                       AND kcu.column_name = 'curated_by_user_id'
+                       AND tc.constraint_type = 'FOREIGN KEY'
+                       AND tc.table_schema = 'public'
+                ) THEN
+                    UPDATE long_term_memory SET curated_by_user_id = NULL
+                     WHERE curated_by_user_id IS NOT NULL
+                       AND curated_by_user_id NOT IN (SELECT id FROM "user");
+                    ALTER TABLE long_term_memory
+                       ADD CONSTRAINT long_term_memory_curated_by_fk
+                       FOREIGN KEY (curated_by_user_id) REFERENCES "user"(id)
+                       ON DELETE SET NULL;
+                    RAISE NOTICE '[v26.5-Lineage] 加 FK long_term_memory.curated_by_user_id';
+                END IF;
             END $$;
+        """))
+
+        # 3e. v26.5-Lineage: 老 long_term_memory.agent_id 数据 → memory_agent_link
+        # (Base.metadata.create_all 已经把 memory_agent_link 表建好了, 这里 一次性
+        # 把老的单 agent_id 数据 写进 link 表 (is_primary=TRUE), 完事再 idempotent
+        # — 已 link 过的 (memory_id, agent_id) 用 ON CONFLICT 跳过.
+        await conn.execute(text("""
+            INSERT INTO memory_agent_link (memory_id, agent_id, is_primary, created_at)
+            SELECT id, agent_id, TRUE, created_at
+              FROM long_term_memory
+             WHERE agent_id IS NOT NULL
+            ON CONFLICT (memory_id, agent_id) DO NOTHING
         """))
 
         # 4. seed the default workspace + backfill orphan rows

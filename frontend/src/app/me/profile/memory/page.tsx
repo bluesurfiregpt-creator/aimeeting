@@ -104,10 +104,16 @@ export default function MemoryAdmin() {
     }
   };
 
-  // v26.5-02b: 该 memory 我是否能删 (leader+ 全可; 或 manager 是该 memory 归属 AI 的 primary)
+  // v26.5-Lineage: 该 memory 我是否能删
+  //   leader+ 全可 / manager 是该 memory 任一 primary AI 的 primary_user 即可
+  //   (向后兼容 老 agent_id 字段)
   const canDeleteMemory = (m: Memory): boolean => {
     if (isFullAdmin) return true;
-    return !!m.agent_id && myAgentIds.has(m.agent_id);
+    const primaryAids = (m.agents ?? [])
+      .filter((a) => a.is_primary)
+      .map((a) => a.id);
+    if (primaryAids.some((id) => myAgentIds.has(id))) return true;
+    return false;
   };
 
   return (
@@ -283,11 +289,17 @@ export default function MemoryAdmin() {
                         <span className={`rounded-full px-2 py-0.5 ${tone.tone}`}>
                           {tone.label}
                         </span>
-                        {/* v26.5-02b: 归属 AI 徽章 */}
-                        {m.agent_name ? (
-                          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-300">
-                            🤖 {m.agent_name}
-                          </span>
+                        {/* v26.5-Lineage: 多对多 — 显示所有挂的 agent. primary 加 ⭐ */}
+                        {(m.agents ?? []).length > 0 ? (
+                          (m.agents ?? []).map((a) => (
+                            <span
+                              key={a.id}
+                              className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-300"
+                              title={a.is_primary ? "primary (主人, 可改)" : "subscriber (订阅, 只读)"}
+                            >
+                              {a.is_primary ? "⭐" : "🔗"} {a.name}
+                            </span>
+                          ))
                         ) : (
                           <span className="rounded-full bg-zinc-700/30 px-2 py-0.5 text-zinc-500">
                             workspace 通用
@@ -320,8 +332,8 @@ export default function MemoryAdmin() {
                     ) : (
                       <span
                         className="text-xs text-zinc-700"
-                        title={m.agent_name
-                          ? `此记忆归 ${m.agent_name} 管, 你无权删`
+                        title={(m.agents ?? []).length > 0
+                          ? `此记忆归 ${(m.agents ?? []).map((a) => a.name).join(" / ")} 管, 你无权删`
                           : "workspace 通用记忆 仅 owner / admin / leader 可删"}
                       >
                         🔒

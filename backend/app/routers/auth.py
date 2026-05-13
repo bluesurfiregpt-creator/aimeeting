@@ -28,6 +28,7 @@ from ..models import (
     Agent,
     KbSedimentationDraft,
     KnowledgeBase,
+    MemoryDraft,
     PasswordResetToken,
     Task,
     User,
@@ -80,6 +81,8 @@ class MyTaskCounts(BaseModel):
     review: int = 0     # 待审核 (submitted)
     # v26.5-02c: 我作为 primary_user 待审批 的 KB 沉淀数 (个人中心徽章用)
     kb_sedimentation_pending: int = 0
+    # v26.5-Lineage: 待我审批的 Memory 草稿数
+    memory_draft_pending: int = 0
 
 
 class MeOut(BaseModel):
@@ -489,11 +492,22 @@ async def me(
             )
         )
     ).scalar_one() or 0
+    # v26.5-Lineage: 待我审批的 Memory 草稿数
+    mem_draft_pending = (
+        await session.execute(
+            select(func.count(MemoryDraft.id)).where(
+                MemoryDraft.workspace_id == auth.workspace.id,
+                MemoryDraft.primary_user_id == auth.user.id,
+                MemoryDraft.status == "pending",
+            )
+        )
+    ).scalar_one() or 0
     task_counts = MyTaskCounts(
         pending=int(pending_cnt),
         working=int(working_cnt),
         review=int(review_cnt),
         kb_sedimentation_pending=int(kb_sed_pending),
+        memory_draft_pending=int(mem_draft_pending),
     )
 
     # v26.5-Profile: department fallback —

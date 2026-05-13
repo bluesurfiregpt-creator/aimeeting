@@ -311,27 +311,82 @@ async def curate_closed_task(task_id: UUID) -> dict[str, Any]:
             await session.flush()
             chunk_id = chunk.id
 
-        # 3) LongTermMemory(无论 KB 有没有都写,scope='project',workspace 共用)
-        try:
-            mem_vec = await compute_embedding(curated["summary"])
-        except EmbeddingError:
-            mem_vec = [0.0] * 1536
+        # v26.5-Lineage: 改写 — 不直接入 LongTermMemory, 而是 进 MemoryDraft
+        # 等 primary_user (= 主责 agent.primary_user_id) 审批. 如果 agent 没
+        # primary_user, 退到 直接入库 (老行为 兼容).
         # importance:有协办 / 跨多 user 的更重要
         importance = 0.6
         if task.co_assignees:
             importance = 0.75
-        mem = LongTermMemory(
-            workspace_id=task.workspace_id,
-            scope="project",
-            scope_ref=str(task.id),
-            content=curated["summary"][:2000],
-            importance=importance,
-            embedding=mem_vec,
-            source_type="task_closure",
-            source_id=str(task.id),
-        )
-        session.add(mem)
-        await session.flush()
+        target_agent_id = task.assignee_agent_id
+        primary_user_id: Optional[UUID] = None
+        if target_agent_id:
+            ag = (
+                await session.execute(
+                    select(Agent).where(Agent.id == target_agent_id)
+                )
+            ).scalar_one_or_none()
+            if ag and ag.primary_user_id:
+                primary_user_id = ag.primary_user_id
+
+        if primary_user_id and target_agent_id:
+            # 走 gate — 进 MemoryDraft, 不写 LongTermMemory
+            from .models import MemoryDraft, Notification
+            draft = MemoryDraft(
+                workspace_id=task.workspace_id,
+                source_type="task",
+                source_task_id=task.id,
+                target_agent_ids=[str(target_agent_id)],
+                primary_user_id=primary_user_id,
+                proposed_content=curated["summary"][:2000],
+                proposed_scope="project",
+                proposed_scope_ref=str(task.id),
+                proposed_importance=importance,
+                proposed_data_classification=task.data_classification or "general",
+                status="pending",
+            )
+            session.add(draft)
+            await session.flush()
+            # 通知 primary_user
+            notif = Notification(
+                workspace_id=task.workspace_id,
+                user_id=primary_user_id,
+                kind="memory_draft_pending",
+                severity="yellow",
+                payload={
+                    "draft_id": str(draft.id),
+                    "task_id": str(task.id),
+                    "task_title": task.title or task.content[:60],
+                    "agent_id": str(target_agent_id),
+                    "summary_preview": curated["summary"][:200],
+                },
+            )
+            session.add(notif)
+            mem = None  # 标记: 没直接写 memory
+            logger.info(
+                "closure_curator: task %s → MemoryDraft %s (gate, waiting primary %s)",
+                task.id, draft.id, primary_user_id,
+            )
+        else:
+            # 退老路径: 直接写 LongTermMemory (无 primary 时)
+            try:
+                mem_vec = await compute_embedding(curated["summary"])
+            except EmbeddingError:
+                mem_vec = [0.0] * 1536
+            mem = LongTermMemory(
+                workspace_id=task.workspace_id,
+                scope="project",
+                scope_ref=str(task.id),
+                content=curated["summary"][:2000],
+                importance=importance,
+                embedding=mem_vec,
+                source_type="task_closure",
+                source_id=str(task.id),
+                source_action_item_id=None,  # v26.5-Lineage
+                curated_at=datetime.now(timezone.utc),
+            )
+            session.add(mem)
+            await session.flush()
 
         # 4) Mark task as curated(防重入)
         new_ref = dict(existing_ref)
@@ -340,7 +395,8 @@ async def curate_closed_task(task_id: UUID) -> dict[str, Any]:
         new_ref["curated_kb_id"] = str(kb.id) if kb else None
         new_ref["curated_doc_id"] = str(doc_id) if doc_id else None
         new_ref["curated_chunk_id"] = str(chunk_id) if chunk_id else None
-        new_ref["curated_memory_id"] = str(mem.id)
+        # v26.5-Lineage: 走 gate 时 mem 为 None — 不写 curated_memory_id
+        new_ref["curated_memory_id"] = str(mem.id) if mem else None
         new_ref["curated_tags"] = curated["tags"]
         new_ref["curated_fallback_used"] = fallback_used
         task.source_ref = new_ref
@@ -348,7 +404,8 @@ async def curate_closed_task(task_id: UUID) -> dict[str, Any]:
         await session.commit()
         logger.info(
             "closure_curator: task %s → kb=%s doc=%s mem=%s tags=%d (fallback=%s)",
-            task.id, kb.id if kb else None, doc_id, mem.id,
+            task.id, kb.id if kb else None, doc_id,
+            mem.id if mem else "(draft)",
             len(curated["tags"]), fallback_used,
         )
         return {
@@ -356,7 +413,8 @@ async def curate_closed_task(task_id: UUID) -> dict[str, Any]:
             "kb_id": str(kb.id) if kb else None,
             "doc_id": str(doc_id) if doc_id else None,
             "chunk_id": str(chunk_id) if chunk_id else None,
-            "memory_id": str(mem.id),
+            "memory_id": str(mem.id) if mem else None,
+            "memory_pending_approval": mem is None,
             "summary_chars": len(curated["summary"]),
             "tag_count": len(curated["tags"]),
             "fallback_used": fallback_used,

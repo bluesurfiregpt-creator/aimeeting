@@ -1263,11 +1263,22 @@ class KnowledgeChunk(Base):
 
 class LongTermMemory(Base):
     """
-    Phase 2 surface. Already declared so migrations stay forward-compatible.
-    Embedding dim 1536 fits OpenAI text-embedding-3-small / Qwen text-embedding-v2.
+    v26.5-Lineage: 长期记忆 — 一条 memory 可挂多个 AI 专家 (通过
+    MemoryAgentLink 关系表), 同时显式溯源到 来源会议 / 来源任务 / 确认人.
 
-    v26.5-02b: memory 现在 可标 agent_id — 让 manager 给 自己 AI 写记忆,
-    减少 AI 之间的语义干扰. agent_id 为 NULL = workspace 级通用记忆.
+    设计原则 (v26.5-Lineage):
+      1. 所有 Memory 来自 会议内容 (会议结束/任务办结) 或 admin 手工补
+      2. 会议来的 → 走 MemoryDraft 审批 gate
+      3. 手工写 → 直接入库
+      4. 一条 Memory 可挂多个 AI (memory_agent_link), 形成共享
+      5. 可追溯 — source_meeting_id / source_action_item_id / curated_by_user_id
+
+    embedding dim 1536 fits OpenAI text-embedding-3-small / Qwen text-embedding-v2.
+
+    遗留字段 (v26.5-02b 加, 现已 deprecated 但保留兼容):
+      agent_id  — 单一归属 AI, 新代码用 memory_agent_link 关系表
+                  ABAC 仍 fallback 读它一次 (老数据兼容)
+                  新写入 同时写 agent_id (primary AI) + memory_agent_link
     """
     __tablename__ = "long_term_memory"
 
@@ -1275,8 +1286,8 @@ class LongTermMemory(Base):
     workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), nullable=True, index=True
     )
-    # v26.5-02b: memory 归属的 AI 专家 (nullable — NULL=workspace 通用记忆).
-    # ON DELETE CASCADE: agent 删了 该 agent 的 memory 一起删 (memory 跟着 AI 走).
+    # v26.5-02b (deprecated by v26.5-Lineage): 单一归属 AI.
+    # 新代码 优先 走 memory_agent_link, 这字段保留兼容老数据.
     agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("agent.id", ondelete="CASCADE"),
         nullable=True, index=True,
@@ -1286,12 +1297,115 @@ class LongTermMemory(Base):
     content: Mapped[str] = mapped_column(Text)
     source_type: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     source_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    # v26.5-Lineage: 显式溯源 FK — 让前端血缘图能 JOIN 出来源
+    source_meeting_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("meeting.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+    source_action_item_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("meeting_action_item.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # 谁确认入库 (手工 = 写入者, 审批入库 = 审批人)
+    curated_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    curated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     importance: Mapped[float] = mapped_column(Float, default=0.5)
     embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(1536), nullable=True)
     # v21: 数据 5 级分级.同 Task.data_classification 的语义.
     data_classification: Mapped[str] = mapped_column(String(16), default="general", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MemoryAgentLink(Base):
+    """v26.5-Lineage: Memory ↔ Agent 多对多关系表.
+
+    is_primary:
+      - TRUE  = 这个 AI 是 memory 的"主人" — manager 可改/删
+      - FALSE = 这个 AI 是"订阅者" — 引用此 memory 作 RAG 上下文, 不能改
+
+    一条 memory 通常 1 个 primary (创建时确定), N 个 subscribers (后续加).
+    primary 不存在时 (eg memory 来自老数据 agent_id IS NULL),
+    退到 admin-only 可写.
+    """
+    __tablename__ = "memory_agent_link"
+
+    memory_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("long_term_memory.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("agent.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class MemoryDraft(Base):
+    """v26.5-Lineage: Memory 审批草稿 — 跟 KbSedimentationDraft 对称.
+
+    会议结束 (closure_curator) / 任务办结 (task_consolidator) 抽取出
+    "候选记忆", 不立即入 long_term_memory, 而是 进这张表 status=pending.
+    primary_user (= 目标 AI.primary_user_id) 审批后 才真正写 LongTermMemory.
+
+    State:
+      pending  — 等审批
+      approved — 已批准, 已写入 long_term_memory (committed_memory_id 指向真表)
+      rejected — 已驳回, 不写入
+      expired  — 7 天没人理, 自动 expire
+
+    target_agents: 拟挂给哪些 AI (JSON 数组 agent_id list).
+    primary_user_id 是 target_agents[0].primary_user_id 的 snapshot.
+
+    手工写 memory (用户在 /me/profile/memory 直接 POST) 不走这张表,
+    直接进 long_term_memory.
+    """
+    __tablename__ = "memory_draft"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    # 来源
+    source_type: Mapped[str] = mapped_column(String(32))  # meeting|task|consensus
+    source_meeting_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("meeting.id", ondelete="CASCADE"),
+        nullable=True, index=True,
+    )
+    source_task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("task.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    # 拟挂给哪些 agent (JSON 数组). 至少 1 个.
+    target_agent_ids: Mapped[list[str]] = mapped_column(JSON)
+    # 审批人 (= 第一个 target_agent.primary_user_id, snapshot)
+    primary_user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    # 拟写入字段
+    proposed_content: Mapped[str] = mapped_column(Text)
+    proposed_scope: Mapped[str] = mapped_column(String(16), default="project")
+    proposed_scope_ref: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    proposed_importance: Mapped[float] = mapped_column(Float, default=0.6)
+    proposed_data_classification: Mapped[str] = mapped_column(String(16), default="general")
+    # 状态
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    decision_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 批准后 写入的 long_term_memory.id
+    committed_memory_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("long_term_memory.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
 
 
 class KbSedimentationDraft(Base):

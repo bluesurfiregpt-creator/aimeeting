@@ -1,0 +1,268 @@
+"""v26.5-Lineage: Memory 审批草稿 endpoints (跟 kb_sedimentation 对称).
+
+会议结束 / 任务办结 抽出的 候选 memory 不立即入 long_term_memory, 而是
+进 MemoryDraft 等 primary_user 审批. 这里提供 list / approve / reject.
+
+Endpoints:
+  GET    /api/memory-drafts                — 列我的待审批
+  GET    /api/memory-drafts/{id}           — 详情
+  POST   /api/memory-drafts/{id}/approve   — 批准 → 写 long_term_memory
+  POST   /api/memory-drafts/{id}/reject    — 驳回
+"""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from datetime import datetime, timezone
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..audit import audit_log
+from ..auth import AuthContext, get_current_auth, is_leader_or_admin
+from ..db import get_session
+from ..embeddings import EmbeddingError, compute_embedding
+from ..models import (
+    Agent,
+    LongTermMemory,
+    Meeting,
+    MemoryAgentLink,
+    MemoryDraft,
+    Notification,
+    Task,
+)
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/memory-drafts", tags=["memory-drafts"])
+
+
+class DraftOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    workspace_id: uuid.UUID
+    source_type: str
+    source_meeting_id: Optional[uuid.UUID] = None
+    source_meeting_title: Optional[str] = None
+    source_task_id: Optional[uuid.UUID] = None
+    source_task_title: Optional[str] = None
+    target_agent_ids: list[str] = []
+    target_agent_names: list[str] = []  # resolved
+    primary_user_id: uuid.UUID
+    proposed_content: str
+    proposed_scope: str
+    proposed_scope_ref: Optional[str] = None
+    proposed_importance: float
+    proposed_data_classification: str
+    status: str
+    decision_reason: Optional[str] = None
+    decided_at: Optional[datetime] = None
+    committed_memory_id: Optional[uuid.UUID] = None
+    created_at: datetime
+
+
+class RejectIn(BaseModel):
+    reason: Optional[str] = None
+
+
+async def _resolve(
+    db: AsyncSession, drafts: list[MemoryDraft]
+) -> list[DraftOut]:
+    if not drafts:
+        return []
+    # resolve agent names
+    agent_ids: set[uuid.UUID] = set()
+    for d in drafts:
+        for aid in d.target_agent_ids or []:
+            try:
+                agent_ids.add(uuid.UUID(aid))
+            except (ValueError, TypeError):
+                pass
+    name_by_aid: dict[uuid.UUID, str] = {}
+    if agent_ids:
+        rows = (
+            await db.execute(
+                select(Agent.id, Agent.name).where(Agent.id.in_(agent_ids))
+            )
+        ).all()
+        name_by_aid = {r[0]: r[1] for r in rows}
+    # resolve meeting + task titles
+    mids = {d.source_meeting_id for d in drafts if d.source_meeting_id}
+    tids = {d.source_task_id for d in drafts if d.source_task_id}
+    meeting_titles: dict[uuid.UUID, str] = {}
+    if mids:
+        rows = (
+            await db.execute(
+                select(Meeting.id, Meeting.title).where(Meeting.id.in_(mids))
+            )
+        ).all()
+        meeting_titles = {r[0]: r[1] for r in rows}
+    task_titles: dict[uuid.UUID, str] = {}
+    if tids:
+        rows = (
+            await db.execute(
+                select(Task.id, Task.title, Task.content).where(Task.id.in_(tids))
+            )
+        ).all()
+        task_titles = {r[0]: (r[1] or (r[2][:60] if r[2] else "")) for r in rows}
+    out: list[DraftOut] = []
+    for d in drafts:
+        agent_names: list[str] = []
+        for aid in d.target_agent_ids or []:
+            try:
+                u = uuid.UUID(aid)
+                if u in name_by_aid:
+                    agent_names.append(name_by_aid[u])
+            except (ValueError, TypeError):
+                continue
+        out.append(DraftOut.model_validate({
+            **d.__dict__,
+            "target_agent_names": agent_names,
+            "source_meeting_title": meeting_titles.get(d.source_meeting_id) if d.source_meeting_id else None,
+            "source_task_title": task_titles.get(d.source_task_id) if d.source_task_id else None,
+        }))
+    return out
+
+
+async def _load_with_abac(
+    draft_id: str, session: AsyncSession, auth: AuthContext
+) -> MemoryDraft:
+    d = (
+        await session.execute(
+            select(MemoryDraft).where(
+                MemoryDraft.id == draft_id,
+                MemoryDraft.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not d:
+        raise HTTPException(404, "draft not found")
+    is_admin = await is_leader_or_admin(session, auth)
+    if d.primary_user_id != auth.user.id and not is_admin:
+        raise HTTPException(
+            403,
+            "[权限不足] 仅 该 memory 沉淀的 审批人 (primary_user) 或 owner/admin/leader 可操作"
+        )
+    return d
+
+
+@router.get("", response_model=list[DraftOut])
+async def list_drafts(
+    status: Optional[str] = None,  # pending|approved|rejected|expired|all
+    limit: int = 100,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    is_admin = await is_leader_or_admin(session, auth)
+    stmt = (
+        select(MemoryDraft)
+        .where(MemoryDraft.workspace_id == auth.workspace.id)
+        .order_by(MemoryDraft.created_at.desc())
+        .limit(limit)
+    )
+    if not is_admin:
+        stmt = stmt.where(MemoryDraft.primary_user_id == auth.user.id)
+    if status and status != "all":
+        if status not in ("pending", "approved", "rejected", "expired"):
+            raise HTTPException(400, "invalid status filter")
+        stmt = stmt.where(MemoryDraft.status == status)
+    rows = list((await session.execute(stmt)).scalars().all())
+    return await _resolve(session, rows)
+
+
+@router.get("/{draft_id}", response_model=DraftOut)
+async def get_draft(
+    draft_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    d = await _load_with_abac(draft_id, session, auth)
+    return (await _resolve(session, [d]))[0]
+
+
+@router.post("/{draft_id}/approve", response_model=DraftOut)
+async def approve_draft(
+    draft_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """批准 → 真正写 long_term_memory + 给 target_agent_ids 建 link."""
+    d = await _load_with_abac(draft_id, session, auth)
+    if d.status != "pending":
+        raise HTTPException(409, f"draft status={d.status}, 不能再批")
+
+    # 实际写入 long_term_memory
+    try:
+        vec = await compute_embedding(d.proposed_content)
+    except EmbeddingError:
+        vec = [0.0] * 1536
+    target_aids: list[uuid.UUID] = []
+    for aid in d.target_agent_ids or []:
+        try:
+            target_aids.append(uuid.UUID(aid))
+        except (ValueError, TypeError):
+            continue
+    m = LongTermMemory(
+        workspace_id=d.workspace_id,
+        scope=d.proposed_scope,
+        scope_ref=d.proposed_scope_ref,
+        content=d.proposed_content,
+        importance=d.proposed_importance,
+        embedding=vec,
+        source_type=d.source_type,
+        source_id=str(d.source_task_id or d.source_meeting_id or ""),
+        source_meeting_id=d.source_meeting_id,
+        data_classification=d.proposed_data_classification,
+        agent_id=target_aids[0] if target_aids else None,  # 老兼容
+        curated_by_user_id=auth.user.id,
+        curated_at=datetime.now(timezone.utc),
+    )
+    session.add(m)
+    await session.flush()
+    # 写 memory_agent_link
+    for idx, aid in enumerate(target_aids):
+        session.add(
+            MemoryAgentLink(
+                memory_id=m.id,
+                agent_id=aid,
+                is_primary=(idx == 0),
+            )
+        )
+    # 标 draft
+    d.status = "approved"
+    d.decided_at = datetime.now(timezone.utc)
+    d.committed_memory_id = m.id
+    await session.commit()
+    await session.refresh(d)
+    await audit_log(
+        session, auth, "memory_draft.approve",
+        target_type="memory_draft", target_id=str(d.id),
+        payload={"committed_memory_id": str(m.id)},
+    )
+    return (await _resolve(session, [d]))[0]
+
+
+@router.post("/{draft_id}/reject", response_model=DraftOut)
+async def reject_draft(
+    draft_id: str,
+    payload: RejectIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    d = await _load_with_abac(draft_id, session, auth)
+    if d.status != "pending":
+        raise HTTPException(409, f"draft status={d.status}, 不能再驳")
+    d.status = "rejected"
+    d.decision_reason = (payload.reason or "").strip() or None
+    d.decided_at = datetime.now(timezone.utc)
+    await session.commit()
+    await session.refresh(d)
+    await audit_log(
+        session, auth, "memory_draft.reject",
+        target_type="memory_draft", target_id=str(d.id),
+        payload={"reason": d.decision_reason},
+    )
+    return (await _resolve(session, [d]))[0]

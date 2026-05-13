@@ -461,6 +461,13 @@ export type KnowledgeDocument = {
   updated_at: string;
 };
 
+// v26.5-Lineage: memory 关联的 agent 简版
+export type MemoryAgentBrief = {
+  id: string;
+  name: string;
+  is_primary: boolean;
+};
+
 export type Memory = {
   id: string;
   scope: "user" | "project" | "org";
@@ -469,9 +476,37 @@ export type Memory = {
   importance: number;
   source_type: string | null;
   source_id: string | null;
-  // v26.5-02b: 归属 AI
-  agent_id?: string | null;
-  agent_name?: string | null;
+  // v26.5-Lineage: 多对多 agents (替代 单 agent_id/agent_name)
+  agents?: MemoryAgentBrief[];
+  // 溯源
+  source_meeting_id?: string | null;
+  source_action_item_id?: string | null;
+  curated_by_user_id?: string | null;
+  curated_at?: string | null;
+  created_at: string;
+};
+
+// v26.5-Lineage: Memory 审批草稿
+export type MemoryDraft = {
+  id: string;
+  workspace_id: string;
+  source_type: string;
+  source_meeting_id: string | null;
+  source_meeting_title: string | null;
+  source_task_id: string | null;
+  source_task_title: string | null;
+  target_agent_ids: string[];
+  target_agent_names: string[];
+  primary_user_id: string;
+  proposed_content: string;
+  proposed_scope: string;
+  proposed_scope_ref: string | null;
+  proposed_importance: number;
+  proposed_data_classification: string;
+  status: "pending" | "approved" | "rejected" | "expired";
+  decision_reason: string | null;
+  decided_at: string | null;
+  committed_memory_id: string | null;
   created_at: string;
 };
 
@@ -866,6 +901,8 @@ export type MyTaskCounts = {
   review: number;   // 待审核 (submitted)
   // v26.5-02c: 待我审批的 KB 沉淀数
   kb_sedimentation_pending?: number;
+  // v26.5-Lineage: 待我审批的 Memory 草稿数
+  memory_draft_pending?: number;
 };
 
 export type Me = {
@@ -1973,9 +2010,22 @@ export const api = {
     scope_ref?: string | null;
     content: string;
     importance?: number;
-    agent_id?: string | null;  // v26.5-02b
+    agent_id?: string | null;     // v26.5-02b deprecated, 兼容
+    agent_ids?: string[] | null;  // v26.5-Lineage 多对多
   }) => jpost<Memory>("/api/memory", m),
   deleteMemory: (id: string) => jdelete(`/api/memory/${id}`),
+
+  // v26.5-Lineage: Memory 审批草稿
+  listMemoryDrafts: (status?: "pending" | "approved" | "rejected" | "all") => {
+    const q = status && status !== "all" ? `?status=${status}` : "";
+    return jget<MemoryDraft[]>(`/api/memory-drafts${q}`);
+  },
+  getMemoryDraft: (id: string) =>
+    jget<MemoryDraft>(`/api/memory-drafts/${id}`),
+  approveMemoryDraft: (id: string) =>
+    jpost<MemoryDraft>(`/api/memory-drafts/${id}/approve`, {}),
+  rejectMemoryDraft: (id: string, reason?: string) =>
+    jpost<MemoryDraft>(`/api/memory-drafts/${id}/reject`, { reason }),
 
   // v26.5-02c: KB 沉淀审批
   listSedimentationDrafts: (status?: "pending" | "approved" | "rejected" | "all") => {

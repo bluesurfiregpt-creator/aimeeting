@@ -359,6 +359,75 @@ async def require_kb_writer(
 
 
 # ============================================================================
+# v26.5-Lineage · Memory ABAC (多对多 — 任一 primary AI 的 primary_user 可写)
+# ============================================================================
+
+async def can_write_memory(
+    session: AsyncSession, auth: AuthContext, memory_id: uuid.UUID
+) -> bool:
+    """v26.5-Lineage: 这个 caller 是否有权改/删 这条 memory.
+
+    True 条件 (任一即可):
+      1. caller 是 workspace owner/admin/leader → 全权
+      2. memory 通过 memory_agent_link is_primary=TRUE 挂在 agent A,
+         且 caller 是 A.primary_user_id → 该 manager 是 memory 的 "主人"
+      3. 老数据 long_term_memory.agent_id (deprecated) 指向 agent A,
+         且 caller 是 A.primary_user_id → 老兼容路径
+      4. memory 没有任何 primary agent (agent_id=NULL 且 无 link)
+         → 退到 admin-only (仅 1 通过)
+
+    workspace 隔离: memory 必须属于 caller 的 workspace.
+    """
+    if await is_leader_or_admin(session, auth):
+        return True
+    from .models import Agent, LongTermMemory, MemoryAgentLink
+    m = (
+        await session.execute(
+            select(LongTermMemory).where(
+                LongTermMemory.id == memory_id,
+                LongTermMemory.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if m is None:
+        return False
+    # 1) 走 memory_agent_link is_primary=TRUE
+    primary_agents = (
+        await session.execute(
+            select(MemoryAgentLink.agent_id).where(
+                MemoryAgentLink.memory_id == m.id,
+                MemoryAgentLink.is_primary.is_(True),
+            )
+        )
+    ).all()
+    primary_agent_ids = {r[0] for r in primary_agents}
+    # 2) 老 兼容: agent_id 字段
+    if m.agent_id:
+        primary_agent_ids.add(m.agent_id)
+    if not primary_agent_ids:
+        return False
+    # 任一 primary agent 的 primary_user 是 caller → 可写
+    rows = (
+        await session.execute(
+            select(Agent.primary_user_id).where(Agent.id.in_(primary_agent_ids))
+        )
+    ).all()
+    return auth.user.id in {r[0] for r in rows if r[0]}
+
+
+async def require_memory_writer(
+    session: AsyncSession, auth: AuthContext, memory_id: uuid.UUID
+) -> None:
+    """v26.5-Lineage: 写 memory (改/删) 的 ABAC 守卫."""
+    if not await can_write_memory(session, auth, memory_id):
+        raise HTTPException(
+            403,
+            "[权限不足] 改 / 删此 memory 需要 owner/admin/leader,"
+            "或该 memory 主 AI 的 primary_user (manager)"
+        )
+
+
+# ============================================================================
 # v26.4 · Platform Admin (跨 workspace 的 SaaS 平台层超管)
 # ============================================================================
 # Q1=C 决策:超管身份 由 env var PLATFORM_ADMIN_EMAILS 硬配,不入库.
