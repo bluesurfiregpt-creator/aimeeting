@@ -154,7 +154,15 @@ async def get_current_auth(
         )
     ).scalar_one_or_none()
     if not membership and user.workspace_id != ws.id:
-        raise HTTPException(403, "not a member of this workspace")
+        # v26.4-fix2: platform admin 切换到 客户 workspace 时,在该 ws 里没
+        # membership 行 是 设计意图("上帝视角" + 不污染客户 user 列表 — 见
+        # routers/super.py 的 /switch 注释).这里 开后门:caller email 在
+        # PLATFORM_ADMIN_EMAILS env 白名单 → 放行.
+        # 普通用户的 not-a-member 防御仍然 生效 (email 不在白名单 → 仍 raise).
+        # 后续 is_leader_or_admin / /api/auth/me 都已 platform admin 兼容
+        # (v26.4-fix1),所以放行后 一切 UI 端正常工作.
+        if not is_platform_admin_email(user.email):
+            raise HTTPException(403, "not a member of this workspace")
 
     return AuthContext(user=user, workspace=ws)
 
