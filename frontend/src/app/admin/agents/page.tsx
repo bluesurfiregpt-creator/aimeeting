@@ -310,6 +310,7 @@ export default function AgentsAdmin() {
           </div>
 
           {/* v26.0: 绑定科室账号 — 该 AI 专家 接到的任务,由这个 user 实际操作 */}
+          {/* v26.5-P0-fix2: manager 视角不用 disabled select(会显示空),改纯文字展示 */}
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
             <div className="text-xs uppercase tracking-wider text-amber-300">
               🔗 绑定科室账号 (primary user)
@@ -319,20 +320,41 @@ export default function AgentsAdmin() {
               由它绑定的科室账号来做.<b className="text-amber-200">没绑科室账号的 AI 专家
               不能接受任务派发</b>.
             </p>
-            <select
-              value={form.primary_user_id}
-              onChange={(e) => setForm({ ...form, primary_user_id: e.target.value })}
-              disabled={!canChangePrimaryUser}
-              className="mt-2 w-full rounded-md border border-ink-700 bg-ink-950 px-2 py-1.5 text-sm text-zinc-100 focus:border-accent-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-              title={!canChangePrimaryUser ? "转移 AI 给别的同事 需要 owner / admin / leader 权限" : undefined}
-            >
-              <option value="">— 未绑 (本 AI 不能接任务) —</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name} ({u.email})
-                </option>
-              ))}
-            </select>
+            {canChangePrimaryUser ? (
+              <select
+                value={form.primary_user_id}
+                onChange={(e) => setForm({ ...form, primary_user_id: e.target.value })}
+                className="mt-2 w-full rounded-md border border-ink-700 bg-ink-950 px-2 py-1.5 text-sm text-zinc-100 focus:border-accent-500 focus:outline-none"
+              >
+                <option value="">— 未绑 (本 AI 不能接任务) —</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.email})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              // manager 视角: 直接用 agent.primary_user_name 显示当前绑定的人
+              // (避免 disabled select 因 users 列表问题显示空白)
+              (() => {
+                const currentAgent = editing ? agents.find((x) => x.id === editing) : null;
+                const boundName = currentAgent?.primary_user_name ?? null;
+                return (
+                  <div
+                    className="mt-2 rounded-md border border-ink-700 bg-ink-950/60 px-3 py-2 text-sm"
+                    title="转移 AI 给别的同事 需要 owner / admin / leader 权限"
+                  >
+                    {boundName ? (
+                      <span className="text-zinc-100">
+                        当前绑定: <strong className="text-emerald-300">{boundName}</strong>
+                      </span>
+                    ) : (
+                      <span className="text-amber-300">— 未绑 (本 AI 不能接任务) —</span>
+                    )}
+                  </div>
+                );
+              })()
+            )}
             {!canChangePrimaryUser && (
               <p className="mt-1 text-[10px] text-amber-300/60">
                 🔒 转移 AI 给别的同事 需要 owner / admin / leader 权限
