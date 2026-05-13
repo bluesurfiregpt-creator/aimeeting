@@ -822,6 +822,23 @@ export type CronRuleInput = {
   is_active?: boolean;
 };
 
+// v26.5-Profile: 简版 agent 信息 — 我作为 primary_user 的 AI 列表
+export type MyAgentBrief = {
+  id: string;
+  name: string;
+  color: string | null;
+  domain: string | null;
+  kb_count: number;
+  is_active: boolean;
+};
+
+// v26.5-Profile: 任务速览 — 各状态计数
+export type MyTaskCounts = {
+  pending: number;  // 待签收 (dispatched)
+  working: number;  // 办理中 (accepted + in_progress)
+  review: number;   // 待审核 (submitted)
+};
+
 export type Me = {
   user_id: string;
   name: string;
@@ -830,6 +847,11 @@ export type Me = {
   workspace_name: string;
   workspace_slug: string;
   role: string;
+  // v26.5-Profile: 扩展字段 — 老 client 兼容 (Optional)
+  department?: string | null;
+  primary_agents?: MyAgentBrief[];
+  bound_agent_id?: string | null;
+  task_counts?: MyTaskCounts | null;
 };
 
 /** v21: 角色枚举扩展.
@@ -1087,6 +1109,11 @@ export const api = {
     jpost<Me>("/api/auth/login", body),
   logout: () => jpost<{ ok: boolean }>("/api/auth/logout", {}),
   me: () => jget<Me>("/api/auth/me"),
+  // v26.5-Profile: 个人中心 自助 改名 + 改密码
+  updateMe: (body: { name?: string }) =>
+    jpatch<Me>("/api/auth/me", body),
+  changePassword: (body: { old_password: string; new_password: string }) =>
+    jpost<{ ok: boolean }>("/api/auth/me/change-password", body),
   invitePreview: (token: string) =>
     jget<InvitePreview>(`/api/auth/invite/${token}`),
   forgotPassword: (email: string) =>

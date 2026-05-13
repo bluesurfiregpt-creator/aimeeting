@@ -231,9 +231,10 @@ export default function AuthHeader() {
           <span className="text-xs text-zinc-500">{me.workspace_name}</span>
           <span className="text-zinc-700">·</span>
           <Link
-            href="/me"
+            href="/me/profile"
             className="text-xs text-zinc-300 hover:text-zinc-100"
-            title="我的待办"
+            title="个人中心 (身份 + 维护的 AI + 设置)"
+            data-testid="me-profile-link"
           >
             {me.name}
           </Link>

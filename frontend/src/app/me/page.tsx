@@ -8,6 +8,7 @@ import {
   CLASSIFICATION_LABELS,
   type DataClassification,
   type LeaderDirective,
+  type Me,
   type MyTask,
   type Notification,
   type NotificationList,
@@ -197,7 +198,8 @@ export default function MePage() {
   // v22.5: 我的协办任务 + 评分对话框状态 + caller user_id(用于检查 co-submit 状态)
   const [coTasks, setCoTasks] = useState<MyTask[]>([]);
   const [coLoading, setCoLoading] = useState(true);
-  const [me, setMe] = useState<{ user_id: string } | null>(null);
+  // v26.5-Profile: 改成完整 Me, /me 顶部需要展示 name/role/department/primary_agents
+  const [me, setMe] = useState<Me | null>(null);
   const [rateModal, setRateModal] = useState<{
     task: MyTask;
     initialDimension: "quality" | "collaboration";
@@ -311,7 +313,7 @@ export default function MePage() {
   useEffect(() => {
     api
       .me()
-      .then((m) => setMe({ user_id: m.user_id }))
+      .then((m) => setMe(m))
       .catch(() => setMe(null));
   }, []);
 
@@ -647,10 +649,24 @@ export default function MePage() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-12 pt-20">
-      <h1 className="text-xl font-medium text-white">我的工作台</h1>
-      <p className="mt-1 text-sm text-zinc-500">
-        我的任务、需我审核的工单,以及最近的通知。
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-medium text-white">我的工作台</h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            我的任务、需我审核的工单,以及最近的通知。
+          </p>
+        </div>
+        <Link
+          href="/me/profile"
+          className="rounded-lg border border-ink-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-ink-800"
+          data-testid="me-profile-link-inline"
+        >
+          👤 个人中心 →
+        </Link>
+      </div>
+
+      {/* v26.5-Profile: 紧凑身份摘要条 — 一眼看到 自己是谁 + 维护的 AI */}
+      {me && <MeIdentityStrip me={me} />}
 
       <div className="mt-6 grid gap-6 md:grid-cols-2">
         {/* 左:任务 */}
@@ -1198,6 +1214,63 @@ function RateDialog({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// v26.5-Profile: 任务中心顶部 紧凑身份摘要条 — 一行看到 谁/啥角色/维护的 AI
+function MeIdentityStrip({ me }: { me: Me }) {
+  const ROLE_LABEL: Record<string, string> = {
+    owner: "工作空间所有者",
+    admin: "管理员",
+    leader: "局长 / 部门负责人",
+    manager: "部门 AI 维护人",
+    member: "普通成员",
+    expert: "AI 专家",
+  };
+  const ROLE_DOT: Record<string, string> = {
+    owner: "bg-violet-400",
+    admin: "bg-rose-400",
+    leader: "bg-rose-400",
+    manager: "bg-violet-400",
+    member: "bg-zinc-500",
+    expert: "bg-emerald-400",
+  };
+  const roleLabel = ROLE_LABEL[me.role] ?? me.role;
+  const roleDot = ROLE_DOT[me.role] ?? "bg-zinc-500";
+  const agents = me.primary_agents ?? [];
+  return (
+    <div
+      data-testid="me-identity-strip"
+      className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-ink-700 bg-ink-950/60 px-4 py-2.5 text-xs"
+    >
+      <span className="flex items-center gap-2">
+        <span className={`h-2 w-2 rounded-full ${roleDot}`} aria-hidden />
+        <span className="text-zinc-300">
+          <span className="font-medium text-zinc-100">{me.name}</span>
+          <span className="ml-1.5 text-zinc-500">· {roleLabel}</span>
+        </span>
+      </span>
+      <span className="text-zinc-700">|</span>
+      <span className="text-zinc-400">📍 {me.workspace_name}</span>
+      {me.department && (
+        <>
+          <span className="text-zinc-700">|</span>
+          <span className="text-zinc-400">🏢 {me.department}</span>
+        </>
+      )}
+      {agents.length > 0 && (
+        <>
+          <span className="text-zinc-700">|</span>
+          <Link
+            href="/me/profile"
+            className="text-violet-300 hover:text-violet-200"
+            title="查看我维护的 AI 列表"
+          >
+            🤖 维护 {agents.length} 个 AI
+          </Link>
+        </>
+      )}
     </div>
   );
 }

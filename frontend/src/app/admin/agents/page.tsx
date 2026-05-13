@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { api, type Agent, type AgentInput, type KnowledgeBase, type Me, type User } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "@/lib/toast";
@@ -224,15 +225,25 @@ export default function AgentsAdmin() {
       )}
 
       {/* v26.5: manager 看到 "你的 AI" 引导提示 */}
+      {/* v26.5-Profile: 加 → 个人中心 跳转入口, 形成 个人中心 ↔ AI 专家 双向联动 */}
       {!isFullAdmin && me && (
-        <section className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-4">
-          <h3 className="text-sm font-medium text-violet-200">
-            👋 部门 AI 维护人视角({me.name})
-          </h3>
-          <p className="mt-1 text-xs text-zinc-400">
-            你可以编辑 自己 primary 的 AI 配置(下方列表中没有 🔒 锁标记的).
-            创建新 AI / 删除 AI / 转移 AI 给别的同事 需要 owner / admin / leader 操作.
-          </p>
+        <section className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-violet-500/30 bg-violet-500/5 p-4">
+          <div className="flex-1">
+            <h3 className="text-sm font-medium text-violet-200">
+              👋 部门 AI 维护人视角({me.name})
+            </h3>
+            <p className="mt-1 text-xs text-zinc-400">
+              你维护的 AI 在下方列表用 <span className="text-amber-300">⭐</span> 标出 (可编辑).
+              其他 AI 用 🔒 锁住. 创建 / 删除 / 转移 AI 需要 owner / admin / leader.
+            </p>
+          </div>
+          <Link
+            href="/me/profile"
+            className="shrink-0 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-xs text-violet-200 hover:bg-violet-500/20"
+            data-testid="agents-to-profile-link"
+          >
+            👤 我的身份 →
+          </Link>
         </section>
       )}
 
@@ -413,6 +424,15 @@ export default function AgentsAdmin() {
                       style={{ backgroundColor: cssColor(a.color ?? "violet") }}
                     />
                     <span className="font-medium text-white">{a.name}</span>
+                    {/* v26.5-Profile: manager 自己 primary 的 agent 加 ⭐ */}
+                    {me && a.primary_user_id === me.user_id && (
+                      <span
+                        className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300"
+                        title="你是这个 AI 的 primary_user (维护人)"
+                      >
+                        ⭐ 我维护
+                      </span>
+                    )}
                     {!a.is_active && (
                       <span className="rounded-full bg-zinc-700/40 px-2 py-0.5 text-xs text-zinc-400">已停用</span>
                     )}
