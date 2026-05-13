@@ -47,9 +47,13 @@ export default function Home() {
   const [mode, setMode] = useState<"hybrid" | "auto">("hybrid");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  // v26.3.1: 当前用户 role,expert/member 不能选 auto 模式
+  // v26.3.1: 当前用户 role,expert/member 不能选 auto 模式.
+  // v26.3.1-fix1: meLoaded 三态 (null = 未拉, Me = 已拉成功, false = 拉失败) 避免 SSR
+  // 瞬间 disabled='' 闪烁 — 默认乐观给可点状态,fetch 完发现 expert/member 再 disable.
   const [me, setMe] = useState<Me | null>(null);
-  const canCreateAuto = !!me && AUTO_CREATE_ROLES.has(me.role);
+  const [meLoaded, setMeLoaded] = useState(false);
+  // 未加载完 → 默认 enable (绝大多数用户是 leader_or_admin);加载完再判定.
+  const canCreateAuto = !meLoaded || (!!me && AUTO_CREATE_ROLES.has(me.role));
 
   useEffect(() => {
     api
@@ -62,7 +66,9 @@ export default function Home() {
       .then((rows) => setAgents(rows.filter((a) => a.is_active)))
       .catch(() => setAgents([]));
     // v26.3.1: 拉 me 用于决定是否显示 auto 模式 radio
-    api.me().then(setMe).catch(() => setMe(null));
+    api.me()
+      .then((m) => { setMe(m); setMeLoaded(true); })
+      .catch(() => { setMe(null); setMeLoaded(true); });
   }, []);
 
   const toggle = (id: string) => {
