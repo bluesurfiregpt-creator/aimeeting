@@ -27,6 +27,7 @@ router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 
 class AgentIn(BaseModel):
+    """创建 agent 用 — name 必填."""
     name: str
     avatar_url: Optional[str] = None
     domain: Optional[str] = None
@@ -42,6 +43,27 @@ class AgentIn(BaseModel):
     knowledge_base_ids: Optional[list[uuid.UUID]] = None
     is_active: bool = True
     # v26.0: 该 AI 专家绑定的科室账号 (任务派给该 agent 时,实际操作的 user)
+    primary_user_id: Optional[uuid.UUID] = None
+
+
+class AgentPatchIn(BaseModel):
+    """v26.5-P0-fix1: PATCH 部分字段更新 — 所有字段都可选,不传 = 不改.
+    解决之前 PATCH 必须传 name 否则 422 的问题.
+    """
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    domain: Optional[str] = None
+    persona: Optional[str] = None
+    tone: Optional[str] = None
+    boundary: Optional[str] = None
+    keywords: Optional[list[str]] = None
+    color: Optional[str] = None
+    dify_app_type: Optional[str] = None
+    dify_base_url: Optional[str] = None
+    dify_api_key: Optional[str] = None
+    dify_workflow_id: Optional[str] = None
+    knowledge_base_ids: Optional[list[uuid.UUID]] = None
+    is_active: Optional[bool] = None
     primary_user_id: Optional[uuid.UUID] = None
 
 
@@ -184,7 +206,7 @@ async def get_agent(
 @router.patch("/{agent_id}", response_model=AgentOut)
 async def update_agent(
     agent_id: str,
-    payload: AgentIn,
+    payload: AgentPatchIn,
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):

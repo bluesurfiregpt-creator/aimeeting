@@ -352,8 +352,15 @@ async def create_invitation(
     auth: AuthContext = Depends(get_current_auth),
 ):
     await _require_admin(session, auth)
-    if payload.role not in ("admin", "member"):
-        raise HTTPException(400, "role must be admin or member")
+    # v26.5: 邀请角色加 manager + leader (跟 _PATCHABLE_ROLES 一致, 不再限 admin/member).
+    # 邀请角色 不允许 owner — owner 是 workspace 创建者, 通过 transfer-ownership 流程任命.
+    # expert 已 deprecated, 不让邀请 (老数据 自动 migrate 成 manager).
+    _INVITABLE_ROLES = {"admin", "leader", "manager", "member"}
+    if payload.role not in _INVITABLE_ROLES:
+        raise HTTPException(
+            400,
+            f"role must be one of {sorted(_INVITABLE_ROLES)} (v26.5 manager/leader 加入)"
+        )
     inv = WorkspaceInvitation(
         workspace_id=auth.workspace.id,
         email=payload.email,
