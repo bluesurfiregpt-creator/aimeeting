@@ -13,11 +13,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..audit import audit_log
-from ..auth import AuthContext, get_current_auth, require_leader_or_admin
+from ..auth import (
+    AuthContext,
+    can_write_kb,
+    get_current_auth,
+    is_leader_or_admin,
+    require_kb_writer,
+    require_leader_or_admin,
+)
 from ..db import get_session
 from ..doc_parser import kind_from_filename
 from ..knowledge_processor import process_document
-from ..models import KnowledgeBase, KnowledgeChunk, KnowledgeDocument
+from ..models import Agent, KnowledgeBase, KnowledgeChunk, KnowledgeDocument
 from ..oss_client import OSSClient
 
 logger = logging.getLogger(__name__)
@@ -32,6 +39,15 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 class KBIn(BaseModel):
     name: str
     description: Optional[str] = None
+    # v26.5-02a: KB 归属 AI 专家 (可空 — 不填则 仅 admin 可写, 老行为兼容)
+    owner_agent_id: Optional[uuid.UUID] = None
+
+
+class KBPatchIn(BaseModel):
+    """v26.5-02a: PATCH KB — 改名 / 描述 / 重指 owner_agent_id."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    owner_agent_id: Optional[uuid.UUID] = None  # 显式传 None 也算改 (清空 owner)
 
 
 class KBOut(BaseModel):
@@ -41,6 +57,11 @@ class KBOut(BaseModel):
     description: Optional[str] = None
     document_count: int = 0
     chunk_count: int = 0
+    # v26.5-02a: 归属 AI 信息 (前端 展示徽章 + 决定可写)
+    owner_agent_id: Optional[uuid.UUID] = None
+    owner_agent_name: Optional[str] = None  # 展示用 (后端 resolve 一次)
+    # caller 视角是否可写 (前端用来 决定 显示 ✏️ 还是 🔒)
+    can_write: bool = False
     created_at: datetime
 
 
@@ -87,6 +108,20 @@ async def _load_owned_kb(
 
 # ----- KB CRUD ---------------------------------------------------------------
 
+async def _resolve_agent_names(
+    session: AsyncSession, agent_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, str]:
+    """v26.5-02a: 批量 resolve agent.id → agent.name 给 KB 列表用."""
+    if not agent_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(Agent.id, Agent.name).where(Agent.id.in_(agent_ids))
+        )
+    ).all()
+    return {r[0]: r[1] for r in rows}
+
+
 @router.get("", response_model=list[KBOut])
 async def list_kbs(
     session: AsyncSession = Depends(get_session),
@@ -101,7 +136,26 @@ async def list_kbs(
     ).scalars().all()
     if not rows:
         return []
-    # Aggregate doc / chunk counts in one shot per KB
+    # v26.5-02a: 批量 resolve owner_agent_id → name
+    owner_ids = {kb.owner_agent_id for kb in rows if kb.owner_agent_id}
+    name_by_id = await _resolve_agent_names(session, owner_ids)
+    # caller 是否 全局 admin (一次性 cache, 避免 N 次查 membership)
+    is_admin = await is_leader_or_admin(session, auth)
+    # caller 维护的 agent 集合 (用来判 can_write)
+    if is_admin:
+        my_agent_ids: set[uuid.UUID] = set()  # 不需要 — 直接全过
+    else:
+        my_agent_ids = {
+            r[0] for r in (
+                await session.execute(
+                    select(Agent.id).where(
+                        Agent.workspace_id == auth.workspace.id,
+                        Agent.primary_user_id == auth.user.id,
+                    )
+                )
+            ).all()
+        }
+
     out: list[KBOut] = []
     for kb in rows:
         doc_count = (
@@ -111,7 +165,16 @@ async def list_kbs(
         ).scalars().all()
         n_docs = len(doc_count)
         n_chunks = sum((d.chunk_count or 0) for d in doc_count)
-        out.append(KBOut.model_validate({**kb.__dict__, "document_count": n_docs, "chunk_count": n_chunks}))
+        can_write_this = is_admin or (
+            kb.owner_agent_id is not None and kb.owner_agent_id in my_agent_ids
+        )
+        out.append(KBOut.model_validate({
+            **kb.__dict__,
+            "document_count": n_docs,
+            "chunk_count": n_chunks,
+            "owner_agent_name": name_by_id.get(kb.owner_agent_id) if kb.owner_agent_id else None,
+            "can_write": can_write_this,
+        }))
     return out
 
 
@@ -126,9 +189,22 @@ async def create_kb(
     await require_leader_or_admin(session, auth)
     if not payload.name.strip():
         raise HTTPException(400, "name required")
+    # v26.5-02a: 校验 owner_agent_id 同 workspace
+    if payload.owner_agent_id:
+        ag = (
+            await session.execute(
+                select(Agent).where(
+                    Agent.id == payload.owner_agent_id,
+                    Agent.workspace_id == auth.workspace.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if ag is None:
+            raise HTTPException(400, "owner_agent_id 必须是 同 workspace 的 agent")
     kb = KnowledgeBase(
         name=payload.name.strip(),
         description=payload.description,
+        owner_agent_id=payload.owner_agent_id,
         workspace_id=auth.workspace.id,
     )
     session.add(kb)
@@ -137,9 +213,85 @@ async def create_kb(
     await audit_log(
         session, auth, "kb.create",
         target_type="knowledge_base", target_id=str(kb.id),
-        payload={"name": kb.name},
+        payload={"name": kb.name, "owner_agent_id": str(payload.owner_agent_id) if payload.owner_agent_id else None},
     )
-    return KBOut.model_validate({**kb.__dict__, "document_count": 0, "chunk_count": 0})
+    name_by_id = await _resolve_agent_names(
+        session, {kb.owner_agent_id} if kb.owner_agent_id else set()
+    )
+    return KBOut.model_validate({
+        **kb.__dict__,
+        "document_count": 0,
+        "chunk_count": 0,
+        "owner_agent_name": name_by_id.get(kb.owner_agent_id) if kb.owner_agent_id else None,
+        "can_write": True,  # 创建者 leader+ 必能写
+    })
+
+
+@router.patch("/{kb_id}", response_model=KBOut)
+async def update_kb(
+    kb_id: str,
+    payload: KBPatchIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.5-02a: 改 KB name/description/owner_agent_id.
+    name/description: 该 KB 的 manager 也能改 (用 can_write_kb 判).
+    owner_agent_id: 仅 leader+ 可改 (跨人转移 KB 归属).
+    """
+    kb = await _load_owned_kb(kb_id, session, auth)
+    data = payload.model_dump(exclude_unset=True)
+    # 改 owner_agent_id 算 转移 — 仅 leader+
+    if "owner_agent_id" in data and data["owner_agent_id"] != kb.owner_agent_id:
+        if not await is_leader_or_admin(session, auth):
+            raise HTTPException(
+                403,
+                "[权限不足] 仅 owner / admin / leader 可指派 / 转移 KB 归属的 AI"
+            )
+        # 校验新 agent 同 ws
+        if data["owner_agent_id"]:
+            ag = (
+                await session.execute(
+                    select(Agent).where(
+                        Agent.id == data["owner_agent_id"],
+                        Agent.workspace_id == auth.workspace.id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if ag is None:
+                raise HTTPException(400, "owner_agent_id 必须是 同 workspace 的 agent")
+    # 改 name/description: 走 can_write_kb (admin OR owner agent 的 primary_user)
+    if any(k in data for k in ("name", "description")):
+        await require_kb_writer(session, auth, kb.id)
+    if "name" in data and data["name"]:
+        kb.name = data["name"].strip()
+    if "description" in data:
+        kb.description = data["description"]
+    if "owner_agent_id" in data:
+        kb.owner_agent_id = data["owner_agent_id"]
+    await session.commit()
+    await session.refresh(kb)
+    await audit_log(
+        session, auth, "kb.update",
+        target_type="knowledge_base", target_id=str(kb.id),
+        payload={"name": kb.name, "fields": list(data.keys())},
+    )
+    # 重新 计算 doc/chunk counts + can_write 返回
+    doc_count = (
+        await session.execute(
+            select(KnowledgeDocument).where(KnowledgeDocument.kb_id == kb.id)
+        )
+    ).scalars().all()
+    name_by_id = await _resolve_agent_names(
+        session, {kb.owner_agent_id} if kb.owner_agent_id else set()
+    )
+    can_write_now = await can_write_kb(session, auth, kb.id)
+    return KBOut.model_validate({
+        **kb.__dict__,
+        "document_count": len(doc_count),
+        "chunk_count": sum((d.chunk_count or 0) for d in doc_count),
+        "owner_agent_name": name_by_id.get(kb.owner_agent_id) if kb.owner_agent_id else None,
+        "can_write": can_write_now,
+    })
 
 
 @router.delete("/{kb_id}", status_code=204)
@@ -188,11 +340,12 @@ async def upload_document(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    # v26.5-01c P0: 上传 KB 文档 限 owner/admin/leader.
-    # P1 后会启用 KnowledgeBase.owner_agent_id 让 manager 给自己管的 AI 的 KB 上传.
-    # 此前 任何 workspace member 都能传 (重大漏洞,本次堵).
-    await require_leader_or_admin(session, auth)
+    # v26.5-02a P1: 上传 KB 文档 — 走 can_write_kb:
+    # - leader+ 可写任何 KB
+    # - manager 可写 自己 primary 的 agent 归属的 KB (KB.owner_agent_id 指向其管的 agent)
+    # - 别人一律 403
     kb = await _load_owned_kb(kb_id, session, auth)
+    await require_kb_writer(session, auth, kb.id)
 
     if not file.filename:
         raise HTTPException(400, "filename required")
@@ -241,16 +394,15 @@ async def upload_document(
 
 
 @router.delete("/{kb_id}/documents/{doc_id}", status_code=204)
-# v26.5-01c: 删 KB 文档 限 owner/admin/leader (P0 紧急堵漏洞,P1 后可放给 manager)
-
 async def delete_document(
     kb_id: str,
     doc_id: str,
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    await require_leader_or_admin(session, auth)
+    # v26.5-02a P1: 删 KB 文档 — 同 上传, 走 can_write_kb
     await _load_owned_kb(kb_id, session, auth)
+    await require_kb_writer(session, auth, kb_id)
     doc = (
         await session.execute(
             select(KnowledgeDocument).where(
@@ -285,9 +437,9 @@ async def reprocess_document(
 ):
     """Re-run parse + chunk + embed for an existing document. Useful when
     parsing failed or chunking strategy changed."""
-    # v26.5-01c: reprocess 限 owner/admin/leader (跟上传同等级)
-    await require_leader_or_admin(session, auth)
+    # v26.5-02a P1: reprocess 走 can_write_kb (跟 上传同等级)
     await _load_owned_kb(kb_id, session, auth)
+    await require_kb_writer(session, auth, kb_id)
     doc = (
         await session.execute(
             select(KnowledgeDocument).where(

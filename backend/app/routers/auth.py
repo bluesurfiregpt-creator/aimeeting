@@ -26,6 +26,7 @@ from ..auth import (
 from ..db import get_session
 from ..models import (
     Agent,
+    KbSedimentationDraft,
     KnowledgeBase,
     PasswordResetToken,
     Task,
@@ -77,6 +78,8 @@ class MyTaskCounts(BaseModel):
     pending: int = 0    # 待签收 (dispatched)
     working: int = 0    # 办理中 (accepted + in_progress)
     review: int = 0     # 待审核 (submitted)
+    # v26.5-02c: 我作为 primary_user 待审批 的 KB 沉淀数 (个人中心徽章用)
+    kb_sedimentation_pending: int = 0
 
 
 class MeOut(BaseModel):
@@ -476,10 +479,21 @@ async def me(
             )
         )
     ).scalar_one() or 0
+    # v26.5-02c: 我作为 primary_user 的待审批 KB 沉淀数
+    kb_sed_pending = (
+        await session.execute(
+            select(func.count(KbSedimentationDraft.id)).where(
+                KbSedimentationDraft.workspace_id == auth.workspace.id,
+                KbSedimentationDraft.primary_user_id == auth.user.id,
+                KbSedimentationDraft.status == "pending",
+            )
+        )
+    ).scalar_one() or 0
     task_counts = MyTaskCounts(
         pending=int(pending_cnt),
         working=int(working_cnt),
         review=int(review_cnt),
+        kb_sedimentation_pending=int(kb_sed_pending),
     )
 
     # v26.5-Profile: department fallback —

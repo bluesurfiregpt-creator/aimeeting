@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type Me, type Memory } from "@/lib/api";
+import { api, type Agent, type Me, type Memory } from "@/lib/api";
 import { SkeletonList } from "@/components/Skeleton";
 
 const SCOPE_LABEL: Record<string, { label: string; tone: string }> = {
@@ -15,8 +15,10 @@ const FULL_ADMIN_ROLES = new Set(["owner", "admin", "leader"]);
 
 export default function MemoryAdmin() {
   const [memories, setMemories] = useState<Memory[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);  // v26.5-02b
   const [scope, setScope] = useState<string>("");
   const [scopeRef, setScopeRef] = useState("");
+  const [filterAgentId, setFilterAgentId] = useState<string>("");  // v26.5-02b
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
@@ -24,26 +26,39 @@ export default function MemoryAdmin() {
     scope_ref: "",
     content: "",
     importance: 0.6,
+    agent_id: "",  // v26.5-02b
   });
   const [msg, setMsg] = useState("");
   const [me, setMe] = useState<Me | null>(null);
   const isFullAdmin = me ? FULL_ADMIN_ROLES.has(me.role) : false;
 
+  // v26.5-02b: 我作为 primary_user 的 agent id 集合 (manager 可写)
+  const myAgentIds = new Set((me?.primary_agents ?? []).map((a) => a.id));
+  // 是否可写 (用于 显示写表单):
+  // - leader+ 任何 memory 都能写
+  // - manager 至少 是某个 AI 的 primary 才能写 该 AI 的 memory
+  const canWrite = isFullAdmin || myAgentIds.size > 0;
+
   useEffect(() => {
     api.me().then(setMe).catch(() => setMe(null));
+    api.listAgents().then(setAgents).catch(() => setAgents([]));  // v26.5-02b
   }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const rows = await api.listMemories(scope || undefined, scopeRef || undefined);
+      const rows = await api.listMemories(
+        scope || undefined,
+        scopeRef || undefined,
+        filterAgentId || undefined,
+      );
       setMemories(rows);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [scope, scopeRef]);
+  }, [scope, scopeRef, filterAgentId]);
 
   useEffect(() => {
     void refresh();
@@ -54,6 +69,11 @@ export default function MemoryAdmin() {
       setMsg("内容必填");
       return;
     }
+    // v26.5-02b: manager 必须 选 agent_id (workspace 通用记忆 仅 leader+)
+    if (!isFullAdmin && !form.agent_id) {
+      setMsg("manager 写记忆 必须 指定 归属 AI 专家");
+      return;
+    }
     setCreating(true);
     setMsg("");
     try {
@@ -62,6 +82,7 @@ export default function MemoryAdmin() {
         scope_ref: form.scope_ref || null,
         content: form.content.trim(),
         importance: form.importance,
+        agent_id: form.agent_id || null,
       });
       setForm({ ...form, content: "" });
       setMsg("✅ 已写入");
@@ -75,8 +96,18 @@ export default function MemoryAdmin() {
 
   const remove = async (id: string) => {
     if (!confirm("确认删除这条记忆？")) return;
-    await api.deleteMemory(id);
-    await refresh();
+    try {
+      await api.deleteMemory(id);
+      await refresh();
+    } catch (e) {
+      void e;  // api.ts 已 toast
+    }
+  };
+
+  // v26.5-02b: 该 memory 我是否能删 (leader+ 全可; 或 manager 是该 memory 归属 AI 的 primary)
+  const canDeleteMemory = (m: Memory): boolean => {
+    if (isFullAdmin) return true;
+    return !!m.agent_id && myAgentIds.has(m.agent_id);
   };
 
   return (
@@ -86,7 +117,7 @@ export default function MemoryAdmin() {
       </p>
 
       {/* Filter bar */}
-      <section className="mt-6 flex items-center gap-2">
+      <section className="mt-6 flex flex-wrap items-center gap-2">
         <select
           value={scope}
           onChange={(e) => setScope(e.target.value)}
@@ -96,6 +127,19 @@ export default function MemoryAdmin() {
           <option value="project">项目级</option>
           <option value="user">用户级</option>
           <option value="org">组织级</option>
+        </select>
+        {/* v26.5-02b: 按归属 AI 过滤 */}
+        <select
+          value={filterAgentId}
+          onChange={(e) => setFilterAgentId(e.target.value)}
+          className="rounded-lg border border-ink-700 bg-ink-950 px-3 py-1.5 text-sm text-white focus:border-accent-500 focus:outline-none"
+        >
+          <option value="">所有归属</option>
+          {agents.map((a) => (
+            <option key={a.id} value={a.id}>
+              🤖 {a.name}
+            </option>
+          ))}
         </select>
         <input
           type="text"
@@ -112,76 +156,100 @@ export default function MemoryAdmin() {
         </button>
       </section>
 
-      {/* v26.5: 仅 leader+ 可写;manager 看到提示 */}
+      {/* v26.5-02b: manager 提示 — 现在可以写自己 AI 的记忆 */}
       {!isFullAdmin && me && (
         <section className="mt-6 rounded-xl border border-violet-500/30 bg-violet-500/5 p-4">
           <h3 className="text-sm font-medium text-violet-200">
             👋 部门 AI 维护人视角({me.name})
           </h3>
           <p className="mt-1 text-xs text-zinc-400">
-            长期记忆 写入 / 删除 需要 owner / admin / leader 权限.
-            <br />
-            v26.5-P1 后, 你 将能给 自己 primary 的 AI 写记忆.
+            你 可以 给 你 primary 的 AI 写 / 删 记忆 (下方表单 必选 归属 AI).
+            workspace 通用记忆 (不归属任何 AI) 仅 owner / admin / leader 可写.
           </p>
         </section>
       )}
 
-      {/* New memory */}
-      {isFullAdmin && (
+      {/* New memory — v26.5-02b: manager 也能写 (必须 选 agent_id) */}
+      {canWrite && (
       <section className="mt-6 rounded-xl border border-ink-700 bg-ink-900 p-5">
         <h2 className="text-sm font-medium text-zinc-300">手工添加</h2>
-        <div className="mt-3 grid gap-3 sm:grid-cols-[120px_180px_1fr_100px_auto] sm:items-end">
+        <div className="mt-3 grid gap-3">
+          {/* v26.5-02b: 归属 AI 选择 (manager 必选, leader+ 可选可不选) */}
           <label className="block text-sm">
-            <span className="text-xs text-zinc-500">scope</span>
+            <span className="text-xs text-zinc-500">
+              归属 AI 专家 {isFullAdmin ? "(可选, 不选 = workspace 通用记忆)" : "(必选)"}
+            </span>
             <select
-              value={form.scope}
-              onChange={(e) => setForm({ ...form, scope: e.target.value })}
+              value={form.agent_id}
+              onChange={(e) => setForm({ ...form, agent_id: e.target.value })}
               className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white focus:border-accent-500 focus:outline-none"
             >
-              <option value="project">project</option>
-              <option value="user">user</option>
-              <option value="org">org</option>
+              {isFullAdmin && (
+                <option value="">— 不归属 (workspace 通用记忆) —</option>
+              )}
+              {agents
+                .filter((a) => isFullAdmin || myAgentIds.has(a.id))
+                .map((a) => (
+                  <option key={a.id} value={a.id}>
+                    🤖 {a.name}
+                    {a.domain ? ` · ${a.domain}` : ""}
+                  </option>
+                ))}
             </select>
           </label>
-          <label className="block text-sm">
-            <span className="text-xs text-zinc-500">scope_ref</span>
-            <input
-              type="text"
-              value={form.scope_ref}
-              onChange={(e) => setForm({ ...form, scope_ref: e.target.value })}
-              placeholder="项目名/姓名(org 留空)"
-              className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-xs text-zinc-500">内容(单条事实)</span>
-            <input
-              type="text"
-              value={form.content}
-              onChange={(e) => setForm({ ...form, content: e.target.value })}
-              placeholder="例如:决定先做 AI 专家功能,声纹识别暂缓"
-              className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-xs text-zinc-500">重要度 0-1</span>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              max="1"
-              value={form.importance}
-              onChange={(e) => setForm({ ...form, importance: Number(e.target.value) })}
-              className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white focus:border-accent-500 focus:outline-none"
-            />
-          </label>
-          <button
-            onClick={create}
-            disabled={creating}
-            className="rounded-lg bg-accent-500 px-4 py-2 text-sm font-medium text-white shadow disabled:opacity-50 hover:bg-accent-400 transition"
-          >
-            {creating ? "保存中..." : "添加"}
-          </button>
+          <div className="grid gap-3 sm:grid-cols-[120px_180px_1fr_100px_auto] sm:items-end">
+            <label className="block text-sm">
+              <span className="text-xs text-zinc-500">scope</span>
+              <select
+                value={form.scope}
+                onChange={(e) => setForm({ ...form, scope: e.target.value })}
+                className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white focus:border-accent-500 focus:outline-none"
+              >
+                <option value="project">project</option>
+                <option value="user">user</option>
+                <option value="org">org</option>
+              </select>
+            </label>
+            <label className="block text-sm">
+              <span className="text-xs text-zinc-500">scope_ref</span>
+              <input
+                type="text"
+                value={form.scope_ref}
+                onChange={(e) => setForm({ ...form, scope_ref: e.target.value })}
+                placeholder="项目名/姓名(org 留空)"
+                className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-xs text-zinc-500">内容(单条事实)</span>
+              <input
+                type="text"
+                value={form.content}
+                onChange={(e) => setForm({ ...form, content: e.target.value })}
+                placeholder="例如:决定先做 AI 专家功能,声纹识别暂缓"
+                className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-xs text-zinc-500">重要度 0-1</span>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                max="1"
+                value={form.importance}
+                onChange={(e) => setForm({ ...form, importance: Number(e.target.value) })}
+                className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white focus:border-accent-500 focus:outline-none"
+              />
+            </label>
+            <button
+              onClick={create}
+              disabled={creating}
+              className="rounded-lg bg-accent-500 px-4 py-2 text-sm font-medium text-white shadow disabled:opacity-50 hover:bg-accent-400 transition"
+            >
+              {creating ? "保存中..." : "添加"}
+            </button>
+          </div>
         </div>
         {msg && <p className="mt-2 text-xs text-zinc-400">{msg}</p>}
       </section>
@@ -215,6 +283,16 @@ export default function MemoryAdmin() {
                         <span className={`rounded-full px-2 py-0.5 ${tone.tone}`}>
                           {tone.label}
                         </span>
+                        {/* v26.5-02b: 归属 AI 徽章 */}
+                        {m.agent_name ? (
+                          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-300">
+                            🤖 {m.agent_name}
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-zinc-700/30 px-2 py-0.5 text-zinc-500">
+                            workspace 通用
+                          </span>
+                        )}
                         {m.scope_ref && (
                           <span className="rounded bg-ink-800 px-2 py-0.5 text-zinc-400">
                             {m.scope_ref}
@@ -232,7 +310,7 @@ export default function MemoryAdmin() {
                       </div>
                       <p className="mt-2 text-zinc-100">{m.content}</p>
                     </div>
-                    {isFullAdmin ? (
+                    {canDeleteMemory(m) ? (
                       <button
                         onClick={() => remove(m.id)}
                         className="text-xs text-rose-400 hover:text-rose-300"
@@ -242,7 +320,9 @@ export default function MemoryAdmin() {
                     ) : (
                       <span
                         className="text-xs text-zinc-700"
-                        title="删除长期记忆 仅 owner / admin / leader 可操作"
+                        title={m.agent_name
+                          ? `此记忆归 ${m.agent_name} 管, 你无权删`
+                          : "workspace 通用记忆 仅 owner / admin / leader 可删"}
                       >
                         🔒
                       </span>

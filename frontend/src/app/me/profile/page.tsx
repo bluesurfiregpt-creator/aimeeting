@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, type Me, type MyAgentBrief } from "@/lib/api";
+import { api, type Me, type MyAgentBrief, type SedimentationDraft } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -59,12 +59,18 @@ export default function ProfilePage() {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
+  // v26.5-02c: 待我审批的 KB 沉淀草稿
+  const [drafts, setDrafts] = useState<SedimentationDraft[]>([]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const m = await api.me();
+      const [m, ds] = await Promise.all([
+        api.me(),
+        api.listSedimentationDrafts("pending").catch(() => [] as SedimentationDraft[]),
+      ]);
       setMe(m);
+      setDrafts(ds);
     } catch {
       // api.ts handleAuthError 已经处理 401/dead-session
     } finally {
@@ -136,6 +142,14 @@ export default function ProfilePage() {
             agents={me.primary_agents ?? []}
             role={me.role}
           />
+
+          {/* v26.5-02c: 待我审批的 KB 沉淀 */}
+          {drafts.length > 0 && (
+            <SedimentationDraftsSection
+              drafts={drafts}
+              onChange={refresh}
+            />
+          )}
 
           {/* 任务速览 */}
           <TaskSummarySection counts={me.task_counts ?? null} />
@@ -288,10 +302,205 @@ function MyAgentsSection({
   );
 }
 
+// v26.5-02c: 待我审批的 KB 沉淀 — 列表 + approve / reject dialog
+function SedimentationDraftsSection({
+  drafts,
+  onChange,
+}: {
+  drafts: SedimentationDraft[];
+  onChange: () => void;
+}) {
+  const [openDraft, setOpenDraft] = useState<SedimentationDraft | null>(null);
+  return (
+    <section className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-amber-200">
+          🔔 待我审批的 KB 沉淀 ({drafts.length})
+        </h3>
+      </div>
+      <p className="mt-1 text-xs text-zinc-400">
+        别的同事 办了任务, 拟把内容沉淀到 你维护的 AI 的 KB. 你审批通过 才会真的写入.
+      </p>
+      <ul className="mt-3 space-y-2">
+        {drafts.map((d) => (
+          <li
+            key={d.id}
+            className="flex items-center justify-between rounded-xl border border-ink-700 bg-ink-950/60 p-3"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-medium text-white">
+                  {d.task_title ?? "(无标题任务)"}
+                </span>
+                {d.target_agent_name && (
+                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] text-amber-300">
+                    → {d.target_agent_name}
+                  </span>
+                )}
+              </div>
+              <div className="mt-0.5 text-xs text-zinc-500">
+                {d.curator_user_name && `由 ${d.curator_user_name} · `}
+                {new Date(d.created_at).toLocaleString("zh-CN")}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setOpenDraft(d)}
+              className="ml-3 shrink-0 rounded-lg bg-amber-500/20 px-3 py-1.5 text-xs text-amber-200 hover:bg-amber-500/30"
+            >
+              查看 / 审批 →
+            </button>
+          </li>
+        ))}
+      </ul>
+      {openDraft && (
+        <DraftReviewDialog
+          draft={openDraft}
+          onClose={() => setOpenDraft(null)}
+          onDone={() => {
+            setOpenDraft(null);
+            onChange();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function DraftReviewDialog({
+  draft,
+  onClose,
+  onDone,
+}: {
+  draft: SedimentationDraft;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [showReject, setShowReject] = useState(false);
+
+  const doApprove = async () => {
+    setBusy(true);
+    try {
+      await api.approveSedimentationDraft(draft.id);
+      toast.success("✅ 已批准, 沉淀完成");
+      onDone();
+    } catch (e) {
+      void e;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doReject = async () => {
+    setBusy(true);
+    try {
+      await api.rejectSedimentationDraft(draft.id, rejectReason.trim() || undefined);
+      toast.success("已驳回");
+      onDone();
+    } catch (e) {
+      void e;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <DialogShell title="KB 沉淀审批" onClose={onClose}>
+      <div className="space-y-3">
+        <div className="rounded-xl border border-ink-700 bg-ink-950/60 p-3">
+          <div className="text-xs text-zinc-500">任务标题</div>
+          <div className="mt-1 text-sm text-white">
+            {draft.task_title ?? "(无标题)"}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div className="rounded-xl border border-ink-700 bg-ink-950/60 p-3">
+            <div className="text-zinc-500">沉淀目标 AI</div>
+            <div className="mt-1 text-sm text-amber-300">
+              🤖 {draft.target_agent_name ?? "—"}
+            </div>
+          </div>
+          <div className="rounded-xl border border-ink-700 bg-ink-950/60 p-3">
+            <div className="text-zinc-500">触发者</div>
+            <div className="mt-1 text-sm text-white">
+              {draft.curator_user_name ?? "—"}
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-ink-700 bg-ink-950/60 p-3">
+          <div className="text-xs text-zinc-500">拟沉淀摘要 (LLM 生成, 预览)</div>
+          <pre className="mt-1 max-h-60 overflow-y-auto whitespace-pre-wrap text-xs text-zinc-200">
+            {draft.proposed_summary}
+          </pre>
+        </div>
+
+        {showReject ? (
+          <div>
+            <label className="block text-sm">
+              <span className="text-xs text-zinc-500">驳回理由 (可选)</span>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                rows={2}
+                className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white focus:border-accent-500 focus:outline-none"
+                placeholder="例: 内容不在本专业范围"
+              />
+            </label>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={doReject}
+                disabled={busy}
+                className="rounded-lg bg-rose-500 px-4 py-2 text-sm text-white shadow disabled:opacity-50 hover:bg-rose-400"
+              >
+                {busy ? "驳回中…" : "确认驳回"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowReject(false)}
+                className="rounded-lg border border-ink-700 px-4 py-2 text-sm text-zinc-300 hover:bg-ink-800"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={doApprove}
+              disabled={busy}
+              className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white shadow disabled:opacity-50 hover:bg-emerald-400"
+            >
+              {busy ? "处理中…" : "✅ 批准 沉淀"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowReject(true)}
+              className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm text-rose-200 hover:bg-rose-500/20"
+            >
+              驳回…
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="ml-auto rounded-lg border border-ink-700 px-4 py-2 text-sm text-zinc-300 hover:bg-ink-800"
+            >
+              稍后再说
+            </button>
+          </div>
+        )}
+      </div>
+    </DialogShell>
+  );
+}
+
 function TaskSummarySection({
   counts,
 }: {
-  counts: { pending: number; working: number; review: number } | null;
+  counts: { pending: number; working: number; review: number; kb_sedimentation_pending?: number } | null;
 }) {
   const c = counts ?? { pending: 0, working: 0, review: 0 };
   const total = c.pending + c.working + c.review;

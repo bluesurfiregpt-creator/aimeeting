@@ -32,6 +32,7 @@ from .routers import audit as audit_router
 from .routers import auth as auth_router
 from .routers import cron_rules as cron_rules_router
 from .routers import dashboard as dashboard_router
+from .routers import kb_sedimentation as kb_sedimentation_router  # v26.5-02c
 from .routers import knowledge as knowledge_router
 from .routers import me as me_router
 from .routers import reports as reports_router
@@ -126,6 +127,7 @@ app.include_router(dashboard_router.router)
 app.include_router(reports_router.router)
 app.include_router(asr_vocabulary_router.router)  # v25.9
 app.include_router(super_router.router)  # v26.4 Platform Admin
+app.include_router(kb_sedimentation_router.router)  # v26.5-02c
 
 
 @app.get("/healthz")

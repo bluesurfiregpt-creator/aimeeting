@@ -446,8 +446,53 @@ async def maybe_auto_consolidate_on_done(task_id: uuid.UUID, curator_user_id: Op
     """
     v26.2:在 task transition 进入 status='done' 时调用.
     失败 静默 log,不影响 主流程.
+
+    v26.5-02c P1: 加 审批 gate —
+      - 如果 curator_user_id == agent.primary_user_id (或 None / agent 无 primary):
+        直接沉淀 (老行为)
+      - 否则: 创建 KbSedimentationDraft 草稿 + 通知 primary_user 审批,
+        不立即写 KB
     """
     try:
+        # 提前 load agent.primary_user_id 判断是否需要 gate
+        async with SessionLocal() as db:
+            t = (
+                await db.execute(select(Task).where(Task.id == task_id))
+            ).scalar_one_or_none()
+            if not t:
+                logger.warning("auto-consolidate task %s: task not found", task_id)
+                return
+            sref = dict(t.source_ref) if isinstance(t.source_ref, dict) else {}
+            if sref.get("consolidated_at"):
+                logger.info("auto-consolidate task %s: already consolidated, skip", task_id)
+                return
+            if not t.assignee_agent_id:
+                logger.info("auto-consolidate task %s: no assignee_agent_id, skip", task_id)
+                return
+            agent = (
+                await db.execute(
+                    select(Agent).where(Agent.id == t.assignee_agent_id)
+                )
+            ).scalar_one_or_none()
+            if not agent:
+                return
+
+            # v26.5-02c gate 判断:
+            #   agent 无 primary_user → 退到老行为 (直接沉淀)
+            #   curator == primary_user → 自己审自己, 直接沉淀
+            #   curator != primary_user → 走审批
+            needs_approval = (
+                agent.primary_user_id is not None
+                and curator_user_id is not None
+                and curator_user_id != agent.primary_user_id
+            )
+
+            if needs_approval:
+                # 走审批: 生成 summary → 存 draft → 通知 primary_user
+                await _create_sedimentation_draft(db, t, agent, curator_user_id)
+                return
+
+        # 直接沉淀 (老行为)
         await consolidate_task_to_agent_kb(
             task_id, curator_user_id=curator_user_id, force=False
         )
@@ -455,6 +500,80 @@ async def maybe_auto_consolidate_on_done(task_id: uuid.UUID, curator_user_id: Op
         logger.warning("auto-consolidate task %s skipped: %s", task_id, e)
     except Exception:
         logger.exception("auto-consolidate task %s unexpected error", task_id)
+
+
+async def _create_sedimentation_draft(
+    db: AsyncSession,
+    task: "Task",
+    agent: "Agent",
+    curator_user_id: uuid.UUID,
+) -> None:
+    """v26.5-02c: 创建审批草稿 + 通知 primary_user.
+    幂等: 同 (task_id, status='pending') 已存在则 skip.
+    """
+    from .models import KbSedimentationDraft, Notification
+    # 幂等: 已有 pending draft 跳过
+    existing = (
+        await db.execute(
+            select(KbSedimentationDraft).where(
+                KbSedimentationDraft.task_id == task.id,
+                KbSedimentationDraft.status == "pending",
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        logger.info(
+            "sedimentation draft for task %s already pending, skip",
+            task.id,
+        )
+        return
+
+    # 生成 summary (走 LLM)
+    try:
+        summary_md = await generate_closure_summary(task.id)
+    except Exception:
+        logger.exception("draft: generate_closure_summary failed for task %s", task.id)
+        summary_md = f"(摘要生成失败 — 任务标题:{task.title or task.content[:60]})"
+
+    # resolve 目标 KB id (用 agent 第一个 KB 或 None — 实际沉淀时 才创建)
+    target_kb_id: Optional[uuid.UUID] = None
+    if agent.knowledge_base_ids:
+        target_kb_id = agent.knowledge_base_ids[0]
+
+    draft = KbSedimentationDraft(
+        workspace_id=task.workspace_id,
+        task_id=task.id,
+        target_agent_id=agent.id,
+        target_kb_id=target_kb_id,
+        proposed_summary=summary_md,
+        curator_user_id=curator_user_id,
+        primary_user_id=agent.primary_user_id,
+        status="pending",
+    )
+    db.add(draft)
+    await db.flush()
+
+    # 通知 primary_user
+    notif = Notification(
+        workspace_id=task.workspace_id,
+        user_id=agent.primary_user_id,
+        kind="kb_sedimentation_pending",
+        severity="yellow",
+        payload={
+            "draft_id": str(draft.id),
+            "task_id": str(task.id),
+            "task_title": task.title or task.content[:60],
+            "agent_id": str(agent.id),
+            "agent_name": agent.name,
+            "summary_preview": summary_md[:200],
+        },
+    )
+    db.add(notif)
+    await db.commit()
+    logger.info(
+        "created sedimentation draft %s for task %s, notified primary %s",
+        draft.id, task.id, agent.primary_user_id,
+    )
 
 
 def schedule_auto_consolidate(task_id: uuid.UUID, curator_user_id: Optional[uuid.UUID]) -> None:

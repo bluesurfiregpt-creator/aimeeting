@@ -310,6 +310,55 @@ async def require_leader_or_admin(
 
 
 # ============================================================================
+# v26.5-02 P1 · KB-scoped helpers (基于 KnowledgeBase.owner_agent_id)
+# ============================================================================
+
+async def can_write_kb(
+    session: AsyncSession, auth: AuthContext, kb_id: uuid.UUID
+) -> bool:
+    """v26.5-02a: 这个 caller 是否有权改 这个 KB 的内容
+    (上传文档 / 删文档 / reprocess).
+
+    True 条件 (任一即可):
+      1. caller 是 workspace owner/admin/leader → 全权
+      2. KB.owner_agent_id 指向某 agent A, 且 caller 是 A.primary_user_id
+         → 该 manager 负责 A, 可以管理 A 的 KB
+      3. KB.owner_agent_id 为 NULL → 退到 admin-only (1)
+
+    workspace 隔离: KB 必须属于 caller 的 workspace.
+    """
+    if await is_leader_or_admin(session, auth):
+        return True
+    from .models import KnowledgeBase, Agent
+    kb = (
+        await session.execute(
+            select(KnowledgeBase).where(
+                KnowledgeBase.id == kb_id,
+                KnowledgeBase.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if kb is None:
+        return False
+    if kb.owner_agent_id is None:
+        return False  # 无 owner agent 的 KB 仅 admin/leader 可写
+    # KB 归属某 agent → 该 agent 的 primary_user 可写
+    return await is_agent_manager(session, auth, kb.owner_agent_id)
+
+
+async def require_kb_writer(
+    session: AsyncSession, auth: AuthContext, kb_id: uuid.UUID
+) -> None:
+    """v26.5-02a: 写 KB 内容 (上传/删/reprocess 文档) 的 ABAC 守卫."""
+    if not await can_write_kb(session, auth, kb_id):
+        raise HTTPException(
+            403,
+            "[权限不足] 写此 KB 需要 owner/admin/leader,"
+            "或该 KB 归属 AI 的 primary_user (manager)"
+        )
+
+
+# ============================================================================
 # v26.4 · Platform Admin (跨 workspace 的 SaaS 平台层超管)
 # ============================================================================
 # Q1=C 决策:超管身份 由 env var PLATFORM_ADMIN_EMAILS 硬配,不入库.

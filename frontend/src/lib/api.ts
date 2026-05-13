@@ -440,6 +440,10 @@ export type KnowledgeBase = {
   description: string | null;
   document_count: number;
   chunk_count: number;
+  // v26.5-02a: 归属 AI 信息 (manager 看自己 KB 的徽章 + 决定可写)
+  owner_agent_id?: string | null;
+  owner_agent_name?: string | null;
+  can_write?: boolean;
   created_at: string;
 };
 
@@ -465,6 +469,29 @@ export type Memory = {
   importance: number;
   source_type: string | null;
   source_id: string | null;
+  // v26.5-02b: 归属 AI
+  agent_id?: string | null;
+  agent_name?: string | null;
+  created_at: string;
+};
+
+// v26.5-02c: KB 沉淀审批草稿
+export type SedimentationDraft = {
+  id: string;
+  workspace_id: string;
+  task_id: string;
+  task_title: string | null;
+  target_agent_id: string;
+  target_agent_name: string | null;
+  target_kb_id: string | null;
+  proposed_summary: string;
+  curator_user_id: string | null;
+  curator_user_name: string | null;
+  primary_user_id: string;
+  status: "pending" | "approved" | "rejected" | "expired";
+  decision_reason: string | null;
+  decided_at: string | null;
+  consolidated_at: string | null;
   created_at: string;
 };
 
@@ -837,6 +864,8 @@ export type MyTaskCounts = {
   pending: number;  // 待签收 (dispatched)
   working: number;  // 办理中 (accepted + in_progress)
   review: number;   // 待审核 (submitted)
+  // v26.5-02c: 待我审批的 KB 沉淀数
+  kb_sedimentation_pending?: number;
 };
 
 export type Me = {
@@ -1901,8 +1930,16 @@ export const api = {
 
   // Knowledge base
   listKnowledgeBases: () => jget<KnowledgeBase[]>("/api/knowledge-bases"),
-  createKnowledgeBase: (body: { name: string; description?: string }) =>
-    jpost<KnowledgeBase>("/api/knowledge-bases", body),
+  createKnowledgeBase: (body: {
+    name: string;
+    description?: string;
+    owner_agent_id?: string | null;  // v26.5-02a
+  }) => jpost<KnowledgeBase>("/api/knowledge-bases", body),
+  // v26.5-02a: 改 KB 名 / 描述 / owner_agent_id
+  updateKnowledgeBase: (
+    id: string,
+    body: { name?: string; description?: string | null; owner_agent_id?: string | null },
+  ) => jpatch<KnowledgeBase>(`/api/knowledge-bases/${id}`, body),
   deleteKnowledgeBase: (id: string) => jdelete(`/api/knowledge-bases/${id}`),
   listKnowledgeDocuments: (kbId: string) =>
     jget<KnowledgeDocument[]>(`/api/knowledge-bases/${kbId}/documents`),
@@ -1923,16 +1960,34 @@ export const api = {
     ),
 
   // Long-term memory
-  listMemories: (scope?: string, scopeRef?: string) => {
+  listMemories: (scope?: string, scopeRef?: string, agentId?: string) => {
     const q = new URLSearchParams();
     if (scope) q.set("scope", scope);
     if (scopeRef) q.set("scope_ref", scopeRef);
+    if (agentId) q.set("agent_id", agentId);  // v26.5-02b
     const s = q.toString();
     return jget<Memory[]>(`/api/memory${s ? `?${s}` : ""}`);
   },
-  createMemory: (m: { scope: string; scope_ref?: string | null; content: string; importance?: number }) =>
-    jpost<Memory>("/api/memory", m),
+  createMemory: (m: {
+    scope: string;
+    scope_ref?: string | null;
+    content: string;
+    importance?: number;
+    agent_id?: string | null;  // v26.5-02b
+  }) => jpost<Memory>("/api/memory", m),
   deleteMemory: (id: string) => jdelete(`/api/memory/${id}`),
+
+  // v26.5-02c: KB 沉淀审批
+  listSedimentationDrafts: (status?: "pending" | "approved" | "rejected" | "all") => {
+    const q = status && status !== "all" ? `?status=${status}` : "";
+    return jget<SedimentationDraft[]>(`/api/sedimentation-drafts${q}`);
+  },
+  getSedimentationDraft: (id: string) =>
+    jget<SedimentationDraft>(`/api/sedimentation-drafts/${id}`),
+  approveSedimentationDraft: (id: string) =>
+    jpost<SedimentationDraft>(`/api/sedimentation-drafts/${id}/approve`, {}),
+  rejectSedimentationDraft: (id: string, reason?: string) =>
+    jpost<SedimentationDraft>(`/api/sedimentation-drafts/${id}/reject`, { reason }),
 
   getMeetingSummary: (id: string) =>
     jget<{

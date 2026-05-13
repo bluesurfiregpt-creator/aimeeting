@@ -110,6 +110,12 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     #   last_active_at: 最近一次 audit_log 行的时间;由 audit_log hook 异步更新
     ("workspace", "status", "VARCHAR(16) NOT NULL DEFAULT 'active'"),
     ("workspace", "last_active_at", "TIMESTAMPTZ"),
+    # v26.5-02a P1: KB 归属 AI 专家. nullable — 老 KB 退到 admin-only 写.
+    # FK 在 _FK_MIGRATIONS 里加 ON DELETE SET NULL.
+    ("knowledge_base", "owner_agent_id", "UUID"),
+    # v26.5-02b P1: memory 归属 AI 专家. nullable — NULL = workspace 通用记忆.
+    # FK 在 _FK_MIGRATIONS 里加 ON DELETE CASCADE (memory 跟着 AI 走).
+    ("long_term_memory", "agent_id", "UUID"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).
@@ -275,6 +281,58 @@ async def init_db() -> None:
         """))
         if res.rowcount and res.rowcount > 0:
             logger.info("[v26.5] 迁移 workspace_membership.role 'expert' → 'manager': %d 行", res.rowcount)
+
+        # 3d. v26.5-02 P1: KB.owner_agent_id + LTM.agent_id 加 FK 约束.
+        # 同样的理由 — ALTER ADD COLUMN 不会回填 FK, 需要这里显式补.
+        # 都是 idempotent — 已有 FK 跳过.
+        await conn.execute(text("""
+            DO $$
+            BEGIN
+                -- KB.owner_agent_id → agent.id  ON DELETE SET NULL
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints tc
+                      JOIN information_schema.key_column_usage kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                           AND tc.constraint_schema = kcu.constraint_schema
+                     WHERE tc.table_name = 'knowledge_base'
+                       AND kcu.column_name = 'owner_agent_id'
+                       AND tc.constraint_type = 'FOREIGN KEY'
+                       AND tc.table_schema = 'public'
+                ) THEN
+                    -- 先清理孤儿 owner_agent_id (指向已删的 agent)
+                    UPDATE knowledge_base SET owner_agent_id = NULL
+                     WHERE owner_agent_id IS NOT NULL
+                       AND owner_agent_id NOT IN (SELECT id FROM agent);
+                    ALTER TABLE knowledge_base
+                       ADD CONSTRAINT knowledge_base_owner_agent_fk_v26_5
+                       FOREIGN KEY (owner_agent_id) REFERENCES agent(id)
+                       ON DELETE SET NULL;
+                    RAISE NOTICE '[v26.5-02a] 加 FK knowledge_base.owner_agent_id → agent ON DELETE SET NULL';
+                END IF;
+
+                -- LTM.agent_id → agent.id  ON DELETE CASCADE
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints tc
+                      JOIN information_schema.key_column_usage kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                           AND tc.constraint_schema = kcu.constraint_schema
+                     WHERE tc.table_name = 'long_term_memory'
+                       AND kcu.column_name = 'agent_id'
+                       AND tc.constraint_type = 'FOREIGN KEY'
+                       AND tc.table_schema = 'public'
+                ) THEN
+                    -- 清孤儿
+                    DELETE FROM long_term_memory
+                     WHERE agent_id IS NOT NULL
+                       AND agent_id NOT IN (SELECT id FROM agent);
+                    ALTER TABLE long_term_memory
+                       ADD CONSTRAINT long_term_memory_agent_fk_v26_5
+                       FOREIGN KEY (agent_id) REFERENCES agent(id)
+                       ON DELETE CASCADE;
+                    RAISE NOTICE '[v26.5-02b] 加 FK long_term_memory.agent_id → agent ON DELETE CASCADE';
+                END IF;
+            END $$;
+        """))
 
         # 4. seed the default workspace + backfill orphan rows
         existing_ws = (

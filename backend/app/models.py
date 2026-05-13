@@ -1165,6 +1165,11 @@ class KnowledgeBase(Base):
     A workspace-scoped collection of uploaded documents that AI experts can
     cite. Each KB belongs to exactly one workspace; an Agent can be bound
     to N KBs via Agent.knowledge_base_ids.
+
+    v26.5-02a: KB 现在 可显式 标 owner_agent_id — 标识 "这个 KB 主要给哪个
+    AI 用". ABAC 用它判断 manager 是否有权改 KB 内容:
+      - owner_agent_id 指向 agent A, 且 caller 是 A.primary_user → 可改
+      - owner_agent_id 为 NULL → 退到 老行为, 仅 admin/leader/owner 可改
     """
     __tablename__ = "knowledge_base"
 
@@ -1174,6 +1179,13 @@ class KnowledgeBase(Base):
     )
     name: Mapped[str] = mapped_column(String(128))
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # v26.5-02a: KB 归属的 AI 专家 (nullable — 老 KB 行 owner_agent_id IS NULL
+    # 退到 admin-only 写). ON DELETE SET NULL: agent 删了 KB 不连带删, 但 lose
+    # 归属 — 该 KB 退回 admin-only 写.
+    owner_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("agent.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -1253,12 +1265,21 @@ class LongTermMemory(Base):
     """
     Phase 2 surface. Already declared so migrations stay forward-compatible.
     Embedding dim 1536 fits OpenAI text-embedding-3-small / Qwen text-embedding-v2.
+
+    v26.5-02b: memory 现在 可标 agent_id — 让 manager 给 自己 AI 写记忆,
+    减少 AI 之间的语义干扰. agent_id 为 NULL = workspace 级通用记忆.
     """
     __tablename__ = "long_term_memory"
 
     id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
     workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    # v26.5-02b: memory 归属的 AI 专家 (nullable — NULL=workspace 通用记忆).
+    # ON DELETE CASCADE: agent 删了 该 agent 的 memory 一起删 (memory 跟着 AI 走).
+    agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("agent.id", ondelete="CASCADE"),
+        nullable=True, index=True,
     )
     scope: Mapped[str] = mapped_column(String(16))  # user|project|org
     scope_ref: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
@@ -1271,3 +1292,55 @@ class LongTermMemory(Base):
     data_classification: Mapped[str] = mapped_column(String(16), default="general", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class KbSedimentationDraft(Base):
+    """
+    v26.5-02c: 任务沉淀 KB 的 审批草稿.
+
+    当 task done 触发 auto-consolidate 时, 如果 操作者 (curator_user_id)
+    不是 目标 KB / agent 的 primary_user → 进入 "待审批" 状态, 不立即写 KB.
+    primary_user 审批通过 才真的把 summary 写进 KB.
+
+    State:
+      pending  — 等 primary_user 审 (初始)
+      approved — primary_user 批了, 已实际沉淀 (consolidated_at 写 KB 完成时间)
+      rejected — primary_user 驳回, KB 不动
+      expired  — 7 天没人理 → 自动 expire (定时任务 sweep)
+
+    一个 task 最多 一个 active draft (UNIQUE on task_id WHERE status='pending').
+    """
+    __tablename__ = "kb_sedimentation_draft"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("task.id", ondelete="CASCADE"), index=True
+    )
+    target_agent_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("agent.id", ondelete="CASCADE"), index=True
+    )
+    # 拟沉淀到哪个 KB (= agent.knowledge_base_ids[0] 或 新建的 "<agent> 任务沉淀" KB)
+    target_kb_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("knowledge_base.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # 拟写入的 summary (LLM 生成)
+    proposed_summary: Mapped[str] = mapped_column(Text)
+    # 触发沉淀的人 (一般是 task 的 curator / dispatcher / 审批人)
+    curator_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    # 审批人 (= target_agent.primary_user_id at创建时, snapshot 防止后续 primary_user 改了搞乱)
+    primary_user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    decision_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    consolidated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
