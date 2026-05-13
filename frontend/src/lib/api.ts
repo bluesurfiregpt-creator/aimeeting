@@ -96,7 +96,7 @@ function makeError(path: string, status: number, body: string): ApiError {
   return new ApiError(friendlyDetail(status, body), { status, path, rawBody: body });
 }
 
-async function jget<T>(path: string): Promise<T> {
+async function jget<T>(path: string, opts?: { silent?: boolean }): Promise<T> {
   const r = await fetch(backendBase() + path, {
     cache: "no-store",
     credentials: "include",
@@ -104,12 +104,14 @@ async function jget<T>(path: string): Promise<T> {
   if (!r.ok) {
     handleAuthError(r.status);
     const body = await r.text().catch(() => "");
-    handleNetworkError(path, r.status, body);
+    // v26.4: silent 选项给后台轮询类 endpoint (例 /api/super/*) 用,
+    // 避免 非超管 用户视角 撞 403 时 弹 toast.warn.
+    if (!opts?.silent) handleNetworkError(path, r.status, body);
     throw makeError(path, r.status, body);
   }
   return r.json();
 }
-async function jpost<T>(path: string, body: unknown): Promise<T> {
+async function jpost<T>(path: string, body: unknown, opts?: { silent?: boolean }): Promise<T> {
   const r = await fetch(backendBase() + path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -119,7 +121,7 @@ async function jpost<T>(path: string, body: unknown): Promise<T> {
   if (!r.ok) {
     handleAuthError(r.status);
     const text = await r.text().catch(() => "");
-    handleNetworkError(path, r.status, text);
+    if (!opts?.silent) handleNetworkError(path, r.status, text);
     throw makeError(path, r.status, text);
   }
   return r.json();
@@ -1090,13 +1092,15 @@ export const api = {
   listMeetingConsensus: (meetingId: string) =>
     jget<MeetingConsensus[]>(`/api/meetings/${meetingId}/consensus`),
 
-  // v26.4 Platform Admin (跨 workspace 平台超管)
+  // v26.4 Platform Admin (跨 workspace 平台超管).
+  // v26.4-fix1: 全部用 silent — 非超管 user 撞 403 时不弹 toast 干扰.
+  // 调用方需要 toast 自己在 catch 里 toast (例 /super page 的 createWorkspace).
   superMe: () =>
     jget<{
       is_platform_admin: boolean;
       email: string | null;
       platform_admin_emails_count: number;
-    }>("/api/super/me"),
+    }>("/api/super/me", { silent: true }),
   superListWorkspaces: (includeArchived = false) =>
     jget<
       Array<{
@@ -1111,7 +1115,7 @@ export const api = {
         agent_count: number;
         meeting_count: number;
       }>
-    >(`/api/super/workspaces?include_archived=${includeArchived}`),
+    >(`/api/super/workspaces?include_archived=${includeArchived}`, { silent: true }),
   superCreateWorkspace: (body: {
     name: string;
     owner_email: string;
@@ -1128,14 +1132,14 @@ export const api = {
       owner_email: string;
       temp_password: string | null;
       invite_url: string | null;
-    }>("/api/super/workspaces", body),
+    }>("/api/super/workspaces", body, { silent: true }),
   superSwitchWorkspace: (wsId: string) =>
     jpost<{
       workspace_id: string;
       workspace_name: string;
       workspace_slug: string;
       note: string;
-    }>(`/api/super/switch/${wsId}`, {}),
+    }>(`/api/super/switch/${wsId}`, {}, { silent: true }),
 
   // v26.3-07: 召集人会后批量裁决分歧 (Q1=A 4选1 + 必填 rationale)
   reviewMeetingConsensus: (

@@ -190,7 +190,15 @@ async def get_membership_role(
 async def is_leader_or_admin(
     session: AsyncSession, auth: AuthContext
 ) -> bool:
-    """True if caller has a 「领导/管理员」 role (owner/admin/leader)."""
+    """True if caller has a 「领导/管理员」 role (owner/admin/leader).
+
+    v26.4-fix1: platform admin 切到任何 workspace 都视为 leader (即使该 ws 内
+    没 membership 行).这是设计 — 平台超管的"上帝视角"语义.audit_log 里已经
+    打 platform_admin=true 让客户能追溯,不需要 insert membership 污染客户 user
+    列表.
+    """
+    if is_platform_admin(auth):
+        return True
     role = await get_membership_role(session, auth.user.id, auth.workspace.id)
     return role in _LEADER_ROLES
 

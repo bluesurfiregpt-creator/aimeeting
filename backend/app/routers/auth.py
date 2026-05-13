@@ -387,6 +387,17 @@ async def me(
             )
         )
     ).scalar_one_or_none()
+    # v26.4-fix1: 如果 caller 是 platform admin 但当前 workspace 内 没 membership
+    # (因为切换过来的 — 跨租户视角),自动 fallback 到 owner.前端凭这个 role 决定
+    # ⚙️ 后台 / 📊 看板 入口可见性.
+    from ..auth import is_platform_admin as _is_pa
+    effective_role: str
+    if membership:
+        effective_role = membership.role
+    elif _is_pa(auth):
+        effective_role = "owner"  # platform admin 跨 ws 视角的 ABAC 兜底
+    else:
+        effective_role = "member"
     return MeOut(
         user_id=auth.user.id,
         name=auth.user.name,
@@ -394,7 +405,7 @@ async def me(
         workspace_id=auth.workspace.id,
         workspace_name=auth.workspace.name,
         workspace_slug=auth.workspace.slug,
-        role=membership.role if membership else "member",
+        role=effective_role,
     )
 
 
