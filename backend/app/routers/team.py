@@ -41,7 +41,7 @@ async def _require_admin(
     """
     from ..auth import is_leader_or_admin
     if not await is_leader_or_admin(session, auth):
-        raise HTTPException(403, "owner / admin / leader required")
+        raise HTTPException(403, "[权限不足] 此功能需要 owner / admin / leader 角色")
     # 取 membership row (普通用户必有;platform admin 跨 ws 时为 None — caller 不用 return value)
     return (
         await session.execute(
@@ -192,7 +192,7 @@ async def update_member(
     if not target:
         raise HTTPException(404, "member not found")
     if target.role == "owner":
-        raise HTTPException(403, "cannot modify the workspace owner; use transfer-ownership")
+        raise HTTPException(403, "[操作受限] 不能直接修改 workspace owner 角色 (请用 transfer-ownership 端点)")
 
     new_role = payload.role
     new_bound = payload.bound_agent_id
@@ -298,7 +298,7 @@ async def remove_member(
     if not target:
         raise HTTPException(404, "member not found")
     if target.role == "owner":
-        raise HTTPException(403, "cannot remove the workspace owner")
+        raise HTTPException(403, "[操作受限] 不能从 workspace 移除 owner (需先 transfer-ownership 给别的成员)")
     await session.delete(target)
     await session.commit()
     await audit_log(

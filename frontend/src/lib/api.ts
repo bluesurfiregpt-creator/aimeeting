@@ -75,21 +75,55 @@ function friendlyDetail(status: number, body: string): string {
 }
 
 /** Surface non-401 network errors as a toast so users get visible feedback
- *  even when individual call sites silently swallow the throw. */
+ *  even when individual call sites silently swallow the throw.
+ *
+ *  v26.4-fix4: 后端 4xx detail 用 `[类别] 描述` prefix 标 分类
+ *  ([权限不足] / [操作受限] / [资源保护] / [需重新登录]).这里识别 prefix
+ *  → toast 用 友好措辞 + 对应类型 (warn/info/error),让用户能区分
+ *  "我没权限" vs "系统设计如此" vs "Bug".
+ *  详见 docs/error-codes.md. */
 function handleNetworkError(_path: string, status: number, body: string) {
   if (typeof window === "undefined") return;
   if (status === 401) return; // handled by handleAuthError
   const detail = friendlyDetail(status, body);
   if (status >= 500) {
     toast.error("服务器错误", { detail });
-  } else if (status === 404) {
+    return;
+  }
+  if (status === 404) {
     // 404s are often expected (e.g. polling for a resource) — only toast on
     // explicit user actions. We default to silent here; callers can toast
     // themselves where it matters.
     return;
-  } else if (status >= 400) {
-    toast.warn(`请求失败 (${status})`, { detail });
   }
+  if (status < 400) return;
+
+  // 解析 [类别] prefix
+  const m = detail.match(/^\[([^\]]+)\]\s*(.*)$/s);
+  if (m) {
+    const cat = m[1];
+    const msg = m[2];
+    if (cat === "权限不足") {
+      toast.warn("权限不足", { detail: msg });
+      return;
+    }
+    if (cat === "操作受限") {
+      // 设计性拒绝 — 用 info (蓝) 而不是 warn (黄),告诉用户"不是 bug"
+      toast.info("操作受限", { detail: msg });
+      return;
+    }
+    if (cat === "资源保护") {
+      toast.warn("资源保护", { detail: msg });
+      return;
+    }
+    if (cat === "需重新登录") {
+      toast.error("需重新登录", { detail: msg });
+      return;
+    }
+  }
+
+  // 没 prefix → fallback 老行为
+  toast.warn(`请求失败 (${status})`, { detail });
 }
 
 function makeError(path: string, status: number, body: string): ApiError {

@@ -303,7 +303,7 @@ async def reset_password(
         )
     ).scalar_one_or_none() if target_ws_id else None
     if not ws:
-        raise HTTPException(403, "user has no workspace; contact admin")
+        raise HTTPException(403, "[需重新登录] 账号没有关联工作空间,请联系管理员")
 
     token = issue_token(user.id, ws.id)
     set_session_cookie(response, token)
@@ -334,7 +334,7 @@ async def login(
     if not verify_password(payload.password, user.password_hash):
         raise HTTPException(401, "incorrect email or password")
     if not user.is_active:
-        raise HTTPException(403, "account disabled")
+        raise HTTPException(403, "[需重新登录] 账号已被禁用,请联系管理员")
 
     ws_id = user.workspace_id
     if not ws_id:

@@ -262,7 +262,7 @@ async def _load_request_for_review(
     is_owner_target = r.target_owner_user_id == auth.user.id
     is_admin = await is_leader_or_admin(session, auth)
     if not (is_owner_target or is_admin):
-        raise HTTPException(403, "您没有权限决定该申请")
+        raise HTTPException(403, "[资源保护] 您不是该访问申请的审批人")
     return r
 
 

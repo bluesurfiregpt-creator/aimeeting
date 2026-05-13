@@ -635,7 +635,7 @@ async def accept_task(
     """
     t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
     if t.assignee_user_id != auth.user.id:
-        raise HTTPException(403, "only the assignee can accept this task")
+        raise HTTPException(403, "[资源保护] 仅任务负责人可接单")
     new_status = transition(TASK_ACTION_ACCEPT, t.status)
 
     now = datetime.now(timezone.utc)
@@ -678,7 +678,7 @@ async def return_task(
     """
     t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
     if t.assignee_user_id != auth.user.id:
-        raise HTTPException(403, "only the assignee can return this task")
+        raise HTTPException(403, "[资源保护] 仅任务负责人可退回任务")
     new_status = transition(TASK_ACTION_RETURN, t.status)
 
     prior_dispatcher = t.dispatched_by_user_id
@@ -724,7 +724,7 @@ async def start_task(
     """
     t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
     if t.assignee_user_id != auth.user.id:
-        raise HTTPException(403, "only the assignee can start this task")
+        raise HTTPException(403, "[资源保护] 仅任务负责人可开始任务")
     new_status = transition(TASK_ACTION_START, t.status)
 
     t.status = new_status
@@ -753,7 +753,7 @@ async def complete_task(
     """
     t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
     if t.assignee_user_id != auth.user.id:
-        raise HTTPException(403, "only the assignee can complete this task")
+        raise HTTPException(403, "[资源保护] 仅任务负责人可完成任务")
     new_status = transition(TASK_ACTION_COMPLETE, t.status)
 
     t.status = new_status
@@ -869,7 +869,7 @@ async def submit_task(
     """
     t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
     if t.assignee_user_id != auth.user.id:
-        raise HTTPException(403, "only the assignee can submit this task")
+        raise HTTPException(403, "[资源保护] 仅任务负责人可提交任务")
     new_status = transition(TASK_ACTION_SUBMIT, t.status)
 
     # v22.5: 协办未交检查
@@ -1269,7 +1269,7 @@ async def archive_task(
     if auth.user.id not in allowed and not await _is_workspace_admin(
         session, auth.user.id, auth.workspace.id
     ):
-        raise HTTPException(403, "not authorized to archive this task")
+        raise HTTPException(403, "[资源保护] 您无权归档此任务")
     new_status = transition(TASK_ACTION_ARCHIVE, t.status)
     t.status = new_status
 
@@ -1391,7 +1391,7 @@ async def draft_submission_endpoint(
         or auth.user.id in co_uids
     )
     if not is_principal:
-        raise HTTPException(403, "您不是该 task 的相关人,不能调起草助手")
+        raise HTTPException(403, "[资源保护] 您不是该任务的相关人,不能调起草助手")
 
     # v24.4 #1: LLM 配额
     await check_quota_or_raise(auth.user.id, auth.workspace.id)
@@ -1740,7 +1740,7 @@ async def co_submit_task(
     t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
     co_uids = _co_uuids_of(t)
     if auth.user.id not in co_uids:
-        raise HTTPException(403, "您不在该任务的协办列表里")
+        raise HTTPException(403, "[资源保护] 您不在该任务的协办列表中")
 
     body = (payload.content or "").strip()[:2000] or None
 
@@ -1805,7 +1805,7 @@ async def co_withdraw_task(
     t = await _load_task_in_workspace(session, task_id, auth.workspace.id)
     co_uids = _co_uuids_of(t)
     if auth.user.id not in co_uids:
-        raise HTTPException(403, "您不在该任务的协办列表里")
+        raise HTTPException(403, "[资源保护] 您不在该任务的协办列表中")
 
     # 移除自己
     new_list = [s for s in (t.co_assignees or []) if s != str(auth.user.id)]

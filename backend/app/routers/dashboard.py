@@ -1384,7 +1384,7 @@ async def scorched_earth_reset(
         )
     ).scalar_one_or_none()
     if not membership or membership.role not in ("owner",):
-        raise HTTPException(403, "scorched-earth 仅 owner 可操作")
+        raise HTTPException(403, "[操作受限] 焦土数据清除仅 workspace owner 可操作 (平台超管也不代操作,安全设计)")
 
     main_user_id = auth.user.id
     main_ws_id = auth.workspace.id

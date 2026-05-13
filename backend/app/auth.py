@@ -136,13 +136,13 @@ async def get_current_auth(
 
     target_ws_id = ws_id or user.workspace_id
     if not target_ws_id:
-        raise HTTPException(403, "no workspace")
+        raise HTTPException(403, "[需重新登录] 账号没有关联工作空间,请联系管理员")
 
     ws = (
         await session.execute(select(Workspace).where(Workspace.id == target_ws_id))
     ).scalar_one_or_none()
     if not ws:
-        raise HTTPException(403, "workspace not found")
+        raise HTTPException(403, "[操作受限] 工作空间不存在(可能已被删除),请刷新或退出重登")
 
     # Verify membership (defence-in-depth even though we issued the token)
     membership = (
@@ -162,7 +162,7 @@ async def get_current_auth(
         # 后续 is_leader_or_admin / /api/auth/me 都已 platform admin 兼容
         # (v26.4-fix1),所以放行后 一切 UI 端正常工作.
         if not is_platform_admin_email(user.email):
-            raise HTTPException(403, "not a member of this workspace")
+            raise HTTPException(403, "[权限不足] 您不是该工作空间的成员")
 
     return AuthContext(user=user, workspace=ws)
 
@@ -249,7 +249,7 @@ async def require_leader_or_admin(
     line in any router that does workspace-level destructive / global ops
     (cron rules, agent CRUD, team management, dispatch, approve, etc)."""
     if not await is_leader_or_admin(session, auth):
-        raise HTTPException(403, "需要领导/管理员权限")
+        raise HTTPException(403, "[权限不足] 此功能需要 owner / admin / leader 角色")
 
 
 # ============================================================================
@@ -285,4 +285,4 @@ async def require_platform_admin(auth: AuthContext) -> None:
     """Raise 403 if caller 不是 平台超管.每个 /api/super/* 端点 必填第一行.
     不需要 session 因为校验只看 env + auth.user.email,无 DB query."""
     if not is_platform_admin(auth):
-        raise HTTPException(403, "需要平台超管权限 (PLATFORM_ADMIN_EMAILS env)")
+        raise HTTPException(403, "[权限不足] 此功能仅平台超管可见 (您的 email 不在 PLATFORM_ADMIN_EMAILS 白名单)")

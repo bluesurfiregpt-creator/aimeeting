@@ -2171,7 +2171,7 @@ async def delete_action_comment(
     if not row:
         raise HTTPException(404, "comment not found")
     if row.author_user_id != auth.user.id:
-        raise HTTPException(403, "only the author can delete this comment")
+        raise HTTPException(403, "[资源保护] 仅评论作者可删除此评论")
     await session.delete(row)
     await session.commit()
 
@@ -2371,7 +2371,7 @@ async def review_meeting_consensus(
     if m.mode != "auto":
         raise HTTPException(400, f"only auto meetings have consensus to review (mode={m.mode})")
     if not await is_leader_or_admin(session, auth):
-        raise HTTPException(403, "only owner/admin/leader can review dissents")
+        raise HTTPException(403, "[权限不足] 裁决分歧仅 owner / admin / leader 可操作")
 
     # --- 2. 加载 consensus 行 ---
     row = (
