@@ -513,6 +513,17 @@ export type MemoryDraft = {
   created_at: string;
 };
 
+// v26.6-01: AI 模板生成器 — 单个 agent draft
+export type AgentTemplateDraft = {
+  name: string;
+  domain: string | null;
+  persona: string | null;
+  keywords: string[];
+  color: string | null;
+  suggested_kb_seed?: string | null;
+  suggested_memory_seeds?: string[];
+};
+
 // v26.5-Lineage P2: 数据血缘图
 export type LineageNode = {
   id: string;
@@ -665,7 +676,14 @@ export type Notification = {
     | "alert_fired"
     | "task_dispatch_overdue"
     | "task_penalty"
-    | "user_suspended";
+    | "user_suspended"
+    // v26.6-02: v26.5 沉淀审批 5 个新 kind
+    | "kb_sedimentation_pending"
+    | "kb_sedimentation_approved"
+    | "kb_sedimentation_rejected"
+    | "memory_draft_pending"
+    | "memory_draft_approved"
+    | "memory_draft_rejected";
   severity: "normal" | "yellow" | "red" | "purple";
   payload: Record<string, unknown> | null;
   read_at: string | null;
@@ -944,15 +962,17 @@ export type Me = {
   task_counts?: MyTaskCounts | null;
 };
 
-/** v21: 角色枚举扩展.
+/** v21 → v26.5: 角色枚举扩展.
  *  - owner / admin — 「领导/管理员」
- *  - leader — admin 的别名(智慧住建偏好)
- *  - expert — 绑定单一 Agent 的「专家权限」(必填 bound_agent_id)
- *  - member — legacy,默认值 */
+ *  - leader — admin 的别名 (智慧住建偏好)
+ *  - manager — v26.5 新, 部门 AI 维护人 (取代 v21 expert)
+ *  - expert — v21 兼容, deprecated by manager
+ *  - member — 默认成员 */
 export type TeamRole =
   | "owner"
   | "admin"
   | "leader"
+  | "manager"
   | "expert"
   | "member";
 
@@ -2055,6 +2075,30 @@ export const api = {
   getLineage: () => jget<LineageOut>("/api/lineage"),
   getAgentLineage: (agentId: string) =>
     jget<LineageOut>(`/api/lineage/agent/${agentId}`),
+
+  // v26.6-01: AI 模板生成器
+  previewAgentTemplate: (body: {
+    scenario_description: string;
+    count: number;
+    with_kb_seed: boolean;
+    with_memory_seed: boolean;
+  }) => jpost<{
+    agents: AgentTemplateDraft[];
+    scenario_description: string;
+    raw_llm_text: string;
+  }>("/api/agent-templates/preview", body),
+  commitAgentTemplate: (body: {
+    agents: AgentTemplateDraft[];
+    candidate_manager_ids?: string[];
+  }) => jpost<{
+    created: Array<{
+      id: string;
+      name: string;
+      kb_id: string | null;
+      kb_doc_id: string | null;
+      memory_count: number;
+    }>;
+  }>("/api/agent-templates/commit", body),
 
   // v26.5-02c: KB 沉淀审批
   listSedimentationDrafts: (status?: "pending" | "approved" | "rejected" | "all") => {

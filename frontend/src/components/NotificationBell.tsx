@@ -153,6 +153,53 @@ function describe(n: Notification): { line: string; href: string | null } {
         href,
       };
     }
+    // v26.6-02: v26.5 沉淀审批 5 个新 kind 的文案 + 跳转
+    case "kb_sedimentation_pending": {
+      const taskTitle = typeof p.task_title === "string" ? p.task_title : "";
+      const agentName = typeof p.agent_name === "string" ? p.agent_name : "";
+      return {
+        line: `🔔 KB 沉淀待审批: ${taskTitle ? `《${taskTitle}》` : ""}拟挂给 ${agentName}`,
+        href: "/me/profile/sedimentation",
+      };
+    }
+    case "kb_sedimentation_approved": {
+      const approver = typeof p.approver_name === "string" ? p.approver_name : "";
+      return {
+        line: `✅ ${approver} 批准了你提的 KB 沉淀`,
+        href: "/me/profile/sedimentation",
+      };
+    }
+    case "kb_sedimentation_rejected": {
+      const reviewer = typeof p.reviewer_name === "string" ? p.reviewer_name : "";
+      const reason = typeof p.reason === "string" ? p.reason : "";
+      return {
+        line: `⛔ ${reviewer} 驳回了你提的 KB 沉淀${reason ? `(${reason})` : ""}`,
+        href: "/me/profile/sedimentation",
+      };
+    }
+    case "memory_draft_pending": {
+      const taskTitle = typeof p.task_title === "string" ? p.task_title : "";
+      const preview = typeof p.summary_preview === "string" ? p.summary_preview.slice(0, 50) : "";
+      return {
+        line: `🔔 长期记忆待审批: ${taskTitle ? `《${taskTitle}》` : preview}`,
+        href: "/me/profile/sedimentation",
+      };
+    }
+    case "memory_draft_approved": {
+      const approver = typeof p.approver_name === "string" ? p.approver_name : "";
+      return {
+        line: `✅ ${approver} 批准了你提的长期记忆`,
+        href: "/me/profile/sedimentation",
+      };
+    }
+    case "memory_draft_rejected": {
+      const reviewer = typeof p.reviewer_name === "string" ? p.reviewer_name : "";
+      const reason = typeof p.reason === "string" ? p.reason : "";
+      return {
+        line: `⛔ ${reviewer} 驳回了你提的长期记忆${reason ? `(${reason})` : ""}`,
+        href: "/me/profile/sedimentation",
+      };
+    }
     default:
       return { line: n.kind, href };
   }

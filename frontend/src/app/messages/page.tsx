@@ -221,6 +221,35 @@ function describeNotification(n: Notification): string {
       const subj = role === "self" ? "你" : name;
       return `🚫 ${subj} 因连续 2 次重大超时被暂停派单,至 ${until.slice(0, 10)}`;
     }
+    // v26.6-02: v26.5 沉淀审批 5 个新 kind
+    case "kb_sedimentation_pending": {
+      const taskTitle = typeof p.task_title === "string" ? p.task_title : "";
+      const agentName = typeof p.agent_name === "string" ? p.agent_name : "";
+      return `🔔 KB 沉淀待审批: ${taskTitle ? `《${taskTitle}》` : ""}拟挂给 ${agentName}`;
+    }
+    case "kb_sedimentation_approved": {
+      const approver = typeof p.approver_name === "string" ? p.approver_name : "";
+      return `✅ ${approver} 批准了你提的 KB 沉淀`;
+    }
+    case "kb_sedimentation_rejected": {
+      const reviewer = typeof p.reviewer_name === "string" ? p.reviewer_name : "";
+      const reason = typeof p.reason === "string" ? p.reason : "";
+      return `⛔ ${reviewer} 驳回了你提的 KB 沉淀${reason ? `(${reason})` : ""}`;
+    }
+    case "memory_draft_pending": {
+      const taskTitle = typeof p.task_title === "string" ? p.task_title : "";
+      const preview = typeof p.summary_preview === "string" ? p.summary_preview.slice(0, 50) : "";
+      return `🔔 长期记忆待审批: ${taskTitle ? `《${taskTitle}》` : preview}`;
+    }
+    case "memory_draft_approved": {
+      const approver = typeof p.approver_name === "string" ? p.approver_name : "";
+      return `✅ ${approver} 批准了你提的长期记忆`;
+    }
+    case "memory_draft_rejected": {
+      const reviewer = typeof p.reviewer_name === "string" ? p.reviewer_name : "";
+      const reason = typeof p.reason === "string" ? p.reason : "";
+      return `⛔ ${reviewer} 驳回了你提的长期记忆${reason ? `(${reason})` : ""}`;
+    }
     default:
       return n.kind;
   }

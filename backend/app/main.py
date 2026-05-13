@@ -26,6 +26,7 @@ from .agenda_monitor import maybe_check_agenda
 from .dissent_detector import maybe_detect_dissent
 from .auth import COOKIE_NAME, decode_token
 from .routers import access_requests as access_requests_router
+from .routers import agent_templates as agent_templates_router  # v26.6-01
 from .routers import agents as agents_router
 from .routers import asr_vocabulary as asr_vocabulary_router  # v25.9
 from .routers import audit as audit_router
@@ -72,6 +73,9 @@ async def lifespan(_app: FastAPI):
     cron_task = asyncio.create_task(cron_runner_loop(stop_event))
     alert_task = asyncio.create_task(alert_monitor_loop(stop_event))
     monthly_eval_task = asyncio.create_task(monthly_eval_loop(stop_event))
+    # v26.6-05: 沉淀草稿 7 天过期 sweep
+    from .draft_expire_sweeper import draft_expire_loop
+    draft_expire_task = asyncio.create_task(draft_expire_loop(stop_event))
 
     # v26.3-03: 启动时扫所有 mode=auto 且 phase∈(running, paused, idle) 的 meeting,
     # 把 orchestrator 重新起来.worker 重启 / web 进程重启时关键 — 否则 跑中的
@@ -93,6 +97,7 @@ async def lifespan(_app: FastAPI):
             ("cron_runner", cron_task),
             ("alert_monitor", alert_task),
             ("monthly_eval", monthly_eval_task),
+            ("draft_expire", draft_expire_task),  # v26.6-05
         ):
             try:
                 await asyncio.wait_for(t, timeout=5)
@@ -132,6 +137,7 @@ app.include_router(super_router.router)  # v26.4 Platform Admin
 app.include_router(kb_sedimentation_router.router)  # v26.5-02c
 app.include_router(memory_drafts_router.router)  # v26.5-Lineage
 app.include_router(lineage_router.router)  # v26.5-Lineage P2
+app.include_router(agent_templates_router.router)  # v26.6-01 AI 模板生成器
 
 
 @app.get("/healthz")

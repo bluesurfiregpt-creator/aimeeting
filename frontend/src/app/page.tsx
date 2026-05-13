@@ -368,38 +368,68 @@ export default function Home() {
               还没有 AI 专家。去 <Link href="/me/profile/agents" className="text-accent-400">AI 配置</Link> 创建。
             </p>
           ) : (
-            <ul className="mt-3 grid gap-2 sm:grid-cols-2" data-testid="agent-picker">
-              {agents.map((a) => {
-                const tone = AGENT_COLOR_BG[a.color || "violet"] || AGENT_COLOR_BG.violet;
-                const isOn = pickedAgents.has(a.id);
-                return (
-                  <li key={a.id}>
-                    <label
-                      className={`flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 transition ${
-                        isOn
-                          ? tone
-                          : "border-ink-700 bg-ink-950 text-zinc-300 hover:border-zinc-600"
-                      }`}
-                    >
-                      <span className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={isOn}
-                          onChange={() => toggleAgent(a.id)}
-                          className="h-4 w-4 accent-accent-500"
-                        />
-                        🤖 {a.name}
-                      </span>
-                      {a.domain && (
-                        <span className="ml-2 truncate text-[10px] text-zinc-500">
-                          {a.domain}
-                        </span>
-                      )}
-                    </label>
-                  </li>
+            // v26.6-04: 按 primary_user_name 分组 (用 domain 作为 fallback);
+            // 让 用户 一眼能看出 "邀请房屋安全科长的 3 个 AI" / "物业科的 2 个 AI"
+            <div className="mt-3 space-y-3" data-testid="agent-picker">
+              {(() => {
+                // 分组 key: primary_user_name 优先 (主科室), domain fallback, "未分组" 兜底
+                const groups: Record<string, typeof agents> = {};
+                for (const a of agents) {
+                  const key = a.primary_user_name
+                    ? `👤 ${a.primary_user_name}`
+                    : a.domain
+                      ? `📂 ${a.domain}`
+                      : "未分组";
+                  if (!groups[key]) groups[key] = [];
+                  groups[key].push(a);
+                }
+                const sortedGroups = Object.entries(groups).sort((a, b) =>
+                  a[0].localeCompare(b[0]),
                 );
-              })}
-            </ul>
+                return sortedGroups.map(([groupName, groupAgents]) => (
+                  <div key={groupName}>
+                    <div className="mb-1.5 flex items-center gap-2 text-xs text-zinc-500">
+                      <span className="font-medium">{groupName}</span>
+                      <span className="text-zinc-700">·</span>
+                      <span>{groupAgents.length} AI</span>
+                    </div>
+                    <ul className="grid gap-2 sm:grid-cols-2">
+                      {groupAgents.map((a) => {
+                        const tone =
+                          AGENT_COLOR_BG[a.color || "violet"] || AGENT_COLOR_BG.violet;
+                        const isOn = pickedAgents.has(a.id);
+                        return (
+                          <li key={a.id}>
+                            <label
+                              className={`flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 transition ${
+                                isOn
+                                  ? tone
+                                  : "border-ink-700 bg-ink-950 text-zinc-300 hover:border-zinc-600"
+                              }`}
+                            >
+                              <span className="flex items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={isOn}
+                                  onChange={() => toggleAgent(a.id)}
+                                  className="h-4 w-4 accent-accent-500"
+                                />
+                                🤖 {a.name}
+                              </span>
+                              {a.domain && (
+                                <span className="ml-2 truncate text-[10px] text-zinc-500">
+                                  {a.domain}
+                                </span>
+                              )}
+                            </label>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ));
+              })()}
+            </div>
           )}
         </div>
 
