@@ -559,7 +559,7 @@ function ConsolidateSection({
               <div className="mt-2 flex gap-3 text-xs">
                 {consolidatedKbId && (
                   <Link
-                    href={`/admin/knowledge/${consolidatedKbId}`}
+                    href={`/me/profile/knowledge/${consolidatedKbId}`}
                     className="text-accent-300 hover:text-accent-200"
                   >
                     → 去知识库查看
@@ -1148,7 +1148,7 @@ export default function TaskDetailPage({
                 )}
                 {sr.curated_kb_id && (
                   <Link
-                    href={`/admin/knowledge/${sr.curated_kb_id}`}
+                    href={`/me/profile/knowledge/${sr.curated_kb_id}`}
                     className="mt-2 inline-block text-[11px] text-accent-300 hover:text-accent-200"
                   >
                     → 去知识库查看

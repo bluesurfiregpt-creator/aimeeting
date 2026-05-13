@@ -174,7 +174,7 @@ function StatusPie({ data }: { data: DashboardOverview["by_status"] }) {
       <div className="text-xs text-zinc-500" data-testid="empty-status">
         <p>暂无任务数据.</p>
         <p className="mt-1 text-zinc-600">
-          首次使用?去 <a href="/admin/demo-data" className="text-violet-400 hover:text-violet-300">演示数据</a> 一键 seed 完整场景.
+          首次使用?去 <a href="/me/profile/demo-data" className="text-violet-400 hover:text-violet-300">演示数据</a> 一键 seed 完整场景.
         </p>
       </div>
     );

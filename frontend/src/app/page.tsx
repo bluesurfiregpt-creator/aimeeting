@@ -154,25 +154,15 @@ export default function Home() {
         <p className="mx-auto mt-4 max-w-xl text-sm text-zinc-400">
           实时字幕 · 声纹识别 · AI 专家参会 · 长期记忆
         </p>
+        {/* v26.5-WS: 首页只留 2 个核心链接 (会议历史 + 工作站).
+            原先的 5 个链接 (声纹/AI/LLM/记忆/历史) 已合并到 /me/profile 工作站. */}
         <div className="mt-4 flex justify-center gap-4 text-xs">
-          <Link href="/enroll" className="text-zinc-500 hover:text-accent-400">
-            录入声纹
-          </Link>
-          <span className="text-zinc-700">·</span>
-          <Link href="/admin/agents" className="text-zinc-500 hover:text-accent-400">
-            AI 专家配置
-          </Link>
-          <span className="text-zinc-700">·</span>
-          <Link href="/admin/models" className="text-zinc-500 hover:text-accent-400">
-            LLM 模型
-          </Link>
-          <span className="text-zinc-700">·</span>
-          <Link href="/admin/memory" className="text-zinc-500 hover:text-accent-400">
-            长期记忆
-          </Link>
-          <span className="text-zinc-700">·</span>
           <Link href="/meetings" className="text-zinc-500 hover:text-accent-400">
-            会议历史
+            📚 会议历史
+          </Link>
+          <span className="text-zinc-700">·</span>
+          <Link href="/me/profile" className="text-zinc-500 hover:text-accent-400">
+            👤 我的工作站
           </Link>
         </div>
       </header>
@@ -180,7 +170,7 @@ export default function Home() {
       <section className="mt-12 rounded-xl border border-ink-700 bg-ink-900 p-6">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-zinc-300">新建会议</h2>
-          <Link href="/enroll" className="text-xs text-accent-400 hover:text-accent-500">
+          <Link href="/me/profile/voiceprints" className="text-xs text-accent-400 hover:text-accent-500">
             + 录入新人声纹
           </Link>
         </div>
@@ -316,7 +306,7 @@ export default function Home() {
           </div>
           {users.length === 0 ? (
             <p className="mt-2 text-sm text-zinc-600">
-              还没有人录入声纹 — 先去 <Link href="/enroll" className="text-accent-400">录入</Link>。
+              还没有人录入声纹 — 先去 <Link href="/me/profile/voiceprints" className="text-accent-400">录入</Link>。
               （未勾选的话，会议依然可以开，只是不会贴姓名。）
             </p>
           ) : (
@@ -369,13 +359,13 @@ export default function Home() {
                 </span>
               )}
             </div>
-            <Link href="/admin/agents" className="text-xs text-zinc-600 hover:text-accent-400">
+            <Link href="/me/profile/agents" className="text-xs text-zinc-600 hover:text-accent-400">
               + 管理 AI 专家
             </Link>
           </div>
           {agents.length === 0 ? (
             <p className="mt-2 text-sm text-zinc-600" data-testid="no-agents-hint">
-              还没有 AI 专家。去 <Link href="/admin/agents" className="text-accent-400">AI 配置</Link> 创建。
+              还没有 AI 专家。去 <Link href="/me/profile/agents" className="text-accent-400">AI 配置</Link> 创建。
             </p>
           ) : (
             <ul className="mt-3 grid gap-2 sm:grid-cols-2" data-testid="agent-picker">

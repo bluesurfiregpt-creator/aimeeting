@@ -1643,7 +1643,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
               );
             })}
             <Link
-              href="/admin/agents"
+              href="/me/profile/agents"
               className="ml-auto shrink-0 text-xs text-zinc-500 hover:text-accent-400"
             >
               + 管理 AI 专家

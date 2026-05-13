@@ -105,7 +105,7 @@ export default function KbDetailPage({
       <header className="flex items-center justify-between">
         <div>
           <Link
-            href="/admin/knowledge"
+            href="/me/profile/knowledge"
             className="text-xs text-zinc-500 hover:text-accent-400"
           >
             ← 返回知识库列表
