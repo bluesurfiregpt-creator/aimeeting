@@ -161,14 +161,7 @@ async def get_current_auth(
         # 普通用户的 not-a-member 防御仍然 生效 (email 不在白名单 → 仍 raise).
         # 后续 is_leader_or_admin / /api/auth/me 都已 platform admin 兼容
         # (v26.4-fix1),所以放行后 一切 UI 端正常工作.
-        is_pa = is_platform_admin_email(user.email)
-        # v26.4-fix2-debug: 临时 log 看 实际值 (排查 用户切 ws 后仍 403)
-        import logging as _logging
-        _logging.getLogger(__name__).warning(
-            "FIX2-CHECK email=%r is_pa=%s user.ws=%s target.ws=%s membership=%s",
-            user.email, is_pa, user.workspace_id, ws.id, membership is not None,
-        )
-        if not is_pa:
+        if not is_platform_admin_email(user.email):
             raise HTTPException(403, "not a member of this workspace")
 
     return AuthContext(user=user, workspace=ws)

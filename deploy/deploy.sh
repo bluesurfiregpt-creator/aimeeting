@@ -38,8 +38,13 @@ docker compose pull || true
 echo "▸ docker compose build"
 docker compose build
 
-echo "▸ docker compose up -d"
-docker compose up -d
+echo "▸ docker compose up -d --force-recreate"
+# v26.4 加固: 强制 recreate, 确保:
+#   (1) env_file (backend/.env / deploy/.env) 改动 一定生效
+#   (2) image 重 build 后 容器 一定 用新 image (不会因 cache 命中 而 跳)
+# 之前 多次踩坑:env 改了 但 restart/up-d 没 recreate → 老进程 用 老 env;
+# 或者 代码 改了 image 新了 但 容器 没 recreate → 跑 老代码.
+docker compose up -d --force-recreate
 
 echo "▸ status:"
 docker compose ps
