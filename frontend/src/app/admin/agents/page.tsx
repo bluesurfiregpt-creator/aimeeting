@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type Agent, type KnowledgeBase, type Me, type User } from "@/lib/api";
+import { api, type Agent, type AgentInput, type KnowledgeBase, type Me, type User } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "@/lib/toast";
 
@@ -113,7 +113,7 @@ export default function AgentsAdmin() {
     if (!form.name.trim()) { setMsg("请填写 Agent 名称"); return; }
     setBusy(true);
     setMsg("");
-    const body = {
+    const body: Partial<AgentInput> = {
       name: form.name.trim(),
       domain: form.domain || null,
       persona: form.persona || null,
@@ -121,15 +121,20 @@ export default function AgentsAdmin() {
       color: form.color,
       knowledge_base_ids: Array.from(form.knowledge_base_ids),
       is_active: form.is_active,
-      // v26.0: 空 string → null (后端解 None = 未绑)
-      primary_user_id: form.primary_user_id || null,
     };
+    // v26.5-P0-fix4: 只有 leader+ 才传 primary_user_id (manager 改不动也不应该发,
+    // 否则后端 即使 值没变 也可能 误拦. 后端 v26.5-P0-fix4 加了 "值没变不算改"
+    // 容错, 前端 这里 双保险 — 直接 不传).
+    if (canChangePrimaryUser) {
+      // v26.0: 空 string → null (后端解 None = 未绑)
+      body.primary_user_id = form.primary_user_id || null;
+    }
     try {
       if (editing) {
         await api.updateAgent(editing, body);
         setMsg("✅ 已更新");
       } else {
-        await api.createAgent(body);
+        await api.createAgent(body as AgentInput);
         setMsg("✅ 已创建");
         reset();
       }

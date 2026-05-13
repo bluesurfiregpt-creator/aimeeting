@@ -219,11 +219,15 @@ async def update_agent(
         )
     data = payload.model_dump(exclude_unset=True)
     # v26.5-01d: 只有 owner/admin/leader 可改 primary_user_id (manager 不能 把 agent 转给别人)
-    if "primary_user_id" in data and not await is_leader_or_admin(session, auth):
-        raise HTTPException(
-            403,
-            "[权限不足] 仅 owner / admin / leader 可指派 / 转移 agent 的 primary_user"
-        )
+    # v26.5-P0-fix4: 加 "值没变 不算改" 容错 — 前端 PATCH 可能 总是把 primary_user_id
+    # 一起 raw 传上来 (即使 manager 没动它), 这种情况 应该 通过, 不能 误拦 manager
+    # 改自己 primary agent 的其他字段.
+    if "primary_user_id" in data and data["primary_user_id"] != a.primary_user_id:
+        if not await is_leader_or_admin(session, auth):
+            raise HTTPException(
+                403,
+                "[权限不足] 仅 owner / admin / leader 可指派 / 转移 agent 的 primary_user"
+            )
     # v26.0: 验证 primary_user_id 在同一 workspace 内
     if "primary_user_id" in data and data["primary_user_id"] is not None:
         from ..models import User as _User
