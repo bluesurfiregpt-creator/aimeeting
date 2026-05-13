@@ -45,9 +45,26 @@ class Settings(BaseSettings):
     sentry_traces_sample_rate: float = 0.1  # 性能 trace 采样 10%
     sentry_send_default_pii: bool = False   # 安全默认:不带用户 IP / cookies
 
+    # v26.4 Platform Admin · 跨 workspace 的 SaaS 平台层超管
+    # 逗号分隔的邮箱列表 — 只有这些邮箱登录后才能调 /api/super/* 端点 + 看到 /super UI
+    # Q1=C 决策:env var 硬配,不入库,避免被业务后台 SQL 污染
+    # 留空 = 没有超管(默认安全)
+    # 示例:PLATFORM_ADMIN_EMAILS=bluesurfiregpt@gmail.com,ops@yourcompany.com
+    platform_admin_emails: str = ""
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
+
+    @property
+    def platform_admin_emails_set(self) -> set[str]:
+        """归一到 小写 + 去空白 — 用 email 比对时调 .lower().strip() 再匹配."""
+        raw = self.platform_admin_emails or ""
+        return {
+            e.strip().lower()
+            for e in raw.split(",")
+            if e.strip()
+        }
 
 
 @lru_cache

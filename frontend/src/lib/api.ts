@@ -1090,6 +1090,53 @@ export const api = {
   listMeetingConsensus: (meetingId: string) =>
     jget<MeetingConsensus[]>(`/api/meetings/${meetingId}/consensus`),
 
+  // v26.4 Platform Admin (跨 workspace 平台超管)
+  superMe: () =>
+    jget<{
+      is_platform_admin: boolean;
+      email: string | null;
+      platform_admin_emails_count: number;
+    }>("/api/super/me"),
+  superListWorkspaces: (includeArchived = false) =>
+    jget<
+      Array<{
+        id: string;
+        name: string;
+        slug: string;
+        status: string;
+        preset_name: string | null;
+        created_at: string;
+        last_active_at: string | null;
+        user_count: number;
+        agent_count: number;
+        meeting_count: number;
+      }>
+    >(`/api/super/workspaces?include_archived=${includeArchived}`),
+  superCreateWorkspace: (body: {
+    name: string;
+    owner_email: string;
+    owner_name: string;
+    temp_password?: string;
+    seed_demo?: boolean;
+    create_invite?: boolean;
+  }) =>
+    jpost<{
+      workspace_id: string;
+      workspace_name: string;
+      workspace_slug: string;
+      owner_user_id: string;
+      owner_email: string;
+      temp_password: string | null;
+      invite_url: string | null;
+    }>("/api/super/workspaces", body),
+  superSwitchWorkspace: (wsId: string) =>
+    jpost<{
+      workspace_id: string;
+      workspace_name: string;
+      workspace_slug: string;
+      note: string;
+    }>(`/api/super/switch/${wsId}`, {}),
+
   // v26.3-07: 召集人会后批量裁决分歧 (Q1=A 4选1 + 必填 rationale)
   reviewMeetingConsensus: (
     meetingId: string,

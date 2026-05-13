@@ -39,8 +39,22 @@ async def audit_log(
     """
     Record one audit event. Errors are logged but never raised — auditing
     must not break the user-facing operation.
+
+    v26.4: 如果 caller 是 platform admin, payload 自动加 {"platform_admin":
+    true, "platform_admin_email": <email>}. 同时把 workspace.last_active_at
+    更新到 now (跨租户活跃度统计).
     """
     try:
+        from .auth import is_platform_admin
+        from .models import Workspace
+        from sqlalchemy import update as sa_update
+        from datetime import datetime, timezone
+
+        final_payload = dict(payload) if payload else {}
+        if is_platform_admin(auth):
+            final_payload["platform_admin"] = True
+            if auth.user.email:
+                final_payload["platform_admin_email"] = auth.user.email
         db.add(
             AuditLog(
                 workspace_id=auth.workspace.id,
@@ -48,9 +62,19 @@ async def audit_log(
                 action=action,
                 target_type=target_type,
                 target_id=str(target_id) if target_id is not None else None,
-                payload=payload,
+                payload=final_payload if final_payload else None,
             )
         )
+        # v26.4 顺手把 workspace.last_active_at 更新 — 单 UPDATE 极轻,失败不阻塞.
+        try:
+            await db.execute(
+                sa_update(Workspace)
+                .where(Workspace.id == auth.workspace.id)
+                .values(last_active_at=datetime.now(timezone.utc))
+            )
+        except Exception:
+            logger.warning("last_active_at update failed (action=%s)", action)
+
         if autocommit:
             await db.commit()
     except Exception:

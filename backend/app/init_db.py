@@ -105,6 +105,11 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     # v26.3: agent message 加线程化 + 议程索引
     ("meeting_agent_message", "reply_to_agent_message_id", "BIGINT"),
     ("meeting_agent_message", "agenda_idx", "INTEGER"),
+    # v26.4 Platform Admin: workspace 级 状态 + 活跃度 (跨租户运营管理用)
+    #   status: 'active' | 'suspended' | 'archived'
+    #   last_active_at: 最近一次 audit_log 行的时间;由 audit_log hook 异步更新
+    ("workspace", "status", "VARCHAR(16) NOT NULL DEFAULT 'active'"),
+    ("workspace", "last_active_at", "TIMESTAMPTZ"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

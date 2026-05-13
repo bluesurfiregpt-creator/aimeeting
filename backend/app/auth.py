@@ -234,3 +234,39 @@ async def require_leader_or_admin(
     (cron rules, agent CRUD, team management, dispatch, approve, etc)."""
     if not await is_leader_or_admin(session, auth):
         raise HTTPException(403, "需要领导/管理员权限")
+
+
+# ============================================================================
+# v26.4 · Platform Admin (跨 workspace 的 SaaS 平台层超管)
+# ============================================================================
+# Q1=C 决策:超管身份 由 env var PLATFORM_ADMIN_EMAILS 硬配,不入库.
+# 理由:
+#   - 最小 schema 改动 (零 migration)
+#   - 不让业务后台 SQL 误改超管列表 (env var 改完必重启容器,运维 trace 清晰)
+#   - 后续要加 UI 管理超管时再升级到 platform_admin 表
+#
+# 安全:
+#   - 后端任何 /api/super/* 端点 必须 先调 require_platform_admin
+#   - 前端 /super 路由 + middleware 二次校验 me.email 在白名单
+#   - 所有 superadmin 操作 audit 时 payload 加 {"platform_admin": true}
+#     方便客户日后查 "今天 platform admin 在我空间做了什么"
+
+
+def is_platform_admin_email(email: Optional[str]) -> bool:
+    """email 是否在 env PLATFORM_ADMIN_EMAILS 白名单 (case-insensitive)."""
+    if not email:
+        return False
+    from .config import get_settings
+    return email.lower().strip() in get_settings().platform_admin_emails_set
+
+
+def is_platform_admin(auth: AuthContext) -> bool:
+    """当前 user 是否是平台超管.基于 user.email 跟 env 白名单 比对."""
+    return is_platform_admin_email(auth.user.email)
+
+
+async def require_platform_admin(auth: AuthContext) -> None:
+    """Raise 403 if caller 不是 平台超管.每个 /api/super/* 端点 必填第一行.
+    不需要 session 因为校验只看 env + auth.user.email,无 DB query."""
+    if not is_platform_admin(auth):
+        raise HTTPException(403, "需要平台超管权限 (PLATFORM_ADMIN_EMAILS env)")

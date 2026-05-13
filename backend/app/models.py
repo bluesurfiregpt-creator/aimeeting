@@ -69,6 +69,16 @@ class Workspace(Base):
     preset: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    # v26.4 Platform Admin · 租户级状态 + 活跃度.
+    # status: 'active' (默认) | 'suspended' (平台超管手动暂停,所有写端点 403,
+    #         read 仍可查) | 'archived' (软删,平台超管列表 +"已归档" 默认隐藏)
+    # last_active_at: 最近一次本 workspace 有 状态变更 (新会议 / 新 task / 新登录 等)
+    #                 的时间.NULL = 还没活动过.由 audit_log hook 异步更新,容忍 ~分钟级延迟.
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)
+    last_active_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
 
 class WorkspaceMembership(Base):
     """A user's role in a workspace. Sprint F.1 makes this truly N:M —

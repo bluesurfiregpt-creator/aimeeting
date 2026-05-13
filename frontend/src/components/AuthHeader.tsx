@@ -22,6 +22,8 @@ export default function AuthHeader() {
   const [loading, setLoading] = useState(true);
   const [directiveOpen, setDirectiveOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  // v26.4 Platform Admin: 后端轻量 GET /api/super/me 判断当前 user 是否在 env 白名单
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -41,6 +43,11 @@ export default function AuthHeader() {
         if (alive) setLoading(false);
         // api.ts already pushes to /login on 401; no-op here
       });
+    // v26.4: 并行查 是否 super admin (不阻塞 me 渲染)
+    api
+      .superMe()
+      .then((r) => { if (alive) setIsPlatformAdmin(r.is_platform_admin); })
+      .catch(() => { /* 默默忽略 — 非超管 401/403 也不报错 */ });
     return () => { alive = false; };
   }, [pathname]);
 
@@ -67,6 +74,18 @@ export default function AuthHeader() {
   return (
     <>
       <div className="fixed right-4 top-3 z-30 flex items-center gap-2">
+        {/* v26.4 Platform Admin · 仅 PLATFORM_ADMIN_EMAILS 白名单内邮箱显示 ⚡ 入口 */}
+        {isPlatformAdmin && (
+          <Link
+            href="/super"
+            data-testid="super-open-btn"
+            title="平台超管 (跨 workspace 列表 + 切换 + 代客建)"
+            aria-label="平台超管"
+            className="grid h-8 w-8 place-items-center rounded-full border border-rose-500/50 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20"
+          >
+            ⚡
+          </Link>
+        )}
         {showAdminBtn && (
           <Link
             href="/admin/agents"

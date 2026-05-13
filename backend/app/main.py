@@ -38,6 +38,7 @@ from .routers import reports as reports_router
 from .routers import meetings as meetings_router
 from .routers import memory as memory_router
 from .routers import model_providers as model_providers_router
+from .routers import super as super_router  # v26.4 Platform Admin
 from .routers import team as team_router
 from .routers import users as users_router
 from .routers import voiceprints as voiceprints_router
@@ -124,6 +125,7 @@ app.include_router(access_requests_router.router)
 app.include_router(dashboard_router.router)
 app.include_router(reports_router.router)
 app.include_router(asr_vocabulary_router.router)  # v25.9
+app.include_router(super_router.router)  # v26.4 Platform Admin
 
 
 @app.get("/healthz")
