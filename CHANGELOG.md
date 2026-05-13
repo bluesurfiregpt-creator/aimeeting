@@ -5,6 +5,57 @@
 
 ---
 
+## v26.4 · Platform Admin · 多租户运营 SaaS 平台层 (2026-05-13 GA)
+
+让"乙方运营"角色拥有跨 workspace 的"上帝视角" — 一个邮箱(env 白名单)能看到所有租户 workspace + 一键代客建空间 + 切换进任意 workspace 看 / 改 / 排查问题。把 Aimeeting 从"单租户工具"升级成"可对外授权运营的 SaaS 平台"。
+
+### 主要新东西
+
+- **`PLATFORM_ADMIN_EMAILS`** env(逗号分隔多个邮箱)= 平台超管白名单,不入库
+- **`/super` 控制台**:红色 banner + 跨租户 workspace 列表(含 user/agent/meeting 计数 + 状态 + 最后活跃)+ ➕ 创建表单 + "进入 →" 切换
+- **代客建空间** 一键产出 3 件凭证:owner 邮箱 + 32 位临时密码 + 一次性邀请链接(7 天有效),复制 微信发给客户即可
+- **跨 workspace 切换**:重发 JWT 把 wsid 改成目标 ws + set-cookie,所有现有 `/api/*` endpoint 自动用新 ws,无需新建一套镜像 API
+- **审计透明**:所有超管操作的 audit_log payload 自动加 `platform_admin: true` + email,客户在自己 workspace 的操作日志里能完整看到"平台运营今天来过、做了什么"
+- **顶栏 ⚡ 入口**:仅 platform admin 可见,身份不随 workspace 切换丢失(基于 email 判定)
+
+### v26.4-fix1 修补(同日)
+
+Platform admin 切到客户 workspace 时,在该 ws 里没 membership 行 → 旧逻辑返 `role="member"` → 所有 `require_leader_or_admin` 端点 403 → 用户视角看到大量 toast.warn。修法:`is_leader_or_admin` 对 platform admin 直接 short-circuit return True;`/api/auth/me` 在 membership 缺失 + caller is platform admin 时 fallback effective_role="owner";前端 super* wrapper 全加 silent 不弹 toast。**不污染客户 user 列表**(不 insert membership 行)。
+
+### 数据模型变更
+
+- `Workspace.status` (active / suspended / archived) + `last_active_at` 字段
+- `audit_log` 钩子:platform admin 操作自动打 flag + 顺手更新 `workspace.last_active_at`
+
+### 决策落地(Q1–Q5)
+
+| Q | 决策 |
+|---|---|
+| Q1 超管身份载体 | C · env var,不入库 |
+| Q2 审计 + 隔离 | guard 后端 + middleware 前端,所有写操作 audit |
+| Q3 切换语义 | C · 真切换(重发 JWT)+ audit "via superadmin" |
+| Q4 数据可见性 | 列表 + 计数 + 状态(写-heavy 留 v26.5) |
+| Q5 能做什么 | read + write-light + write-medium |
+
+### 部署 gotcha
+
+`PLATFORM_ADMIN_EMAILS` env 改完后**必须** `docker compose up -d --force-recreate backend`,**不能用** `restart`(后者不重读 env_file)。`backend/.env.example` 已带模板 + 注释警告。
+
+### 未做(留 v26.5)
+
+- workspace suspend / archive / delete(超管 write-heavy)
+- 跨 workspace 批量推送 agent / KB 模板
+- 计费 / 配额 / LLM 用量 dashboard
+- 邮件自动发 invite_url(目前手动复制)
+
+---
+
+## v26.3.1 · ABAC 补丁(角色权限严格化) (2026-05-13)
+
+v26.3 GA 后发现 5 个 ABAC 缺口:v26.3 召集人模式的写端点只做了 workspace 隔离,没接 v25 已经搭好的角色权限。本批补:`POST /api/meetings mode='auto'` + `POST /orchestrate/{start,pause,resume,cancel}` 全部加 `require_leader_or_admin`;前端首页 mode radio / 详情页 banner / orchestrate 控制台 写控件 全部 role-aware(expert/member 看 disabled + 🔒 + 只读视图);所有控件加 `data-testid` 给 Kimi 自动化用。Kimi 12 用例三角色 × 5 动作矩阵 全 GREEN。
+
+---
+
 ## v26.3 · 召集人模式 · 全 AI 自主会议 (2026-05-13 GA)
 
 让"召集人"这个角色从"主持人"退到"裁决者" — 会议由 moderator AI + N 个 expert AI 自动开,议程逐项跑,有共识落库,有分歧会后批量等召集人 4 选 1 + 写理由裁决。裁决决议自动沉淀回涉及 AI 专家的知识库,下次类似议题 AI 自动调用本次裁决思路 — 真的把会议系统从"工具"升级成"决策助手"。
