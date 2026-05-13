@@ -61,15 +61,22 @@ export default function AuthHeader() {
 
   if (loading || PUBLIC_PATHS.has(pathname || "") || !me) return null;
 
-  // v22: 看板入口给 leader/admin/owner/expert 看到;member 隐藏
+  // v26.5: manager 取代 v21 expert 作为 "部门 AI 维护人"
+  // v22 + v26.5: 看板入口给 leader/admin/owner/manager(+ 兼容 expert)看到;member 隐藏
   const showDashboardBtn =
     me.role === "owner" ||
     me.role === "admin" ||
     me.role === "leader" ||
-    me.role === "expert";
-  // v25-prod-prep: 后台入口给 owner/admin/leader(同 admin layout 守卫)
+    me.role === "manager" ||
+    me.role === "expert"; // v21 兼容
+  // v26.5: 后台入口给 leader/admin/owner/manager 看到.manager 进去 只显示部分 tab
+  // (见 admin/layout.tsx).member 不能进 admin.
   const showAdminBtn =
-    me.role === "owner" || me.role === "admin" || me.role === "leader";
+    me.role === "owner" ||
+    me.role === "admin" ||
+    me.role === "leader" ||
+    me.role === "manager" ||
+    me.role === "expert"; // v21 兼容
 
   return (
     <>

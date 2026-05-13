@@ -2,10 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { api, type KnowledgeBase } from "@/lib/api";
+import { api, type KnowledgeBase, type Me } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { SkeletonGrid } from "@/components/Skeleton";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+
+// v26.5 role-aware: 仅 leader+ 可创建 / 删 KB 和上传文档
+// manager 在 P0 阶段 看 read-only;P1 后启用 KB.owner_agent_id 后开放 manager 写权
+const FULL_ADMIN_ROLES = new Set(["owner", "admin", "leader"]);
 
 export default function KnowledgeAdmin() {
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
@@ -14,17 +18,26 @@ export default function KnowledgeAdmin() {
   const [description, setDescription] = useState("");
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
+  // v26.5 role-aware: 决定 创建 / 删 KB 按钮可见性
+  const [me, setMe] = useState<Me | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      setKbs(await api.listKnowledgeBases());
+      const [list, meRes] = await Promise.all([
+        api.listKnowledgeBases(),
+        api.me().catch(() => null),
+      ]);
+      setKbs(list);
+      setMe(meRes);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  const isFullAdmin = me ? FULL_ADMIN_ROLES.has(me.role) : false;
 
   const create = async () => {
     if (!name.trim()) return;
@@ -67,7 +80,8 @@ export default function KnowledgeAdmin() {
         把业务文档(PDF / Word / Excel / Markdown / TXT)上传到知识库, AI 专家在会议中回答时会**优先**引用这里的内容。每个工作空间独立, 不会跨租户共享。
       </p>
 
-      {/* Create form */}
+      {/* v26.5: Create form 仅 leader+ 可见 */}
+      {isFullAdmin && (
       <section className="mt-6 rounded-xl border border-ink-700 bg-ink-900 p-5">
         <h2 className="text-sm font-medium text-zinc-300">新建知识库</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_2fr_auto]">
@@ -94,6 +108,20 @@ export default function KnowledgeAdmin() {
           </button>
         </div>
       </section>
+      )}
+
+      {!isFullAdmin && me && (
+        <section className="mt-6 rounded-xl border border-violet-500/30 bg-violet-500/5 p-4">
+          <h3 className="text-sm font-medium text-violet-200">
+            👋 部门 AI 维护人视角({me.name})
+          </h3>
+          <p className="mt-1 text-xs text-zinc-400">
+            知识库 创建 / 删除 / 上传 文档 需要 owner / admin / leader 权限.
+            <br />
+            v26.5-P1 启用 KB 的 owner agent 绑定 后,你 将能给 自己 primary 的 AI 的知识库 上传文档.敬请期待.
+          </p>
+        </section>
+      )}
 
       {/* List */}
       <section className="mt-6">
@@ -123,12 +151,21 @@ export default function KnowledgeAdmin() {
                       <span className="rounded bg-ink-800 px-2 py-0.5">🧩 {kb.chunk_count} 分块</span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => remove(kb.id, kb.name)}
-                    className="text-xs text-zinc-600 opacity-0 transition group-hover:opacity-100 hover:text-rose-400"
-                  >
-                    删除
-                  </button>
+                  {isFullAdmin ? (
+                    <button
+                      onClick={() => remove(kb.id, kb.name)}
+                      className="text-xs text-zinc-600 opacity-0 transition group-hover:opacity-100 hover:text-rose-400"
+                    >
+                      删除
+                    </button>
+                  ) : (
+                    <span
+                      className="text-xs text-zinc-700 opacity-0 transition group-hover:opacity-100"
+                      title="删除 KB 仅 owner / admin / leader 可操作"
+                    >
+                      🔒
+                    </span>
+                  )}
                 </div>
               </li>
             ))}

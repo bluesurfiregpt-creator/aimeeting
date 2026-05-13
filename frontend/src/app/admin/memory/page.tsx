@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type Memory } from "@/lib/api";
+import { api, type Me, type Memory } from "@/lib/api";
 import { SkeletonList } from "@/components/Skeleton";
 
 const SCOPE_LABEL: Record<string, { label: string; tone: string }> = {
@@ -9,6 +9,9 @@ const SCOPE_LABEL: Record<string, { label: string; tone: string }> = {
   project: { label: "项目", tone: "bg-violet-500/15 text-violet-300" },
   org: { label: "组织", tone: "bg-emerald-500/15 text-emerald-300" },
 };
+
+// v26.5: 长期记忆 写权限 仅 leader+, manager P1 后才能写自己 agent 的
+const FULL_ADMIN_ROLES = new Set(["owner", "admin", "leader"]);
 
 export default function MemoryAdmin() {
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -23,6 +26,12 @@ export default function MemoryAdmin() {
     importance: 0.6,
   });
   const [msg, setMsg] = useState("");
+  const [me, setMe] = useState<Me | null>(null);
+  const isFullAdmin = me ? FULL_ADMIN_ROLES.has(me.role) : false;
+
+  useEffect(() => {
+    api.me().then(setMe).catch(() => setMe(null));
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -103,7 +112,22 @@ export default function MemoryAdmin() {
         </button>
       </section>
 
+      {/* v26.5: 仅 leader+ 可写;manager 看到提示 */}
+      {!isFullAdmin && me && (
+        <section className="mt-6 rounded-xl border border-violet-500/30 bg-violet-500/5 p-4">
+          <h3 className="text-sm font-medium text-violet-200">
+            👋 部门 AI 维护人视角({me.name})
+          </h3>
+          <p className="mt-1 text-xs text-zinc-400">
+            长期记忆 写入 / 删除 需要 owner / admin / leader 权限.
+            <br />
+            v26.5-P1 后, 你 将能给 自己 primary 的 AI 写记忆.
+          </p>
+        </section>
+      )}
+
       {/* New memory */}
+      {isFullAdmin && (
       <section className="mt-6 rounded-xl border border-ink-700 bg-ink-900 p-5">
         <h2 className="text-sm font-medium text-zinc-300">手工添加</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-[120px_180px_1fr_100px_auto] sm:items-end">
@@ -161,6 +185,7 @@ export default function MemoryAdmin() {
         </div>
         {msg && <p className="mt-2 text-xs text-zinc-400">{msg}</p>}
       </section>
+      )}
 
       {/* List */}
       <section className="mt-6">
@@ -207,12 +232,21 @@ export default function MemoryAdmin() {
                       </div>
                       <p className="mt-2 text-zinc-100">{m.content}</p>
                     </div>
-                    <button
-                      onClick={() => remove(m.id)}
-                      className="text-xs text-rose-400 hover:text-rose-300"
-                    >
-                      删除
-                    </button>
+                    {isFullAdmin ? (
+                      <button
+                        onClick={() => remove(m.id)}
+                        className="text-xs text-rose-400 hover:text-rose-300"
+                      >
+                        删除
+                      </button>
+                    ) : (
+                      <span
+                        className="text-xs text-zinc-700"
+                        title="删除长期记忆 仅 owner / admin / leader 可操作"
+                      >
+                        🔒
+                      </span>
+                    )}
                   </div>
                 </li>
               );

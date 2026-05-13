@@ -1,9 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type Agent, type KnowledgeBase, type User } from "@/lib/api";
+import { api, type Agent, type KnowledgeBase, type Me, type User } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "@/lib/toast";
+
+// v26.5 role-aware UI:
+//   leader+ (owner/admin/leader) 全权 — 创建 / 编辑 / 删 / 改 primary_user 都可
+//   manager 仅可 编辑 自己 primary 的 agent(不能创建 / 不能删 / 不能转 primary_user)
+//   member 不该进 admin
+const FULL_ADMIN_ROLES = new Set(["owner", "admin", "leader"]);
 
 type Form = {
   name: string;
@@ -41,19 +47,44 @@ export default function AgentsAdmin() {
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  // v26.5 role-aware: 读 me 决定 看哪些按钮
+  const [me, setMe] = useState<Me | null>(null);
 
   const refresh = useCallback(async () => {
-    const [as_, ks, us] = await Promise.all([
+    const [as_, ks, us, meRes] = await Promise.all([
       api.listAgents(),
       api.listKnowledgeBases().catch(() => [] as KnowledgeBase[]),
       api.listUsers().catch(() => [] as User[]),  // v26.0
+      api.me().catch(() => null),  // v26.5
     ]);
     setAgents(as_);
     setKbs(ks);
     setUsers(us);
+    setMe(meRes);
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // v26.5 role helpers
+  const isFullAdmin = me ? FULL_ADMIN_ROLES.has(me.role) : false;
+  const canCreate = isFullAdmin;
+  const canDelete = (_a: Agent) => isFullAdmin;
+  const canEdit = (a: Agent) =>
+    isFullAdmin || (!!me && a.primary_user_id === me.user_id);
+  const canChangePrimaryUser = isFullAdmin; // 转 primary_user 仅 leader+
+
+  // 编辑时,如果当前在编辑某个 agent 但该 agent 不让 me 编辑(eg 网络改后被剥权),
+  // 自动 reset 表单.
+  useEffect(() => {
+    if (editing) {
+      const a = agents.find((x) => x.id === editing);
+      if (a && !canEdit(a)) {
+        setEditing(null);
+        setForm(EMPTY);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, agents, me]);
 
   const reset = () => { setForm({ ...EMPTY, knowledge_base_ids: new Set(), primary_user_id: "" }); setEditing(null); setMsg(""); };
 
@@ -156,7 +187,8 @@ export default function AgentsAdmin() {
 
   return (
     <div className="space-y-6">
-      {/* v24.1: 智慧住建一键 seed banner */}
+      {/* v24.1: 智慧住建一键 seed banner (v26.5: 仅 leader+ 显示, manager 看不到 seed 入口) */}
+      {isFullAdmin && (
       <section
         className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4"
         data-testid="sc-agents-seed-banner"
@@ -184,11 +216,25 @@ export default function AgentsAdmin() {
           </div>
         </div>
       </section>
+      )}
+
+      {/* v26.5: manager 看到 "你的 AI" 引导提示 */}
+      {!isFullAdmin && me && (
+        <section className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-4">
+          <h3 className="text-sm font-medium text-violet-200">
+            👋 部门 AI 维护人视角({me.name})
+          </h3>
+          <p className="mt-1 text-xs text-zinc-400">
+            你可以编辑 自己 primary 的 AI 配置(下方列表中没有 🔒 锁标记的).
+            创建新 AI / 删除 AI / 转移 AI 给别的同事 需要 owner / admin / leader 操作.
+          </p>
+        </section>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
         <section className="rounded-xl border border-ink-700 bg-ink-900 p-5">
           <h2 className="text-sm font-medium text-zinc-300">
-            {editing ? "编辑 Agent" : "新建 Agent"}
+            {editing ? "编辑 Agent" : (canCreate ? "新建 Agent" : "选择左侧 AI 编辑")}
           </h2>
         <div className="mt-4 space-y-3">
           <Field label="名称（会议中用 @<名称> 召唤）" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="产品专家" />
@@ -276,7 +322,9 @@ export default function AgentsAdmin() {
             <select
               value={form.primary_user_id}
               onChange={(e) => setForm({ ...form, primary_user_id: e.target.value })}
-              className="mt-2 w-full rounded-md border border-ink-700 bg-ink-950 px-2 py-1.5 text-sm text-zinc-100 focus:border-accent-500 focus:outline-none"
+              disabled={!canChangePrimaryUser}
+              className="mt-2 w-full rounded-md border border-ink-700 bg-ink-950 px-2 py-1.5 text-sm text-zinc-100 focus:border-accent-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+              title={!canChangePrimaryUser ? "转移 AI 给别的同事 需要 owner / admin / leader 权限" : undefined}
             >
               <option value="">— 未绑 (本 AI 不能接任务) —</option>
               {users.map((u) => (
@@ -285,6 +333,11 @@ export default function AgentsAdmin() {
                 </option>
               ))}
             </select>
+            {!canChangePrimaryUser && (
+              <p className="mt-1 text-[10px] text-amber-300/60">
+                🔒 转移 AI 给别的同事 需要 owner / admin / leader 权限
+              </p>
+            )}
           </div>
 
           <label className="inline-flex items-center gap-2 text-sm text-zinc-300">
@@ -345,13 +398,23 @@ export default function AgentsAdmin() {
                       </span>
                     )}
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => startEdit(a)} className="text-xs text-zinc-400 hover:text-white">编辑</button>
-                    {a.role === "moderator" ? (
-                      <span className="text-xs text-zinc-700" title="内置主持人不可删除">🔒</span>
+                  <div className="flex items-center gap-2">
+                    {/* v26.5 role-aware: 编辑按钮 仅 当 canEdit(this agent) */}
+                    {canEdit(a) ? (
+                      <button onClick={() => startEdit(a)} className="text-xs text-zinc-400 hover:text-white">编辑</button>
                     ) : (
-                      <button onClick={() => remove(a.id, a.name)} className="text-xs text-rose-400 hover:text-rose-300">删除</button>
+                      <span
+                        className="text-xs text-zinc-600"
+                        title={`此 AI 由 ${a.primary_user_name ?? "(未绑)"} 管理,你无权编辑`}
+                      >
+                        🔒
+                      </span>
                     )}
+                    {a.role === "moderator" ? (
+                      <span className="text-xs text-zinc-700" title="内置主持人不可删除">🛡</span>
+                    ) : canDelete(a) ? (
+                      <button onClick={() => remove(a.id, a.name)} className="text-xs text-rose-400 hover:text-rose-300">删除</button>
+                    ) : null}
                   </div>
                 </div>
                 {a.domain && <div className="mt-1 text-xs text-zinc-500">{a.domain}</div>}
