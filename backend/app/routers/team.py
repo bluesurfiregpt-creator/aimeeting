@@ -30,8 +30,20 @@ INVITE_TTL_DAYS = 7
 
 async def _require_admin(
     session: AsyncSession, auth: AuthContext
-) -> WorkspaceMembership:
-    m = (
+) -> Optional[WorkspaceMembership]:
+    """
+    v26.4-fix3: 改走 is_leader_or_admin (复用 auth.py 顶层 helper),它已经给
+    platform admin 加了 short-circuit fallback (v26.4-fix1).
+    跨 workspace 视角下 platform admin 没 membership 行,这里 return None,
+    caller 都是 `await _require_admin(...)` 不用 return value,无影响.
+
+    v25-bug-fix W-2: 智慧住建文档 §2.1.2 — leader 等同于 admin 权限.
+    """
+    from ..auth import is_leader_or_admin
+    if not await is_leader_or_admin(session, auth):
+        raise HTTPException(403, "owner / admin / leader required")
+    # 取 membership row (普通用户必有;platform admin 跨 ws 时为 None — caller 不用 return value)
+    return (
         await session.execute(
             select(WorkspaceMembership).where(
                 WorkspaceMembership.workspace_id == auth.workspace.id,
@@ -39,11 +51,6 @@ async def _require_admin(
             )
         )
     ).scalar_one_or_none()
-    # v25-bug-fix W-2: 智慧住建文档 §2.1.2 — leader 等同于 admin 权限.
-    # 之前漏了 leader,leader 用户进 /admin/team 弹 403 toast.
-    if not m or m.role not in ("owner", "admin", "leader"):
-        raise HTTPException(403, "owner / admin / leader required")
-    return m
 
 
 def _generate_token() -> str:
