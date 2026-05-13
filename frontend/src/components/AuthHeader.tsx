@@ -59,7 +59,26 @@ export default function AuthHeader() {
     }
   }, [router]);
 
-  if (loading || PUBLIC_PATHS.has(pathname || "") || !me) return null;
+  if (loading || PUBLIC_PATHS.has(pathname || "")) return null;
+
+  // v26.5-P0-fix3: me 拿不到 (eg cookie 还在 但 workspace 已删 / 死会话) 时,
+  // 给个最小退出 UI 让用户至少能登出, 不被一堆 toast 卡死无路可走.
+  // (注: api.ts handleAuthError 会自动跳 /login, 这里只是 fallback 防御.)
+  if (!me) {
+    return (
+      <div className="fixed right-4 top-3 z-30 flex items-center gap-2">
+        <div className="flex items-center gap-3 rounded-full border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 backdrop-blur">
+          <span className="text-xs text-rose-200">⚠️ 会话异常</span>
+          <button
+            onClick={logout}
+            className="text-xs text-zinc-300 hover:text-rose-300"
+          >
+            退出重登
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // v26.5: manager 取代 v21 expert 作为 "部门 AI 维护人"
   // v22 + v26.5: 看板入口给 leader/admin/owner/manager(+ 兼容 expert)看到;member 隐藏

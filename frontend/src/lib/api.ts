@@ -9,15 +9,35 @@ function backendBase(): string {
 
 import { toast } from "./toast";
 
-// Centralised handler so a 401 anywhere kicks the user back to /login
-// without forcing every caller to remember.
-function handleAuthError(status: number) {
+// Centralised handler so a 401 (or known "session is dead" 403) anywhere kicks
+// the user back to /login without forcing every caller to remember.
+//
+// v26.5-P0-fix3: 也处理 403 + "工作空间不存在 / [需重新登录] / 账号已被禁用"
+// 这种 死会话 (cookie 还在 但 ws 已删 / 账号禁用 等). 否则前端 6 个并发
+// API 调用 同时 撞墙, 堆 6 条 toast 但 顶栏 不渲染 → 用户卡死无路可走.
+function handleAuthError(status: number, body?: string) {
   if (typeof window === "undefined") return;
-  if (status !== 401) return;
-  // Don't bounce while we're already on a public auth page
   const path = window.location.pathname;
+  // Don't bounce while we're already on a public auth page
   if (path === "/login" || path === "/register") return;
-  window.location.assign(`/login?next=${encodeURIComponent(path)}`);
+  if (status === 401) {
+    window.location.assign(`/login?next=${encodeURIComponent(path)}`);
+    return;
+  }
+  // v26.5-P0-fix3: 403 + 已知 死会话 标志 → 也强制 logout
+  if (status === 403 && body) {
+    if (
+      body.includes("工作空间不存在") ||
+      body.includes("[需重新登录]") ||
+      body.includes("账号已被禁用") ||
+      body.includes("账号没有关联工作空间")
+    ) {
+      // 清 cookie + 跳 /login (没办法直接 await api.logout, location.assign 同步)
+      document.cookie = "aimeeting_session=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+      window.location.assign(`/login?next=${encodeURIComponent(path)}`);
+      return;
+    }
+  }
 }
 
 /**
@@ -136,8 +156,8 @@ async function jget<T>(path: string, opts?: { silent?: boolean }): Promise<T> {
     credentials: "include",
   });
   if (!r.ok) {
-    handleAuthError(r.status);
     const body = await r.text().catch(() => "");
+    handleAuthError(r.status, body);
     // v26.4: silent 选项给后台轮询类 endpoint (例 /api/super/*) 用,
     // 避免 非超管 用户视角 撞 403 时 弹 toast.warn.
     if (!opts?.silent) handleNetworkError(path, r.status, body);
@@ -153,8 +173,8 @@ async function jpost<T>(path: string, body: unknown, opts?: { silent?: boolean }
     body: JSON.stringify(body),
   });
   if (!r.ok) {
-    handleAuthError(r.status);
     const text = await r.text().catch(() => "");
+    handleAuthError(r.status, text);
     if (!opts?.silent) handleNetworkError(path, r.status, text);
     throw makeError(path, r.status, text);
   }
@@ -169,8 +189,8 @@ async function jpostVoid(path: string, body: unknown): Promise<void> {
     body: JSON.stringify(body),
   });
   if (!r.ok && r.status !== 204) {
-    handleAuthError(r.status);
     const text = await r.text().catch(() => "");
+    handleAuthError(r.status, text);
     handleNetworkError(path, r.status, text);
     throw makeError(path, r.status, text);
   }
@@ -204,8 +224,8 @@ async function jpostForm<T>(path: string, form: FormData): Promise<T> {
     body: form,
   });
   if (!r.ok) {
-    handleAuthError(r.status);
     const body = await r.text().catch(() => "");
+    handleAuthError(r.status, body);
     handleNetworkError(path, r.status, body);
     throw makeError(path, r.status, body);
   }
@@ -468,8 +488,8 @@ async function jput<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!r.ok) {
-    handleAuthError(r.status);
     const text = await r.text().catch(() => "");
+    handleAuthError(r.status, text);
     handleNetworkError(path, r.status, text);
     throw makeError(path, r.status, text);
   }
@@ -483,8 +503,8 @@ async function jpatch<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!r.ok) {
-    handleAuthError(r.status);
     const text = await r.text().catch(() => "");
+    handleAuthError(r.status, text);
     handleNetworkError(path, r.status, text);
     throw makeError(path, r.status, text);
   }
@@ -496,8 +516,8 @@ async function jdelete(path: string): Promise<void> {
     credentials: "include",
   });
   if (!r.ok && r.status !== 204) {
-    handleAuthError(r.status);
     const text = await r.text().catch(() => "");
+    handleAuthError(r.status, text);
     handleNetworkError(path, r.status, text);
     throw makeError(path, r.status, text);
   }
@@ -1688,8 +1708,8 @@ export const api = {
       credentials: "include",
     });
     if (!r.ok) {
-      handleAuthError(r.status);
       const text = await r.text().catch(() => "");
+      handleAuthError(r.status, text);
       handleNetworkError(`/api/reports/monthly-evaluation`, r.status, text);
       throw makeError(`/api/reports/monthly-evaluation`, r.status, text);
     }
@@ -1701,8 +1721,8 @@ export const api = {
       { credentials: "include" },
     );
     if (!r.ok) {
-      handleAuthError(r.status);
       const text = await r.text().catch(() => "");
+      handleAuthError(r.status, text);
       handleNetworkError(`/api/reports/status-distribution`, r.status, text);
       throw makeError(`/api/reports/status-distribution`, r.status, text);
     }
@@ -1715,8 +1735,8 @@ export const api = {
       credentials: "include",
     });
     if (!r.ok) {
-      handleAuthError(r.status);
       const text = await r.text().catch(() => "");
+      handleAuthError(r.status, text);
       handleNetworkError(`/api/reports/daily-summary`, r.status, text);
       throw makeError(`/api/reports/daily-summary`, r.status, text);
     }
@@ -1729,8 +1749,8 @@ export const api = {
       credentials: "include",
     });
     if (!r.ok) {
-      handleAuthError(r.status);
       const text = await r.text().catch(() => "");
+      handleAuthError(r.status, text);
       handleNetworkError(`/api/reports/weekly-summary`, r.status, text);
       throw makeError(`/api/reports/weekly-summary`, r.status, text);
     }
@@ -1800,8 +1820,8 @@ export const api = {
       { credentials: "include" },
     );
     if (!r.ok) {
-      handleAuthError(r.status);
       const text = await r.text().catch(() => "");
+      handleAuthError(r.status, text);
       handleNetworkError(`/api/meetings/${id}/export`, r.status, text);
       throw makeError(`/api/meetings/${id}/export`, r.status, text);
     }
@@ -1827,8 +1847,8 @@ export const api = {
       { credentials: "include" },
     );
     if (!r.ok) {
-      handleAuthError(r.status);
       const text = await r.text().catch(() => "");
+      handleAuthError(r.status, text);
       handleNetworkError(`/api/meetings/${id}/minutes`, r.status, text);
       throw makeError(`/api/meetings/${id}/minutes`, r.status, text);
     }

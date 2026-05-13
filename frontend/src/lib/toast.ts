@@ -27,10 +27,18 @@ function emit() {
 }
 
 function push(kind: ToastKind, message: string, opts?: { detail?: string; sticky?: boolean; ttlMs?: number }) {
+  // v26.5-P0-fix3: dedupe — 同 kind+message+detail 的 toast 如果 还在显示中,
+  // 不再重复 push (避免 6 个并发 API 撞同一个错误 → 屏幕堆 6 条相同 toast).
+  const detail = opts?.detail;
+  const existing = toasts.find(
+    (t) => t.kind === kind && t.message === message && t.detail === detail,
+  );
+  if (existing) return existing.id;
+
   const id = nextId++;
   const ttl = opts?.ttlMs ?? (kind === "error" ? 8000 : 5000);
   const expiresAt = opts?.sticky ? null : Date.now() + ttl;
-  toasts = [...toasts, { id, kind, message, detail: opts?.detail, expiresAt }];
+  toasts = [...toasts, { id, kind, message, detail, expiresAt }];
   emit();
   if (expiresAt !== null) {
     setTimeout(() => dismiss(id), ttl);
