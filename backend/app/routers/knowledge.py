@@ -62,6 +62,10 @@ class KBOut(BaseModel):
     owner_agent_name: Optional[str] = None  # 展示用 (后端 resolve 一次)
     # caller 视角是否可写 (前端用来 决定 显示 ✏️ 还是 🔒)
     can_write: bool = False
+    # v26.5-Lineage P2: 反向查 — 哪些 AI 引用了这个 KB
+    # (任何 Agent.knowledge_base_ids 包含 this kb.id 的 agent)
+    referenced_by_agent_ids: list[uuid.UUID] = []
+    referenced_by_agent_names: list[str] = []
     created_at: datetime
 
 
@@ -155,6 +159,20 @@ async def list_kbs(
                 )
             ).all()
         }
+    # v26.5-Lineage P2: 反向查每个 KB 被哪些 agent 引用 (Agent.knowledge_base_ids 数组)
+    all_ws_agents = list((
+        await session.execute(
+            select(Agent.id, Agent.name, Agent.knowledge_base_ids).where(
+                Agent.workspace_id == auth.workspace.id
+            )
+        )
+    ).all())
+    # kb_id → [(agent_id, agent_name)]
+    kb_to_agents: dict[uuid.UUID, list[tuple[uuid.UUID, str]]] = {}
+    for ag_row in all_ws_agents:
+        aid, aname, kbids = ag_row[0], ag_row[1], ag_row[2] or []
+        for kid in kbids:
+            kb_to_agents.setdefault(kid, []).append((aid, aname))
 
     out: list[KBOut] = []
     for kb in rows:
@@ -168,12 +186,15 @@ async def list_kbs(
         can_write_this = is_admin or (
             kb.owner_agent_id is not None and kb.owner_agent_id in my_agent_ids
         )
+        refed = kb_to_agents.get(kb.id, [])
         out.append(KBOut.model_validate({
             **kb.__dict__,
             "document_count": n_docs,
             "chunk_count": n_chunks,
             "owner_agent_name": name_by_id.get(kb.owner_agent_id) if kb.owner_agent_id else None,
             "can_write": can_write_this,
+            "referenced_by_agent_ids": [r[0] for r in refed],
+            "referenced_by_agent_names": [r[1] for r in refed],
         }))
     return out
 

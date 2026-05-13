@@ -34,6 +34,7 @@ from .routers import cron_rules as cron_rules_router
 from .routers import dashboard as dashboard_router
 from .routers import kb_sedimentation as kb_sedimentation_router  # v26.5-02c
 from .routers import knowledge as knowledge_router
+from .routers import lineage as lineage_router  # v26.5-Lineage P2
 from .routers import me as me_router
 from .routers import memory_drafts as memory_drafts_router  # v26.5-Lineage
 from .routers import reports as reports_router
@@ -130,6 +131,7 @@ app.include_router(asr_vocabulary_router.router)  # v25.9
 app.include_router(super_router.router)  # v26.4 Platform Admin
 app.include_router(kb_sedimentation_router.router)  # v26.5-02c
 app.include_router(memory_drafts_router.router)  # v26.5-Lineage
+app.include_router(lineage_router.router)  # v26.5-Lineage P2
 
 
 @app.get("/healthz")

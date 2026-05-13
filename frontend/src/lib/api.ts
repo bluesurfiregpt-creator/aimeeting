@@ -444,6 +444,9 @@ export type KnowledgeBase = {
   owner_agent_id?: string | null;
   owner_agent_name?: string | null;
   can_write?: boolean;
+  // v26.5-Lineage P2: 反向查 — 这个 KB 被哪些 agent 引用 (Agent.knowledge_base_ids 含此 KB)
+  referenced_by_agent_ids?: string[];
+  referenced_by_agent_names?: string[];
   created_at: string;
 };
 
@@ -508,6 +511,27 @@ export type MemoryDraft = {
   decided_at: string | null;
   committed_memory_id: string | null;
   created_at: string;
+};
+
+// v26.5-Lineage P2: 数据血缘图
+export type LineageNode = {
+  id: string;
+  type: "meeting" | "upload" | "kb_doc" | "memory" | "agent";
+  label: string;
+  meta?: Record<string, unknown> | null;
+};
+
+export type LineageEdge = {
+  source: string;
+  target: string;
+  kind: "source" | "primary" | "subscriber" | "reference" | "sediment_pending";
+  weight?: number;
+};
+
+export type LineageOut = {
+  nodes: LineageNode[];
+  edges: LineageEdge[];
+  stats: { agents: number; kb_docs: number; memories: number; meetings: number; uploads: number };
 };
 
 // v26.5-02c: KB 沉淀审批草稿
@@ -2026,6 +2050,11 @@ export const api = {
     jpost<MemoryDraft>(`/api/memory-drafts/${id}/approve`, {}),
   rejectMemoryDraft: (id: string, reason?: string) =>
     jpost<MemoryDraft>(`/api/memory-drafts/${id}/reject`, { reason }),
+
+  // v26.5-Lineage P2: 数据血缘
+  getLineage: () => jget<LineageOut>("/api/lineage"),
+  getAgentLineage: (agentId: string) =>
+    jget<LineageOut>(`/api/lineage/agent/${agentId}`),
 
   // v26.5-02c: KB 沉淀审批
   listSedimentationDrafts: (status?: "pending" | "approved" | "rejected" | "all") => {

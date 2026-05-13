@@ -242,6 +242,15 @@ export default function KnowledgeAdmin() {
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                       <span className="rounded bg-ink-800 px-2 py-0.5">📄 {kb.document_count} 文档</span>
                       <span className="rounded bg-ink-800 px-2 py-0.5">🧩 {kb.chunk_count} 分块</span>
+                      {/* v26.5-Lineage P2: 反向查 — 被哪些 AI 引用 */}
+                      {(kb.referenced_by_agent_names ?? []).length > 0 && (
+                        <span
+                          className="rounded bg-sky-500/15 px-2 py-0.5 text-sky-300"
+                          title={`被 ${(kb.referenced_by_agent_names ?? []).join(" / ")} 引用`}
+                        >
+                          🔗 {(kb.referenced_by_agent_names ?? []).length} AI 引用
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-col gap-1.5">

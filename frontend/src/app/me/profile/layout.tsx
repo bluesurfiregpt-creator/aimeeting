@@ -66,28 +66,31 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/dashboard", label: "数据看板", icon: "📊", external: true },
     ],
   },
+  // v26.5-Lineage P2: 合并原 🤖 AI 专家 + 📚 数据 → 🧬 AI 数据中心
+  // 把 AI 配置 / KB / Memory / 审批 / 模板 / 血缘图 全放在一个大模块下,
+  // 让用户能清楚看到三者的耦合关系.
   {
-    title: "🤖 AI 专家",
+    title: "🧬 AI 数据中心",
     items: [
-      { href: "/me/profile/agents", label: "AI 列表 + 编辑", icon: "🤖" },
+      {
+        href: "/me/profile/lineage",
+        label: "全景血缘图",
+        icon: "🌐",
+      },
+      { href: "/me/profile/agents", label: "AI 专家", icon: "🤖" },
+      { href: "/me/profile/knowledge", label: "知识库", icon: "📚" },
+      { href: "/me/profile/memory", label: "长期记忆", icon: "🧠" },
+      {
+        href: "/me/profile/sedimentation",
+        label: "审批中心",
+        icon: "🔔",
+        badgeKey: "kb_sedimentation_pending",
+      },
       {
         href: "/me/profile/agents/template",
         label: "AI 模板生成器",
         icon: "✨",
         needsRole: "full",
-      },
-    ],
-  },
-  {
-    title: "📚 数据",
-    items: [
-      { href: "/me/profile/knowledge", label: "知识库", icon: "📚" },
-      { href: "/me/profile/memory", label: "长期记忆", icon: "🧠" },
-      {
-        href: "/me/profile/sedimentation",
-        label: "待我审批",
-        icon: "🔔",
-        badgeKey: "kb_sedimentation_pending",
       },
     ],
   },

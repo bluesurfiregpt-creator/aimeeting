@@ -21,12 +21,19 @@ export default function MemoryAdmin() {
   const [filterAgentId, setFilterAgentId] = useState<string>("");  // v26.5-02b
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({
+  // v26.5-Lineage P2: form.agent_ids 改成 数组 — 第一个 = primary, 其余 subscriber
+  const [form, setForm] = useState<{
+    scope: string;
+    scope_ref: string;
+    content: string;
+    importance: number;
+    agent_ids: string[];
+  }>({
     scope: "project",
     scope_ref: "",
     content: "",
     importance: 0.6,
-    agent_id: "",  // v26.5-02b
+    agent_ids: [],
   });
   const [msg, setMsg] = useState("");
   const [me, setMe] = useState<Me | null>(null);
@@ -69,9 +76,9 @@ export default function MemoryAdmin() {
       setMsg("内容必填");
       return;
     }
-    // v26.5-02b: manager 必须 选 agent_id (workspace 通用记忆 仅 leader+)
-    if (!isFullAdmin && !form.agent_id) {
-      setMsg("manager 写记忆 必须 指定 归属 AI 专家");
+    // v26.5-Lineage P2: manager 必须 选 至少 1 个 agent (workspace 通用记忆 仅 leader+)
+    if (!isFullAdmin && form.agent_ids.length === 0) {
+      setMsg("manager 写记忆 必须 指定 至少 1 个 归属 AI 专家");
       return;
     }
     setCreating(true);
@@ -82,9 +89,9 @@ export default function MemoryAdmin() {
         scope_ref: form.scope_ref || null,
         content: form.content.trim(),
         importance: form.importance,
-        agent_id: form.agent_id || null,
+        agent_ids: form.agent_ids.length > 0 ? form.agent_ids : null,
       });
-      setForm({ ...form, content: "" });
+      setForm({ ...form, content: "", agent_ids: [] });
       setMsg("✅ 已写入");
       await refresh();
     } catch (e) {
@@ -92,6 +99,15 @@ export default function MemoryAdmin() {
     } finally {
       setCreating(false);
     }
+  };
+
+  const toggleFormAgent = (agentId: string) => {
+    setForm((f) => ({
+      ...f,
+      agent_ids: f.agent_ids.includes(agentId)
+        ? f.agent_ids.filter((id) => id !== agentId)
+        : [...f.agent_ids, agentId],
+    }));
   };
 
   const remove = async (id: string) => {
@@ -180,29 +196,62 @@ export default function MemoryAdmin() {
       <section className="mt-6 rounded-xl border border-ink-700 bg-ink-900 p-5">
         <h2 className="text-sm font-medium text-zinc-300">手工添加</h2>
         <div className="mt-3 grid gap-3">
-          {/* v26.5-02b: 归属 AI 选择 (manager 必选, leader+ 可选可不选) */}
-          <label className="block text-sm">
-            <span className="text-xs text-zinc-500">
-              归属 AI 专家 {isFullAdmin ? "(可选, 不选 = workspace 通用记忆)" : "(必选)"}
-            </span>
-            <select
-              value={form.agent_id}
-              onChange={(e) => setForm({ ...form, agent_id: e.target.value })}
-              className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white focus:border-accent-500 focus:outline-none"
-            >
-              {isFullAdmin && (
-                <option value="">— 不归属 (workspace 通用记忆) —</option>
-              )}
+          {/* v26.5-Lineage P2: 归属 AI 多选 — 一条 memory 可同时挂多个 AI */}
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+            <div className="text-xs uppercase tracking-wider text-amber-300">
+              🔗 归属 AI 专家 {isFullAdmin ? "(可多选, 不选 = workspace 通用)" : "(至少选 1 个)"}
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              第一个勾的是 <span className="text-emerald-300">⭐ primary (主人)</span>,
+              其余是 <span className="text-violet-300">🔗 subscriber (订阅引用)</span>.
+              共享给多个 AI 时, 它们都能在会议中引用这条记忆.
+            </p>
+            <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
               {agents
                 .filter((a) => isFullAdmin || myAgentIds.has(a.id))
-                .map((a) => (
-                  <option key={a.id} value={a.id}>
-                    🤖 {a.name}
-                    {a.domain ? ` · ${a.domain}` : ""}
-                  </option>
-                ))}
-            </select>
-          </label>
+                .map((a, idx) => {
+                  const checked = form.agent_ids.includes(a.id);
+                  const order = form.agent_ids.indexOf(a.id);
+                  const isPrimary = order === 0;
+                  return (
+                    <label
+                      key={a.id}
+                      className={`flex cursor-pointer items-center gap-2 rounded border px-2 py-1.5 text-xs transition ${
+                        checked
+                          ? isPrimary
+                            ? "border-emerald-500/40 bg-emerald-500/10"
+                            : "border-violet-500/40 bg-violet-500/10"
+                          : "border-ink-700 bg-ink-950 hover:bg-ink-800"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleFormAgent(a.id)}
+                        className="accent-amber-500"
+                      />
+                      {checked && (
+                        <span className="text-[10px] font-medium">
+                          {isPrimary ? "⭐" : `🔗 ${order + 1}`}
+                        </span>
+                      )}
+                      <span className="text-zinc-100">🤖 {a.name}</span>
+                      {a.domain && <span className="text-zinc-500">· {a.domain}</span>}
+                    </label>
+                  );
+                })}
+              {agents.filter((a) => isFullAdmin || myAgentIds.has(a.id)).length === 0 && (
+                <p className="text-zinc-500">
+                  {isFullAdmin ? "本 workspace 还没有 AI 专家" : "你不是任何 AI 的 primary_user"}
+                </p>
+              )}
+            </div>
+            {form.agent_ids.length === 0 && isFullAdmin && (
+              <p className="mt-2 text-[10px] text-zinc-500">
+                不勾任何 AI → 写入 workspace 通用记忆 (老行为)
+              </p>
+            )}
+          </div>
           <div className="grid gap-3 sm:grid-cols-[120px_180px_1fr_100px_auto] sm:items-end">
             <label className="block text-sm">
               <span className="text-xs text-zinc-500">scope</span>
