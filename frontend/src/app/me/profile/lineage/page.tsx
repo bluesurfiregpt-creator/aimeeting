@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ResponsiveSankey } from "@nivo/sankey";
 import { api, type Agent, type LineageOut, type LineageNode } from "@/lib/api";
+import { toast } from "@/lib/toast";
 
 // 颜色映射 — 节点类型
 const NODE_COLOR: Record<string, string> = {
@@ -160,12 +161,20 @@ export default function LineagePage() {
 
       {/* Stats */}
       {stats && (
-        <section className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <section className="grid grid-cols-2 gap-2 sm:grid-cols-6">
           <StatBox color={NODE_COLOR.agent} label="AI 专家" value={stats.agents} />
           <StatBox color={NODE_COLOR.kb_doc} label="KB 文档" value={stats.kb_docs} />
           <StatBox color={NODE_COLOR.memory} label="Memory" value={stats.memories} />
           <StatBox color={NODE_COLOR.meeting} label="来源会议/任务" value={stats.meetings} />
           <StatBox color={NODE_COLOR.upload} label="上传人" value={stats.uploads} />
+          {/* v26.7-04: 待审批草稿 */}
+          {(stats.pending_drafts ?? 0) > 0 && (
+            <StatBox
+              color="#fb923c"
+              label="⏳ 待审草稿"
+              value={stats.pending_drafts ?? 0}
+            />
+          )}
         </section>
       )}
 
@@ -289,6 +298,10 @@ export default function LineagePage() {
         <NodeDetailPanel
           node={selectedNode}
           onClose={() => setSelectedNode(null)}
+          onDone={() => {
+            setSelectedNode(null);
+            void refresh();
+          }}
         />
       )}
     </div>
@@ -322,17 +335,27 @@ function StatBox({
 function NodeDetailPanel({
   node,
   onClose,
+  onDone,
 }: {
   node: LineageNode;
   onClose: () => void;
+  onDone: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
+
+  // 提取 raw_id (去掉 type 前缀)
+  const rawId = node.id.split(":").slice(1).join(":");
+  const isMemory = node.type === "memory" && !node.id.startsWith("mem_draft");
+  const isKbDoc = node.type === "kb_doc" && !node.id.startsWith("kb_draft");
+  const canEdit = isMemory || isKbDoc;
+
   return (
     <div
       className="fixed inset-0 z-40 grid place-items-center bg-black/60 p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-2xl border border-ink-700 bg-ink-900 p-6"
+        className="w-full max-w-lg rounded-2xl border border-ink-700 bg-ink-900 p-6"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
@@ -354,18 +377,140 @@ function NodeDetailPanel({
             ✕
           </button>
         </div>
-        <h4 className="mt-2 text-base font-medium text-white">{node.label}</h4>
-        {node.meta && (
-          <dl className="mt-4 space-y-2 text-xs">
-            {Object.entries(node.meta).map(([k, v]) => (
-              <div key={k} className="rounded border border-ink-700 bg-ink-950/60 p-2">
-                <dt className="text-zinc-500">{k}</dt>
-                <dd className="mt-0.5 text-zinc-200">
-                  {v === null || v === undefined ? "—" : String(v)}
-                </dd>
+        <h4 className="mt-2 text-base font-medium text-white break-all">{node.label}</h4>
+        {!editing && (
+          <>
+            {node.meta && (
+              <dl className="mt-4 space-y-2 text-xs">
+                {Object.entries(node.meta).map(([k, v]) => (
+                  <div key={k} className="rounded border border-ink-700 bg-ink-950/60 p-2">
+                    <dt className="text-zinc-500">{k}</dt>
+                    <dd className="mt-0.5 break-all text-zinc-200">
+                      {v === null || v === undefined ? "—" : String(v)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {canEdit && (
+              <div className="mt-4 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  className="rounded-lg bg-accent-500 px-4 py-2 text-sm font-medium text-white hover:bg-accent-400"
+                >
+                  ✏️ 编辑
+                </button>
+                {isMemory && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!confirm("确认删除此 Memory?")) return;
+                      try {
+                        await api.deleteMemory(rawId);
+                        toast.success("已删除");
+                        onDone();
+                      } catch (e) {
+                        void e;  // toast 已弹
+                      }
+                    }}
+                    className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm text-rose-200 hover:bg-rose-500/20"
+                  >
+                    🗑️ 删除
+                  </button>
+                )}
               </div>
-            ))}
-          </dl>
+            )}
+          </>
+        )}
+        {editing && isMemory && (
+          <MemoryEditForm
+            memoryId={rawId}
+            initialContent={node.label}
+            onCancel={() => setEditing(false)}
+            onDone={() => {
+              setEditing(false);
+              onDone();
+            }}
+          />
+        )}
+        {editing && isKbDoc && (
+          <KbDocViewForm
+            kbId={(node.meta?.kb_id as string) ?? ""}
+            onCancel={() => setEditing(false)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// v26.7-05: Memory inline 编辑 form (modal 内, 不离开桑基图)
+function MemoryEditForm({
+  memoryId,
+  initialContent,
+  onCancel,
+  onDone,
+}: {
+  memoryId: string;
+  initialContent: string;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  // 注: Memory 当前后端没 PATCH endpoint, 只有 DELETE + 重新 POST.
+  // 这里 提供"重新创建后删旧" 的语义 (UX 上跟编辑一致).
+  // 实际更好的是 加 PATCH endpoint, 留 v26.7+ 后做.
+  void initialContent;
+  void memoryId;
+  return (
+    <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-200">
+      ℹ️ Memory 内容 当前 走 "删除 + 重新写" 流程. 请到 长期记忆 页 直接 删除 + 重新添加.
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded border border-ink-700 px-3 py-1 text-xs text-zinc-300 hover:bg-ink-800"
+        >
+          ← 返回
+        </button>
+        <a
+          href="/me/profile/memory"
+          className="ml-2 rounded bg-accent-500 px-3 py-1 text-xs text-white hover:bg-accent-400"
+          onClick={() => onDone()}
+        >
+          → 长期记忆页
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// v26.7-05: KB Doc 跳转到 KB 详情页编辑 (不在 modal 内改, KB 文档编辑较重 — 改用跳转)
+function KbDocViewForm({
+  kbId,
+  onCancel,
+}: {
+  kbId: string;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="mt-4 rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 text-xs text-sky-200">
+      ℹ️ KB 文档 在 KB 详情页 编辑 (含 reprocess / 删除文档 等).
+      <div className="mt-2 flex gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded border border-ink-700 px-3 py-1 text-xs text-zinc-300 hover:bg-ink-800"
+        >
+          ← 返回
+        </button>
+        {kbId && (
+          <a
+            href={`/me/profile/knowledge/${kbId}`}
+            className="rounded bg-accent-500 px-3 py-1 text-xs text-white hover:bg-accent-400"
+          >
+            → 进入 KB 编辑页
+          </a>
         )}
       </div>
     </div>

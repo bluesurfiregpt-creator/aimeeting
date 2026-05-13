@@ -18,7 +18,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..audio_utils import pcm_quality_metrics, pcm_seconds, pcm_to_wav
-from ..auth import AuthContext, get_current_auth
+from ..auth import AuthContext, get_current_auth, is_leader_or_admin
 from ..db import get_session
 from ..models import User, Voiceprint
 from ..oss_client import OSSClient
@@ -29,6 +29,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/voiceprints", tags=["voiceprints"])
 
 
+async def _require_voiceprint_writer(
+    session: AsyncSession, auth: AuthContext
+) -> None:
+    """v26.7-06: 声纹库 ABAC — 录入 / 删除 缩窄到 会议召集权限 (leader+).
+
+    设计原则 (per 用户反馈):
+      - 声纹本质是 "对外界声音的识别与标注", 不和 账号/科室/AI 绑定
+      - 但 录入声纹 涉及 麦克风 + 音频上传, 需要 控制成本 + 隐私
+      - 缩窄到 owner / admin / leader (= 会议召集权限) 是合理边界
+      - manager / member 仍可 读 列表 (用于 会议 attendee picker)
+    """
+    if not await is_leader_or_admin(session, auth):
+        raise HTTPException(
+            403,
+            "[权限不足] 录入/删除 声纹 需要 owner / admin / leader 权限",
+        )
+
+
 @router.post("", response_model=VoiceprintOut)
 async def enroll_voiceprint(
     user_id: str = Form(...),
@@ -36,6 +54,8 @@ async def enroll_voiceprint(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    # v26.7-06: 录入声纹 限 leader+
+    await _require_voiceprint_writer(session, auth)
     user = (
         await session.execute(
             select(User).where(

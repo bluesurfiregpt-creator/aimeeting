@@ -171,8 +171,25 @@ async def _resolve_or_create_dissent_kb(
     workspace_id: uuid.UUID,
     agent: Agent,
 ) -> tuple[KnowledgeBase, bool]:
-    """选目标 KB.复用 agent.knowledge_base_ids[0] (跟 task 沉淀一个 KB),
-    若没有 → 创建 "<agent.name> · 任务沉淀" KB (跟 v26.2 命名一致)."""
+    """v26.7-02: 选目标 KB — 三级 fallback, 优先用 KB.owner_agent_id 反查.
+    跟 task_consolidator._resolve_or_create_kb 对称.
+    """
+    # 1. KB.owner_agent_id == agent.id 反查
+    kb = (
+        await db.execute(
+            select(KnowledgeBase).where(
+                KnowledgeBase.workspace_id == workspace_id,
+                KnowledgeBase.owner_agent_id == agent.id,
+            ).order_by(KnowledgeBase.created_at.asc())
+        )
+    ).scalars().first()
+    if kb:
+        kb_ids = list(agent.knowledge_base_ids or [])
+        if kb.id not in kb_ids:
+            kb_ids.append(kb.id)
+            agent.knowledge_base_ids = kb_ids
+        return kb, False
+    # 2. agent.knowledge_base_ids[0] 老兼容
     if agent.knowledge_base_ids:
         existing_id = agent.knowledge_base_ids[0]
         kb = (
@@ -184,12 +201,16 @@ async def _resolve_or_create_dissent_kb(
             )
         ).scalar_one_or_none()
         if kb:
+            if kb.owner_agent_id is None:
+                kb.owner_agent_id = agent.id
             return kb, False
+    # 3. 新建 + 同时设 owner_agent_id
     kb_name = f"{agent.name} · 任务沉淀"
     kb = KnowledgeBase(
         workspace_id=workspace_id,
         name=kb_name,
         description=f"由系统自动创建,沉淀 AI 专家「{agent.name}」处理过的任务 + 会议裁决",
+        owner_agent_id=agent.id,  # v26.7-02
     )
     db.add(kb)
     await db.flush()
@@ -206,6 +227,7 @@ async def _write_doc_for_agent(
     filename: str,
     markdown: str,
     data_classification: str,
+    source_meeting_id: Optional[uuid.UUID] = None,  # v26.7-03
 ) -> uuid.UUID:
     """
     把 markdown 写入 agent 的 KB:1 个 KnowledgeDocument + N 个 KnowledgeChunk
@@ -227,6 +249,7 @@ async def _write_doc_for_agent(
             # v26.2 schema 已支持 source_type free string;新增 'consensus_dissent' 标识
             source_type="consensus_dissent",
             source_agent_id=agent.id,
+            source_meeting_id=source_meeting_id,  # v26.7-03
             curated_at=datetime.now(timezone.utc),
         )
         db.add(doc)
@@ -399,6 +422,7 @@ async def consolidate_dissent_to_agent_kb(consensus_id: uuid.UUID) -> dict[str, 
                     filename=filename,
                     markdown=full_markdown,
                     data_classification=data_class,
+                    source_meeting_id=c.meeting_id,  # v26.7-03
                 )
                 docs_created += 1
                 agents_touched.add(str(ag.id))

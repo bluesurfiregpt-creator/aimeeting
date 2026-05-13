@@ -199,12 +199,33 @@ async def _resolve_or_create_kb(
     agent: Agent,
 ) -> tuple[KnowledgeBase, bool]:
     """
-    选目标 KB:
-      1. agent.knowledge_base_ids 非空 → 取第一个
-      2. 否则 创建一个 "<agent.name> · 任务沉淀" KB,绑定给 agent
+    选目标 KB (v26.7-02 三级 fallback, 优先用 KB.owner_agent_id 反查):
+      1. KB.owner_agent_id == agent.id 的 KB (最准 — owner_agent_id 是权威归属)
+      2. agent.knowledge_base_ids 第一个 (老兼容)
+      3. 都没 → 创建 "<agent.name> · 任务沉淀" KB, 同时:
+         - 设 owner_agent_id = agent.id
+         - 加到 agent.knowledge_base_ids[]
 
     Returns (kb, created_new)
     """
+    # v26.7-02: 优先 KB.owner_agent_id 反查
+    kb = (
+        await db.execute(
+            select(KnowledgeBase).where(
+                KnowledgeBase.workspace_id == workspace_id,
+                KnowledgeBase.owner_agent_id == agent.id,
+            ).order_by(KnowledgeBase.created_at.asc())  # 最老的 (主仓库)
+        )
+    ).scalars().first()
+    if kb:
+        # 确保 agent.knowledge_base_ids 也包含它 (兼容 RAG 检索路径)
+        kb_ids = list(agent.knowledge_base_ids or [])
+        if kb.id not in kb_ids:
+            kb_ids.append(kb.id)
+            agent.knowledge_base_ids = kb_ids
+        return kb, False
+
+    # fallback: agent.knowledge_base_ids 第一个 (老逻辑)
     if agent.knowledge_base_ids:
         existing_id = agent.knowledge_base_ids[0]
         kb = (
@@ -216,15 +237,19 @@ async def _resolve_or_create_kb(
             )
         ).scalar_one_or_none()
         if kb:
+            # 老 KB 没设 owner_agent_id 的话 顺手补
+            if kb.owner_agent_id is None:
+                kb.owner_agent_id = agent.id
             return kb, False
         # 绑定的 KB 不存在(已删?)→ 走 创建分支
 
-    # 自动新建 KB
+    # 自动新建 KB (v26.7-02 同时设 owner_agent_id)
     kb_name = f"{agent.name} · 任务沉淀"
     kb = KnowledgeBase(
         workspace_id=workspace_id,
         name=kb_name,
         description=f"由系统自动创建,用于沉淀 AI 专家「{agent.name}」处理过的任务",
+        owner_agent_id=agent.id,  # v26.7-02 ★ 关键
     )
     db.add(kb)
     await db.flush()  # 拿 id
@@ -346,6 +371,15 @@ async def consolidate_task_to_agent_kb(
         kb, kb_created = await _resolve_or_create_kb(db, t.workspace_id, agent)
 
         # ---- 7. 创建 KnowledgeDocument ----
+        # v26.7-03: 如果 task 来自会议 → snapshot meeting_id 到 source_meeting_id
+        # (sref 在 step 5 之前已 reload, 含 meeting_id)
+        src_meeting_id: Optional[uuid.UUID] = None
+        mid_str = sref.get("meeting_id")
+        if mid_str:
+            try:
+                src_meeting_id = uuid.UUID(str(mid_str))
+            except (ValueError, TypeError):
+                pass
         doc = KnowledgeDocument(
             kb_id=kb.id,
             filename=f"{(t.title or t.content[:40])[:120]}.md",
@@ -358,6 +392,7 @@ async def consolidate_task_to_agent_kb(
             source_type="task",
             source_task_id=t.id,
             source_agent_id=agent.id,
+            source_meeting_id=src_meeting_id,  # v26.7-03
             curated_by_user_id=curator_user_id,
             curated_at=datetime.now(timezone.utc),
         )

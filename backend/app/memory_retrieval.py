@@ -39,6 +39,7 @@ async def retrieve_relevant(
     query_text: str,
     project_refs: Optional[list[str]] = None,
     user_refs: Optional[list[str]] = None,
+    agent_id: Optional[uuid.UUID] = None,
     k: int = 5,
     min_importance: float = 0.0,
 ) -> list[RetrievedMemory]:
@@ -48,12 +49,21 @@ async def retrieve_relevant(
     Always filters by workspace_id — without this, agents in workspace A
     would see memories from workspace B (cross-tenant leak).
 
-    Other filters:
+    Scope filters (合取):
       - project_refs: when set, only include scope=='project' rows whose
         scope_ref ∈ project_refs (typically the meeting title)
       - user_refs: when set, only include scope=='user' rows whose
         scope_ref ∈ user_refs (attendee names)
       - org-scoped rows are always eligible (organisation-wide knowledge)
+
+    v26.7-01: agent_id 过滤 (核心 — 减少 跨 AI 噪音):
+      传入 agent_id 时, 仅 返回
+        (a) 挂在 该 agent 的 memory (走 memory_agent_link 关系表
+            OR 老 long_term_memory.agent_id 字段兼容)
+        (b) 或 workspace 通用记忆 (agent_id IS NULL 且 link 表里 也没 link)
+      → 房屋安全 AI 回答时, 不会拿到 物业 AI 的 memory 作 RAG 上下文.
+
+    不传 agent_id (None) → 老行为 (全 workspace, 无 agent 过滤).
 
     Empty result is normal — early on, the long_term_memory table is empty
     and we just return [].
@@ -85,6 +95,27 @@ async def retrieve_relevant(
         )
     if scope_filters:
         stmt = stmt.where(or_(*scope_filters))
+
+    # v26.7-01: agent_id 过滤 (核心新逻辑)
+    if agent_id is not None:
+        from .models import MemoryAgentLink
+        # 子查询: 挂到本 agent 的 memory ids
+        linked_ids_subq = select(MemoryAgentLink.memory_id).where(
+            MemoryAgentLink.agent_id == agent_id
+        )
+        # 子查询: 任何 agent 挂过的 memory ids (用于判断 "workspace 通用")
+        any_linked_ids_subq = select(MemoryAgentLink.memory_id)
+        stmt = stmt.where(
+            or_(
+                # 走 link 表 (新)
+                LongTermMemory.id.in_(linked_ids_subq),
+                # 老 agent_id 字段 兼容
+                LongTermMemory.agent_id == agent_id,
+                # workspace 通用: agent_id 为空 且 也没在 link 表里
+                (LongTermMemory.agent_id.is_(None))
+                & (LongTermMemory.id.notin_(any_linked_ids_subq)),
+            )
+        )
 
     if min_importance > 0:
         stmt = stmt.where(LongTermMemory.importance >= min_importance)

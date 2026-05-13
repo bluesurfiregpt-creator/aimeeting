@@ -542,7 +542,15 @@ export type LineageEdge = {
 export type LineageOut = {
   nodes: LineageNode[];
   edges: LineageEdge[];
-  stats: { agents: number; kb_docs: number; memories: number; meetings: number; uploads: number };
+  stats: {
+    agents: number;
+    kb_docs: number;
+    memories: number;
+    meetings: number;
+    uploads: number;
+    // v26.7-04: 待审批草稿数 (kb_sedimentation_draft + memory_draft, status=pending)
+    pending_drafts?: number;
+  };
 };
 
 // v26.5-02c: KB 沉淀审批草稿

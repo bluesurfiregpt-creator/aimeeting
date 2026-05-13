@@ -121,6 +121,8 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("long_term_memory", "source_action_item_id", "UUID"),
     ("long_term_memory", "curated_by_user_id", "UUID"),
     ("long_term_memory", "curated_at", "TIMESTAMPTZ"),
+    # v26.7-03: KB document 也显式追溯到 会议 (血缘图直连).
+    ("knowledge_document", "source_meeting_id", "UUID"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).
@@ -377,6 +379,27 @@ async def init_db() -> None:
                        FOREIGN KEY (curated_by_user_id) REFERENCES "user"(id)
                        ON DELETE SET NULL;
                     RAISE NOTICE '[v26.5-Lineage] 加 FK long_term_memory.curated_by_user_id';
+                END IF;
+
+                -- v26.7-03: KnowledgeDocument.source_meeting_id → meeting.id  ON DELETE SET NULL
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints tc
+                      JOIN information_schema.key_column_usage kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                           AND tc.constraint_schema = kcu.constraint_schema
+                     WHERE tc.table_name = 'knowledge_document'
+                       AND kcu.column_name = 'source_meeting_id'
+                       AND tc.constraint_type = 'FOREIGN KEY'
+                       AND tc.table_schema = 'public'
+                ) THEN
+                    UPDATE knowledge_document SET source_meeting_id = NULL
+                     WHERE source_meeting_id IS NOT NULL
+                       AND source_meeting_id NOT IN (SELECT id FROM meeting);
+                    ALTER TABLE knowledge_document
+                       ADD CONSTRAINT knowledge_document_source_meeting_fk
+                       FOREIGN KEY (source_meeting_id) REFERENCES meeting(id)
+                       ON DELETE SET NULL;
+                    RAISE NOTICE '[v26.7-03] 加 FK knowledge_document.source_meeting_id';
                 END IF;
             END $$;
         """))

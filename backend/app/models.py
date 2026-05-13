@@ -1229,6 +1229,13 @@ class KnowledgeDocument(Base):
     source_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("agent.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # v26.7-03: 显式追溯到 会议 — 让 KB 文档 也能在血缘图上 连到 来源会议节点.
+    # 早期 source_task_id 间接通过 task.meeting_id 能查到, 但需要 JOIN.
+    # 这里直接 snapshot 会议 id, 血缘图查询简单很多.
+    source_meeting_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("meeting.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
     curated_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
     )

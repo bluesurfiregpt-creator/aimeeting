@@ -325,12 +325,16 @@ async def _call_dify_and_stream(
                         user_refs = [u.name for u in users]
                     try:
                         if meeting and meeting.workspace_id:
+                            # v26.7-01: 传 agent.id 过滤 — 该 AI 只拿到 挂它身上 的 memory
+                            # + workspace 通用记忆. 减少 跨 AI 噪音 (房屋安全 AI 不会拿到
+                            # 物业 AI 的 memory).
                             mems = await retrieve_relevant(
                                 db,
                                 workspace_id=meeting.workspace_id,
                                 query_text=(context + "\n" + query).strip(),
                                 project_refs=project_refs or None,
                                 user_refs=user_refs or None,
+                                agent_id=agent.id,  # v26.7-01 ★ 关键
                                 k=4,
                             )
                             # Filter out very-far matches; cosine distance > 0.6 is

@@ -171,8 +171,17 @@ async def _build_lineage(
             },
         ))
         kb_doc_count += 1
+        # v26.7-03: 如果 doc 有 source_meeting_id, 优先 画 会议 → doc 边
+        if d.source_meeting_id:
+            meeting_ids.add(d.source_meeting_id)
+            add_edge(Edge(
+                source=_node_id("meeting", d.source_meeting_id),
+                target=_node_id("kb_doc", d.id),
+                kind="source",
+            ))
+            # 不再走下面 manual/task 的 fallback (避免重复连边)
         # 来源边: 上传文件 (manual) 或 任务沉淀
-        if d.source_type == "manual":
+        elif d.source_type == "manual":
             # 用户上传 — curated_by_user_id
             if d.curated_by_user_id:
                 u_node_id = _node_id("upload", d.curated_by_user_id)
@@ -283,6 +292,111 @@ async def _build_lineage(
                 kind="primary" if is_primary else "subscriber",
             ))
 
+    # --- 3.5. v26.7-04: 待审批草稿 边 (kb_sedimentation_draft + memory_draft) ---
+    # 这些 draft 是 "Memory 还未入库" 的 准节点 — 画成 半透明虚线 边,
+    # 帮 admin 一眼看到 "这个 AI 即将 接收 多少 待审 数据".
+    pending_kb_drafts = list((await session.execute(
+        select(KbSedimentationDraft).where(
+            KbSedimentationDraft.workspace_id == workspace_id,
+            KbSedimentationDraft.status == "pending",
+        )
+    )).scalars().all())
+    pending_mem_drafts = list((await session.execute(
+        select(MemoryDraft).where(
+            MemoryDraft.workspace_id == workspace_id,
+            MemoryDraft.status == "pending",
+        )
+    )).scalars().all())
+    for d in pending_kb_drafts:
+        if only_agent_id and d.target_agent_id != only_agent_id:
+            continue
+        if d.target_agent_id not in agent_ids:
+            continue
+        node_id = f"kb_draft:{d.id}"
+        add_node(Node(
+            id=node_id,
+            type="kb_doc",  # 视觉上跟 kb_doc 同色 (半透明)
+            label=f"⏳ 待审 KB: {d.proposed_summary[:30] if d.proposed_summary else ''}",
+            meta={
+                "draft_id": str(d.id),
+                "status": "pending",
+                "task_id": str(d.task_id) if d.task_id else None,
+            },
+        ))
+        # 来源边: task → kb_draft (如果 task 来自 meeting 也连)
+        if d.task_id:
+            add_node(Node(
+                id=_node_id("task", d.task_id),
+                type="meeting",
+                label=f"📋 任务",
+                meta={"task_id": str(d.task_id)},
+            ))
+            add_edge(Edge(
+                source=_node_id("task", d.task_id),
+                target=node_id,
+                kind="source",
+            ))
+        # kb_draft → agent 边 (sediment_pending kind, 半透明)
+        add_edge(Edge(
+            source=node_id,
+            target=_node_id("agent", d.target_agent_id),
+            kind="sediment_pending",
+            weight=0.5,
+        ))
+    for d in pending_mem_drafts:
+        target_aids: list[uuid.UUID] = []
+        for aid in (d.target_agent_ids or []):
+            try:
+                target_aids.append(uuid.UUID(str(aid)))
+            except (ValueError, TypeError):
+                continue
+        if only_agent_id and only_agent_id not in target_aids:
+            continue
+        in_scope = any(aid in agent_ids for aid in target_aids)
+        if not in_scope:
+            continue
+        node_id = f"mem_draft:{d.id}"
+        add_node(Node(
+            id=node_id,
+            type="memory",  # 视觉同色
+            label=f"⏳ 待审 Memory: {d.proposed_content[:30]}",
+            meta={
+                "draft_id": str(d.id),
+                "status": "pending",
+                "source_meeting_id": str(d.source_meeting_id) if d.source_meeting_id else None,
+            },
+        ))
+        # 来源边
+        if d.source_meeting_id:
+            meeting_ids.add(d.source_meeting_id)
+            add_edge(Edge(
+                source=_node_id("meeting", d.source_meeting_id),
+                target=node_id,
+                kind="source",
+            ))
+        elif d.source_task_id:
+            add_node(Node(
+                id=_node_id("task", d.source_task_id),
+                type="meeting",
+                label="📋 任务",
+                meta={"task_id": str(d.source_task_id)},
+            ))
+            add_edge(Edge(
+                source=_node_id("task", d.source_task_id),
+                target=node_id,
+                kind="source",
+            ))
+        # → agent 边
+        for aid in target_aids:
+            if aid not in agent_ids:
+                continue
+            add_edge(Edge(
+                source=node_id,
+                target=_node_id("agent", aid),
+                kind="sediment_pending",
+                weight=0.5,
+            ))
+
     # --- 4. 会议节点 (从 meeting_ids 解析 title) ---
     if meeting_ids:
         meetings = list((await session.execute(
@@ -317,6 +431,8 @@ async def _build_lineage(
             if nid in nodes_map:
                 nodes_map[nid].label = f"📁 {u.name}"
 
+    # v26.7-04: 待审批草稿 计数
+    pending_drafts = len([n for n in nodes_map.values() if n.id.startswith(("kb_draft:", "mem_draft:"))])
     return LineageOut(
         nodes=list(nodes_map.values()),
         edges=edges,
@@ -326,6 +442,7 @@ async def _build_lineage(
             "memories": mem_count,
             "meetings": len(meeting_ids),
             "uploads": len([n for n in nodes_map.values() if n.type == "upload"]),
+            "pending_drafts": pending_drafts,  # v26.7-04
         },
     )
 
