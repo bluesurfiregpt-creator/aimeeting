@@ -134,19 +134,39 @@ async def _scope_filter_clauses(
     Returns (sql_filter_list, role_label, scope_label).
 
     sql_filter_list 是要 AND 进 Task 查询的 where 条件.
-    leader/admin → 仅 workspace_id 过滤(一个条件)
-    expert       → 加 (assignee=me OR source_ref.agent_id=bound)
-    member       → 仅 assignee=me
+    leader/admin/owner → 仅 workspace_id 过滤(看全空间)
+    manager (v26.5)    → 加 (assignee=me OR source_ref.agent_id IN 我管的 N 个 agent)
+    member             → 仅 assignee=me
 
     把决策集中在这一处,各 KPI 查询直接 unpack 用.
+
+    v26.5 升级:expert (v21,1 user 绑 1 agent) → manager (v26.5,1 user 管 N agent).
+    通过 auth.manager_owned_agent_ids 拿 list,生成 IN clause.
+    向后兼容:老 expert role 用户 还有 bound_agent_id 但 没改 primary_user_id 的话,
+    fallback 到 expert_bound_agent_id (单值) 也能 work.
     """
     base = [Task.workspace_id == auth.workspace.id]
     if await is_leader_or_admin(session, auth):
         return (base, "leader", "全工作空间")
+
+    # v26.5: 优先用 manager 的反向查 (1 user → N agent)
+    from ..auth import manager_owned_agent_ids
+    owned = await manager_owned_agent_ids(session, auth)
+    if owned:
+        # manager: assignee=我 OR source_ref.agent_id ∈ 我管的所有 agent
+        from sqlalchemy import text
+        owned_strs = [str(a) for a in owned]
+        clause = or_(
+            Task.assignee_user_id == auth.user.id,
+            text("(task.source_ref ->> 'agent_id') = ANY(:owned)").bindparams(
+                owned=owned_strs
+            ),
+        )
+        return (base + [clause], "manager", f"我管理的 {len(owned)} 个 AI 专家")
+
+    # v21 兼容: 老 expert role 还有 bound_agent_id (但没改 primary_user_id) → fallback
     bound = await expert_bound_agent_id(session, auth)
     if bound is not None:
-        # expert: assignee=我 或 source_ref.agent_id=bound
-        # JSONB ->> 'agent_id' 是文本提取,bound 转 str 后比.
         from sqlalchemy import text
         clause = or_(
             Task.assignee_user_id == auth.user.id,
@@ -154,7 +174,8 @@ async def _scope_filter_clauses(
                 bound=str(bound)
             ),
         )
-        return (base + [clause], "expert", "我绑定的 AI 专家")
+        return (base + [clause], "expert", "我绑定的 AI 专家(v21 兼容路径)")
+
     # member / 其他
     return (base + [Task.assignee_user_id == auth.user.id], "member", "我的待办")
 

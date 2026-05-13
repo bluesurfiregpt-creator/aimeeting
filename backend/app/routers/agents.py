@@ -12,7 +12,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..audit import audit_log
-from ..auth import AuthContext, expert_bound_agent_id, get_current_auth, is_leader_or_admin
+from ..auth import (
+    AuthContext,
+    expert_bound_agent_id,
+    get_current_auth,
+    is_agent_manager,
+    is_leader_or_admin,
+    require_leader_or_admin,
+)
 from ..db import get_session
 from ..models import Agent
 
@@ -117,6 +124,8 @@ async def create_agent(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    # v26.5-01d: 创建 AI 专家 仅 owner/admin/leader (建好后 指定 primary_user 给 manager 维护)
+    await require_leader_or_admin(session, auth)
     data = payload.model_dump()
     # v26.0: 验证 primary_user_id 在同 workspace
     if data.get("primary_user_id"):
@@ -180,7 +189,19 @@ async def update_agent(
     auth: AuthContext = Depends(get_current_auth),
 ):
     a = await _load_owned_agent(agent_id, session, auth)
+    # v26.5-01d: 改 agent 配置 仅 owner/admin/leader 或 该 agent 的 primary_user (manager) 可操作
+    if not await is_agent_manager(session, auth, a.id):
+        raise HTTPException(
+            403,
+            "[权限不足] 仅 owner / admin / leader,或该 AI 专家的 primary_user 可修改配置"
+        )
     data = payload.model_dump(exclude_unset=True)
+    # v26.5-01d: 只有 owner/admin/leader 可改 primary_user_id (manager 不能 把 agent 转给别人)
+    if "primary_user_id" in data and not await is_leader_or_admin(session, auth):
+        raise HTTPException(
+            403,
+            "[权限不足] 仅 owner / admin / leader 可指派 / 转移 agent 的 primary_user"
+        )
     # v26.0: 验证 primary_user_id 在同一 workspace 内
     if "primary_user_id" in data and data["primary_user_id"] is not None:
         from ..models import User as _User
@@ -216,6 +237,8 @@ async def delete_agent(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    # v26.5-01d: 删 agent 仅 owner/admin/leader (manager 不能 自删 自己 管的 AI)
+    await require_leader_or_admin(session, auth)
     a = await _load_owned_agent(agent_id, session, auth)
     if a.role == "moderator":
         # The built-in moderator drives agenda_monitor; deleting it would

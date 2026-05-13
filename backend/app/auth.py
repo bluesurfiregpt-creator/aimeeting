@@ -212,8 +212,65 @@ async def is_leader_or_admin(
 
 
 async def is_expert(session: AsyncSession, auth: AuthContext) -> bool:
+    """DEPRECATED v26.5 — kept for backward compat. 真实场景应该用 is_manager."""
     role = await get_membership_role(session, auth.user.id, auth.workspace.id)
     return role == "expert"
+
+
+async def is_manager(session: AsyncSession, auth: AuthContext) -> bool:
+    """v26.5: caller 在当前 workspace 是 manager 角色?
+    (manager = 部门 AI 维护人, 取代 v21 expert 概念)"""
+    role = await get_membership_role(session, auth.user.id, auth.workspace.id)
+    return role == "manager"
+
+
+async def manager_owned_agent_ids(
+    session: AsyncSession, auth: AuthContext
+) -> list[uuid.UUID]:
+    """v26.5: 返回 caller 作为 Agent.primary_user_id 管理的所有 agent id (本 ws 内).
+
+    用法: dashboard scope filter / 邀请 AI 时显示 "我管的 AI" 分组 / 等.
+
+    返回空列表 = caller 不管任何 AI.
+    """
+    from .models import Agent
+    rows = (
+        await session.execute(
+            select(Agent.id).where(
+                Agent.workspace_id == auth.workspace.id,
+                Agent.primary_user_id == auth.user.id,
+            )
+        )
+    ).scalars().all()
+    return list(rows)
+
+
+async def is_agent_manager(
+    session: AsyncSession, auth: AuthContext, agent_id: uuid.UUID
+) -> bool:
+    """v26.5 核心 ABAC: caller 是否有权管理 这个 agent
+    (改 agent 配置 / KB / 长期记忆 / 审批任务沉淀).
+
+    True 条件 (任一即可):
+      1. caller 是 workspace owner/admin/leader (跨部门管 — 局长有权干预)
+      2. caller 是 该 agent 的 primary_user_id (部门级 manager)
+
+    platform admin 跨 ws 自动 通过 (经 is_leader_or_admin 已 fallback,v26.4-fix1).
+    """
+    if await is_leader_or_admin(session, auth):
+        return True
+    from .models import Agent
+    agent = (
+        await session.execute(
+            select(Agent).where(
+                Agent.id == agent_id,
+                Agent.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if agent is None:
+        return False
+    return agent.primary_user_id == auth.user.id
 
 
 async def expert_bound_agent_id(

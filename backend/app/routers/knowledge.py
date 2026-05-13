@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..audit import audit_log
-from ..auth import AuthContext, get_current_auth
+from ..auth import AuthContext, get_current_auth, require_leader_or_admin
 from ..db import get_session
 from ..doc_parser import kind_from_filename
 from ..knowledge_processor import process_document
@@ -121,6 +121,9 @@ async def create_kb(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    # v26.5-01c: 创建 KB 需 owner/admin/leader. manager 不能裸创 KB,需要 admin 先建,
+    # 再 admin 在 P1 给该 KB 指 owner_agent (然后 manager 才能写入).
+    await require_leader_or_admin(session, auth)
     if not payload.name.strip():
         raise HTTPException(400, "name required")
     kb = KnowledgeBase(
@@ -145,6 +148,9 @@ async def delete_kb(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    # v26.5-01c: 删 整个 KB 仅 owner/admin/leader 可操作 (manager 即使是 owner agent 的 primary,
+    # 也不能 直接删 整个 KB — 需要 admin 显式 操作以防误删).
+    await require_leader_or_admin(session, auth)
     kb = await _load_owned_kb(kb_id, session, auth)
     name = kb.name
     await session.delete(kb)
@@ -182,6 +188,10 @@ async def upload_document(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    # v26.5-01c P0: 上传 KB 文档 限 owner/admin/leader.
+    # P1 后会启用 KnowledgeBase.owner_agent_id 让 manager 给自己管的 AI 的 KB 上传.
+    # 此前 任何 workspace member 都能传 (重大漏洞,本次堵).
+    await require_leader_or_admin(session, auth)
     kb = await _load_owned_kb(kb_id, session, auth)
 
     if not file.filename:
@@ -231,12 +241,15 @@ async def upload_document(
 
 
 @router.delete("/{kb_id}/documents/{doc_id}", status_code=204)
+# v26.5-01c: 删 KB 文档 限 owner/admin/leader (P0 紧急堵漏洞,P1 后可放给 manager)
+
 async def delete_document(
     kb_id: str,
     doc_id: str,
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    await require_leader_or_admin(session, auth)
     await _load_owned_kb(kb_id, session, auth)
     doc = (
         await session.execute(
@@ -272,6 +285,8 @@ async def reprocess_document(
 ):
     """Re-run parse + chunk + embed for an existing document. Useful when
     parsing failed or chunking strategy changed."""
+    # v26.5-01c: reprocess 限 owner/admin/leader (跟上传同等级)
+    await require_leader_or_admin(session, auth)
     await _load_owned_kb(kb_id, session, auth)
     doc = (
         await session.execute(

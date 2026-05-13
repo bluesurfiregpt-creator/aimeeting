@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import AuthContext, get_current_auth
+from ..auth import AuthContext, get_current_auth, require_leader_or_admin
 from ..db import get_session
 from ..embeddings import EmbeddingError, compute_embedding
 from ..models import LongTermMemory
@@ -70,6 +70,9 @@ async def create_memory(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    # v26.5-01e P0: 写长期记忆 仅 owner/admin/leader.
+    # P1 后启用 LongTermMemory.agent_id 字段, 让 manager 写自己管的 AI 的记忆.
+    await require_leader_or_admin(session, auth)
     if payload.scope not in ("user", "project", "org"):
         raise HTTPException(400, "scope must be user|project|org")
     try:
@@ -98,6 +101,8 @@ async def delete_memory(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
+    # v26.5-01e P0: 删长期记忆 仅 owner/admin/leader.
+    await require_leader_or_admin(session, auth)
     m = (
         await session.execute(
             select(LongTermMemory).where(

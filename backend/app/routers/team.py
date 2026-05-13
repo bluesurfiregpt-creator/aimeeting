@@ -90,13 +90,22 @@ class InviteIn(BaseModel):
     role: str = "member"
 
 
-# v21: workspace_membership.role 枚举(权限模型)
+# v21 + v26.5: workspace_membership.role 枚举(权限模型)
+# v26.5 角色重设计:
+#   owner   — 工作空间拥有者(SaaS 最高权,注册创建时自动得到)
+#   admin   — 局长/一把手(全权 + 任免 leader/manager/member,不可改 owner)
+#   leader  — 副局长(等同 admin 别名,能读能写;v25 引入)
+#   manager — 部门 AI 维护人(科长),通过 Agent.primary_user_id 反向查管哪几个 AI
+#             v26.5 新增,取代 v21 'expert' 概念.bound_agent_id 字段不再强校验.
+#   expert  — DEPRECATED v26.5:迁移后所有 expert → manager.字符串保留以兼容老数据
+#             查询,但 _PATCHABLE_ROLES 不再列入(不让 admin 主动选 expert).
+#   member  — 普通员工 (legacy default).
 _ALL_ROLES: frozenset[str] = frozenset(
-    {"owner", "admin", "leader", "expert", "member"}
+    {"owner", "admin", "leader", "manager", "expert", "member"}
 )
-# 谁能被 admin 改派 — 不能改 owner role
+# 谁能被 admin 改派 — 不能改 owner role,不再让选 expert (deprecated)
 _PATCHABLE_ROLES: frozenset[str] = frozenset(
-    {"admin", "leader", "expert", "member"}
+    {"admin", "leader", "manager", "member"}
 )
 
 
@@ -202,26 +211,22 @@ async def update_member(
     if new_role is not None and new_role not in _PATCHABLE_ROLES:
         raise HTTPException(400, f"role must be one of {sorted(_PATCHABLE_ROLES)}")
 
-    # role='expert' 必须给 bound_agent_id (传入或已有).
-    if final_role == "expert":
-        bound_to_use = new_bound if new_bound is not None else target.bound_agent_id
-        if bound_to_use is None:
-            raise HTTPException(400, "expert role requires bound_agent_id")
-        # 验证 agent 在本 workspace
+    # v26.5: bound_agent_id 字段 已作废 (现在用 Agent.primary_user_id 反向查),
+    # 但 字段还保留 给老数据兼容.如果 caller 传了 bound_agent_id,仅做 workspace
+    # 校验后存,不再强制 manager/expert role 必须有 bound.
+    if new_bound is not None:
         a = (
             await session.execute(
                 select(Agent).where(
-                    Agent.id == bound_to_use,
+                    Agent.id == new_bound,
                     Agent.workspace_id == auth.workspace.id,
                 )
             )
         ).scalar_one_or_none()
         if not a:
             raise HTTPException(400, "bound_agent_id not in this workspace")
-        target.bound_agent_id = bound_to_use
-    else:
-        # 切到非 expert role 时,清掉 bound(留着没意义,徒增混淆)
-        target.bound_agent_id = None
+        target.bound_agent_id = new_bound
+    # else: 没传 → 保持 target.bound_agent_id 不变 (允许 manager 有空 bound)
 
     if new_role is not None:
         target.role = new_role

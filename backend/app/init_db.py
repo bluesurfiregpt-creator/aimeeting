@@ -266,6 +266,16 @@ async def init_db() -> None:
             END $$;
         """))
 
+        # 3c. v26.5 角色重设计:WorkspaceMembership.role 'expert' → 'manager'.
+        # v21 expert 概念 (= 绑一个 AI 的科员) v26.5 升级成 manager (= 部门 AI 维护人,
+        # 可管 1+ 个 AI, 通过 Agent.primary_user_id 反向查).
+        # idempotent: 已 migrated 时 UPDATE 0 行,无副作用.
+        res = await conn.execute(text("""
+            UPDATE workspace_membership SET role = 'manager' WHERE role = 'expert'
+        """))
+        if res.rowcount and res.rowcount > 0:
+            logger.info("[v26.5] 迁移 workspace_membership.role 'expert' → 'manager': %d 行", res.rowcount)
+
         # 4. seed the default workspace + backfill orphan rows
         existing_ws = (
             await conn.execute(text("SELECT id FROM workspace WHERE slug='default' LIMIT 1"))
