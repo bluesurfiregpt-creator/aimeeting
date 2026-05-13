@@ -153,6 +153,42 @@ async def init_db() -> None:
                 text(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {constraint}")
             )
 
+        # 3b-pre. v26.5 C7 follow-up:user.workspace_id 应当 SET NULL,不是 CASCADE.
+        # 设计意图:user 是 跨 workspace 的 全局账号(可同时是 多个 ws 的 member),
+        # 删 一个 workspace 时,该 ws 内 demo user 应该 user.workspace_id 设 null,
+        # user 行保留;真正 删 user 走 scorched-earth Step 3 显式 delete.
+        # 如果 v26.5 C7 第一版 错误加成了 CASCADE,这里 DROP + ADD SET NULL 校正.
+        # (idempotent: 已经是 SET NULL 则 skip)
+        await conn.execute(text("""
+            DO $$
+            DECLARE
+                cn TEXT;
+                current_rule TEXT;
+            BEGIN
+                SELECT tc.constraint_name, rc.delete_rule
+                  INTO cn, current_rule
+                  FROM information_schema.table_constraints tc
+                  JOIN information_schema.key_column_usage kcu
+                    ON tc.constraint_name = kcu.constraint_name
+                       AND tc.constraint_schema = kcu.constraint_schema
+                  JOIN information_schema.referential_constraints rc
+                    ON tc.constraint_name = rc.constraint_name
+                       AND tc.constraint_schema = rc.constraint_schema
+                 WHERE kcu.table_name = 'user'
+                   AND kcu.column_name = 'workspace_id'
+                   AND tc.constraint_type = 'FOREIGN KEY'
+                   AND tc.table_schema = 'public'
+                 LIMIT 1;
+
+                IF FOUND AND current_rule != 'SET NULL' THEN
+                    EXECUTE format('ALTER TABLE "user" DROP CONSTRAINT %I', cn);
+                    EXECUTE 'ALTER TABLE "user" ADD CONSTRAINT user_workspace_id_fk_set_null '
+                            'FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE SET NULL';
+                    RAISE NOTICE '[v26.5 C7 fix] user.workspace_id FK: % → SET NULL', current_rule;
+                END IF;
+            END $$;
+        """))
+
         # 3b. v26.5 C7: 给 workspace_id 列 自动 补 FK + ON DELETE CASCADE.
         #
         # 背景: 早期 ALTER TABLE ADD COLUMN 加 workspace_id 列时, init_db 的
@@ -182,6 +218,8 @@ async def init_db() -> None:
                      WHERE c.column_name = 'workspace_id'
                        AND c.table_schema = 'public'
                        AND c.table_name != 'workspace'
+                       -- user 表特殊处理:由 step 3b-pre 加 SET NULL,不走 CASCADE
+                       AND c.table_name != 'user'
                 LOOP
                     -- 已有 FK constraint?
                     SELECT EXISTS(
