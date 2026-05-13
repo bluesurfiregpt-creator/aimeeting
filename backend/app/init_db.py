@@ -153,6 +153,81 @@ async def init_db() -> None:
                 text(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {constraint}")
             )
 
+        # 3b. v26.5 C7: 给 workspace_id 列 自动 补 FK + ON DELETE CASCADE.
+        #
+        # 背景: 早期 ALTER TABLE ADD COLUMN 加 workspace_id 列时, init_db 的
+        # _COLUMN_MIGRATIONS 列表 只写了 列类型 (UUID), 没写 FK 约束.
+        # 虽然 SQLAlchemy model 定义 了 ForeignKey + ondelete CASCADE,
+        # 但 ALTER 加列 不会回填这个约束到 DB. 后果:
+        #   - 删 workspace 时, 子表行 (meeting/agent/task/...) 不会 CASCADE 删
+        #   - 产生 dangling 数据 + 应用层手工 cleanup + 合规风险 (GDPR 删除即删除)
+        # v26.4 清空时实际暴露过: 删 40 个 workspace 后 84 行孤儿 (13 meeting +
+        # 7 long_term_memory + 64 agent) 需手工 DELETE 才清掉.
+        #
+        # 本 migration idempotent + safe:
+        #   1) 找所有 含 workspace_id 列且 缺 FK 的表
+        #   2) 0 孤儿 → 自动 加 FK ON DELETE CASCADE
+        #   3) 有 孤儿 → RAISE WARNING + skip (避免 DB 加 FK 时 报错让 backend 起不来)
+        #      运维 看到 warning 后 手工 清孤儿 + 重启 backend 即自动补 FK
+        await conn.execute(text("""
+            DO $$
+            DECLARE
+                r RECORD;
+                fk_exists BOOLEAN;
+                orphan_count BIGINT;
+            BEGIN
+                FOR r IN
+                    SELECT c.table_name
+                      FROM information_schema.columns c
+                     WHERE c.column_name = 'workspace_id'
+                       AND c.table_schema = 'public'
+                       AND c.table_name != 'workspace'
+                LOOP
+                    -- 已有 FK constraint?
+                    SELECT EXISTS(
+                        SELECT 1
+                          FROM information_schema.table_constraints tc
+                          JOIN information_schema.key_column_usage kcu
+                            ON tc.constraint_name = kcu.constraint_name
+                               AND tc.constraint_schema = kcu.constraint_schema
+                         WHERE tc.table_name = r.table_name
+                           AND tc.constraint_type = 'FOREIGN KEY'
+                           AND kcu.column_name = 'workspace_id'
+                           AND tc.table_schema = 'public'
+                    ) INTO fk_exists;
+
+                    IF fk_exists THEN
+                        CONTINUE;  -- 已有 FK 跳过
+                    END IF;
+
+                    -- 检查孤儿数量
+                    EXECUTE format(
+                        'SELECT COUNT(*) FROM %I WHERE workspace_id IS NOT NULL '
+                        'AND workspace_id NOT IN (SELECT id FROM workspace)',
+                        r.table_name
+                    ) INTO orphan_count;
+
+                    IF orphan_count > 0 THEN
+                        RAISE WARNING
+                            '[v26.5 C7] 表 % 有 % 行 workspace_id 孤儿, 跳过加 FK. '
+                            '运维需手工清: DELETE FROM % WHERE workspace_id IS NOT NULL '
+                            'AND workspace_id NOT IN (SELECT id FROM workspace);',
+                            r.table_name, orphan_count, r.table_name;
+                        CONTINUE;
+                    END IF;
+
+                    -- 加 FK ON DELETE CASCADE
+                    EXECUTE format(
+                        'ALTER TABLE %I ADD CONSTRAINT %I '
+                        'FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE',
+                        r.table_name,
+                        r.table_name || '_workspace_id_fk_v26_5'
+                    );
+                    RAISE NOTICE '[v26.5 C7] 加 FK ON DELETE CASCADE → %.workspace_id', r.table_name;
+                END LOOP;
+            END $$;
+        """))
+
         # 4. seed the default workspace + backfill orphan rows
         existing_ws = (
             await conn.execute(text("SELECT id FROM workspace WHERE slug='default' LIMIT 1"))
