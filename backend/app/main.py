@@ -194,6 +194,9 @@ async def ws_stt(ws: WebSocket):
     # Reset stop_event in case this session was reused after a previous WS run.
     if sess is not None:
         sess.stop_event.clear()
+        # v26.11-fix2: 注册 到 房间 广播 列表 — 后端 给 这 meeting 广播
+        # ("agents_invited" 等) 都会 经过 ws.send_text 推到这个 socket.
+        session_state.register_client(meeting_uuid, ws)
 
     if meeting_uuid is not None:
         async with SessionLocal() as db:
@@ -401,22 +404,17 @@ async def ws_stt(ws: WebSocket):
             pass
     finally:
         await client.stop()
-        # Tell the periodic identify worker to do one final pass and exit.
-        # This also marks the meeting as `processed` and frees the buffer.
+        # v26.11-fix1: WS close 不再 自动设 finished — 这导致 用户切页/网络断
+        # 都被误判为 结束会议. 现在 仅 用户显式 call /api/meetings/{id}/finalize
+        # 时 才 设 finished. WS close 仅 触发 background final-identify pass.
         if sess is not None:
             sess.stop_event.set()
-            if worker_task is not None:
-                # Mark meeting finished while the worker wraps up.
-                try:
-                    async with SessionLocal() as db:
-                        await db.execute(
-                            update(Meeting)
-                            .where(Meeting.id == meeting_uuid)
-                            .values(status="finished", ended_at=datetime.now(timezone.utc))
-                        )
-                        await db.commit()
-                except Exception:
-                    logger.exception("failed to mark meeting finished")
+            # worker_task 会跑 final-identify 然后 自己退出 (sess.stop_event 已 set).
+            # 不再 改 meeting.status — 留给前端的 finalize endpoint 控制.
+        # v26.11-fix2: 从 房间 广播 列表 摘掉 — 不然 下一次 broadcast 会 send_text
+        # 到 死 socket 导致 异常 (虽然 broadcast 自己 会 drop, 但 显式 摘 干净 一些).
+        if meeting_uuid is not None:
+            session_state.unregister_client(meeting_uuid, ws)
         try:
             await ws.close()
         except Exception:

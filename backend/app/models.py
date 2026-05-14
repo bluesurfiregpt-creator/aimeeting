@@ -329,6 +329,16 @@ class Meeting(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    # v26.11-fix2: 会议 召集人 (创建 这个 会议 的人). 用于:
+    #   - 会议室 邀请 AI / 改 议程 的 ABAC 判定基 (创建人 + leader+ 可改)
+    #   - 老数据 (v26.11 前) 此列 NULL — 退化 为 仅 leader+ 可改.
+    # SET NULL on delete: user 被删 时 不连带 删 会议 (历史 会议 保留, 只是 失去 创建人).
+    created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     attendees: Mapped[list["MeetingAttendee"]] = relationship(back_populates="meeting", cascade="all, delete-orphan")
     transcripts: Mapped[list["MeetingTranscript"]] = relationship(back_populates="meeting", cascade="all, delete-orphan")
     speaker_segments: Mapped[list["MeetingSpeakerSegment"]] = relationship(back_populates="meeting", cascade="all, delete-orphan")

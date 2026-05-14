@@ -105,6 +105,15 @@ export type AgendaStuckEvent = {
   reason: string;
 };
 
+/** v26.11-fix2: 房间 广播 — 有人 邀请 了 新 AI 加入 本场会议.
+ *  前端 收到 后 重新 拉一次 meeting + agents, AI 画廊 立刻 出现 新头像.
+ *  跨 客户端 同步 — 自己 邀请 也会 收到 (state 一致). */
+export type AgentsInvitedEvent = {
+  type: "agents_invited";
+  agent_ids: string[];                 // 本次 真正 新增 的 (idempotent 已 去重)
+  attendee_agent_ids: string[];        // meeting 的 完整 邀请 列表 (含 本次 新增 + 旧)
+};
+
 /** Synthetic event the wrapper emits on its own (not from the wire) so
  *  the UI can show "重连中…" / "已重连" without snooping at WS state. */
 export type ReconnectEvent = {
@@ -126,6 +135,7 @@ export type SttEvent =
   | AgendaOffTopicEvent
   | AgendaTimeWarningEvent
   | AgendaStuckEvent
+  | AgentsInvitedEvent
   | ReconnectEvent;
 
 export interface SttSocket {

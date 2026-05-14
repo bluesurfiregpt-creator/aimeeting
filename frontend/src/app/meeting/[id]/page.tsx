@@ -355,6 +355,9 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   const [moderatorCountdown, setModeratorCountdown] = useState<number | null>(null);
   const moderatorCountdownIntervalRef = useRef<number | null>(null);
   const moderatorAutoFireTimeoutRef = useRef<number | null>(null);
+  // v26.11-fix2: 邀请 AI 弹窗 开关 — 点 "+ 邀请 AI" 按钮 → 打开 InviteAgentsModal
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+
   // Pool of attendees we let users pick from when manually correcting a
   // line's speaker after the meeting. Loaded after stop() because it's
   // only relevant once identification is done.
@@ -418,6 +421,24 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     }
     if (e.type === "speakers_updated") {
       void refreshSpeakers();
+      return;
+    }
+    if (e.type === "agents_invited") {
+      // v26.11-fix2: 有人 邀请 了 新 AI — 更新 meetingMeta.attendee_agent_ids
+      // 触发 AI 画廊 重渲染. 同时 拉 listAgents 兜底 (新 agent 可能 之前
+      // 没在 agents state 里, 比如 上次进会议 后 workspace 新建了 一个).
+      setMeetingMeta((prev) =>
+        prev
+          ? { ...prev, attendee_agent_ids: e.attendee_agent_ids }
+          : prev,
+      );
+      api.listAgents().then(
+        (rows) => setAgents(rows.filter((a) => a.is_active)),
+        () => {},
+      );
+      if (e.agent_ids.length > 0) {
+        toast.info(`已邀请 ${e.agent_ids.length} 位 AI 加入会议`);
+      }
       return;
     }
     if (e.type === "transcript_persisted") {
@@ -790,10 +811,58 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     }
   }, [phase, meetingId, handleEvent]);
 
+  // v26.11-fix1: 重进 ongoing 会议 时,用户 手动 点 🎙️ 恢复录音 走这里.
+  // start() 自带 idle 守卫 (不能 当 live → live 用), 所以 单独 一个 resume.
+  // 逻辑 同 start() 第二段 (开 WS + 麦克风), 但 不 setPhase (已经 live 了).
+  const resume = useCallback(async () => {
+    if (phase !== "live") return;
+    if (socketRef.current) return; // 已经 连着 — 不要 重连
+    setStatusText("请求麦克风权限...");
+    let sock: SttSocket | null = null;
+    try {
+      sock = openSttSocket({
+        url: backendWsUrl(meetingId),
+        onEvent: handleEvent,
+        onClose: () => {
+          if (phaseRef.current === "live") setStatusText("连接已断开");
+        },
+      });
+      socketRef.current = sock;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "WebSocket 启动失败";
+      setStatusText(message);
+      toast.error("WebSocket 启动失败", { detail: message });
+      return;
+    }
+    try {
+      const cap = await startAudioCapture((frame) => sock!.send(frame));
+      captureRef.current = cap;
+      setStatusText("🎙️ 录音已恢复");
+    } catch (err) {
+      console.warn("audio capture failed on resume; entering text-only mode", err);
+      const detail =
+        err instanceof MicPermissionError
+          ? err.message
+          : err instanceof Error
+          ? err.message
+          : "启动麦克风失败";
+      setStatusText("⌨️ 仅文字模式(麦克风未启用)");
+      toast.warn("麦克风未启用,可在下方文字框打字录入", {
+        detail,
+        sticky: true,
+      });
+    }
+  }, [phase, meetingId, handleEvent]);
+
   const stop = useCallback(async () => {
     setStatusText("会议已结束，正在做最后一次声纹识别…");
     setPhase("ended");
     setViewTab("minutes");  // v25.12-#2: 会议结束自动切到纪要 tab
+    // v26.11-fix1: 显式 finalize — 通知 后端 把 meeting.status 设 finished.
+    // 以前 依赖 WS close 自动 finished 是 bug (切页/网断 都会误判).
+    api.finalizeMeeting(meetingId).catch((err) => {
+      console.warn("finalizeMeeting failed", err);
+    });
     try { await captureRef.current?.stop(); } catch {}
     captureRef.current = null;
     try { socketRef.current?.close(); } catch {}
@@ -917,6 +986,31 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           setStatusText(m.status === "processed" ? "✅ 已处理" : "已结束");
           // Pre-populate transcript + speaker names so the user sees
           // historical content immediately, not a "请点开始会议" empty state.
+          api.meetingResult(meetingId).then(
+            (r) => {
+              if (!alive) return;
+              setLines(
+                r.lines.map((l) => ({
+                  kind: "user" as const,
+                  id: `s${l.id}`,
+                  text: l.text,
+                  final: true,
+                  startMs: l.start_ms,
+                  endMs: l.end_ms,
+                  speakerName: l.speaker_name,
+                  speakerUserId: l.speaker_user_id,
+                  serverLineId: l.id,
+                })),
+              );
+            },
+            () => {},
+          );
+        } else if (m.status === "ongoing") {
+          // v26.11-fix1: 重进 "ongoing" 会议时,phase 直接进 live,
+          // 拉历史 transcript 给用户看. 但 不 自动 重连 麦克风 — 用户必须
+          // 手动点 "🎙️ 恢复录音" (避免 静默 把 麦克风 打开).
+          setPhase("live");
+          setStatusText("会议进行中,点击 🎙️ 恢复录音 继续");
           api.meetingResult(meetingId).then(
             (r) => {
               if (!alive) return;
@@ -1200,6 +1294,16 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         >
           ▶ 开始会议
         </button>
+        {/* v26.11-fix1: phase=live 但 WS 没连 (重进 ongoing 会议) → 显示 🎙️ 恢复录音.
+            走 resume() — 单独 一个 callback, 不走 start() 的 idle 守卫. */}
+        {phase === "live" && !socketRef.current && (
+          <button
+            onClick={resume}
+            className="shrink-0 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white shadow hover:bg-emerald-400 transition"
+          >
+            🎙️ 恢复录音
+          </button>
+        )}
         <button
           onClick={stop}
           disabled={phase !== "live"}
@@ -1218,9 +1322,22 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
             phase={phase}
             busyAgents={busyAgents}
             onInvoke={invokeAgent}
+            onInviteClick={() => setInviteModalOpen(true)}
           />
         </div>
       </header>
+
+      {/* v26.11-fix2: 邀请 AI 弹窗 — 多选 workspace 内 未邀请 的 AI →
+          调 inviteMeetingAgents → 后端 写 MeetingAttendee + 广播.
+          自己 也会 收到 agents_invited event → 关掉 modal + 刷 gallery. */}
+      {inviteModalOpen && (
+        <InviteAgentsModal
+          meetingId={meetingId}
+          allAgents={agents}
+          invitedAgentIds={meetingMeta?.attendee_agent_ids || []}
+          onClose={() => setInviteModalOpen(false)}
+        />
+      )}
 
       {/* v26.3-07f auto 会议 顶部 banner: 标识 + 跳 orchestrate + 分歧待裁决.
           v26.3-07-fix1: pending 时 banner 整体变 violet,pill 本身可点击直接跳裁决面板. */}
@@ -2018,30 +2135,203 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   );
 }
 
+// v26.11-fix2: 邀请 AI 弹窗 — 多选 workspace 内 未邀请 的 AI, 调
+// inviteMeetingAgents 后端 写 MeetingAttendee + 广播.
+// 收到 后 自己 也会 走 agents_invited event handler (统一 reducer, 不 重复 setState).
+function InviteAgentsModal({
+  meetingId,
+  allAgents,
+  invitedAgentIds,
+  onClose,
+}: {
+  meetingId: string;
+  allAgents: Agent[];
+  invitedAgentIds: string[];
+  onClose: () => void;
+}) {
+  const invitedSet = new Set(invitedAgentIds);
+  const candidates = allAgents.filter(
+    (a) => a.is_active && !invitedSet.has(a.id) && a.role !== "moderator",
+  );
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [submitting, setSubmitting] = useState(false);
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const submit = async () => {
+    if (selected.size === 0) {
+      onClose();
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const r = await api.inviteMeetingAgents(meetingId, Array.from(selected));
+      if (r.added.length > 0) {
+        toast.success(`已邀请 ${r.added.length} 位 AI 加入会议`);
+      }
+      if (r.invalid.length > 0) {
+        toast.warn(`${r.invalid.length} 位 AI 邀请失败 (workspace 不匹配或未激活)`);
+      }
+      onClose();
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      toast.error("邀请失败", { detail });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-2xl border border-ink-700 bg-ink-900 p-5 shadow-2xl"
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-zinc-100">
+            邀请 AI 加入本场会议
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-xs text-zinc-500 hover:text-zinc-300"
+          >
+            ✕
+          </button>
+        </div>
+        {candidates.length === 0 ? (
+          <div className="rounded-lg border border-ink-800 bg-ink-950 px-4 py-6 text-center text-xs text-zinc-500">
+            该 workspace 没有 可邀请 的 AI 专家
+            <br />
+            (全部 已在 会议中, 或 未激活)
+          </div>
+        ) : (
+          <div className="scrollbar-thin max-h-72 overflow-y-auto">
+            <ul className="space-y-1.5">
+              {candidates.map((a) => {
+                const on = selected.has(a.id);
+                const color = tailwindColor(a.color ?? "violet");
+                return (
+                  <li key={a.id}>
+                    <button
+                      type="button"
+                      onClick={() => toggle(a.id)}
+                      className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition ${
+                        on
+                          ? "border-accent-500 bg-accent-500/10"
+                          : "border-ink-800 bg-ink-950 hover:border-ink-700"
+                      }`}
+                    >
+                      <div
+                        className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-sm font-semibold text-white"
+                        style={{
+                          background: a.avatar_url
+                            ? undefined
+                            : color,
+                          boxShadow: `0 0 0 1.5px ${color}40`,
+                        }}
+                      >
+                        {a.avatar_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={a.avatar_url}
+                            alt={a.name}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          a.name.slice(0, 1)
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-xs font-medium text-zinc-100">
+                          {a.name}
+                        </div>
+                        {a.domain && (
+                          <div className="truncate text-[10px] text-zinc-500">
+                            {a.domain}
+                          </div>
+                        )}
+                      </div>
+                      <span
+                        className={`grid h-4 w-4 place-items-center rounded border ${
+                          on
+                            ? "border-accent-500 bg-accent-500 text-[10px] text-white"
+                            : "border-ink-700"
+                        }`}
+                      >
+                        {on ? "✓" : ""}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+        <div className="mt-4 flex items-center justify-between gap-2">
+          <span className="text-[11px] text-zinc-500">
+            已选 {selected.size} / {candidates.length}
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              disabled={submitting}
+              className="rounded-lg border border-ink-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-ink-800 disabled:opacity-50"
+            >
+              取消
+            </button>
+            <button
+              onClick={submit}
+              disabled={submitting || selected.size === 0}
+              className="rounded-lg bg-accent-500 px-3 py-1.5 text-xs font-medium text-white shadow hover:bg-accent-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitting ? "邀请中…" : "确认邀请"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // v26.10-Room Phase 1.2: AI 专家画廊 — 200x200 大头像 + 名字 上下结构 + 横向滚动
 // 占据中栏顶部 红框区域 (会议元信息 右侧 大片空白).
+// v26.11-fix2: "+管理" → "+邀请 AI" — 不再 跳 admin, 而是 弹 InviteAgentsModal,
+// 直接 给 当前 会议 加 AI (写 MeetingAttendee + WS 广播).
 function MeetingAgentGallery({
   invitedAgents,
   phase,
   busyAgents,
   onInvoke,
+  onInviteClick,
 }: {
   invitedAgents: Agent[];
   phase: "idle" | "live" | "ended";
   busyAgents: Set<string>;
   onInvoke: (a: Agent) => void;
+  onInviteClick: () => void;
 }) {
   // v26.10-Room P5.5: 紧凑空状态 (inline, 不再撑高)
   if (invitedAgents.length === 0) {
     return (
       <div className="flex items-center gap-2 text-[11px] text-zinc-500">
         <span>🤖 未邀请 AI 专家</span>
-        <Link
-          href="/me/profile/agents"
+        <button
+          type="button"
+          onClick={onInviteClick}
           className="text-accent-400 hover:text-accent-500"
         >
-          + 管理
-        </Link>
+          + 邀请 AI
+        </button>
       </div>
     );
   }
@@ -2135,13 +2425,14 @@ function MeetingAgentGallery({
             </button>
           );
         })}
-        <Link
-          href="/me/profile/agents"
+        <button
+          type="button"
+          onClick={onInviteClick}
           className="grid shrink-0 place-items-center self-stretch rounded-lg border border-dashed border-ink-700 px-2 text-[10px] text-zinc-500 hover:border-accent-500/50 hover:text-accent-400"
-          title="管理 AI 专家"
+          title="邀请 AI 加入本场会议"
         >
-          <span>+ 管理</span>
-        </Link>
+          <span>+ 邀请 AI</span>
+        </button>
       </div>
     </div>
   );

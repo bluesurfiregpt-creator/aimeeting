@@ -1289,6 +1289,17 @@ export const api = {
   getMeeting: (id: string) => jget<Meeting>(`/api/meetings/${id}`),
   finalizeMeeting: (id: string) => jpost<Meeting>(`/api/meetings/${id}/finalize`, {}),
   meetingResult: (id: string) => jget<MeetingResult>(`/api/meetings/${id}/result`),
+  // v26.11-fix2: 会议室 邀请 新 AI 加入 会议
+  inviteMeetingAgents: (
+    id: string,
+    agent_ids: string[],
+  ) =>
+    jpost<{
+      added: string[];
+      already_invited: string[];
+      invalid: string[];
+      attendee_agent_ids: string[];
+    }>(`/api/meetings/${id}/agents`, { agent_ids }),
 
   // v26.3-03: agent messages + consensus
   listMeetingConsensus: (meetingId: string) =>

@@ -126,6 +126,9 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     # v26.9-Avatar: AI 专家"数字员工"形象 — 静态全身像 + 动图全身像
     ("agent", "full_body_url", "VARCHAR(512)"),
     ("agent", "full_body_animated_url", "VARCHAR(512)"),
+    # v26.11-fix2: 会议 创建人 — 邀请 AI / 关掉 会议 等 房间级别 操作 的 ABAC 判定基.
+    # NULL 老数据 (v26.11 前 创建的会议) — ABAC 退化为 仅 leader+ 可改.
+    ("meeting", "created_by_user_id", "UUID"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

@@ -8,6 +8,15 @@ import NotificationBell from "./NotificationBell";
 
 const PUBLIC_PATHS = new Set(["/login", "/register"]);
 
+// v26.11-fix3: 会议室 (/meeting/<id>) 是 二级页面, 已经 有 自己 的 顶部 chrome
+// (MeetingRoomTopBar — 标题/状态/计时/退出会议). 全局 顶栏 (⚡超管 / 🔔通知 /
+// workspace / 退出) 在 会议室 里 是 多余 的, 会 抢 焦点 + 占空间. 隐藏掉.
+function isMeetingRoomPath(pathname: string | null): boolean {
+  if (!pathname) return false;
+  // 匹配 /meeting/<id> 或 /meeting/<id>/<anything>
+  return /^\/meeting\/[^/]+/.test(pathname);
+}
+
 /**
  * v26.5-WS: 顶栏极简化到 4 项 — [⚡超管 | 🔔通知 | 👤名字 | 退出].
  * 之前的 ⚙️ 后台 / 📊 看板 / 📨 上报 / ✏️ 指令 / 📬 消息 全部移到 工作站
@@ -26,7 +35,7 @@ export default function AuthHeader() {
 
   useEffect(() => {
     let alive = true;
-    if (PUBLIC_PATHS.has(pathname || "")) {
+    if (PUBLIC_PATHS.has(pathname || "") || isMeetingRoomPath(pathname)) {
       setLoading(false);
       return;
     }
@@ -58,7 +67,7 @@ export default function AuthHeader() {
     }
   }, [router]);
 
-  if (loading || PUBLIC_PATHS.has(pathname || "")) return null;
+  if (loading || PUBLIC_PATHS.has(pathname || "") || isMeetingRoomPath(pathname)) return null;
 
   // v26.5-P0-fix3: me 拿不到 (eg cookie 还在 但 workspace 已删 / 死会话) 时,
   // 给个最小退出 UI 让用户至少能登出, 不被一堆 toast 卡死无路可走.

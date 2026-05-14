@@ -17,11 +17,17 @@ from .. import session_state
 from ..agenda_monitor import maybe_check_agenda
 from ..agent_router import maybe_invoke_agents
 from ..audit import audit_log
-from ..auth import AuthContext, get_current_auth, require_leader_or_admin
+from ..auth import (
+    AuthContext,
+    get_current_auth,
+    is_leader_or_admin,
+    require_leader_or_admin,
+)
 from ..db import get_session
 from ..dissent_detector import maybe_detect_dissent
 from ..identify_pipeline import run_identify
 from ..models import (
+    Agent,
     Meeting,
     MeetingActionItem,
     MeetingActionItemComment,
@@ -122,6 +128,8 @@ async def create_meeting(
             if payload.agenda
             else None
         ),
+        # v26.11-fix2: 记录 召集人 — 邀请 AI / 改 议程 走 ABAC 时 要 它.
+        created_by_user_id=auth.user.id,
     )
     session.add(m)
     await session.flush()
@@ -542,6 +550,142 @@ async def finalize_meeting(
     user_ids = [r.user_id for r in rows if r.user_id is not None]
     agent_ids = [r.agent_id for r in rows if r.agent_id is not None]
     return _to_meeting_out(m, user_ids, agent_ids)
+
+
+# v26.11-fix2: 会议进行中 邀请 新 AI 加入 ——
+# 前端 会议室 AI 画廊 "+ 邀请 AI" → 调 本 endpoint → 写 MeetingAttendee +
+# 广播 给 房间 所有 WS 客户端 (含 自己 — 触发 重新拉取 attendee_agent_ids).
+# 加入后 立刻 生效:agent_router._agents_for_meeting() 读 MeetingAttendee
+# 表, 关键词触发 / 手动 invoke / orchestrator auto-invoke 全 通.
+class InviteAgentsIn(BaseModel):
+    agent_ids: list[uuid.UUID]
+
+
+class InviteAgentsOut(BaseModel):
+    added: list[uuid.UUID]           # 本次 真正 新增 的
+    already_invited: list[uuid.UUID]  # 之前 就在 (idempotent skip)
+    invalid: list[uuid.UUID]          # workspace/active 校验 fail 的
+    attendee_agent_ids: list[uuid.UUID]  # 当前 meeting 的 完整 邀请列表
+
+
+@router.post("/{meeting_id}/agents", response_model=InviteAgentsOut)
+async def invite_meeting_agents(
+    meeting_id: str,
+    payload: InviteAgentsIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.11-fix2: 会议进行中 邀请 新 AI 加入 会议.
+
+    ABAC:
+      - workspace owner/admin/leader → 总是 可
+      - 会议 created_by_user_id == caller → 创建人 可
+      - 其他 → 403 (member 没权 拉 AI 进来 — 这是 房间级别 决策)
+
+    幂等:
+      - 已在 attendee 列表 的 agent → already_invited, 不 重复 插.
+      - workspace 不匹配 / is_active=false 的 agent → invalid, skip.
+
+    成功后 → 给 房间 WS 客户端 广播 {"type":"agents_invited", "agent_ids":[...]},
+    前端 收到 立刻 拉 一次 /agents (popoulate 头像 + 名字) + 更新 attendee_agent_ids.
+    """
+    m = await _load_owned_meeting(meeting_id, session, auth)
+
+    # ABAC: leader+ OR 创建人 (NULL created_by_user_id 的 老数据 退化为 仅 leader+)
+    if not await is_leader_or_admin(session, auth):
+        if m.created_by_user_id is None or m.created_by_user_id != auth.user.id:
+            raise HTTPException(
+                403, "[权限不足] 仅 会议创建人 + leader / admin / owner 可邀请 AI"
+            )
+
+    if not payload.agent_ids:
+        # 当前 已邀请的 列表 — 同样 给前端 回 一份 当前态.
+        existing = (
+            await session.execute(
+                select(MeetingAttendee.agent_id).where(
+                    MeetingAttendee.meeting_id == m.id,
+                    MeetingAttendee.agent_id.is_not(None),
+                )
+            )
+        ).all()
+        return InviteAgentsOut(
+            added=[],
+            already_invited=[],
+            invalid=[],
+            attendee_agent_ids=[r[0] for r in existing],
+        )
+
+    # 已邀请 (用于 幂等 跳过)
+    invited_now = {
+        r[0]
+        for r in (
+            await session.execute(
+                select(MeetingAttendee.agent_id).where(
+                    MeetingAttendee.meeting_id == m.id,
+                    MeetingAttendee.agent_id.is_not(None),
+                )
+            )
+        ).all()
+    }
+
+    # workspace + active 校验
+    valid_ids: set[uuid.UUID] = {
+        r[0]
+        for r in (
+            await session.execute(
+                select(Agent.id).where(
+                    Agent.id.in_(payload.agent_ids),
+                    Agent.workspace_id == auth.workspace.id,
+                    Agent.is_active.is_(True),
+                )
+            )
+        ).all()
+    }
+
+    added: list[uuid.UUID] = []
+    already: list[uuid.UUID] = []
+    invalid: list[uuid.UUID] = []
+    for aid in payload.agent_ids:
+        if aid not in valid_ids:
+            invalid.append(aid)
+            continue
+        if aid in invited_now:
+            already.append(aid)
+            continue
+        session.add(MeetingAttendee(meeting_id=m.id, agent_id=aid))
+        added.append(aid)
+        invited_now.add(aid)
+
+    if added:
+        await session.commit()
+        await audit_log(
+            session, auth, "meeting.invite_agents",
+            target_type="meeting", target_id=str(m.id),
+            payload={
+                "added": [str(x) for x in added],
+                "already": [str(x) for x in already],
+                "invalid": [str(x) for x in invalid],
+            },
+        )
+        # 广播 给 房间 — 所有 WS 客户端 收到 后 重新拉 meeting + agents.
+        try:
+            await session_state.broadcast(
+                m.id,
+                {
+                    "type": "agents_invited",
+                    "agent_ids": [str(x) for x in added],
+                    "attendee_agent_ids": [str(x) for x in invited_now],
+                },
+            )
+        except Exception:
+            logger.exception("broadcast agents_invited failed (non-fatal)")
+
+    return InviteAgentsOut(
+        added=added,
+        already_invited=already,
+        invalid=invalid,
+        attendee_agent_ids=list(invited_now),
+    )
 
 
 _STATUS_RE = re.compile(r"<!-- identify:(\w+): (.*?) -->")
