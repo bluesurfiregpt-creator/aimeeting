@@ -63,15 +63,21 @@ _rate: dict[uuid.UUID, _RateState] = {}
 
 
 def _detect_at_mention(text: str, agents: list[Agent]) -> Optional[Agent]:
-    """Return the first agent whose name appears as @<name> in `text`."""
+    """Return the first agent whose name OR nickname appears as @<...> in `text`.
+
+    v26.12-Home: 同时 接受 @name 和 @nickname (拟人外号).
+    e.g. agent.name="数据分析报告师", agent.nickname="数妙妙" → @数妙妙 也 触发.
+    nickname 优先 (更短 / 更易 typed), name 兜底.
+    """
     for ag in agents:
-        if not ag.name:
-            continue
         # Tolerate Chinese full-width @ and a few common typo forms.
-        # The agent name may contain spaces; match exactly.
-        pattern = re.compile(rf"[@＠]\s*{re.escape(ag.name)}", re.IGNORECASE)
-        if pattern.search(text):
-            return ag
+        # 先 试 nickname (拟人外号), 再 试 name (职务身份).
+        for candidate in (ag.nickname, ag.name):
+            if not candidate or not candidate.strip():
+                continue
+            pattern = re.compile(rf"[@＠]\s*{re.escape(candidate)}", re.IGNORECASE)
+            if pattern.search(text):
+                return ag
     return None
 
 
@@ -142,6 +148,14 @@ def _compose_system_prompt(
     that the agent must prefer over its own prior."""
     parts = [DEFAULT_MEETING_EXPERT_PROMPT, ""]
     parts.append(f"你的角色: {agent.name}")
+    # v26.12-Home: 让 LLM 知道 自己 还 有 一个 拟人 外号 ——
+    # 用户 在 会议 中 可能 喊 "数妙妙" 也 可能 喊 "数据分析报告师", LLM 都 应 知 是 在 叫 自己.
+    if agent.nickname and agent.nickname.strip():
+        parts.append(
+            f"你的拟人外号: {agent.nickname.strip()} "
+            f"(用户 也可能 直接 用 这个 名字 叫 你, 都是 在 跟 你 说话; "
+            f"严肃 场景 / 正式回答 仍 自报 \"{agent.name}\", 轻松 场景 可 自报 \"{agent.nickname.strip()}\")"
+        )
     if agent.domain:
         parts.append(f"领域: {agent.domain}")
     if agent.persona:
@@ -200,6 +214,8 @@ async def _call_dify_and_stream(
             "type": "agent_message_start",
             "agent_id": str(agent.id),
             "agent_name": agent.name,
+            # v26.12-Home: nickname 可空; 前端 拿到 后 拟人 主 + 职务 副 渲染 bubble.
+            "agent_nickname": agent.nickname,
             "agent_color": agent.color or "violet",
         }
     )
@@ -452,6 +468,8 @@ async def _suggest_next_speaker(
                 "type": "agent_recommendation",
                 "agent_id": str(rec.agent_id),
                 "agent_name": rec.agent_name,
+                # v26.12-Home: 前端 banner 优先 显 nickname (拟人感)
+                "agent_nickname": rec.agent_nickname,
                 "agent_color": rec.agent_color,
                 "reason": rec.reason,
             }

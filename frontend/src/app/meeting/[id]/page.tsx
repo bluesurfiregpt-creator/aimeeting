@@ -43,6 +43,8 @@ type LiveLine =
       id: string;
       agentId: string;
       agentName: string;
+      /** v26.12-Home: 拟人外号 (可空). bubble 渲染 时 nickname 主 + name 副. */
+      agentNickname: string | null;
       agentColor: string;
       text: string;
       done: boolean;
@@ -318,6 +320,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   const [recommendation, setRecommendation] = useState<{
     agent_id: string;
     agent_name: string;
+    agent_nickname?: string | null;  // v26.12-Home: banner 优先 显 nickname
     agent_color: string;
     reason: string;
   } | null>(null);
@@ -329,6 +332,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     parties: string[];
     agent_id: string;
     agent_name: string;
+    agent_nickname?: string | null;  // v26.12-Home
     agent_color: string;
     reason: string;
   } | null>(null);
@@ -344,6 +348,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     body: string;
     agent_id: string;
     agent_name: string;
+    agent_nickname?: string | null;  // v26.12-Home
     agent_color: string;
     invoke_query: string;
     auto_summon_at_ms: number | null;
@@ -461,6 +466,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       setRecommendation({
         agent_id: e.agent_id,
         agent_name: e.agent_name,
+        agent_nickname: e.agent_nickname ?? null,  // v26.12-Home
         agent_color: e.agent_color,
         reason: e.reason,
       });
@@ -479,6 +485,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         parties: e.parties,
         agent_id: e.suggested_agent_id,
         agent_name: e.suggested_agent_name,
+        agent_nickname: e.suggested_agent_nickname ?? null,  // v26.12-Home
         agent_color: e.suggested_agent_color,
         reason: e.reason,
       });
@@ -510,6 +517,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           body: e.off_topic_summary || e.reason,
           agent_id: e.moderator_agent_id,
           agent_name: e.moderator_agent_name,
+          agent_nickname: e.moderator_agent_nickname ?? null,  // v26.12-Home
           agent_color: e.moderator_agent_color,
           invoke_query: `请你作为主持人,简短提醒大家回到议程项「${
             e.suggested_agenda_item ?? e.current_agenda_item ?? "原议题"
@@ -523,6 +531,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           body: e.time_warning_text || `已开会 ${e.elapsed_min} 分钟,${e.reason}`,
           agent_id: e.moderator_agent_id,
           agent_name: e.moderator_agent_name,
+          agent_nickname: e.moderator_agent_nickname ?? null,  // v26.12-Home
           agent_color: e.moderator_agent_color,
           invoke_query:
             "请你作为主持人,提醒大家时间快到了,需要尽快推进或锁定结论。",
@@ -538,6 +547,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           body: e.stuck_summary || e.reason,
           agent_id: e.moderator_agent_id,
           agent_name: e.moderator_agent_name,
+          agent_nickname: e.moderator_agent_nickname ?? null,  // v26.12-Home
           agent_color: e.moderator_agent_color,
           invoke_query:
             "请你作为主持人,综合双方观点,给出一个折中方案或推进建议,帮我们破局。",
@@ -577,6 +587,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           id: `a${nextIdRef.current++}`,
           agentId: e.agent_id,
           agentName: e.agent_name,
+          // v26.12-Home: 后端 push agent_nickname; 没传 fallback null
+          agentNickname: e.agent_nickname ?? null,
           agentColor: e.agent_color,
           text: "",
           done: false,
@@ -1754,7 +1766,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                 className="mx-1 font-medium"
                 style={{ color: tailwindColor(recommendation.agent_color) }}
               >
-                {recommendation.agent_name}
+                {/* v26.12-Home: nickname 优先, fallback name */}
+                {recommendation.agent_nickname?.trim() || recommendation.agent_name}
               </span>
               发言 — <span className="text-zinc-400">{recommendation.reason}</span>
             </span>
@@ -1765,7 +1778,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
               disabled={busyAgents.has(recommendation.agent_id)}
               className="rounded-lg bg-accent-500 px-3 py-1 text-xs font-medium text-white shadow disabled:opacity-50 hover:bg-accent-400 transition"
             >
-              请{recommendation.agent_name}发言
+              请{recommendation.agent_nickname?.trim() || recommendation.agent_name}发言
             </button>
             <button
               onClick={dismissRecommendation}
@@ -1801,7 +1814,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
               className="rounded-lg px-3 py-1 text-xs font-medium text-white shadow transition disabled:opacity-50"
               style={{ backgroundColor: tailwindColor(dissent.agent_color) }}
             >
-              召唤{dissent.agent_name}
+              {/* v26.12-Home: nickname 优先 */}
+              召唤{dissent.agent_nickname?.trim() || dissent.agent_name}
             </button>
             <button
               onClick={dismissDissent}
@@ -1873,7 +1887,10 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                   : { backgroundColor: tailwindColor(moderator.agent_color) }
               }
             >
-              {moderator.kind === "stuck" ? "立刻召唤" : `召唤${moderator.agent_name}`}
+              {/* v26.12-Home: nickname 优先 */}
+              {moderator.kind === "stuck"
+                ? "立刻召唤"
+                : `召唤${moderator.agent_nickname?.trim() || moderator.agent_name}`}
             </button>
             <button
               data-testid="moderator-dismiss"
@@ -2220,6 +2237,8 @@ function InviteAgentsModal({
               {candidates.map((a) => {
                 const on = selected.has(a.id);
                 const color = tailwindColor(a.color ?? "violet");
+                // v26.12-Home: 邀请 modal 也 nickname 优先 (跟 首页 卡片 一致)
+                const dn = a.nickname?.trim() || a.name;
                 return (
                   <li key={a.id}>
                     <button
@@ -2244,16 +2263,21 @@ function InviteAgentsModal({
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
                             src={a.avatar_url}
-                            alt={a.name}
+                            alt={dn}
                             className="h-full w-full object-cover"
                           />
                         ) : (
-                          a.name.slice(0, 1)
+                          dn.slice(0, 1)
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-xs font-medium text-zinc-100">
-                          {a.name}
+                          {dn}
+                          {a.nickname?.trim() && (
+                            <span className="ml-1 text-[10px] text-zinc-500">
+                              ｜ {a.name}
+                            </span>
+                          )}
                         </div>
                         {a.domain && (
                           <div className="truncate text-[10px] text-zinc-500">
@@ -2346,6 +2370,8 @@ function MeetingAgentGallery({
           const busy = busyAgents.has(a.id);
           const enabled = phase === "live" && !busy;
           const color = tailwindColor(a.color ?? "violet");
+          // v26.12-Home: nickname 优先 显示 (有的话). title hover 仍 显 完整 name (职务) — 让用户 一眼 知 谁
+          const displayName = a.nickname?.trim() || a.name;
           return (
             <button
               key={a.id}
@@ -2354,10 +2380,10 @@ function MeetingAgentGallery({
               disabled={!enabled}
               title={
                 phase !== "live"
-                  ? `开始会议后, 点头像让「${a.name}」基于讨论发言`
+                  ? `开始会议后, 点头像让「${displayName}」基于讨论发言`
                   : busy
-                  ? `${a.name} 正在发言…`
-                  : `点击让「${a.name}」基于讨论发言`
+                  ? `${displayName} 正在发言…`
+                  : `点击让「${displayName}」基于讨论发言`
               }
               className={`group flex shrink-0 flex-col items-center gap-1 rounded-lg border p-1.5 transition ${
                 enabled
@@ -2383,7 +2409,7 @@ function MeetingAgentGallery({
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={a.avatar_url}
-                    alt={a.name}
+                    alt={displayName}
                     width={50}
                     height={50}
                     className="h-full w-full object-cover transition group-hover:scale-105"
@@ -2393,7 +2419,7 @@ function MeetingAgentGallery({
                     className="grid h-full w-full place-items-center text-base font-semibold text-white"
                     style={{ backgroundColor: color }}
                   >
-                    {a.name.slice(0, 1)}
+                    {displayName.slice(0, 1)}
                   </div>
                 )}
                 {/* 思考/发言中 — 右下角 pulse 圆点 */}
@@ -2406,16 +2432,20 @@ function MeetingAgentGallery({
                   </div>
                 )}
               </div>
-              {/* 名字 + 领域 */}
+              {/* 名字 + 领域 — v26.12-Home: nickname 主, name 副 (有 nickname 才显 副); 没 nickname 仅 显 name */}
               <div className="text-center" style={{ maxWidth: 80 }}>
                 <div className="truncate text-[11px] font-medium text-zinc-100">
-                  {a.name}
+                  {displayName}
                 </div>
-                {a.domain && !busy && (
+                {!busy && a.nickname?.trim() ? (
+                  <div className="truncate text-[9px] text-zinc-500" title={a.name}>
+                    {a.name}
+                  </div>
+                ) : !busy && a.domain ? (
                   <div className="truncate text-[9px] text-zinc-500">
                     {a.domain}
                   </div>
-                )}
+                ) : null}
                 {busy && (
                   <div className="text-[9px] text-emerald-300">
                     💬 发言中
@@ -2611,19 +2641,30 @@ function AgentMessageItem({
                 className="grid h-10 w-10 place-items-center rounded-full text-sm font-semibold text-white"
                 style={{ backgroundColor: color }}
               >
-                {l.agentName.slice(0, 1)}
+                {(l.agentNickname?.trim() || l.agentName).slice(0, 1)}
               </span>
             )}
             <span className="flex flex-col">
-              <span
-                className="text-sm font-semibold"
-                style={{ color }}
-              >
-                {l.agentName}
-              </span>
-              <span className="text-[10px] text-zinc-500">
-                {l.done ? "已发言" : "正在发言…"}
-              </span>
+              {/* v26.12-Home: nickname 主 + name 副 (有 nickname 时); 没 nickname 仅 显 name */}
+              {l.agentNickname?.trim() ? (
+                <>
+                  <span className="text-sm font-semibold" style={{ color }}>
+                    {l.agentNickname.trim()}
+                  </span>
+                  <span className="text-[10px] text-zinc-500">
+                    {l.agentName} · {l.done ? "已发言" : "正在发言…"}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-sm font-semibold" style={{ color }}>
+                    {l.agentName}
+                  </span>
+                  <span className="text-[10px] text-zinc-500">
+                    {l.done ? "已发言" : "正在发言…"}
+                  </span>
+                </>
+              )}
             </span>
           </span>
           {!l.done && (
@@ -2683,7 +2724,17 @@ function AgentMessageItem({
           ) : (
             <span className="text-sm" aria-hidden>🤖</span>
           )}
-          <span>{l.agentName}</span>
+          {/* v26.12-Home: nickname 主 + name 副 (uppercase 风格 副 用 zinc-500 灰色) */}
+          {l.agentNickname?.trim() ? (
+            <span>
+              {l.agentNickname.trim()}
+              <span className="ml-1 text-zinc-500 normal-case tracking-normal">
+                ｜ {l.agentName}
+              </span>
+            </span>
+          ) : (
+            <span>{l.agentName}</span>
+          )}
         </span>
       </div>
       <div className="text-zinc-200 whitespace-pre-wrap line-clamp-3">
@@ -2734,6 +2785,7 @@ function MeetingRoomRightPanel({
     body: string;
     agent_id: string;
     agent_name: string;
+    agent_nickname?: string | null;  // v26.12-Home
     agent_color: string;
     invoke_query: string;
     auto_summon_at_ms: number | null;
@@ -2741,6 +2793,7 @@ function MeetingRoomRightPanel({
   recommendation: {
     agent_id: string;
     agent_name: string;
+    agent_nickname?: string | null;  // v26.12-Home
     agent_color: string;
     reason: string;
   } | null;
@@ -2749,6 +2802,7 @@ function MeetingRoomRightPanel({
     parties: string[];
     agent_id: string;
     agent_name: string;
+    agent_nickname?: string | null;  // v26.12-Home
     agent_color: string;
     reason: string;
   } | null;
@@ -2836,21 +2890,24 @@ function MeetingRoomRightPanel({
         />
       )}
 
-      {/* AI 建议 */}
-      {phase === "live" && recommendation && (
-        <ReminderCard
-          icon="💡"
-          tone="violet"
-          title={`建议召唤 ${recommendation.agent_name}`}
-          body={recommendation.reason}
-          onDismiss={onDismissRecommendation}
-          actionLabel={`召唤 ${recommendation.agent_name} →`}
-          onAction={() => {
-            onInvokeAgent(recommendation.agent_id);
-            onDismissRecommendation();
-          }}
-        />
-      )}
+      {/* AI 建议 — v26.12-Home: nickname 优先 */}
+      {phase === "live" && recommendation && (() => {
+        const recName = recommendation.agent_nickname?.trim() || recommendation.agent_name;
+        return (
+          <ReminderCard
+            icon="💡"
+            tone="violet"
+            title={`建议召唤 ${recName}`}
+            body={recommendation.reason}
+            onDismiss={onDismissRecommendation}
+            actionLabel={`召唤 ${recName} →`}
+            onAction={() => {
+              onInvokeAgent(recommendation.agent_id);
+              onDismissRecommendation();
+            }}
+          />
+        );
+      })()}
 
       {/* v26.10-Room P5.4: 议程 timeline 进度条 (timeline + 进度条 + 时间预算) */}
       {agenda && agenda.length > 0 && (

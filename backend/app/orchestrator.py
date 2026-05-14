@@ -46,6 +46,8 @@ class Recommendation:
     agent_name: str
     agent_color: str
     reason: str
+    # v26.12-Home: 拟人外号 (可空). 前端 banner 优先 显 nickname.
+    agent_nickname: str | None = None
 
 
 _SYSTEM_PROMPT = """你是会议主持人。一位 AI 专家刚发言完毕,现在需要你**判断**接下来由哪位 AI 专家接着说最合适。
@@ -172,6 +174,7 @@ async def recommend_next_speaker(
     return Recommendation(
         agent_id=target.id,
         agent_name=target.name,
+        agent_nickname=target.nickname,  # v26.12-Home
         agent_color=target.color or "violet",
         reason=reason,
     )

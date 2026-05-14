@@ -244,6 +244,8 @@ async def maybe_check_agenda(
     payload: dict = {
         "moderator_agent_id": str(moderator.id),
         "moderator_agent_name": moderator.name,
+        # v26.12-Home: 前端 banner 优先 显 nickname (拟人感)
+        "moderator_agent_nickname": moderator.nickname,
         "moderator_agent_color": moderator.color or "amber",
         "reason": reason or "议程进度需要关注",
     }

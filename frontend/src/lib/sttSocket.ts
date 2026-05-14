@@ -26,6 +26,8 @@ export type AgentMessageStartEvent = {
   type: "agent_message_start";
   agent_id: string;
   agent_name: string;
+  /** v26.12-Home: 拟人 外号 (可空). 前端 bubble: nickname 主 + name 副 (有的话) */
+  agent_nickname?: string | null;
   agent_color: string;
 };
 
@@ -54,6 +56,8 @@ export type AgentRecommendationEvent = {
   type: "agent_recommendation";
   agent_id: string;
   agent_name: string;
+  /** v26.12-Home: 拟人外号 (可空), 前端 banner 优先 显 nickname */
+  agent_nickname?: string | null;
   agent_color: string;
   reason: string;
 };
@@ -64,6 +68,8 @@ export type DissentDetectedEvent = {
   parties: string[];
   suggested_agent_id: string;
   suggested_agent_name: string;
+  /** v26.12-Home: 拟人外号 (可空) */
+  suggested_agent_nickname?: string | null;
   suggested_agent_color: string;
   reason: string;
 };
@@ -76,6 +82,8 @@ export type AgendaOffTopicEvent = {
   suggested_agenda_item: string | null;
   moderator_agent_id: string;
   moderator_agent_name: string;
+  /** v26.12-Home: 主持人 AI 拟人外号 (可空) */
+  moderator_agent_nickname?: string | null;
   moderator_agent_color: string;
   reason: string;
 };
@@ -87,6 +95,7 @@ export type AgendaTimeWarningEvent = {
   elapsed_min: number;
   moderator_agent_id: string;
   moderator_agent_name: string;
+  moderator_agent_nickname?: string | null;  // v26.12-Home
   moderator_agent_color: string;
   reason: string;
 };
@@ -101,6 +110,7 @@ export type AgendaStuckEvent = {
   auto_summon_after_s: number;
   moderator_agent_id: string;
   moderator_agent_name: string;
+  moderator_agent_nickname?: string | null;  // v26.12-Home
   moderator_agent_color: string;
   reason: string;
 };

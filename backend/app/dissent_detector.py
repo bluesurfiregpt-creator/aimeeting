@@ -257,6 +257,8 @@ async def maybe_detect_dissent(
         "parties": [str(p)[:32] for p in parties[:4]],
         "suggested_agent_id": str(chosen.id),
         "suggested_agent_name": chosen.name,
+        # v26.12-Home: 前端 banner 优先 显 nickname (拟人感)
+        "suggested_agent_nickname": chosen.nickname,
         "suggested_agent_color": chosen.color or "rose",
         "reason": reason[:80],
     }
