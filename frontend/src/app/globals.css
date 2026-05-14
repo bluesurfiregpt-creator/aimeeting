@@ -38,6 +38,24 @@ html, body {
   50% { transform: scale(1.05); opacity: 1; }
 }
 
+/* v26.10-Room P5.3: AI 焦点卡片 出现 — 从顶部 slide-in + fade-in */
+@keyframes slideInDown {
+  from {
+    transform: translateY(-12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* 议程进度条 — 超时闪烁 */
+@keyframes overtimePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 /* 隐藏滚动条但保持可滑动 (画廊 + 任务面板等) */
 .scrollbar-thin::-webkit-scrollbar {
   height: 6px;

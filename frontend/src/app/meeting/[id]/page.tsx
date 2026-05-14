@@ -1170,18 +1170,21 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
 
       {/* v26.10-Room Phase 1: 三栏 grid */}
       <div className="flex flex-1 overflow-hidden">
-        {/* 左栏 — 实时转录 (Phase 2 接管, 当前 placeholder) */}
-        <aside className="hidden w-72 shrink-0 overflow-y-auto border-r border-ink-800 bg-ink-900/30 px-3 py-4 lg:block">
-          <div className="text-xs uppercase tracking-wider text-zinc-500">
-            📝 实时转录
-          </div>
-          <p className="mt-3 text-xs text-zinc-600">
-            Phase 2 即将接管: 把 实录 timeline 移到这里, 头像 + 名字 + 角色 +
-            时间.
-          </p>
-          <div className="mt-4 rounded border border-dashed border-ink-700 bg-ink-950 p-3 text-[11px] text-zinc-600">
-            目前 完整实录 仍 在 中栏 (功能不变)
-          </div>
+        {/* v26.10-Room P5.1: 左栏 — 实时转录 timeline (从中栏 移过来) */}
+        <aside className="scrollbar-thin hidden w-80 shrink-0 flex-col border-r border-ink-800 bg-ink-900/30 lg:flex">
+          <MeetingTranscriptSidebar
+            lines={lines.filter((l) => l.kind === "user")}
+            phase={phase}
+            scrollRef={scrollRef}
+            focusIds={focusIds}
+            correctingLineId={correctingLineId}
+            setCorrectingLineId={setCorrectingLineId}
+            attendees={attendees}
+            correctSpeaker={correctSpeaker}
+            batchCorrectSpeaker={batchCorrectSpeaker}
+            recommendation={recommendation}
+            dissent={dissent}
+          />
         </aside>
 
         {/* 中栏 — 现有 main 内容 (Phase 2 + 3 重组) */}
@@ -1807,12 +1810,14 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         const userLines = lines.filter((l) => l.kind === "user");
         const agentLines = lines.filter((l) => l.kind === "agent").slice().reverse();
         return (
-          <section className="mt-4 grid gap-4 md:grid-cols-5">
-            {/* 左:实录(只有真人 / 未识别) — md+ 占 3/5 */}
+          // v26.10-Room P5.1: lg+ 屏 实录 已移到左栏, 中栏只剩 AI 发言区 (全宽);
+          // 小屏 (<lg) fallback 双列 (老布局).
+          <section className="mt-4 grid gap-4 md:grid-cols-5 lg:grid-cols-1">
+            {/* 左:实录(只有真人 / 未识别) — md+ 占 3/5;lg+ 隐藏 (已移到左栏 aside) */}
             <div
               ref={scrollRef}
               data-testid="transcript-panel"
-              className="md:col-span-3 h-[55vh] overflow-y-auto rounded-xl border border-ink-700 bg-ink-900 p-6"
+              className="md:col-span-3 h-[55vh] overflow-y-auto rounded-xl border border-ink-700 bg-ink-900 p-6 lg:hidden"
             >
               <div className="mb-3 flex items-center justify-between border-b border-ink-800 pb-2">
                 <h2 className="text-sm font-medium text-zinc-300">📝 实录</h2>
@@ -1900,11 +1905,11 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
               )}
             </div>
 
-            {/* 右:AI 专家发言(倒序最新在上)— md+ 占 2/5 */}
+            {/* AI 专家发言区 — md+ 占 2/5; lg+ 全宽 (因为实录已移到左栏) */}
             {/* v26.10-Room Phase 2: 第一条 (最新) 用 大焦点卡片, 历史紧凑列表 */}
             <div
               data-testid="agent-panel"
-              className="md:col-span-2 h-[55vh] overflow-y-auto rounded-xl border border-violet-500/30 bg-ink-900 p-5"
+              className="md:col-span-2 h-[55vh] overflow-y-auto rounded-xl border border-violet-500/30 bg-ink-900 p-5 lg:col-span-1 lg:h-[60vh]"
             >
               <div className="mb-3 flex items-center justify-between border-b border-violet-500/20 pb-2">
                 <h2 className="text-sm font-medium text-violet-200">
@@ -2008,6 +2013,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-ink-800 bg-ink-900/30 px-3 py-4 xl:block">
           <MeetingRoomRightPanel
             phase={phase}
+            meetingId={meetingId}
             moderator={moderator}
             recommendation={recommendation}
             dissent={dissent}
@@ -2164,6 +2170,136 @@ function MeetingAgentGallery({
   );
 }
 
+// v26.10-Room P5.1: 左栏 转录 timeline (从中栏 抽出)
+// 维持 老 transcript-panel 所有功能:
+//   focusIds 高亮 / SpeakerLabel 编辑 / 时间戳 / context 锚点 上下文
+function MeetingTranscriptSidebar({
+  lines,
+  phase,
+  scrollRef,
+  focusIds,
+  correctingLineId,
+  setCorrectingLineId,
+  attendees,
+  correctSpeaker,
+  batchCorrectSpeaker,
+  recommendation: _recommendation,
+  dissent: _dissent,
+}: {
+  lines: LiveLine[];
+  phase: "idle" | "live" | "ended";
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+  focusIds: Set<number>;
+  correctingLineId: number | null;
+  setCorrectingLineId: (id: number | null) => void;
+  attendees: Array<{ id: string; name: string }>;
+  correctSpeaker: (lineId: number, uid: string | null, name: string | null) => void;
+  batchCorrectSpeaker: (lineId: number, count: number, uid: string, name: string) => void;
+  recommendation: unknown;
+  dissent: unknown;
+}) {
+  // 同 老 transcript-panel: 计算 context 锚点 (focus ±2 句作为上下文)
+  // 简化: 这里 不计算 contextLineIds (老逻辑在父组件,这里读 props focusIds 即可)
+  const userLines = lines.filter((l) => l.kind === "user");
+  return (
+    <>
+      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-ink-800 bg-ink-900/80 px-3 py-2.5 backdrop-blur">
+        <h2 className="text-xs font-medium uppercase tracking-wider text-zinc-300">
+          📝 实时转录
+        </h2>
+        <span className="text-[10px] text-zinc-500">{userLines.length} 句</span>
+      </div>
+      <div
+        ref={scrollRef}
+        data-testid="transcript-panel-sidebar"
+        className="scrollbar-thin flex-1 overflow-y-auto px-3 py-3"
+      >
+        {userLines.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-xs text-zinc-600">
+            <span className="text-2xl">🎙️</span>
+            <p>
+              {phase === "idle"
+                ? "点「开始会议」后开口说话, 字幕实时出现"
+                : phase === "live"
+                ? "字幕实时出现, 姓名稍后异步贴上"
+                : "本场会议未产生转录"}
+            </p>
+          </div>
+        ) : (
+          <ul className="space-y-2.5">
+            {userLines.map((l) => {
+              if (l.kind !== "user") return null;
+              const isFocused =
+                l.serverLineId != null && focusIds.has(l.serverLineId);
+              return (
+                <li
+                  key={l.id}
+                  id={
+                    l.serverLineId != null
+                      ? `focus-line-${l.serverLineId}-sidebar`
+                      : undefined
+                  }
+                  className={[
+                    l.final
+                      ? "text-[13px] leading-relaxed text-zinc-100"
+                      : "text-[13px] leading-relaxed text-zinc-400",
+                    isFocused
+                      ? "relative -mx-1 rounded-md border-l-2 border-amber-400 bg-amber-500/15 px-2 py-1 ring-1 ring-amber-400/30"
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  {isFocused && (
+                    <span
+                      className="absolute -left-2 top-1.5 select-none text-[10px] text-amber-400"
+                      title="AI 抽待办时引用的锚点"
+                    >
+                      📍
+                    </span>
+                  )}
+                  <div className="flex items-baseline gap-1.5">
+                    {l.startMs != null && (
+                      <span
+                        className="shrink-0 font-mono text-[10px] text-zinc-500"
+                        title={`从会议开始 ${l.startMs}ms`}
+                      >
+                        [{Math.floor(l.startMs / 60000).toString().padStart(2, "0")}:
+                        {Math.floor((l.startMs % 60000) / 1000).toString().padStart(2, "0")}]
+                      </span>
+                    )}
+                    <SpeakerLabel
+                      line={l}
+                      canEdit={l.final && l.serverLineId !== null}
+                      isOpen={correctingLineId === l.serverLineId}
+                      onToggle={() =>
+                        setCorrectingLineId(
+                          correctingLineId === l.serverLineId ? null : l.serverLineId,
+                        )
+                      }
+                      attendees={attendees}
+                      onPick={(uid, name) =>
+                        correctSpeaker(l.serverLineId!, uid, name)
+                      }
+                      onBatchPick={(uid, name, count) =>
+                        batchCorrectSpeaker(l.serverLineId!, count, uid, name)
+                      }
+                    />
+                  </div>
+                  <div className="mt-0.5">
+                    {l.text}
+                    {!l.final ? <span className="ml-1 animate-pulse">▌</span> : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </>
+  );
+}
+
 // v26.10-Room Phase 2: AI 发言条目 — 第一条 (isFocus) 用大焦点卡片样式
 // 历史紧凑列表. 含 v26.9-Avatar 真实头像 + 引用 citations.
 function AgentMessageItem({
@@ -2186,7 +2322,9 @@ function AgentMessageItem({
         style={{
           borderColor: color,
           background: `linear-gradient(135deg, ${color}10, ${color}05)`,
-          animation: !l.done ? "focusGlow 2s ease-in-out infinite" : undefined,
+          animation: !l.done
+            ? "focusGlow 2s ease-in-out infinite, slideInDown 0.4s ease-out"
+            : "slideInDown 0.4s ease-out",
         }}
         data-testid="agent-focus-card"
       >
@@ -2309,6 +2447,7 @@ function AgentMessageItem({
 // v26.10-Room Phase 3: 右栏 — 真实数据展示 (提醒 / 建议 / 任务 / 统计)
 function MeetingRoomRightPanel({
   phase,
+  meetingId,
   moderator,
   recommendation,
   dissent,
@@ -2320,6 +2459,7 @@ function MeetingRoomRightPanel({
   onDismissRecommendation,
 }: {
   phase: "idle" | "live" | "ended";
+  meetingId: string;
   moderator: {
     kind: "off_topic" | "time_warning" | "stuck";
     title: string;
@@ -2365,15 +2505,34 @@ function MeetingRoomRightPanel({
   );
   // 议程信息
   const agenda = meetingMeta?.agenda ?? null;
-  const currentAgendaTitle =
-    moderator?.kind === "off_topic" || moderator?.kind === "time_warning"
-      ? null
-      : agenda?.[0]?.title;
-  // 任务速览 — 暂时 从 lines 里 简单 抽取 (Phase 3+: 接 真实 action_items endpoint)
-  // 这里 用 简单启发: 含 "@" 提及 或 "任务" 关键词 的 实录句
-  const taskHints = userLines
-    .filter((l) => l.text && (l.text.includes("@") || /任务|工单|跟进|落实/.test(l.text)))
-    .slice(-3);
+  // v26.10-Room P5.2: 接 真实 action_items endpoint
+  const [actionItems, setActionItems] = useState<import("@/lib/api").ActionItem[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const fetchItems = () => {
+      if (!meetingId) return;
+      api.listActionItems(meetingId)
+        .then((rows) => { if (alive) setActionItems(rows); })
+        .catch(() => { /* 静默 — 会议进行中可能 还没 action items */ });
+    };
+    fetchItems();
+    // 会议进行中 每 30s 轮询一次 (新生成的 action items 出现);结束后 不轮询
+    if (phase === "live") {
+      const t = setInterval(fetchItems, 30000);
+      return () => { alive = false; clearInterval(t); };
+    }
+    // ended/idle: 仅 fetch 一次
+    return () => { alive = false; };
+  }, [meetingId, phase]);
+  // open + done 都显示, 但 cancelled 隐藏. open 排前
+  const visibleItems = actionItems
+    .filter((it) => it.status !== "cancelled")
+    .sort((a, b) => {
+      if (a.status === b.status) return 0;
+      if (a.status === "open") return -1;
+      return 1;
+    })
+    .slice(0, 8);
 
   return (
     <div className="space-y-4">
@@ -2425,67 +2584,81 @@ function MeetingRoomRightPanel({
         />
       )}
 
-      {/* 议程进度 */}
+      {/* v26.10-Room P5.4: 议程 timeline 进度条 (timeline + 进度条 + 时间预算) */}
       {agenda && agenda.length > 0 && (
-        <section className="rounded-xl border border-ink-700 bg-ink-900 p-3">
-          <div className="text-xs uppercase tracking-wider text-zinc-500">
-            📋 议程 · {agenda.length} 项
-          </div>
-          <ul className="mt-2 space-y-1.5 text-xs">
-            {agenda.map((item, i) => (
-              <li
-                key={i}
-                className={`flex items-start gap-2 rounded px-2 py-1 ${
-                  i === 0 && phase === "live"
-                    ? "bg-accent-500/10 text-accent-200"
-                    : "text-zinc-400"
-                }`}
-              >
-                <span className="mt-0.5 text-[10px] text-zinc-500">
-                  {i + 1}.
-                </span>
-                <span className="flex-1 truncate">{item.title}</span>
-                {item.time_budget_min && (
-                  <span className="text-[10px] text-zinc-600">
-                    {item.time_budget_min}分
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
+        <AgendaTimeline agenda={agenda} phase={phase} />
       )}
 
-      {/* 任务速览 (Phase 3 简版, 未来 接 真实 action_items endpoint) */}
+      {/* v26.10-Room P5.2: 任务速览 — 接真实 action_items endpoint */}
       <section className="rounded-xl border border-ink-700 bg-ink-900 p-3">
         <div className="flex items-center justify-between">
           <div className="text-xs uppercase tracking-wider text-zinc-500">
             📌 任务与工单
           </div>
           <span className="text-[10px] text-zinc-600">
-            {taskHints.length === 0 ? "暂无" : `${taskHints.length} 条`}
+            {actionItems.length === 0 ? "暂无" : `${actionItems.filter((it) => it.status === "open").length} / ${actionItems.length}`}
           </span>
         </div>
-        {taskHints.length === 0 ? (
+        {visibleItems.length === 0 ? (
           <p className="mt-2 text-[11px] text-zinc-600">
-            会议结束 AI 自动提取行动项. 或会议中 说 "@xx 跟进" 触发.
+            {phase === "live"
+              ? "会议进行中. AI 会在会议结束 (或纪要重生成) 自动提取行动项."
+              : phase === "ended"
+              ? "本场会议未抽到行动项. 可以 在 纪要 tab 点 重生成 重试."
+              : "会议未开始. 行动项 会议结束后 由 AI 自动提取."}
           </p>
         ) : (
           <ul className="mt-2 space-y-1.5">
-            {taskHints.map((l) => (
+            {visibleItems.map((it) => (
               <li
-                key={l.id}
-                className="rounded border border-ink-700 bg-ink-950 p-2 text-[11px] text-zinc-300"
+                key={it.id}
+                className={`rounded border p-2 text-[11px] transition ${
+                  it.status === "done"
+                    ? "border-ink-800 bg-ink-950/60 text-zinc-500 line-through"
+                    : "border-ink-700 bg-ink-950 text-zinc-200"
+                }`}
               >
-                <div className="line-clamp-2">{l.text}</div>
-                <div className="mt-0.5 text-[9px] text-zinc-600">
-                  {l.speakerName || "未识别"} ·{" "}
-                  {l.startMs != null
-                    ? `${Math.floor(l.startMs / 60000)}:${String(Math.floor((l.startMs % 60000) / 1000)).padStart(2, "0")}`
-                    : ""}
+                <div className="flex items-start gap-1.5">
+                  <span className="mt-0.5 shrink-0">
+                    {it.status === "done" ? "✅" : "☐"}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="line-clamp-2">{it.content}</div>
+                    <div className="mt-0.5 flex flex-wrap gap-1.5 text-[9px] text-zinc-600">
+                      {it.assignee_name && (
+                        <span className="rounded bg-ink-800 px-1.5 py-0.5">
+                          👤 {it.assignee_name}
+                        </span>
+                      )}
+                      {it.source_type === "summary" && (
+                        <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-violet-300">
+                          🤖 AI 抽取
+                        </span>
+                      )}
+                      {it.source_type === "manual" && (
+                        <span className="rounded bg-zinc-700/40 px-1.5 py-0.5">
+                          ✍️ 手动
+                        </span>
+                      )}
+                      {it.due_at && (
+                        <span>
+                          ⏰{" "}
+                          {new Date(it.due_at).toLocaleDateString("zh-CN", {
+                            month: "numeric",
+                            day: "numeric",
+                          })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </li>
             ))}
+            {actionItems.length > 8 && (
+              <li className="text-center text-[10px] text-zinc-600">
+                + 还有 {actionItems.length - 8} 条 (会议结束后 在纪要 tab 查看)
+              </li>
+            )}
           </ul>
         )}
       </section>
@@ -2514,6 +2687,119 @@ function MeetingRoomRightPanel({
         </div>
       )}
     </div>
+  );
+}
+
+// v26.10-Room P5.4: 议程 timeline 进度条 (按 Kimi 设计稿)
+// 第一项 = 当前议程 (实心圆 + 进度条 + 剩余时间)
+// 后续 = 待开始 (空心圆 + 时间预算)
+function AgendaTimeline({
+  agenda,
+  phase,
+}: {
+  agenda: AgendaItem[];
+  phase: "idle" | "live" | "ended";
+}) {
+  // 简化: 当前议程 = agenda[0], 假设议程开始时间 = 会议开始时间.
+  // (真正的 议程切换检测 需要后端 跟踪 当前 active agenda_idx — 暂未实现)
+  const [elapsedMs, setElapsedMs] = useState(0);
+  useEffect(() => {
+    if (phase !== "live") return;
+    const start = Date.now() - elapsedMs;
+    const t = setInterval(() => setElapsedMs(Date.now() - start), 1000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+  const currentBudgetMin = agenda[0]?.time_budget_min ?? null;
+  const currentBudgetMs = currentBudgetMin ? currentBudgetMin * 60 * 1000 : null;
+  const usedRatio =
+    currentBudgetMs && phase === "live"
+      ? Math.min(1.2, elapsedMs / currentBudgetMs)
+      : 0;
+  const overtime = usedRatio > 1;
+  const remainingMs = currentBudgetMs ? currentBudgetMs - elapsedMs : 0;
+  const fmtMin = (ms: number) => {
+    const sec = Math.max(0, Math.floor(ms / 1000));
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
+  return (
+    <section className="rounded-xl border border-ink-700 bg-ink-900 p-3">
+      <div className="text-xs uppercase tracking-wider text-zinc-500">
+        📋 议程 · {agenda.length} 项
+      </div>
+      <ol className="mt-3 space-y-3">
+        {agenda.map((item, i) => {
+          const isCurrent = i === 0 && phase === "live";
+          const isUpcoming = i > 0 || phase === "idle";
+          return (
+            <li key={i} className="relative pl-5">
+              {/* timeline 竖线 (除最后一项) */}
+              {i < agenda.length - 1 && (
+                <span
+                  className={`absolute left-[7px] top-3 h-full w-px ${
+                    isCurrent ? "bg-accent-500/30" : "bg-ink-700"
+                  }`}
+                />
+              )}
+              {/* 节点圆 */}
+              <span
+                className={`absolute left-0 top-0.5 inline-block h-3.5 w-3.5 rounded-full ${
+                  isCurrent
+                    ? "bg-accent-500 shadow-[0_0_8px] shadow-accent-500/50"
+                    : isUpcoming
+                    ? "border-2 border-ink-600 bg-ink-900"
+                    : "bg-emerald-500"
+                }`}
+              />
+              <div
+                className={`text-xs ${
+                  isCurrent
+                    ? "text-accent-200"
+                    : isUpcoming
+                    ? "text-zinc-400"
+                    : "text-emerald-300"
+                }`}
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="truncate font-medium">
+                    {i + 1}. {item.title}
+                  </span>
+                  {item.time_budget_min && (
+                    <span className="shrink-0 text-[10px] text-zinc-600">
+                      {item.time_budget_min} 分
+                    </span>
+                  )}
+                </div>
+                {/* 当前议程 — 进度条 + 剩余时间 */}
+                {isCurrent && currentBudgetMs && (
+                  <div className="mt-1.5">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-ink-800">
+                      <div
+                        className={`h-full transition-all duration-1000 ${
+                          overtime ? "bg-rose-500 animate-pulse" : "bg-accent-500"
+                        }`}
+                        style={{ width: `${Math.min(100, usedRatio * 100)}%` }}
+                      />
+                    </div>
+                    <div
+                      className={`mt-1 text-[10px] font-mono ${
+                        overtime ? "text-rose-400" : "text-zinc-500"
+                      }`}
+                    >
+                      {overtime
+                        ? `⏱ 超时 +${fmtMin(-remainingMs)}`
+                        : `⏱ 剩 ${fmtMin(remainingMs)}`}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 
