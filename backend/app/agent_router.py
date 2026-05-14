@@ -134,19 +134,51 @@ DEFAULT_MEETING_EXPERT_PROMPT = (
 )
 
 
+# v26.13.1-fix2: chat 调试模式 用 一套 完全不同 的 system prompt.
+# 老 bug: 复用 会议室 prompt → AI "有立场不墙头草" 行为 越过 用户 直接指令
+# (用户 让 列就 不去 列, 反而 自作主张 给 设计建议). 调试 playground 体验 巨差.
+# 新 prompt: 纯执行器, persona 仅 影响 风格, 不影响 指令 解读.
+DEFAULT_CHAT_ASSISTANT_PROMPT = (
+    "你是用户在调试模式下一对一找你试聊的 AI 助手。\n\n"
+    "核心原则 (优先级 从高到低):\n"
+    "1. **服从指令** — 用户让做什么就做什么:让列就列、让提取就提取、让总结就总结、\n"
+    "   让翻译就翻译。**不要** 自作主张改成你认为更好的方式 (例如把\"列清单\"改成\n"
+    "   \"我帮你设计看板\"). 用户知道自己要什么。\n"
+    "2. **基于上传内容** — 用户上传的文件内容会出现在 prompt 的【用户 本次 上传 的 文件】\n"
+    "   段落里. 你的回答必须基于该内容, 不要凭空编造或忽略它.\n"
+    "3. **persona 仅决定风格** — 下文给的 persona / 领域 / 语气 定义 你的视角和表达方式,\n"
+    "   但 **不要让 它 覆盖** 用户的直接指令. 你是 X 专家, 但用户让你列文档你就列, 别老\n"
+    "   把所有问题都拐回 X 视角.\n"
+    "4. **想给建议时, 放最后** — 完成用户的请求之后, 如果你确实有改进建议, 用单独一段\n"
+    "   开头\"另外我想补充:\"做主次分明的补充. 不要在用户问 A 时把答 A 跳过去答 B.\n"
+    "5. **直接对话** — 用\"你\" / \"您\" 称呼用户, 不要假装在会议里发言.\n"
+    "6. **简洁但完整** — 不要为了短而省略用户要的内容. 用户让列 20 条就列 20 条 (除非\n"
+    "   你看到文件里实际只有 N 条, 那就如实列 N 条 + 说明)."
+)
+
+
 def _compose_system_prompt(
     agent: Agent,
     memory_lines: list[str] | None = None,
     kb_snippets: list[tuple[str, str]] | None = None,  # (filename, content)
+    *,
+    mode: str = "meeting",  # v26.13.1-fix2: "meeting" | "chat"
 ) -> str:
-    """Combine agent persona with the meeting-expert template. The agent's
-    own persona/domain/tone are layered on top of the generic template so
-    each agent specialises while keeping the meeting-aware behaviours.
+    """Combine agent persona with a base template.
+
+    mode='meeting' (default, 老行为):  会议室 — AI 有立场 / 精炼 / 不墙头草
+    mode='chat' (v26.13.1):           调试 playground — AI 是 纯执行器,
+                                       service user 直接指令 优先 于 自己 的 倾向
+
     If memory_lines is provided, they're appended as a "你过去知道的相关
     事实" section so the agent can reference prior decisions. If
     kb_snippets is provided, they're appended as a "你的知识库" section
     that the agent must prefer over its own prior."""
-    parts = [DEFAULT_MEETING_EXPERT_PROMPT, ""]
+    base = (
+        DEFAULT_CHAT_ASSISTANT_PROMPT if mode == "chat"
+        else DEFAULT_MEETING_EXPERT_PROMPT
+    )
+    parts = [base, ""]
     parts.append(f"你的角色: {agent.name}")
     # v26.12-Home: 让 LLM 知道 自己 还 有 一个 拟人 外号 ——
     # 用户 在 会议 中 可能 喊 "数妙妙" 也 可能 喊 "数据分析报告师", LLM 都 应 知 是 在 叫 自己.
@@ -784,6 +816,7 @@ async def invoke_agent_for_chat(
                         agent,
                         memory_lines or None,
                         kb_snippets or None,
+                        mode="chat",  # v26.13.1-fix2: 用 调试模式 system prompt
                     )
                     async for chunk in stream_chat(
                         provider=provider,
