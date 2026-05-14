@@ -33,12 +33,15 @@ class ProviderCatalogEntry(BaseModel):
 
 
 class ProviderConfigIn(BaseModel):
-    # v26.12-fix4: Pydantic v2 默认 把 `model_` 前缀 字段 当 protected namespace —
-    # warning + 某些 边界 case 可能 把 model_id 当 reserved attr 处理.
-    # 显式 设 protected_namespaces=() 既 消除 warning 又 确保 model_id 是 普通字段.
+    # v26.12-fix4: protected_namespaces=() 防 Pydantic v2 把 model_ 前缀 字段 当
+    # reserved attr (留 着 防御性 设).
     model_config = ConfigDict(protected_namespaces=())
     provider: str
-    api_key: str
+    # v26.12-fix6: api_key 改 Optional — 已有 cfg 时 用户 只 改 model_id 可以 留空,
+    # 后端 不 用 空字符串 覆盖 已存的 key. 新建 (existing 为 None) 时, 后端 走
+    # ModelProviderConfig(api_key=payload.api_key) 构造, 这里 必须 给值 否则 NULL.
+    # 新建 校验 由 路由 显式 做.
+    api_key: Optional[str] = None
     base_url: Optional[str] = None
     model_id: Optional[str] = None
     is_active: bool = False
@@ -170,9 +173,12 @@ async def upsert_config(
     ).scalar_one_or_none()
 
     if existing is None:
+        # v26.12-fix6: 新建 必须 给 api_key (NOT NULL DB 约束)
+        if not (payload.api_key and payload.api_key.strip()):
+            raise HTTPException(400, "首次保存需填写 API Key")
         existing = ModelProviderConfig(
             provider=provider,
-            api_key=payload.api_key,
+            api_key=payload.api_key.strip(),
             workspace_id=auth.workspace.id,
         )
         session.add(existing)
@@ -180,7 +186,12 @@ async def upsert_config(
     spec = get_spec(provider)
     # Trim whitespace — pasted keys often pick up trailing newlines, and
     # httpx will refuse to send a header value containing them.
-    existing.api_key = (payload.api_key or "").strip()
+    # v26.12-fix6: payload.api_key 留空 → 保留 现有 row.api_key (不要 "" 覆盖).
+    # 配合 前端 fix6: 已有 cfg 时 允许 不重输 key 只更新 model_id, 后端 这里 兜底.
+    new_api_key = (payload.api_key or "").strip()
+    if new_api_key:
+        existing.api_key = new_api_key
+    # else: 不动 existing.api_key (新建 时 payload 验证 已 经过 require 字段, 不会 进这分支)
     existing.base_url = (payload.base_url or "").strip() or (spec.default_base_url if spec else None)
     # v26.12-fix4: 用户 报告 选择 model_id 后 保存, 刷新 回 默认值 的 bug.
     # 现在 显式 log 收到 的 payload.model_id + 计算后 final 值, 便于 调查.

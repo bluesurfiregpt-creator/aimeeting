@@ -64,8 +64,13 @@ export default function ModelsAdmin() {
   const save = async (provider: string) => {
     const f = forms[provider];
     if (!f) return;
-    if (!f.api_key) {
-      setMsg("请填写 API Key 后再保存");
+    // v26.12-fix6: 仅 新建 时 才 必须 api_key. 已有 cfg → 允许 留空 (后端 保留原 key,
+    // 只更新 model_id / base_url / is_active / note). 老逻辑 强制 要求 api_key 非空,
+    // 用户 只换 model_id 时 因 字段 空 (出于安全 不回显) 早早 return — 看着像保存了
+    // 实际 PUT 从未调用, 这就是 用户 报告 的 "model_id 保存后 变回默认" bug 的根因.
+    const cfg = configs.find((c) => c.provider === provider);
+    if (!cfg && !f.api_key) {
+      setMsg("首次保存需填写 API Key");
       return;
     }
     setBusy(provider);
@@ -73,6 +78,7 @@ export default function ModelsAdmin() {
     try {
       await api.saveProviderConfig(provider, {
         provider,
+        // 留空 → 后端 保留 现有 key (fix6 后端 同步 改, 不 再 用 "" 覆盖)
         api_key: f.api_key,
         base_url: f.base_url || undefined,
         model_id: f.model_id || undefined,
