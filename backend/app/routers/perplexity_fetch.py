@@ -40,9 +40,13 @@ from ..models import (
     KnowledgeBase,
     KnowledgeChunk,
     SearchProviderConfig,
+    User,
     Workspace,
 )
 from ..perplexity_client import PerplexityError, search as perplexity_search
+
+# v26.13.2-fix1: Perplexity 接受 的 recency 值. 任何 其他 (含 'any') 都 当 None.
+_VALID_RECENCY = {"hour", "day", "week", "month", "year"}
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
@@ -56,8 +60,10 @@ class PerplexityFetchIn(BaseModel):
     kb_id: uuid.UUID
     agent_id: uuid.UUID
     query: str = Field(..., min_length=3, max_length=500)
-    recency: Optional[str] = None  # 'day' | 'week' | 'month' | 'year' | None
-    # 实际 现在 一次 调用 一次 Perplexity, 不分批 — 这字段 给 未来 多 query 扩展 用.
+    # v26.13.2-fix1: recency 仅 接受 Perplexity 真支持 的值 OR None.
+    # 老 schema 是 Optional[str] 太宽松, 直接 把 'any' 透传给 Perplexity 400.
+    # 现在 Pydantic 这层 就 转 None (前端 习惯 用 'any' 也 不报错).
+    recency: Optional[str] = None
 
 
 class DraftBrief(BaseModel):
@@ -200,6 +206,31 @@ async def perplexity_fetch(
     if not agent.primary_user_id:
         raise HTTPException(400, "该 AI 专家未绑定 primary_user, 草稿 无人审批")
 
+    # v26.13.2-fix1: 验证 primary_user_id 真存在 — 早期 数据 可能 stale
+    # (agent.primary_user_id 当年 加 列 时 没 加 FK ON DELETE SET NULL,
+    # 后来 user 被删 但 agent 这边 没 NULL'd). 现在 检查 +自动 cleanup.
+    primary_user_exists = (
+        await session.execute(
+            select(User.id).where(
+                User.id == agent.primary_user_id,
+                User.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if primary_user_exists is None:
+        # auto-cleanup: 把 agent.primary_user_id 设 NULL (修 stale ref)
+        logger.warning(
+            "perplexity_fetch: agent %s primary_user_id=%s 指向 不存在 的 user, auto-NULL",
+            agent.id, agent.primary_user_id,
+        )
+        agent.primary_user_id = None
+        await session.commit()
+        raise HTTPException(
+            400,
+            f"该 AI 专家 的 primary_user 已 失效 (可能 被 删了). "
+            f"已自动 解绑, 请 在 /me/profile/agents 重新 给 该 AI 绑定 一个 primary_user 后 再 试.",
+        )
+
     # 拿 active Perplexity 配置
     cfg = (
         await session.execute(
@@ -226,13 +257,17 @@ async def perplexity_fetch(
                    f"等 下月 1 号 重置, 或 联系 admin 调高 配额.",
         )
 
+    # v26.13.2-fix1: 规范 recency — 仅 接受 Perplexity 真支持的值, 其他 (e.g. 'any')
+    # 转 None. 防止 客户端 把 "any" / "all" 直接透传 触发 Perplexity 400.
+    safe_recency = payload.recency if payload.recency in _VALID_RECENCY else None
+
     # 调 Perplexity (出错 → rollback 配额)
     try:
         result = await perplexity_search(
             query=payload.query.strip(),
             api_key=cfg.api_key,
             base_url=cfg.base_url,
-            recency_filter=payload.recency,
+            recency_filter=safe_recency,
         )
     except PerplexityError as e:
         await session.rollback()  # 退还 配额
@@ -301,8 +336,22 @@ async def perplexity_fetch(
         status="pending",
     )
     session.add(draft)
-    await session.commit()
-    await session.refresh(draft)
+    # v26.13.2-fix1: 包 commit, FK violation / data error 友好 400.
+    # 之前 IntegrityError 直接 raw 500, 用户 看到 "Internal Server Error" 不知道 为啥.
+    try:
+        await session.commit()
+        await session.refresh(draft)
+    except Exception as e:
+        await session.rollback()
+        logger.exception("perplexity_fetch: draft insert failed")
+        # 配额 已 +1 但 没 真 写入 — 这个 case 退还 配额 (本次 调用 已 commit 过 quota 增量?
+        # 实际上 上面 dedup-skip 分支 commit 了 quota, 但 draft 创建 分支 还没 commit.
+        # 走 到这 说明 session 还在 一个 大 transaction, rollback 同时 退 quota).
+        raise HTTPException(
+            400,
+            f"草稿 入库 失败: {e}. 请 联系 admin 检查 数据 一致性 (常见 原因: "
+            f"agent.primary_user_id 指向 已删 user 但 ON DELETE SET NULL 未生效).",
+        )
 
     await audit_log(
         session, auth, "kb.perplexity_fetch",
