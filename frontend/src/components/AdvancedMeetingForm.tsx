@@ -30,6 +30,19 @@ const AGENT_COLOR_BG: Record<string, string> = {
   yellow: "bg-yellow-500/15 text-yellow-200 border-yellow-500/30",
 };
 
+// v26.13.2-fix3: agent.color → hex (头像 圈环 + 占位背景 用), 跟 首页 一套.
+const AGENT_COLOR_HEX: Record<string, string> = {
+  violet: "#8b5cf6", rose: "#f43f5e", emerald: "#10b981", amber: "#f59e0b",
+  sky: "#0ea5e9", cyan: "#06b6d4", lime: "#84cc16", fuchsia: "#d946ef",
+  blue: "#3b82f6", green: "#22c55e", orange: "#f97316", red: "#ef4444",
+  teal: "#14b8a6", indigo: "#6366f1", pink: "#ec4899", yellow: "#eab308",
+};
+
+function formatInvokeCount(n: number): string {
+  if (n < 10000) return `${n} 次`;
+  return `${(n / 10000).toFixed(1)} 万次`;
+}
+
 // v26.12-Home: 完整会议 表单 —— 抽 成 共享组件, 同时 给 首页 折叠区 (废弃, 留链接) 和
 // /meetings/new 独立页 用. 行为 跟 v26.12 之前 首页 主流程 完全 一致, 没 改 业务.
 export function AdvancedMeetingForm({
@@ -45,7 +58,7 @@ export function AdvancedMeetingForm({
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pickedAgents, setPickedAgents] = useState<Set<string>>(new Set());
   const [agentSearch, setAgentSearch] = useState("");
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  // v26.13.2-fix3: collapsedGroups 已 不需要 — 新 picker 是 flat 卡片 grid 不再 分组折叠
   const [title, setTitle] = useState("");
   const [agendaRows, setAgendaRows] = useState<DraftAgendaRow[]>([
     { title: "", time_budget_min: "" },
@@ -378,7 +391,9 @@ export function AdvancedMeetingForm({
             还没有 AI 专家。去 <Link href="/me/profile/agents" className="text-accent-400">AI 配置</Link> 创建。
           </p>
         ) : (
-          <div className="mt-3 space-y-3" data-testid="agent-picker">
+          // v26.13.2-fix3: 改 折叠分组 list → 4-up 卡片 grid (跟 首页 v26.12-Home 一套).
+          // 字体 不再 小, 信息 不再 一行 挤. 整 卡片 click toggle 多选, 选中 紫边 + ✓ 角标.
+          <div className="mt-3" data-testid="agent-picker">
             {(() => {
               const q = agentSearch.trim().toLowerCase();
               const filtered = q
@@ -399,138 +414,111 @@ export function AdvancedMeetingForm({
                   </p>
                 );
               }
-              const groups: Record<string, typeof agents> = {};
-              for (const a of filtered) {
-                const key = a.primary_user_name
-                  ? `👤 ${a.primary_user_name}`
-                  : a.domain
-                    ? `📂 ${a.domain}`
-                    : "未分组";
-                if (!groups[key]) groups[key] = [];
-                groups[key].push(a);
-              }
-              const sortedGroups = Object.entries(groups).sort((a, b) =>
-                a[0].localeCompare(b[0]),
-              );
-              const groupCount = sortedGroups.length;
-              return sortedGroups.map(([groupName, groupAgents]) => {
-                const isCollapsed = q
-                  ? false
-                  : (collapsedGroups.has(groupName)
-                      || (groupCount > 4 && !collapsedGroups.has(`_open:${groupName}`)));
-                const toggleCollapse = () => {
-                  setCollapsedGroups((s) => {
-                    const next = new Set(s);
-                    if (groupCount > 4) {
-                      const openKey = `_open:${groupName}`;
-                      if (next.has(openKey)) next.delete(openKey);
-                      else next.add(openKey);
-                    } else {
-                      if (next.has(groupName)) next.delete(groupName);
-                      else next.add(groupName);
-                    }
-                    return next;
-                  });
-                };
-                return (
-                  <div key={groupName}>
-                    <button
-                      type="button"
-                      onClick={toggleCollapse}
-                      className="mb-1.5 flex w-full items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300"
-                    >
-                      <span className="text-[10px]" aria-hidden>
-                        {isCollapsed ? "▶" : "▼"}
-                      </span>
-                      <span className="font-medium">{groupName}</span>
-                      <span className="text-zinc-700">·</span>
-                      <span>{groupAgents.length} AI</span>
-                    </button>
-                    {!isCollapsed && (
-                      <ul className="grid gap-2 sm:grid-cols-2">
-                        {groupAgents.map((a) => {
-                          const tone =
-                            AGENT_COLOR_BG[a.color || "violet"] || AGENT_COLOR_BG.violet;
-                          const isOn = pickedAgents.has(a.id);
-                          // v26.12-Home: nickname 优先 显示 (但 name 也 保留 在 旁边 副标)
-                          const dn = a.nickname?.trim() || a.name;
-                          return (
-                            <li key={a.id} className="relative group/agent">
-                              <label
-                                className={`flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 transition hover:shadow-md ${
-                                  isOn
-                                    ? tone
-                                    : "border-ink-700 bg-ink-950 text-zinc-300 hover:border-zinc-600"
+              return (
+                <ul className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+                  {filtered.map((a) => {
+                    const isOn = pickedAgents.has(a.id);
+                    const colorHex = AGENT_COLOR_HEX[a.color || "violet"] || AGENT_COLOR_HEX.violet;
+                    const dn = a.nickname?.trim() || a.name;
+                    const initial = dn.slice(0, 1).toUpperCase();
+                    return (
+                      <li key={a.id}>
+                        <button
+                          type="button"
+                          onClick={() => toggleAgent(a.id)}
+                          className={`group/agent relative flex h-full w-full flex-col rounded-xl border p-3 text-left transition ${
+                            isOn
+                              ? "border-accent-500 bg-accent-500/10 shadow-lg shadow-accent-500/10"
+                              : "border-ink-700 bg-ink-900 hover:-translate-y-0.5 hover:border-ink-600 hover:shadow-md"
+                          }`}
+                        >
+                          {/* 选中 ✓ 角标 */}
+                          {isOn && (
+                            <span
+                              className="absolute right-2 top-2 grid h-5 w-5 place-items-center rounded-full bg-accent-500 text-[10px] font-bold text-white shadow"
+                              aria-label="已选"
+                            >
+                              ✓
+                            </span>
+                          )}
+
+                          {/* 头部: 头像 + 名字 + 外号 */}
+                          <div className="flex items-start gap-2.5">
+                            <div
+                              className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full text-sm font-semibold text-white"
+                              style={{
+                                background: a.avatar_url ? undefined : colorHex,
+                                boxShadow: `0 0 0 1.5px ${colorHex}40`,
+                              }}
+                            >
+                              {a.avatar_url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={a.avatar_url}
+                                  alt={dn}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                initial
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1 pr-5">
+                              <div className="truncate text-sm font-medium text-zinc-100">
+                                {dn}
+                              </div>
+                              {a.nickname?.trim() ? (
+                                <div className="truncate text-[10px] text-zinc-500">
+                                  〈{a.name}〉
+                                </div>
+                              ) : a.domain ? (
+                                <div className="truncate text-[10px] text-zinc-500">
+                                  {a.domain}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          {/* chip 行: domain + 1-2 个 关键词 */}
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {a.domain && (
+                              <span
+                                className={`rounded-full border px-1.5 py-0.5 text-[9px] ${
+                                  AGENT_COLOR_BG[a.color || "violet"] || AGENT_COLOR_BG.violet
                                 }`}
                               >
-                                <span className="flex items-center gap-2 text-sm">
-                                  <input
-                                    type="checkbox"
-                                    checked={isOn}
-                                    onChange={() => toggleAgent(a.id)}
-                                    className="h-4 w-4 accent-accent-500"
-                                  />
-                                  {a.avatar_url ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
-                                      src={a.avatar_url}
-                                      alt={a.name}
-                                      className="h-6 w-6 rounded-full object-cover"
-                                    />
-                                  ) : (
-                                    <span className="text-base" aria-hidden>🤖</span>
-                                  )}
-                                  <span>
-                                    {dn}
-                                    {a.nickname?.trim() && (
-                                      <span className="ml-1 text-[10px] text-zinc-500">
-                                        ｜ {a.name}
-                                      </span>
-                                    )}
-                                  </span>
-                                </span>
-                                {a.domain && (
-                                  <span className="ml-2 truncate text-[10px] text-zinc-500">
-                                    {a.domain}
-                                  </span>
-                                )}
-                              </label>
-                              {a.full_body_url && (
-                                <div className="pointer-events-none absolute bottom-full left-0 z-20 mb-2 hidden w-80 rounded-xl border border-ink-700 bg-ink-900 p-3 shadow-2xl group-hover/agent:block">
-                                  <div className="flex gap-3">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img
-                                      src={a.full_body_url}
-                                      alt={a.name}
-                                      width={80}
-                                      height={155}
-                                      className="rounded border border-ink-700 object-cover"
-                                    />
-                                    <div className="min-w-0 flex-1 text-xs">
-                                      <div className="font-medium text-white">{dn}</div>
-                                      {a.nickname?.trim() && (
-                                        <div className="text-[10px] text-zinc-500">{a.name}</div>
-                                      )}
-                                      {a.domain && (
-                                        <div className="text-zinc-500">{a.domain}</div>
-                                      )}
-                                      {a.persona && (
-                                        <p className="mt-1.5 line-clamp-4 text-zinc-300">
-                                          {a.persona}
-                                        </p>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </div>
-                );
-              });
+                                {a.domain}
+                              </span>
+                            )}
+                            {(a.keywords ?? []).slice(0, 2).map((k) => (
+                              <span
+                                key={k}
+                                className="rounded-full border border-ink-700 bg-ink-950 px-1.5 py-0.5 text-[9px] text-zinc-400"
+                              >
+                                {k}
+                              </span>
+                            ))}
+                          </div>
+
+                          {/* persona 截 2 行 */}
+                          <p className="mt-2 line-clamp-2 min-h-[2.2rem] text-[11px] leading-4 text-zinc-400">
+                            {a.persona?.trim() || "暂无介绍"}
+                          </p>
+
+                          {/* 底部: 调用次数 + primary_user (mt-auto 顶到底) */}
+                          <div className="mt-auto flex items-center justify-between gap-1 border-t border-ink-800 pt-1.5 text-[10px] text-zinc-500">
+                            <span>💬 {formatInvokeCount(a.invoke_count ?? 0)}</span>
+                            {a.primary_user_name && (
+                              <span className="truncate" title={`primary_user: ${a.primary_user_name}`}>
+                                🛠 {a.primary_user_name}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              );
             })()}
           </div>
         )}
