@@ -35,8 +35,9 @@ router = APIRouter(tags=["chat"])
 # ---------------------------------------------------------------------------
 # Per-user daily quota — simple in-memory counter.
 # 重启 重置. 单进程 准 (现在 Phase 1.5 就 一个 backend). 多 replica 后 移 Redis.
+# v26.13.1-fix1: 50 → 200 (调试模式 manager 想 快测 多组 配置时 50 不够)
 # ---------------------------------------------------------------------------
-_DAILY_CHAT_LIMIT = 50
+_DAILY_CHAT_LIMIT = 200
 _daily_counter: dict[str, dict[str, int]] = defaultdict(dict)  # {date: {user_id: count}}
 
 
@@ -44,20 +45,35 @@ def _today_key() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def _check_and_increment_daily(user_id: uuid.UUID) -> tuple[bool, int]:
-    """Return (allowed, remaining)."""
+def _daily_remaining(user_id: uuid.UUID) -> int:
+    """读 当前 剩余, 不 +1"""
+    today = _today_key()
+    counts = _daily_counter[today]
+    current = counts.get(str(user_id), 0)
+    return max(0, _DAILY_CHAT_LIMIT - current)
+
+
+def _check_daily(user_id: uuid.UUID) -> tuple[bool, int]:
+    """Return (allowed, current_remaining). 不 +1, 仅 check."""
     today = _today_key()
     # 清掉 不是今天 的 key (省内存)
     for k in list(_daily_counter.keys()):
         if k != today:
             del _daily_counter[k]
     counts = _daily_counter[today]
-    uid_str = str(user_id)
-    current = counts.get(uid_str, 0)
+    current = counts.get(str(user_id), 0)
     if current >= _DAILY_CHAT_LIMIT:
         return (False, 0)
-    counts[uid_str] = current + 1
-    return (True, _DAILY_CHAT_LIMIT - counts[uid_str])
+    return (True, _DAILY_CHAT_LIMIT - current)
+
+
+def _record_daily(user_id: uuid.UUID) -> int:
+    """+1 — 仅 在 LLM 真启动 后 调. Return new remaining."""
+    today = _today_key()
+    counts = _daily_counter[today]
+    uid_str = str(user_id)
+    counts[uid_str] = counts.get(uid_str, 0) + 1
+    return max(0, _DAILY_CHAT_LIMIT - counts[uid_str])
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +129,10 @@ async def chat_with_agent(
     user_id = auth.user.id
     workspace_id = auth.workspace.id
 
-    allowed, remaining = _check_and_increment_daily(user_id)
+    # v26.13.1-fix1: 先 check, 不 +1; LLM 真启动 (收到 agent_message_start) 才 +1.
+    # 解决: 老逻辑 把 per-min LLM 限速 fail 的 调用 也 算 进 日配额, 几次失败 用户
+    # 就 撞 50 上限 — 实际 0 个 真LLM 调用.
+    allowed, remaining = _check_daily(user_id)
     if not allowed:
         raise HTTPException(
             429,
@@ -123,8 +142,19 @@ async def chat_with_agent(
 
     # SSE 框架 — 一个 asyncio.Queue 串 invoke_agent_for_chat 的 on_message 跟 生成器
     queue: asyncio.Queue[Optional[dict]] = asyncio.Queue()
+    charged = {"flag": False}
 
     async def on_message(payload: dict) -> None:
+        # v26.13.1-fix1: 收到 agent_message_start 才 真扣 配额
+        if not charged["flag"] and payload.get("type") == "agent_message_start":
+            charged["flag"] = True
+            new_remaining = _record_daily(user_id)
+            # 推 一帧 给 前端 更新 顶部 剩余 数字
+            await queue.put({
+                "type": "chat_quota",
+                "remaining_today": new_remaining,
+                "daily_limit": _DAILY_CHAT_LIMIT,
+            })
         await queue.put(payload)
 
     async def run_chat():
@@ -149,7 +179,7 @@ async def chat_with_agent(
     asyncio.create_task(run_chat())
 
     async def event_stream():
-        # 第一帧: 通知 前端 当前 quota 剩余
+        # 第一帧: 通知 前端 当前 quota 剩余 (LLM 还没启动, 还是 旧值)
         yield _sse_frame({
             "type": "chat_quota",
             "remaining_today": remaining,

@@ -673,19 +673,10 @@ async def invoke_agent_for_chat(
         }
     )
 
-    # 短期 quota — 复用 现有 per-minute LLM 限速 (兜底 防 buggy 客户端)
-    try:
-        await check_quota_or_raise(user_id=user_id, workspace_id=workspace_id)
-    except HTTPException as quota_exc:
-        await on_message(
-            {"type": "agent_message_chunk", "agent_id": str(agent.id),
-             "chunk": f"[配额超限: {quota_exc.detail}]"}
-        )
-        await on_message({
-            "type": "agent_message_end", "agent_id": str(agent.id),
-            "text": f"[配额超限: {quota_exc.detail}]", "citations": [],
-        })
-        return
+    # v26.13.1-fix1: 不 再 走 check_quota_or_raise 的 30/分钟 LLM 限速 —
+    # 那 是 给 会议室 防 buggy 客户端 的 (ASR 触发 可能 1 秒 多次),
+    # 调试模式 = 用户 手动 发 1 条 1 条, per-user 日配额 200 已 是 上限.
+    # 多 一层 30/min 会 让 manager 想 快测 几条 时 卡住, 体验 巨差.
 
     text_buf: list[str] = []
     use_dify = bool(agent.dify_api_key)
