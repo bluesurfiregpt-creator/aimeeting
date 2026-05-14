@@ -1264,7 +1264,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         <span className="text-sm text-zinc-400">{statusText}</span>
       </div>
 
-      <div className="mt-5 flex gap-2">
+      {/* v26.10-Room Phase 1.1: 按钮 + 邀请 AI 专家 同行 (节省纵向空间) */}
+      <div className="mt-5 flex flex-wrap items-center gap-3">
         <button
           onClick={start}
           disabled={phase !== "idle"}
@@ -1279,6 +1280,76 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         >
           结束会议
         </button>
+        {/* v26.10-Room Phase 1.1: 邀请 AI 专家 紧凑横排 (从下面挪上来) */}
+        {(() => {
+          const invitedIds = new Set(meetingMeta?.attendee_agent_ids || []);
+          const invitedAgents =
+            invitedIds.size > 0
+              ? agents.filter((a) => invitedIds.has(a.id))
+              : [];
+          if (invitedAgents.length === 0) return null;
+          return (
+            <div className="ml-2 flex min-w-0 flex-1 items-center gap-2 overflow-x-auto rounded-xl border border-ink-700 bg-ink-900 px-3 py-1.5">
+              <span className="shrink-0 text-[10px] uppercase tracking-wider text-zinc-500">
+                AI 专家 · {invitedAgents.length}
+              </span>
+              {invitedAgents.map((a) => {
+                const busy = busyAgents.has(a.id);
+                const enabled = phase === "live" && !busy;
+                const color = tailwindColor(a.color ?? "violet");
+                return (
+                  <button
+                    key={a.id}
+                    onClick={() => invokeAgent(a)}
+                    disabled={!enabled}
+                    title={
+                      phase !== "live"
+                        ? `开始会议后,点头像让「${a.name}」发言`
+                        : busy
+                        ? `${a.name} 正在发言…`
+                        : `点击让「${a.name}」基于讨论发言`
+                    }
+                    className={`group relative flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 transition ${
+                      enabled
+                        ? "border-ink-700 bg-ink-950 hover:border-white/30"
+                        : "border-ink-800 bg-ink-950 opacity-60 cursor-not-allowed"
+                    }`}
+                  >
+                    {a.avatar_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={a.avatar_url}
+                        alt={a.name}
+                        className="h-5 w-5 rounded-full border object-cover"
+                        style={{ borderColor: color }}
+                      />
+                    ) : (
+                      <span
+                        className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+                        style={{ backgroundColor: color }}
+                      >
+                        {a.name.slice(0, 1)}
+                      </span>
+                    )}
+                    <span className="text-xs text-zinc-200">{a.name}</span>
+                    {busy && (
+                      <span
+                        className="ml-0.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full"
+                        style={{ backgroundColor: color }}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+              <Link
+                href="/me/profile/agents"
+                className="ml-auto shrink-0 text-[10px] text-zinc-500 hover:text-accent-400"
+              >
+                + 管理
+              </Link>
+            </div>
+          );
+        })()}
       </div>
 
       {/* v25.12-#2: Tab 化 nav — 实录 / 纪要 */}
@@ -1622,67 +1693,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       ) : null}
       {phase === "idle" ? <BriefingCard meetingId={meetingId} /> : null}
 
-      {/* v25.10 Bug 1: 只显示本会议邀请的 AI 专家(不是 workspace 全部) */}
-      {(() => {
-        const invitedIds = new Set(meetingMeta?.attendee_agent_ids || []);
-        const invitedAgents =
-          invitedIds.size > 0
-            ? agents.filter((a) => invitedIds.has(a.id))
-            : [];
-        return invitedAgents.length > 0 ? (
-        <div className="mt-6 rounded-xl border border-ink-700 bg-ink-900 px-4 py-3">
-          <div className="flex items-center gap-3 overflow-x-auto">
-            <span className="shrink-0 text-xs uppercase tracking-wider text-zinc-500">
-              邀请 AI 专家 · {invitedAgents.length} 个
-            </span>
-            {invitedAgents.map((a) => {
-              const busy = busyAgents.has(a.id);
-              const enabled = phase === "live" && !busy;
-              const color = tailwindColor(a.color ?? "violet");
-              return (
-                <button
-                  key={a.id}
-                  onClick={() => invokeAgent(a)}
-                  disabled={!enabled}
-                  title={
-                    phase !== "live"
-                      ? `开始会议后,点头像让「${a.name}」基于讨论发言`
-                      : busy
-                      ? `${a.name} 正在发言…`
-                      : `点击让「${a.name}」基于刚才讨论发言`
-                  }
-                  className={`group relative flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 transition ${
-                    enabled
-                      ? "border-ink-700 bg-ink-950 hover:border-white/30"
-                      : "border-ink-800 bg-ink-950 opacity-60 cursor-not-allowed"
-                  }`}
-                >
-                  <span
-                    className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold text-white"
-                    style={{ backgroundColor: color }}
-                  >
-                    {a.name.slice(0, 1)}
-                  </span>
-                  <span className="text-sm text-zinc-200">{a.name}</span>
-                  {busy && (
-                    <span
-                      className="ml-1 inline-block h-2 w-2 animate-pulse rounded-full"
-                      style={{ backgroundColor: color }}
-                    />
-                  )}
-                </button>
-              );
-            })}
-            <Link
-              href="/me/profile/agents"
-              className="ml-auto shrink-0 text-xs text-zinc-500 hover:text-accent-400"
-            >
-              + 管理 AI 专家
-            </Link>
-          </div>
-        </div>
-      ) : null;
-      })()}
+      {/* v26.10-Room Phase 1.1: 老 邀请 AI 专家 block 已 上移到 按钮行,这里移除 */}
 
       {recommendation && phase === "live" ? (
         <div
