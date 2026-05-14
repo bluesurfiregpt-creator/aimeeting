@@ -2131,8 +2131,8 @@ function MeetingAgentGallery({
           </span>
         )}
       </div>
-      {/* 横向滚动容器 — 多了自动滑动. 卡片 200x256 (200x200 头像 + 名字行) */}
-      <div className="-mx-1 flex gap-3 overflow-x-auto pb-2 pl-1">
+      {/* 横向滚动容器 — 多了自动滑动. 卡片 ~80x90 (50x50 头像 + 名字 + 领域) */}
+      <div className="-mx-1 flex gap-2 overflow-x-auto pb-1 pl-1">
         {invitedAgents.map((a) => {
           const busy = busyAgents.has(a.id);
           const enabled = phase === "live" && !busy;
@@ -2150,7 +2150,7 @@ function MeetingAgentGallery({
                   ? `${a.name} 正在发言…`
                   : `点击让「${a.name}」基于讨论发言`
               }
-              className={`group flex shrink-0 flex-col items-center gap-2 rounded-xl border-2 p-2 transition ${
+              className={`group flex shrink-0 flex-col items-center gap-1 rounded-lg border p-1.5 transition ${
                 enabled
                   ? "border-transparent hover:border-white/20 hover:bg-ink-900/50"
                   : busy
@@ -2158,15 +2158,15 @@ function MeetingAgentGallery({
                     : "border-transparent opacity-60 cursor-not-allowed"
               }`}
             >
-              {/* 大头像 200x200 */}
+              {/* 头像 50x50 */}
               <div
                 className="relative overflow-hidden rounded-full"
                 style={{
-                  width: 160,
-                  height: 160,
+                  width: 50,
+                  height: 50,
                   boxShadow: busy
-                    ? `0 0 0 3px ${color}, 0 0 20px ${color}80`
-                    : `0 0 0 2px ${color}40`,
+                    ? `0 0 0 2px ${color}, 0 0 8px ${color}80`
+                    : `0 0 0 1.5px ${color}40`,
                   background: `linear-gradient(135deg, ${color}30, ${color}10)`,
                 }}
               >
@@ -2175,41 +2175,41 @@ function MeetingAgentGallery({
                   <img
                     src={a.avatar_url}
                     alt={a.name}
-                    width={160}
-                    height={160}
+                    width={50}
+                    height={50}
                     className="h-full w-full object-cover transition group-hover:scale-105"
                   />
                 ) : (
                   <div
-                    className="grid h-full w-full place-items-center text-5xl font-semibold text-white"
+                    className="grid h-full w-full place-items-center text-base font-semibold text-white"
                     style={{ backgroundColor: color }}
                   >
                     {a.name.slice(0, 1)}
                   </div>
                 )}
-                {/* 思考中 / 发言中 状态 — 底部 pulse 圆点 */}
+                {/* 思考/发言中 — 右下角 pulse 圆点 */}
                 {busy && (
-                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2">
+                  <div className="absolute -bottom-0.5 -right-0.5">
                     <span
-                      className="inline-block h-3 w-3 animate-pulse rounded-full"
-                      style={{ backgroundColor: color, boxShadow: `0 0 10px ${color}` }}
+                      className="inline-block h-2 w-2 animate-pulse rounded-full ring-1 ring-ink-950"
+                      style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
                     />
                   </div>
                 )}
               </div>
-              {/* 名字 */}
-              <div className="text-center" style={{ maxWidth: 160 }}>
-                <div className="truncate text-sm font-medium text-zinc-100">
+              {/* 名字 + 领域 */}
+              <div className="text-center" style={{ maxWidth: 80 }}>
+                <div className="truncate text-[11px] font-medium text-zinc-100">
                   {a.name}
                 </div>
-                {a.domain && (
-                  <div className="truncate text-[10px] text-zinc-500">
+                {a.domain && !busy && (
+                  <div className="truncate text-[9px] text-zinc-500">
                     {a.domain}
                   </div>
                 )}
                 {busy && (
-                  <div className="mt-0.5 text-[10px] text-emerald-300">
-                    💬 正在发言…
+                  <div className="text-[9px] text-emerald-300">
+                    💬 发言中
                   </div>
                 )}
               </div>
@@ -2218,8 +2218,7 @@ function MeetingAgentGallery({
         })}
         <Link
           href="/me/profile/agents"
-          className="grid shrink-0 place-items-center self-center rounded-xl border border-dashed border-ink-700 px-3 text-xs text-zinc-500 hover:border-accent-500/50 hover:text-accent-400"
-          style={{ height: 160, width: 100 }}
+          className="grid shrink-0 place-items-center self-stretch rounded-lg border border-dashed border-ink-700 px-2 text-[10px] text-zinc-500 hover:border-accent-500/50 hover:text-accent-400"
           title="管理 AI 专家"
         >
           <span>+ 管理</span>
