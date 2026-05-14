@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,8 +84,24 @@ def _mask(key: str) -> str:
 
 
 def _to_out(row: ModelProviderConfig) -> ProviderConfigOut:
-    return ProviderConfigOut.model_validate(
-        {**row.__dict__, "masked_key": _mask(row.api_key or "")}
+    # v26.12-fix5: 不 再 用 model_validate({**row.__dict__, ...}) — 改 显式 字段 构造.
+    # row.__dict__ 含 _sa_instance_state, 而且 Pydantic v2 跟 model_ 前缀 字段 + dict
+    # 反序列化 在 某些 路径 上 可能 把 model_id 丢掉 (尽管 加了 protected_namespaces=()).
+    # 显式 构造 100% 安全, 也 让 字段 映射 一目了然.
+    logger.info(
+        "_to_out provider=%s row.model_id=%r row.base_url=%r",
+        row.provider, row.model_id, row.base_url,
+    )
+    return ProviderConfigOut(
+        id=row.id,
+        provider=row.provider,
+        base_url=row.base_url,
+        model_id=row.model_id,
+        is_active=row.is_active,
+        note=row.note,
+        masked_key=_mask(row.api_key or ""),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -124,6 +140,7 @@ async def list_configs(
 async def upsert_config(
     provider: str,
     payload: ProviderConfigIn,
+    request: Request,  # v26.12-fix5: 为了 dump raw body 给 调试用
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
@@ -131,6 +148,17 @@ async def upsert_config(
         raise HTTPException(400, f"unknown provider {provider}")
     if payload.provider != provider:
         raise HTTPException(400, "path provider != body provider")
+
+    # v26.12-fix5: 用户 反复 反馈 model_id 保存后 变 默认 — log raw body + 解析后
+    # payload, 对照 看 谁 把 model_id 丢了 (前端 / nginx / Pydantic).
+    try:
+        raw_body = await request.body()
+        logger.info(
+            "upsert_config provider=%s raw_body=%r parsed_payload=%r",
+            provider, raw_body[:500], payload.model_dump(),
+        )
+    except Exception:
+        logger.exception("debug log failed (non-fatal)")
 
     existing = (
         await session.execute(
