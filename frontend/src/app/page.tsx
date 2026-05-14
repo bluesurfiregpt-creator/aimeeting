@@ -156,8 +156,48 @@ export default function Home() {
         </div>
       </header>
 
-      {/* v26.12-Home: 搜索框 — 防抖 300ms 后 调 backend, 走 ILIKE name/nickname/persona/domain */}
+      {/* v26.12-Home-fix2: Hero CTA — AI 渐变描边 + 流动动画 + 发光阴影.
+          用户 反馈: "新建会议 应该 亮眼, 放 中间 位置".
+          从 页面底部 link card 升级 到 首屏 主入口, 视觉 引导.
+          描边: violet → fuchsia → amber → emerald → cyan 流动.
+          内部: ink-950 暗背景 + 大字 + ✨ + 副标 + 右侧 → 箭头. */}
       <div className="mt-10">
+        <Link
+          href="/meetings/new"
+          data-testid="home-advanced-meeting-link"
+          className="group relative block overflow-hidden rounded-2xl p-[2px] shadow-xl shadow-violet-500/20 transition hover:shadow-2xl hover:shadow-violet-500/40"
+        >
+          {/* 描边: 流动 AI 渐变 (CSS animation 在 globals.css) */}
+          <span
+            aria-hidden
+            className="absolute inset-0 rounded-2xl animate-ai-flow"
+          />
+          {/* 内部 卡片 — ink-950 暗底, 跟 描边 形成 对比 */}
+          <span className="relative flex items-center justify-between gap-4 rounded-[14px] bg-ink-950 px-6 py-5 transition group-hover:bg-ink-900">
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2">
+                <span className="text-lg animate-ai-sparkle" aria-hidden>✨</span>
+                <span className="text-base font-semibold text-white sm:text-lg">
+                  新建 完整会议
+                </span>
+                <span className="rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-200">
+                  AI 驱动
+                </span>
+              </span>
+              <span className="mt-1 block text-xs text-zinc-400 sm:text-sm">
+                配置 议程 + 真人参会人 + 多 AI 专家 + 会议模式 — 完整 定制 一场 跨域协作
+              </span>
+            </span>
+            {/* 右侧 → 箭头 — group-hover 时 滑动一点 */}
+            <span className="shrink-0 grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-lg transition group-hover:translate-x-0.5 group-hover:scale-105">
+              →
+            </span>
+          </span>
+        </Link>
+      </div>
+
+      {/* v26.12-Home: 搜索框 — 防抖 300ms 后 调 backend, 走 ILIKE name/nickname/persona/domain */}
+      <div className="mt-6">
         <div className="relative">
           <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500">
             🔍
@@ -285,24 +325,6 @@ export default function Home() {
           onClose={() => setSummoning(null)}
         />
       )}
-
-      {/* v26.12-Home: "完整会议" 入口 卡 — 跳 /meetings/new 独立页.
-          替代 v26.12 初版 的 折叠区 (用户 反馈 拎到 单独路由 更清爽). */}
-      <Link
-        href="/meetings/new"
-        className="mt-12 flex items-center justify-between rounded-xl border border-ink-700 bg-ink-900/60 px-5 py-4 transition hover:border-accent-500/50 hover:bg-ink-900"
-        data-testid="home-advanced-meeting-link"
-      >
-        <div>
-          <div className="text-sm font-medium text-zinc-200">
-            📦 新建 完整会议
-          </div>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            配置 议程 + 真人参会人 + 多 AI 专家 + 会议模式(hybrid / AI 自主)
-          </p>
-        </div>
-        <span className="text-zinc-500">→</span>
-      </Link>
 
       <p className="mt-12 text-center text-xs text-zinc-600">
         v26.12 · {new Date().getFullYear()}

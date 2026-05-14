@@ -56,6 +56,36 @@ html, body {
   50% { opacity: 0.6; }
 }
 
+/* v26.12-Home-fix2: AI 主题 hero CTA — 多色 渐变 边框 流动 + 紫色 发光.
+   用 ::before 伪元素 渲染 渐变, parent 用 rounded-2xl + overflow-hidden.
+   background-size 300% + animation 把 渐变 像 河流 一样 沿 边框 流动. */
+@keyframes ai-gradient-flow {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.animate-ai-flow {
+  background: linear-gradient(
+    135deg,
+    #8b5cf6 0%,
+    #ec4899 25%,
+    #f59e0b 50%,
+    #10b981 75%,
+    #06b6d4 100%
+  );
+  background-size: 300% 300%;
+  animation: ai-gradient-flow 6s ease-in-out infinite;
+}
+
+/* Hero CTA 内部 sparkle 装饰点 — 缓慢 闪烁 */
+@keyframes ai-sparkle {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
+.animate-ai-sparkle {
+  animation: ai-sparkle 3s ease-in-out infinite;
+}
+
 /* 隐藏滚动条但保持可滑动 (画廊 + 任务面板等) */
 .scrollbar-thin::-webkit-scrollbar {
   height: 6px;
