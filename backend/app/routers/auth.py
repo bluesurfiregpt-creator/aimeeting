@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, EmailStr, ConfigDict
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import (
@@ -455,33 +455,24 @@ async def me(
         ))
 
     # 任务速览 — 我作为 assignee 的 task 数 (各状态)
-    pending_cnt = (
+    # v26.13.2-perf: 3 个 count 合 1 个 SQL (CASE WHEN aggregation), 减 2 个 roundtrip
+    task_row = (
         await session.execute(
-            select(func.count(Task.id)).where(
+            select(
+                func.sum(case((Task.status == "dispatched", 1), else_=0)).label("pending"),
+                func.sum(
+                    case((Task.status.in_(["accepted", "in_progress"]), 1), else_=0)
+                ).label("working"),
+                func.sum(case((Task.status == "submitted", 1), else_=0)).label("review"),
+            ).where(
                 Task.workspace_id == auth.workspace.id,
                 Task.assignee_user_id == auth.user.id,
-                Task.status == "dispatched",
             )
         )
-    ).scalar_one() or 0
-    working_cnt = (
-        await session.execute(
-            select(func.count(Task.id)).where(
-                Task.workspace_id == auth.workspace.id,
-                Task.assignee_user_id == auth.user.id,
-                Task.status.in_(["accepted", "in_progress"]),
-            )
-        )
-    ).scalar_one() or 0
-    review_cnt = (
-        await session.execute(
-            select(func.count(Task.id)).where(
-                Task.workspace_id == auth.workspace.id,
-                Task.assignee_user_id == auth.user.id,
-                Task.status == "submitted",
-            )
-        )
-    ).scalar_one() or 0
+    ).one()
+    pending_cnt = int(task_row.pending or 0)
+    working_cnt = int(task_row.working or 0)
+    review_cnt = int(task_row.review or 0)
     # v26.5-02c: 我作为 primary_user 的待审批 KB 沉淀数
     kb_sed_pending = (
         await session.execute(

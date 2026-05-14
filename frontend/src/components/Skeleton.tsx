@@ -48,3 +48,41 @@ export function SkeletonGrid({ items = 4 }: { items?: number }) {
     </div>
   );
 }
+
+// v26.13.2-perf: 4-up grid 卡片 占位 — 给 首页 / /meetings/new AI picker 用,
+// 跟 v26.12-Home AgentCard 形状 一致 (头像 + 名字 + chip + persona 3 行 + footer).
+export function SkeletonAgentCard() {
+  return (
+    <div className="rounded-xl border border-ink-700 bg-ink-900 p-4">
+      <div className="flex items-start gap-3">
+        <div className="h-12 w-12 shrink-0 animate-pulse rounded-full bg-ink-800" />
+        <div className="flex-1 space-y-2">
+          <div className="h-3 w-3/5 animate-pulse rounded bg-ink-700" />
+          <div className="h-2 w-2/5 animate-pulse rounded bg-ink-800" />
+        </div>
+      </div>
+      <div className="mt-3 flex gap-1.5">
+        <div className="h-3 w-12 animate-pulse rounded-full bg-ink-800" />
+        <div className="h-3 w-16 animate-pulse rounded-full bg-ink-800" />
+      </div>
+      <div className="mt-3 space-y-1.5">
+        <div className="h-2 w-full animate-pulse rounded bg-ink-800" />
+        <div className="h-2 w-4/5 animate-pulse rounded bg-ink-800" />
+        <div className="h-2 w-3/5 animate-pulse rounded bg-ink-800" />
+      </div>
+      <div className="mt-3 flex items-center justify-between border-t border-ink-800 pt-2">
+        <div className="h-2 w-16 animate-pulse rounded bg-ink-800" />
+      </div>
+    </div>
+  );
+}
+
+export function SkeletonAgentGrid({ items = 8 }: { items?: number }) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+      {Array.from({ length: items }).map((_, i) => (
+        <SkeletonAgentCard key={i} />
+      ))}
+    </div>
+  );
+}

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, type Agent, type AgentInput, type KnowledgeBase, type Me, type User } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { SkeletonList } from "@/components/Skeleton";
 import { toast } from "@/lib/toast";
 
 // v26.5 role-aware UI:
@@ -52,6 +53,9 @@ export default function AgentsAdmin() {
   const [msg, setMsg] = useState("");
   // v26.5 role-aware: 读 me 决定 看哪些按钮
   const [me, setMe] = useState<Me | null>(null);
+  // v26.13.2-perf: 首次 加载 时 显 skeleton, 别 让 用户 看 大片空白 以为 系统坏了.
+  // 注意 仅 跟踪 *首次* 加载; 后续 refresh (例 创建后) 不再 重 skeleton, 平滑 替换 数据.
+  const [initialLoading, setInitialLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     const [as_, ks, us, meRes] = await Promise.all([
@@ -64,6 +68,7 @@ export default function AgentsAdmin() {
     setKbs(ks);
     setUsers(us);
     setMe(meRes);
+    setInitialLoading(false);
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
@@ -411,7 +416,11 @@ export default function AgentsAdmin() {
 
       <section>
         <h2 className="text-sm font-medium text-zinc-300">已有 Agent</h2>
-        {agents.length === 0 ? (
+        {initialLoading ? (
+          <div className="mt-3">
+            <SkeletonList rows={6} />
+          </div>
+        ) : agents.length === 0 ? (
           <p className="mt-3 text-sm text-zinc-600">还没有，先在左侧新建一个。</p>
         ) : (
           <ul className="mt-3 space-y-2">

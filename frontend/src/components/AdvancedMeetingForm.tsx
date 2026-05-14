@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, type Agent, type AgendaItem, type Me, type User } from "@/lib/api";
+import { SkeletonAgentGrid } from "@/components/Skeleton";
 
 // v26.3.1: 谁能创建 auto 会议.跟后端 require_leader_or_admin 对齐.
 const AUTO_CREATE_ROLES = new Set(["owner", "admin", "leader"]);
@@ -55,6 +56,7 @@ export function AdvancedMeetingForm({
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pickedAgents, setPickedAgents] = useState<Set<string>>(new Set());
   const [agentSearch, setAgentSearch] = useState("");
@@ -73,7 +75,8 @@ export function AdvancedMeetingForm({
     api.listUsers().then(setUsers).catch((e) => setErr(String(e)));
     api.listAgents()
       .then((rows) => setAgents(rows.filter((a) => a.is_active)))
-      .catch(() => setAgents([]));
+      .catch(() => setAgents([]))
+      .finally(() => setAgentsLoading(false));
   }, []);
 
   const toggle = (id: string) => {
@@ -386,7 +389,11 @@ export function AdvancedMeetingForm({
             )}
           </div>
         )}
-        {agents.length === 0 ? (
+        {agentsLoading ? (
+          <div className="mt-3">
+            <SkeletonAgentGrid items={8} />
+          </div>
+        ) : agents.length === 0 ? (
           <p className="mt-2 text-sm text-zinc-600" data-testid="no-agents-hint">
             还没有 AI 专家。去 <Link href="/me/profile/agents" className="text-accent-400">AI 配置</Link> 创建。
           </p>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, type Agent } from "@/lib/api";
+import { SkeletonAgentGrid } from "@/components/Skeleton";
 
 // v26.12-Home: agent 颜色名 → Tailwind class 映射 (用于 chip / card 颜色)
 const AGENT_COLOR_BG: Record<string, string> = {
@@ -282,9 +283,7 @@ export default function Home() {
       {/* v26.12-Home: 卡片 grid — 4 列 (desktop) / 3 列 (lg) / 2 列 (sm) / 1 列 (mobile) */}
       <div className="mt-4">
         {agentsLoading ? (
-          <p className="rounded-xl border border-ink-800 bg-ink-900/40 py-12 text-center text-sm text-zinc-500">
-            加载 AI 专家…
-          </p>
+          <SkeletonAgentGrid items={8} />
         ) : visibleAgents.length === 0 ? (
           <div className="rounded-xl border border-ink-800 bg-ink-900/40 py-12 text-center">
             <p className="text-sm text-zinc-400">

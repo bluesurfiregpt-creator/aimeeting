@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..audit import audit_log
@@ -174,15 +174,29 @@ async def list_kbs(
         for kid in kbids:
             kb_to_agents.setdefault(kid, []).append((aid, aname))
 
+    # v26.13.2-perf: 单次 SQL 拿 全部 KB 的 doc / chunk count.
+    # 老逻辑 是 N+1: for kb in rows: 单查 select * from knowledge_document where kb_id=...
+    # 拉 全行 数据 然后 python 数 — 16 KB × 单 query × 全表 数据 = 10秒 加载主因.
+    # 新: 一次 GROUP BY kb_id, 只 传 count + sum(chunk_count) 回来.
+    kb_ids = [kb.id for kb in rows]
+    counts_rows = (
+        await session.execute(
+            select(
+                KnowledgeDocument.kb_id,
+                func.count(KnowledgeDocument.id).label("doc_count"),
+                func.coalesce(func.sum(KnowledgeDocument.chunk_count), 0).label("chunk_count"),
+            )
+            .where(KnowledgeDocument.kb_id.in_(kb_ids))
+            .group_by(KnowledgeDocument.kb_id)
+        )
+    ).all()
+    counts_by_kb: dict[uuid.UUID, tuple[int, int]] = {
+        r[0]: (int(r[1] or 0), int(r[2] or 0)) for r in counts_rows
+    }
+
     out: list[KBOut] = []
     for kb in rows:
-        doc_count = (
-            await session.execute(
-                select(KnowledgeDocument).where(KnowledgeDocument.kb_id == kb.id)
-            )
-        ).scalars().all()
-        n_docs = len(doc_count)
-        n_chunks = sum((d.chunk_count or 0) for d in doc_count)
+        n_docs, n_chunks = counts_by_kb.get(kb.id, (0, 0))
         can_write_this = is_admin or (
             kb.owner_agent_id is not None and kb.owner_agent_id in my_agent_ids
         )
