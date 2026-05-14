@@ -169,64 +169,46 @@ export default function AgentsAdmin() {
     }
   };
 
-  // v24.1: 智慧住建 16 AI 专家 + 1:1 KB 一键 seed(幂等)
-  const [seedingSC, setSeedingSC] = useState(false);
-  const seedSmartConstruction = async () => {
-    if (seedingSC) return;
-    if (
-      !confirm(
-        "将为本工作空间一键 seed 智慧住建 16 AI 专家(15 业务 + 1 住建智脑)+ 1:1 知识库。\n" +
-        "已存在的同名 Agent / KB 会跳过(幂等)。\n继续?",
-      )
-    )
-      return;
-    setSeedingSC(true);
-    try {
-      const r = await api.seedSmartConstructionAgents();
-      toast.success(
-        `🏗️ 已 seed:Agent ${r.agents_created} 新增 / ${r.agents_skipped} 跳过 · ` +
-          `KB ${r.kbs_created} 新增 / ${r.kbs_skipped} 跳过` +
-          (r.preset_set ? "(workspace.preset 已设为 smart_construction)" : ""),
-      );
-      await refresh();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "seed 失败");
-    } finally {
-      setSeedingSC(false);
-    }
-  };
+  // v26.12-Home-fix3: 老 "智慧住建 16 AI 一键 seed" hardcoded 函数 已移除 (banner 也 换 通用 CTA).
+  // 后端 endpoint /api/dashboard/seed-smart-construction-agents 保留 — 测试 / seed 脚本 仍可 用.
+  // 用户 想 一键生成 团队 → 跳 /me/profile/agents/template (✨ AI 模板生成器,v26.6-01).
 
   return (
     <div className="space-y-6">
-      {/* v24.1: 智慧住建一键 seed banner (v26.5: 仅 leader+ 显示, manager 看不到 seed 入口) */}
+      {/* v26.12-Home-fix3: 通用 "AI 一键生成 团队角色" CTA.
+          替代 老 hardcoded "智慧住建 16 AI" banner — 用户 反馈 应该 通用化,
+          任何 企业/组织 都 能 用:"描述 想解决 的 问题 / 想 要 什么 团队" →
+          AI 自动生成 N 个 角色 (含 人格 / 关键词 / 种子 KB / 种子 Memory).
+          视觉 沿用 首页 hero CTA 的 流动 渐变描边 + 紫色 发光. */}
       {isFullAdmin && (
-      <section
-        className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4"
-        data-testid="sc-agents-seed-banner"
-      >
-        <div className="flex items-start gap-3">
-          <span className="text-2xl" aria-hidden>🏗️</span>
-          <div className="flex-1">
-            <h3 className="text-sm font-medium text-amber-200">
-              智慧住建场景 · 一键 seed 16 AI 专家
-            </h3>
-            <p className="mt-0.5 text-xs text-zinc-400">
-              福田区住建局 16 节点 — 15 业务 AI(综合事务/法制/房地产/公共住房/保障/建筑业/房屋安全/物业/建设科技/消防人防/城市更新规划/土地整备/城市更新项目/质量安全/住建土地)+ 1 住建智脑.
-              <br />
-              幂等可重跑,不会覆盖现有同名 Agent / KB.
-            </p>
-            <button
-              type="button"
-              onClick={seedSmartConstruction}
-              disabled={seedingSC}
-              data-testid="sc-agents-seed-btn"
-              className="mt-3 rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-medium text-amber-950 shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-amber-400 transition"
-            >
-              {seedingSC ? "正在 seed…" : "一键 seed 智慧住建 16 AI"}
-            </button>
-          </div>
-        </div>
-      </section>
+        <Link
+          href="/me/profile/agents/template"
+          className="group relative block overflow-hidden rounded-2xl p-[2px] shadow-xl shadow-violet-500/20 transition hover:shadow-2xl hover:shadow-violet-500/40"
+          data-testid="agent-template-cta"
+        >
+          {/* 描边 流动 — 跟 首页 一致 */}
+          <span aria-hidden className="absolute inset-0 rounded-2xl animate-ai-flow" />
+          {/* 内部 ink-950 暗底 */}
+          <span className="relative flex items-center justify-between gap-4 rounded-[14px] bg-ink-950 px-6 py-5 transition group-hover:bg-ink-900">
+            <span className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="text-lg animate-ai-sparkle" aria-hidden>✨</span>
+                <span className="text-base font-semibold text-white sm:text-lg">
+                  AI 一键生成 团队角色
+                </span>
+                <span className="rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-200">
+                  智能配置
+                </span>
+              </span>
+              <span className="mt-1 block text-xs text-zinc-400 sm:text-sm">
+                描述 你 想解决 的 问题, 或 想 要 什么 专业能力 的 团队 — AI 帮你 一次生成 N 个 角色 (含 人格 / 关键词 / 种子 知识 / 种子 记忆), 任何 行业 / 部门 都 能用
+              </span>
+            </span>
+            <span className="shrink-0 grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-lg transition group-hover:translate-x-0.5 group-hover:scale-105">
+              →
+            </span>
+          </span>
+        </Link>
       )}
 
       {/* v26.5: manager 看到 "你的 AI" 引导提示 */}
