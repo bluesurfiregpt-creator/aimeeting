@@ -1982,6 +1982,27 @@ export const api = {
   createAgent: (a: AgentInput) => jpost<Agent>("/api/agents", a),
   updateAgent: (id: string, a: Partial<AgentInput>) => jpatch<Agent>(`/api/agents/${id}`, a),
   deleteAgent: (id: string) => jdelete(`/api/agents/${id}`),
+
+  // v26.13.1: AI 私聊 调试模式 — 上传 文件 in-memory 解析 (不存盘)
+  parseChatFile: async (file: File): Promise<{
+    text: string;
+    filename: string;
+    char_count: number;
+  }> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch(backendBase() + "/api/chat/parse-file", {
+      method: "POST",
+      credentials: "include",
+      body: fd,
+    });
+    if (!r.ok) {
+      const text = await r.text().catch(() => "");
+      handleAuthError(r.status, text);
+      throw makeError("/api/chat/parse-file", r.status, text);
+    }
+    return r.json();
+  },
   // v26.9-Avatar: 上传 3 种形象 (头像 / 静态全身 / 动图全身)
   uploadAgentAvatar: async (id: string, file: File): Promise<Agent> => {
     const fd = new FormData();

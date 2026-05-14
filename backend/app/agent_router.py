@@ -566,6 +566,276 @@ async def invoke_agent_directly(
     )
 
 
+# ============================================================================
+# v26.13.1: AI 私聊 调试模式 — _call_for_chat
+# ============================================================================
+# 跟 _call_dify_and_stream 平行, 但:
+#   - 不 拿 meeting_id (没有 会议 上下文)
+#   - context 来自 browser 传 的 messages 历史
+#   - **完全 read** agent 的 KB + memory (调试模式 = 看 AI 完整能力)
+#   - **不写** transcript / agent_message / memory / KB
+#   - **不触发** orchestrator (没下一个发言者建议)
+#   - invoke_count +1 (调试也算 调用, 用于 首页 "热度" 排序)
+# 故意 重写 一份 retrieval 逻辑 而 不 refactor 现有 _call_dify_and_stream — 后者 跟
+# meetings 强耦合, 现在 动 它 风险 大, 等 v26.14 再 statically 抽 共用 helper.
+# ============================================================================
+
+
+def _compose_chat_user_prompt(messages: list[dict], attachments: list[dict]) -> str:
+    """
+    Build user prompt from browser-supplied chat history + attachments.
+
+    messages: [{role: "user"|"assistant", content: str}], 最近 10 条
+    attachments: [{filename: str, text: str}] — 解析后 的 文件文本
+    """
+    # 历史 (除 最新 一条 user) 当成 上下文
+    history = messages[:-1] if messages else []
+    history_lines: list[str] = []
+    for m in history[-10:]:  # 最多 10 条 历史
+        role = m.get("role", "user")
+        content = (m.get("content") or "").strip()
+        if not content:
+            continue
+        prefix = "用户" if role == "user" else "你 (AI 助手)"
+        history_lines.append(f"{prefix}: {content[:800]}")
+
+    # 最新 一条 user 消息 = 当前 query
+    last_user = ""
+    if messages and messages[-1].get("role") == "user":
+        last_user = (messages[-1].get("content") or "").strip()
+
+    parts: list[str] = []
+    if history_lines:
+        parts.append("【之前 对话】")
+        parts.extend(history_lines)
+        parts.append("")
+    if attachments:
+        parts.append("【用户 本次 上传 的 文件】")
+        for att in attachments:
+            fn = att.get("filename") or "未命名"
+            txt = (att.get("text") or "")[:4000]  # 单文件 截 4k 字
+            if txt:
+                parts.append(f"--- 文件: {fn} ---\n{txt}")
+        parts.append("")
+    parts.append("【用户 当前 问题】")
+    parts.append(last_user or "(空消息)")
+    return "\n".join(parts)
+
+
+async def invoke_agent_for_chat(
+    agent_id: uuid.UUID,
+    *,
+    on_message: Callable[[dict], Awaitable[None]],
+    messages: list[dict],
+    attachments: list[dict] | None = None,
+    user_id: Optional[uuid.UUID] = None,
+    workspace_id: Optional[uuid.UUID] = None,
+) -> None:
+    """
+    AI 私聊 调试模式 — 单次 LLM 调用, 流式 回复.
+
+    不写 任何表 (transcript / agent_message / memory / KB). KB + memory 仍 read
+    (调试 看 AI 完整能力). invoke_count +1.
+
+    on_message 推 跟 会议 同一套 schema:
+      - agent_message_start / agent_message_chunk / agent_message_end
+      - (调试 信息) chat_debug_info — citations 跟 memory 命中 数, 给 sidebar 显
+    """
+    attachments = attachments or []
+
+    async with SessionLocal() as db:
+        agent = (
+            await db.execute(
+                select(Agent).where(Agent.id == agent_id, Agent.is_active.is_(True))
+            )
+        ).scalar_one_or_none()
+    if not agent:
+        await on_message({"type": "system", "msg": "agent_unconfigured"})
+        return
+
+    # 边界: workspace 必须 跟 agent workspace 一致 (前端 已校验 ABAC, 这里 兜底)
+    if workspace_id is not None and agent.workspace_id != workspace_id:
+        await on_message({"type": "system", "msg": "agent_workspace_mismatch"})
+        return
+
+    logger.info(
+        "chat-invoke agent=%s user=%s messages=%d attachments=%d",
+        agent.name, user_id, len(messages), len(attachments),
+    )
+
+    await on_message(
+        {
+            "type": "agent_message_start",
+            "agent_id": str(agent.id),
+            "agent_name": agent.name,
+            "agent_nickname": agent.nickname,
+            "agent_color": agent.color or "violet",
+        }
+    )
+
+    # 短期 quota — 复用 现有 per-minute LLM 限速 (兜底 防 buggy 客户端)
+    try:
+        await check_quota_or_raise(user_id=user_id, workspace_id=workspace_id)
+    except HTTPException as quota_exc:
+        await on_message(
+            {"type": "agent_message_chunk", "agent_id": str(agent.id),
+             "chunk": f"[配额超限: {quota_exc.detail}]"}
+        )
+        await on_message({
+            "type": "agent_message_end", "agent_id": str(agent.id),
+            "text": f"[配额超限: {quota_exc.detail}]", "citations": [],
+        })
+        return
+
+    text_buf: list[str] = []
+    use_dify = bool(agent.dify_api_key)
+
+    user_prompt = _compose_chat_user_prompt(messages, attachments)
+    last_user_msg = (
+        messages[-1].get("content", "") if messages and messages[-1].get("role") == "user" else ""
+    )
+
+    citations: list[dict[str, Any]] = []
+    memory_lines: list[str] = []
+    kb_snippets: list[tuple[str, str]] = []
+
+    try:
+        if use_dify:
+            # Dify 路径 — 跟 会议 同样 走 Dify 编排器 (它 内部 有 自己的 KB / memory)
+            client = DifyClient(
+                api_key=agent.dify_api_key,
+                base_url=agent.dify_base_url or "https://api.dify.ai",
+            )
+            # Dify 的 user 标识 — 给 它 一个 用户级 id, 让 Dify 内部 区分 会话
+            dify_user = f"chat:{user_id}:{agent.id}" if user_id else f"chat:{agent.id}"
+            async for ev in client.chat_stream(
+                query=last_user_msg or user_prompt,
+                inputs={"meeting_context": user_prompt},
+                user=dify_user,
+                app_type=agent.dify_app_type or "chatflow",
+            ):
+                evt = ev.get("event")
+                if evt in ("message", "agent_message"):
+                    chunk = ev.get("answer") or ""
+                    if chunk:
+                        text_buf.append(chunk)
+                        await on_message(
+                            {"type": "agent_message_chunk", "agent_id": str(agent.id), "chunk": chunk}
+                        )
+                elif evt in ("message_end", "workflow_finished"):
+                    break
+                elif evt == "error":
+                    logger.warning("dify error in chat: %s", ev)
+                    await on_message(
+                        {"type": "agent_message_chunk", "agent_id": str(agent.id),
+                         "chunk": f"[Dify 错误: {ev.get('message')}]"}
+                    )
+        else:
+            async with SessionLocal() as db:
+                provider = await get_active_provider(db)
+                if provider is None:
+                    await on_message({
+                        "type": "agent_message_chunk", "agent_id": str(agent.id),
+                        "chunk": "[未配置可用的 LLM 模型,请去「LLM 模型」页面设置]",
+                    })
+                else:
+                    # KB retrieval — 调试模式 也 走 KB, 让 manager 验证 KB 配置
+                    if agent.knowledge_base_ids:
+                        try:
+                            kb_results = await retrieve_chunks(
+                                db,
+                                query_text=user_prompt[-2000:],
+                                kb_ids=list(agent.knowledge_base_ids),
+                                k=4,
+                            )
+                            kb_snippets = [
+                                (r.document_filename, r.content) for r in kb_results
+                            ]
+                            citations = [
+                                {
+                                    "chunk_id": r.chunk_id,
+                                    "document_id": r.document_id,
+                                    "document_filename": r.document_filename,
+                                    "chunk_index": r.chunk_index,
+                                    "snippet": (r.content or "").strip()[:240],
+                                    "distance": round(r.distance, 4),
+                                }
+                                for r in kb_results
+                            ]
+                        except Exception:
+                            logger.exception("chat: kb retrieval failed")
+
+                    # Memory retrieval — workspace-scoped, agent-scoped
+                    if workspace_id is not None:
+                        try:
+                            mems = await retrieve_relevant(
+                                db,
+                                workspace_id=workspace_id,
+                                query_text=user_prompt[-2000:],
+                                project_refs=None,
+                                user_refs=None,
+                                agent_id=agent.id,
+                                k=4,
+                            )
+                            memory_lines = [m.content for m in mems if m.distance < 0.6]
+                        except Exception:
+                            logger.exception("chat: memory retrieval failed")
+
+                    # 推 调试信息 给前端 sidebar 显 "本次 召回 N chunks / M memories"
+                    await on_message({
+                        "type": "chat_debug_info",
+                        "agent_id": str(agent.id),
+                        "kb_hits": len(citations),
+                        "memory_hits": len(memory_lines),
+                    })
+
+                    system_prompt = _compose_system_prompt(
+                        agent,
+                        memory_lines or None,
+                        kb_snippets or None,
+                    )
+                    async for chunk in stream_chat(
+                        provider=provider,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                    ):
+                        if chunk:
+                            text_buf.append(chunk)
+                            await on_message(
+                                {"type": "agent_message_chunk", "agent_id": str(agent.id), "chunk": chunk}
+                            )
+    except (DifyError, LlmError) as e:
+        logger.exception("chat agent call failed")
+        await on_message(
+            {"type": "agent_message_chunk", "agent_id": str(agent.id), "chunk": f"[调用失败: {e}]"}
+        )
+    except Exception:
+        logger.exception("chat agent call unexpected error")
+        await on_message(
+            {"type": "agent_message_chunk", "agent_id": str(agent.id), "chunk": "[调用失败: internal_error]"}
+        )
+    finally:
+        full = ("".join(text_buf))[:MAX_TEXT_LEN]
+        # invoke_count +1 (调试也算 调用 — 让 首页 "热度" 反映 真实使用)
+        if full:
+            try:
+                async with SessionLocal() as db:
+                    await db.execute(
+                        update(Agent)
+                        .where(Agent.id == agent.id)
+                        .values(invoke_count=Agent.invoke_count + 1)
+                    )
+                    await db.commit()
+            except Exception:
+                logger.exception("chat: invoke_count update failed")
+        await on_message({
+            "type": "agent_message_end",
+            "agent_id": str(agent.id),
+            "text": full,
+            "citations": citations,
+        })
+
+
 async def _agents_for_meeting(db: AsyncSession, meeting_id: uuid.UUID) -> list[Agent]:
     """Active agents 显式邀请到本会议的.
 

@@ -28,6 +28,7 @@ from .auth import COOKIE_NAME, decode_token
 from .routers import access_requests as access_requests_router
 from .routers import agent_templates as agent_templates_router  # v26.6-01
 from .routers import agents as agents_router
+from .routers import chat as chat_router  # v26.13.1 AI 私聊 调试模式
 from .routers import asr_vocabulary as asr_vocabulary_router  # v25.9
 from .routers import audit as audit_router
 from .routers import auth as auth_router
@@ -138,6 +139,7 @@ app.include_router(kb_sedimentation_router.router)  # v26.5-02c
 app.include_router(memory_drafts_router.router)  # v26.5-Lineage
 app.include_router(lineage_router.router)  # v26.5-Lineage P2
 app.include_router(agent_templates_router.router)  # v26.6-01 AI 模板生成器
+app.include_router(chat_router.router)  # v26.13.1 AI 私聊 调试模式
 
 
 @app.get("/healthz")
@@ -415,6 +417,84 @@ async def ws_stt(ws: WebSocket):
         # 到 死 socket 导致 异常 (虽然 broadcast 自己 会 drop, 但 显式 摘 干净 一些).
         if meeting_uuid is not None:
             session_state.unregister_client(meeting_uuid, ws)
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+
+# ============================================================================
+# v26.13.1: AI 私聊 STT WebSocket — 调试模式 语音输入
+# ============================================================================
+# 跟 ws_stt 平行, 但:
+#   - 不写 meeting_transcript (调试模式 不存)
+#   - 不挂 session_state (没有 房间概念)
+#   - 不触发 agent (前端 拿到 transcript text 后 自己 决定 何时 提交 LLM)
+#   - 仅 走 FunASR ASR + 把 transcript 帧 回推 给 前端
+# 前端 用法: 录音 → WS 二进制 PCM 流 → 收 {type:"transcript", text, is_final}
+#         → 用户 按 "确认" 把 final 文本 当 chat message 提交 给 /api/agents/{id}/chat
+# ============================================================================
+@app.websocket("/ws/chat-stt")
+async def ws_chat_stt(ws: WebSocket):
+    """STT pipe for chat 调试模式. 仅 ASR, 不 持久化, 不 关联 任何 meeting."""
+    await ws.accept()
+
+    # 鉴权 — 跟 ws_stt 同一套
+    token = ws.cookies.get(COOKIE_NAME)
+    auth_workspace_id: uuid.UUID | None = None
+    if token:
+        try:
+            payload = decode_token(token)
+            wsid = payload.get("wsid")
+            if wsid:
+                auth_workspace_id = uuid.UUID(wsid)
+        except Exception:
+            auth_workspace_id = None
+    if auth_workspace_id is None:
+        await ws.send_text(json.dumps({"type": "system", "msg": "auth required"}))
+        await ws.close()
+        return
+
+    async def emit(
+        text: str,
+        is_final: bool,
+        start_ts,
+        end_ts,
+        **kwargs,  # speaker_user_id 等 不用 (调试模式), 接 接口签名 用
+    ) -> None:
+        try:
+            await ws.send_text(json.dumps(
+                {"type": "transcript", "text": text, "is_final": is_final,
+                 "start_ts": start_ts, "end_ts": end_ts},
+                ensure_ascii=False,
+            ))
+        except Exception:
+            logger.exception("ws_chat_stt send failed")
+
+    client = FunASRClient(emit, workspace_id=auth_workspace_id)
+    try:
+        await client.start()
+        await ws.send_text(json.dumps({"type": "system", "msg": "ready"}))
+        while True:
+            msg = await ws.receive()
+            if msg.get("type") == "websocket.disconnect":
+                break
+            if "bytes" in msg and msg["bytes"] is not None:
+                await client.feed(msg["bytes"])
+            elif "text" in msg and msg["text"] is not None:
+                # 仅 接 "stop" 控制信号; 不处理 其他消息
+                try:
+                    payload = json.loads(msg["text"])
+                except json.JSONDecodeError:
+                    continue
+                if payload.get("action") == "stop":
+                    break
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logger.exception("ws_chat_stt error")
+    finally:
+        await client.stop()
         try:
             await ws.close()
         except Exception:
