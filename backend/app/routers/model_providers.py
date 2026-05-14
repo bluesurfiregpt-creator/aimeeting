@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -13,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
+
+logger = logging.getLogger(__name__)
 from ..list_models import ListModelsError, list_models
 from ..llm_providers import SUPPORTED_PROVIDERS, get_spec
 from ..models import ModelProviderConfig
@@ -30,6 +33,10 @@ class ProviderCatalogEntry(BaseModel):
 
 
 class ProviderConfigIn(BaseModel):
+    # v26.12-fix4: Pydantic v2 默认 把 `model_` 前缀 字段 当 protected namespace —
+    # warning + 某些 边界 case 可能 把 model_id 当 reserved attr 处理.
+    # 显式 设 protected_namespaces=() 既 消除 warning 又 确保 model_id 是 普通字段.
+    model_config = ConfigDict(protected_namespaces=())
     provider: str
     api_key: str
     base_url: Optional[str] = None
@@ -57,7 +64,8 @@ class ListModelsOut(BaseModel):
 
 
 class ProviderConfigOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    # v26.12-fix4: 同上 — model_ 前缀 protected namespace 关掉, 保证 model_id 字段 正常.
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
     id: uuid.UUID
     provider: str
     base_url: Optional[str] = None
@@ -146,7 +154,14 @@ async def upsert_config(
     # httpx will refuse to send a header value containing them.
     existing.api_key = (payload.api_key or "").strip()
     existing.base_url = (payload.base_url or "").strip() or (spec.default_base_url if spec else None)
-    existing.model_id = (payload.model_id or "").strip() or (spec.default_model if spec else None)
+    # v26.12-fix4: 用户 报告 选择 model_id 后 保存, 刷新 回 默认值 的 bug.
+    # 现在 显式 log 收到 的 payload.model_id + 计算后 final 值, 便于 调查.
+    final_model_id = (payload.model_id or "").strip() or (spec.default_model if spec else None)
+    logger.info(
+        "save_provider_config provider=%s ws=%s payload.model_id=%r → final=%r",
+        provider, auth.workspace.id, payload.model_id, final_model_id,
+    )
+    existing.model_id = final_model_id
     existing.is_active = payload.is_active
     existing.note = payload.note
 
