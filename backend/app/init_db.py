@@ -431,6 +431,32 @@ async def init_db() -> None:
                        ON DELETE SET NULL;
                     RAISE NOTICE '[v26.7-03] 加 FK knowledge_document.source_meeting_id';
                 END IF;
+
+                -- v26.13.2-fix2: Agent.primary_user_id → user.id  ON DELETE SET NULL
+                -- 早期 (v26.0) 加 primary_user_id 列 用 raw ALTER UUID, 没 加 FK.
+                -- 历史 上 删 user 时 agent 没 自动 NULL, 导致 现在 创建 KbSedimentationDraft
+                -- (primary_user_id=agent.primary_user_id) 时 FK violation 500.
+                -- 修: 一次性 cleanup stale + 加 FK ON DELETE SET NULL, 一劳永逸.
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints tc
+                      JOIN information_schema.key_column_usage kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                           AND tc.constraint_schema = kcu.constraint_schema
+                     WHERE tc.table_name = 'agent'
+                       AND kcu.column_name = 'primary_user_id'
+                       AND tc.constraint_type = 'FOREIGN KEY'
+                       AND tc.table_schema = 'public'
+                ) THEN
+                    -- 清 stale primary_user_id (指向 不存在 user)
+                    UPDATE agent SET primary_user_id = NULL
+                     WHERE primary_user_id IS NOT NULL
+                       AND primary_user_id NOT IN (SELECT id FROM "user");
+                    ALTER TABLE agent
+                       ADD CONSTRAINT agent_primary_user_fk_v26_13_2
+                       FOREIGN KEY (primary_user_id) REFERENCES "user"(id)
+                       ON DELETE SET NULL;
+                    RAISE NOTICE '[v26.13.2-fix2] 加 FK agent.primary_user_id → user ON DELETE SET NULL';
+                END IF;
             END $$;
         """))
 
