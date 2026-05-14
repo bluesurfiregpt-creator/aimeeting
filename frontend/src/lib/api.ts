@@ -2106,6 +2106,12 @@ export const api = {
       kb_doc_id: string | null;
       memory_count: number;
     }>;
+    // v26.6-fix1: 同名跳过的 agent
+    skipped?: Array<{
+      name: string;
+      reason: string;
+      existing_agent_id: string | null;
+    }>;
   }>("/api/agent-templates/commit", body),
 
   // v26.5-02c: KB 沉淀审批

@@ -90,9 +90,19 @@ export default function AgentTemplatePage() {
         agents: drafts,
         candidate_manager_ids: Array.from(selectedManagerIds),
       });
-      toast.success(`✅ 已创建 ${r.created.length} 个 AI 专家`);
+      const skipCount = (r.skipped ?? []).length;
+      if (skipCount > 0) {
+        // v26.6-fix1: 同名跳过的提示
+        const skipNames = (r.skipped ?? []).map((s) => s.name).join("、");
+        toast.warn(
+          `✅ 已创建 ${r.created.length} 个 / 跳过 ${skipCount} 个同名`,
+          { detail: `跳过: ${skipNames}` },
+        );
+      } else {
+        toast.success(`✅ 已创建 ${r.created.length} 个 AI 专家`);
+      }
       setStage("done");
-      setTimeout(() => router.push("/me/profile/agents"), 1200);
+      setTimeout(() => router.push("/me/profile/agents"), 1500);
     } catch {
       setStage("preview");
     }

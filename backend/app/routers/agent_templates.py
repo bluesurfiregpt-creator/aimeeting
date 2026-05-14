@@ -86,8 +86,17 @@ class CommittedAgent(BaseModel):
     memory_count: int = 0
 
 
+class SkippedAgent(BaseModel):
+    """v26.6-fix1: 同名 agent 跳过的明细 (幂等)."""
+    name: str
+    reason: str = "duplicate_name"
+    existing_agent_id: Optional[uuid.UUID] = None
+
+
 class CommitOut(BaseModel):
     created: list[CommittedAgent]
+    # v26.6-fix1: 同名 agent 跳过的 (幂等保护) — 客户能清楚知道哪些没建
+    skipped: list[SkippedAgent] = []
 
 
 # ----- LLM prompt -------------------------------------------------------------
@@ -270,10 +279,42 @@ async def commit_template(
         candidate_users = list(rows)
     candidate_idx = 0
 
+    # v26.6-fix1 (Kimi v26.6 Issue 2): 幂等保护 — 先查 workspace 内已有同名 agent
+    # 一次性 batch 查, 避免 N+1.
+    incoming_names = [d.name.strip()[:64] for d in payload.agents if d.name.strip()]
+    existing_rows = list((
+        await session.execute(
+            select(Agent.id, Agent.name).where(
+                Agent.workspace_id == auth.workspace.id,
+                Agent.name.in_(incoming_names) if incoming_names else False,
+            )
+        )
+    ).all()) if incoming_names else []
+    existing_name_to_id: dict[str, uuid.UUID] = {r[1]: r[0] for r in existing_rows}
+    # 同 batch 内 重名也去重 (例: LLM 出了 2 个同名)
+    seen_in_batch: set[str] = set()
+
     created: list[CommittedAgent] = []
+    skipped: list[SkippedAgent] = []
     for draft in payload.agents:
         if not draft.name.strip():
             continue
+        name = draft.name.strip()[:64]
+        # 幂等检查
+        if name in existing_name_to_id:
+            skipped.append(SkippedAgent(
+                name=name,
+                reason="duplicate_name",
+                existing_agent_id=existing_name_to_id[name],
+            ))
+            continue
+        if name in seen_in_batch:
+            skipped.append(SkippedAgent(
+                name=name,
+                reason="duplicate_in_batch",
+            ))
+            continue
+        seen_in_batch.add(name)
         # 选 primary_user (round-robin, 简单匹配)
         primary_uid: Optional[uuid.UUID] = None
         if candidate_idx < len(candidate_users):
@@ -282,7 +323,7 @@ async def commit_template(
         # 创建 agent
         a = Agent(
             workspace_id=auth.workspace.id,
-            name=draft.name.strip()[:64],
+            name=name,
             domain=draft.domain,
             persona=draft.persona,
             keywords=draft.keywords or None,
@@ -390,7 +431,8 @@ async def commit_template(
         target_type="agent_template", target_id="batch",
         payload={
             "count": len(created),
+            "skipped": len(skipped),
             "agent_ids": [str(c.id) for c in created],
         },
     )
-    return CommitOut(created=created)
+    return CommitOut(created=created, skipped=skipped)
