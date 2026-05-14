@@ -282,6 +282,13 @@ class Agent(Base):
     stage: Mapped[str] = mapped_column(String(16), default="prod")  # test|prod
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    # v26.12-Home: 首页 "热度" 排序 + 卡片 露 "使用次数". invoke_agent_directly
+    # 成功 时 +1 (atomic UPDATE). 老 agent 全部 从 0 开始.
+    invoke_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # v26.12-Home: 拟人 短名 (例 "数妙妙" / "文爆爆"). NULL 则 前端 fallback 全名.
+    # 给 严肃 业务场景 一个 灰度选项 — manager 可以 完全 不填 nickname, 保持 专业.
+    nickname: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
 
 # --- Meetings -----------------------------------------------------------------
 

@@ -386,6 +386,8 @@ export type MeetingResult = {
 export type Agent = {
   id: string;
   name: string;
+  /** v26.12-Home: 拟人外号 (可选, 例 "数妙妙"). NULL 时 fallback name. */
+  nickname?: string | null;
   avatar_url: string | null;
   // v26.9-Avatar: AI "数字员工" 3 种形象
   full_body_url?: string | null;          // 静态全身 200x388
@@ -409,6 +411,8 @@ export type Agent = {
    *  user.UI 上 "主责" 显示 agent.name,旁标 "由 <primary_user.name> 操作". */
   primary_user_id?: string | null;
   primary_user_name?: string | null;
+  /** v26.12-Home: 累计 调用次数 — 首页 卡片 "1247 次使用" + 最热排序基准. */
+  invoke_count?: number;
   created_at: string;
 };
 
@@ -1959,7 +1963,21 @@ export const api = {
     jget<AgentMessage[]>(`/api/meetings/${meetingId}/agent-messages`),
 
   // Agents
-  listAgents: () => jget<Agent[]>("/api/agents"),
+  listAgents: (opts?: {
+    q?: string;
+    sort?: "new" | "hot";
+    domain?: string;
+    active_only?: boolean;
+  }) => {
+    // v26.12-Home: 首页 卡片浏览 用 — 不传 任何 参数 = 老行为 (created_at desc)
+    const params = new URLSearchParams();
+    if (opts?.q) params.set("q", opts.q);
+    if (opts?.sort) params.set("sort", opts.sort);
+    if (opts?.domain) params.set("domain", opts.domain);
+    if (opts?.active_only) params.set("active_only", "true");
+    const qs = params.toString();
+    return jget<Agent[]>(`/api/agents${qs ? `?${qs}` : ""}`);
+  },
   getAgent: (id: string) => jget<Agent>(`/api/agents/${id}`),
   createAgent: (a: AgentInput) => jpost<Agent>("/api/agents", a),
   updateAgent: (id: string, a: Partial<AgentInput>) => jpatch<Agent>(`/api/agents/${id}`, a),

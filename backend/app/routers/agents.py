@@ -7,9 +7,9 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..audit import audit_log
@@ -33,6 +33,7 @@ router = APIRouter(prefix="/api/agents", tags=["agents"])
 class AgentIn(BaseModel):
     """创建 agent 用 — name 必填."""
     name: str
+    nickname: Optional[str] = None  # v26.12-Home: 拟人外号
     avatar_url: Optional[str] = None
     full_body_url: Optional[str] = None  # v26.9-Avatar
     full_body_animated_url: Optional[str] = None  # v26.9-Avatar
@@ -57,6 +58,7 @@ class AgentPatchIn(BaseModel):
     解决之前 PATCH 必须传 name 否则 422 的问题.
     """
     name: Optional[str] = None
+    nickname: Optional[str] = None  # v26.12-Home: 拟人外号; 传 "" 视为清空
     avatar_url: Optional[str] = None
     full_body_url: Optional[str] = None  # v26.9-Avatar
     full_body_animated_url: Optional[str] = None  # v26.9-Avatar
@@ -79,6 +81,7 @@ class AgentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     name: str
+    nickname: Optional[str] = None  # v26.12-Home: 拟人外号 (NULL → 前端 fallback name)
     avatar_url: Optional[str] = None
     full_body_url: Optional[str] = None  # v26.9-Avatar
     full_body_animated_url: Optional[str] = None  # v26.9-Avatar
@@ -98,6 +101,8 @@ class AgentOut(BaseModel):
     # v26.0: 科室账号 信息 — 派发时 task 实际 assignee_user_id 由此 derive
     primary_user_id: Optional[uuid.UUID] = None
     primary_user_name: Optional[str] = None
+    # v26.12-Home: 调用统计 — 首页 卡片 露 "1247 次使用" + "最热" 排序基准
+    invoke_count: int = 0
     created_at: datetime
 
 
@@ -131,6 +136,14 @@ async def _resolve_primary_user_names(
 async def list_agents(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
+    # v26.12-Home: 首页 卡片浏览 用 — 默认 不传 跟 老行为 一致
+    q: Optional[str] = Query(None, description="搜索 name/nickname/persona/domain"),
+    sort: str = Query("new", description="new = 最新 / hot = 最热 (invoke_count desc)"),
+    domain: Optional[str] = Query(None, description="按 domain 字段 精确筛选"),
+    active_only: bool = Query(
+        False,
+        description="True 只返回 is_active=true 的 (首页 卡片 用)",
+    ),
 ):
     # v25-bug-fix #6 ABAC:
     #   - leader/admin/owner: 看 全部 16 AI(管理用)
@@ -140,12 +153,33 @@ async def list_agents(
     is_admin = await is_leader_or_admin(session, auth)
     bound = await expert_bound_agent_id(session, auth)
 
-    q = select(Agent).where(Agent.workspace_id == auth.workspace.id)
+    stmt = select(Agent).where(Agent.workspace_id == auth.workspace.id)
     if not is_admin and bound is not None:
         # expert 只看自己绑定的
-        q = q.where(Agent.id == bound)
-    q = q.order_by(Agent.created_at.desc())
-    rows = (await session.execute(q)).scalars().all()
+        stmt = stmt.where(Agent.id == bound)
+    # v26.12-Home: 关键词 全文 (ILIKE), 首页 搜索框 用
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.where(
+            or_(
+                Agent.name.ilike(like),
+                Agent.nickname.ilike(like),
+                Agent.persona.ilike(like),
+                Agent.domain.ilike(like),
+            )
+        )
+    if domain:
+        stmt = stmt.where(Agent.domain == domain)
+    if active_only:
+        stmt = stmt.where(Agent.is_active.is_(True))
+    # v26.12-Home: 排序
+    #   hot = invoke_count desc (老 agent 都 0, 同分 时 fallback created_at desc)
+    #   new = created_at desc (默认, 跟 老行为 一致)
+    if sort == "hot":
+        stmt = stmt.order_by(Agent.invoke_count.desc(), Agent.created_at.desc())
+    else:
+        stmt = stmt.order_by(Agent.created_at.desc())
+    rows = (await session.execute(stmt)).scalars().all()
     name_by_uid = await _resolve_primary_user_names(session, rows)
     return [_to_out(a, name_by_uid.get(a.primary_user_id)) for a in rows]
 

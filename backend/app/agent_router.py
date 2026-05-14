@@ -29,7 +29,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fastapi import HTTPException
@@ -394,6 +394,14 @@ async def _call_dify_and_stream(
                             trigger_payload=trigger_payload,
                             citations=cits or None,
                         )
+                    )
+                    # v26.12-Home: agent 被 调用 + 真返回 内容 → invoke_count +1.
+                    # atomic UPDATE 避免 多进程 race condition (老 invoke_count + 1
+                    # 这种 read-modify-write 会 丢 计数).
+                    await db.execute(
+                        update(Agent)
+                        .where(Agent.id == agent.id)
+                        .values(invoke_count=Agent.invoke_count + 1)
                     )
                     await db.commit()
             except Exception:

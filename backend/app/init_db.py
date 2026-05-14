@@ -129,6 +129,12 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     # v26.11-fix2: 会议 创建人 — 邀请 AI / 关掉 会议 等 房间级别 操作 的 ABAC 判定基.
     # NULL 老数据 (v26.11 前 创建的会议) — ABAC 退化为 仅 leader+ 可改.
     ("meeting", "created_by_user_id", "UUID"),
+    # v26.12-Home: AI 调用统计 + 拟人外号
+    #   invoke_count — agent_router.invoke_agent_directly() 成功 时 +1.
+    #     首页 "热度" 排序 + 卡片 露 "1247 次使用" 社会证明. 老 agent 全部 从 0 起.
+    #   nickname — 可选 拟人外号 (e.g. "数妙妙" / "文爆爆"). NULL 时 前端 fallback 全名.
+    ("agent", "invoke_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("agent", "nickname", "VARCHAR(64)"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

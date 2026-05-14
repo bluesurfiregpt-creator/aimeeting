@@ -14,6 +14,7 @@ const FULL_ADMIN_ROLES = new Set(["owner", "admin", "leader"]);
 
 type Form = {
   name: string;
+  nickname: string;        // v26.12-Home: 拟人外号 (可选)
   domain: string;
   persona: string;
   keywords: string;        // comma separated for input
@@ -25,6 +26,7 @@ type Form = {
 
 const EMPTY: Form = {
   name: "",
+  nickname: "",
   domain: "",
   persona: "",
   keywords: "",
@@ -93,6 +95,7 @@ export default function AgentsAdmin() {
     setEditing(a.id);
     setForm({
       name: a.name,
+      nickname: a.nickname ?? "",  // v26.12-Home
       domain: a.domain ?? "",
       persona: a.persona ?? "",
       keywords: (a.keywords ?? []).join(", "),
@@ -116,6 +119,8 @@ export default function AgentsAdmin() {
     setMsg("");
     const body: Partial<AgentInput> = {
       name: form.name.trim(),
+      // v26.12-Home: 拟人外号 (可选). 传 "" → null (后端 视为 清空).
+      nickname: form.nickname.trim() || null,
       domain: form.domain || null,
       persona: form.persona || null,
       keywords: form.keywords ? form.keywords.split(",").map((s) => s.trim()).filter(Boolean) : [],
@@ -254,6 +259,8 @@ export default function AgentsAdmin() {
           </h2>
         <div className="mt-4 space-y-3">
           <Field label="名称（会议中用 @<名称> 召唤）" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="产品专家" />
+          {/* v26.12-Home: 拟人外号 — 首页 卡片 + 召唤 modal 显示; 可空 (严肃场景 可不填) */}
+          <Field label="拟人外号（可选，例 数妙妙 / 危叔，可空）" value={form.nickname} onChange={(v) => setForm({ ...form, nickname: v })} placeholder="留空即不显示外号" />
           <Field label="领域" value={form.domain} onChange={(v) => setForm({ ...form, domain: v })} placeholder="产品 / 法务 / 架构 ..." />
           <TextArea label="人格 / 背景说明" value={form.persona} onChange={(v) => setForm({ ...form, persona: v })} placeholder="你是一名资深产品经理，重点关注用户价值与商业逻辑..." />
           <Field label="关键词（逗号分隔，命中即被触发）" value={form.keywords} onChange={(v) => setForm({ ...form, keywords: v })} placeholder="需求, 用户价值, MVP" />
