@@ -1186,7 +1186,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
 
         {/* 中栏 — 现有 main 内容 (Phase 2 + 3 重组) */}
         <main className="flex-1 overflow-y-auto px-6 py-6 min-w-0">
-      <header className="flex items-center justify-between">
+      {/* v26.10-Room Phase 1.2: 顶部 split — 左 会议元信息 / 右 AI 专家大画廊 */}
+      <header className="grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]">
         <div>
           <div className="text-xs uppercase tracking-[0.3em] text-zinc-500">会议室</div>
           <h1 className="mt-1 text-2xl font-semibold text-white">
@@ -1194,6 +1195,16 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           </h1>
           <p className="mt-1 text-xs text-zinc-500">实时字幕 · 异步贴姓名</p>
         </div>
+        {/* v26.10-Room Phase 1.2: AI 专家画廊 (200x200 大头像 + 名字 上下结构 + 横向滚动) */}
+        <MeetingAgentGallery
+          invitedAgents={(() => {
+            const ids = new Set(meetingMeta?.attendee_agent_ids || []);
+            return ids.size > 0 ? agents.filter((a) => ids.has(a.id)) : [];
+          })()}
+          phase={phase}
+          busyAgents={busyAgents}
+          onInvoke={invokeAgent}
+        />
       </header>
 
       {/* v26.3-07f auto 会议 顶部 banner: 标识 + 跳 orchestrate + 分歧待裁决.
@@ -1264,7 +1275,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         <span className="text-sm text-zinc-400">{statusText}</span>
       </div>
 
-      {/* v26.10-Room Phase 1.1: 按钮 + 邀请 AI 专家 同行 (节省纵向空间) */}
+      {/* v26.10-Room Phase 1.2: AI 邀请条 已挪到顶部画廊, 这里 只留按钮 */}
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <button
           onClick={start}
@@ -1280,76 +1291,6 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         >
           结束会议
         </button>
-        {/* v26.10-Room Phase 1.1: 邀请 AI 专家 紧凑横排 (从下面挪上来) */}
-        {(() => {
-          const invitedIds = new Set(meetingMeta?.attendee_agent_ids || []);
-          const invitedAgents =
-            invitedIds.size > 0
-              ? agents.filter((a) => invitedIds.has(a.id))
-              : [];
-          if (invitedAgents.length === 0) return null;
-          return (
-            <div className="ml-2 flex min-w-0 flex-1 items-center gap-2 overflow-x-auto rounded-xl border border-ink-700 bg-ink-900 px-3 py-1.5">
-              <span className="shrink-0 text-[10px] uppercase tracking-wider text-zinc-500">
-                AI 专家 · {invitedAgents.length}
-              </span>
-              {invitedAgents.map((a) => {
-                const busy = busyAgents.has(a.id);
-                const enabled = phase === "live" && !busy;
-                const color = tailwindColor(a.color ?? "violet");
-                return (
-                  <button
-                    key={a.id}
-                    onClick={() => invokeAgent(a)}
-                    disabled={!enabled}
-                    title={
-                      phase !== "live"
-                        ? `开始会议后,点头像让「${a.name}」发言`
-                        : busy
-                        ? `${a.name} 正在发言…`
-                        : `点击让「${a.name}」基于讨论发言`
-                    }
-                    className={`group relative flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 transition ${
-                      enabled
-                        ? "border-ink-700 bg-ink-950 hover:border-white/30"
-                        : "border-ink-800 bg-ink-950 opacity-60 cursor-not-allowed"
-                    }`}
-                  >
-                    {a.avatar_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={a.avatar_url}
-                        alt={a.name}
-                        className="h-5 w-5 rounded-full border object-cover"
-                        style={{ borderColor: color }}
-                      />
-                    ) : (
-                      <span
-                        className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold text-white"
-                        style={{ backgroundColor: color }}
-                      >
-                        {a.name.slice(0, 1)}
-                      </span>
-                    )}
-                    <span className="text-xs text-zinc-200">{a.name}</span>
-                    {busy && (
-                      <span
-                        className="ml-0.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full"
-                        style={{ backgroundColor: color }}
-                      />
-                    )}
-                  </button>
-                );
-              })}
-              <Link
-                href="/me/profile/agents"
-                className="ml-auto shrink-0 text-[10px] text-zinc-500 hover:text-accent-400"
-              >
-                + 管理
-              </Link>
-            </div>
-          );
-        })()}
       </div>
 
       {/* v25.12-#2: Tab 化 nav — 实录 / 纪要 */}
@@ -2145,6 +2086,144 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
             </section>
           </div>
         </aside>
+      </div>
+    </div>
+  );
+}
+
+// v26.10-Room Phase 1.2: AI 专家画廊 — 200x200 大头像 + 名字 上下结构 + 横向滚动
+// 占据中栏顶部 红框区域 (会议元信息 右侧 大片空白).
+function MeetingAgentGallery({
+  invitedAgents,
+  phase,
+  busyAgents,
+  onInvoke,
+}: {
+  invitedAgents: Agent[];
+  phase: "idle" | "live" | "ended";
+  busyAgents: Set<string>;
+  onInvoke: (a: Agent) => void;
+}) {
+  if (invitedAgents.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/30 p-6 text-center">
+        <p className="text-xs text-zinc-500">
+          这场会议 没邀请 AI 专家 — 创建会议时勾选 AI 专家, 它们 就会出现 在这里.
+        </p>
+        <Link
+          href="/me/profile/agents"
+          className="mt-2 inline-block text-xs text-accent-400 hover:text-accent-500"
+        >
+          + 管理 AI 专家
+        </Link>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-xs uppercase tracking-wider text-zinc-500">
+          🤖 参会 AI 专家 · {invitedAgents.length}
+        </div>
+        {phase !== "live" && (
+          <span className="text-[10px] text-zinc-600">
+            开始会议后 点头像让 AI 发言
+          </span>
+        )}
+      </div>
+      {/* 横向滚动容器 — 多了自动滑动. 卡片 200x256 (200x200 头像 + 名字行) */}
+      <div className="-mx-1 flex gap-3 overflow-x-auto pb-2 pl-1">
+        {invitedAgents.map((a) => {
+          const busy = busyAgents.has(a.id);
+          const enabled = phase === "live" && !busy;
+          const color = tailwindColor(a.color ?? "violet");
+          return (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => onInvoke(a)}
+              disabled={!enabled}
+              title={
+                phase !== "live"
+                  ? `开始会议后, 点头像让「${a.name}」基于讨论发言`
+                  : busy
+                  ? `${a.name} 正在发言…`
+                  : `点击让「${a.name}」基于讨论发言`
+              }
+              className={`group flex shrink-0 flex-col items-center gap-2 rounded-xl border-2 p-2 transition ${
+                enabled
+                  ? "border-transparent hover:border-white/20 hover:bg-ink-900/50"
+                  : busy
+                    ? "border-emerald-500/40 bg-emerald-500/5"
+                    : "border-transparent opacity-60 cursor-not-allowed"
+              }`}
+            >
+              {/* 大头像 200x200 */}
+              <div
+                className="relative overflow-hidden rounded-full"
+                style={{
+                  width: 160,
+                  height: 160,
+                  boxShadow: busy
+                    ? `0 0 0 3px ${color}, 0 0 20px ${color}80`
+                    : `0 0 0 2px ${color}40`,
+                  background: `linear-gradient(135deg, ${color}30, ${color}10)`,
+                }}
+              >
+                {a.avatar_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={a.avatar_url}
+                    alt={a.name}
+                    width={160}
+                    height={160}
+                    className="h-full w-full object-cover transition group-hover:scale-105"
+                  />
+                ) : (
+                  <div
+                    className="grid h-full w-full place-items-center text-5xl font-semibold text-white"
+                    style={{ backgroundColor: color }}
+                  >
+                    {a.name.slice(0, 1)}
+                  </div>
+                )}
+                {/* 思考中 / 发言中 状态 — 底部 pulse 圆点 */}
+                {busy && (
+                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2">
+                    <span
+                      className="inline-block h-3 w-3 animate-pulse rounded-full"
+                      style={{ backgroundColor: color, boxShadow: `0 0 10px ${color}` }}
+                    />
+                  </div>
+                )}
+              </div>
+              {/* 名字 */}
+              <div className="text-center" style={{ maxWidth: 160 }}>
+                <div className="truncate text-sm font-medium text-zinc-100">
+                  {a.name}
+                </div>
+                {a.domain && (
+                  <div className="truncate text-[10px] text-zinc-500">
+                    {a.domain}
+                  </div>
+                )}
+                {busy && (
+                  <div className="mt-0.5 text-[10px] text-emerald-300">
+                    💬 正在发言…
+                  </div>
+                )}
+              </div>
+            </button>
+          );
+        })}
+        <Link
+          href="/me/profile/agents"
+          className="grid shrink-0 place-items-center self-center rounded-xl border border-dashed border-ink-700 px-3 text-xs text-zinc-500 hover:border-accent-500/50 hover:text-accent-400"
+          style={{ height: 160, width: 100 }}
+          title="管理 AI 专家"
+        >
+          <span>+ 管理</span>
+        </Link>
       </div>
     </div>
   );
