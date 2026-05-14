@@ -1154,7 +1154,38 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   );
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-4xl flex-col px-6 py-10">
+    <div className="flex h-screen flex-col bg-ink-950">
+      {/* v26.10-Room Phase 1: 顶部条 — 标题 + 状态 + 计时 + 关闭 */}
+      <MeetingRoomTopBar
+        title={meetingMeta?.title}
+        mode={meetingMeta?.mode}
+        phase={phase}
+        statusText={statusText}
+        meetingId={meetingId}
+        invitedAgentCount={(() => {
+          const ids = new Set(meetingMeta?.attendee_agent_ids || []);
+          return ids.size > 0 ? agents.filter((a) => ids.has(a.id)).length : 0;
+        })()}
+      />
+
+      {/* v26.10-Room Phase 1: 三栏 grid */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* 左栏 — 实时转录 (Phase 2 接管, 当前 placeholder) */}
+        <aside className="hidden w-72 shrink-0 overflow-y-auto border-r border-ink-800 bg-ink-900/30 px-3 py-4 lg:block">
+          <div className="text-xs uppercase tracking-wider text-zinc-500">
+            📝 实时转录
+          </div>
+          <p className="mt-3 text-xs text-zinc-600">
+            Phase 2 即将接管: 把 实录 timeline 移到这里, 头像 + 名字 + 角色 +
+            时间.
+          </p>
+          <div className="mt-4 rounded border border-dashed border-ink-700 bg-ink-950 p-3 text-[11px] text-zinc-600">
+            目前 完整实录 仍 在 中栏 (功能不变)
+          </div>
+        </aside>
+
+        {/* 中栏 — 现有 main 内容 (Phase 2 + 3 重组) */}
+        <main className="flex-1 overflow-y-auto px-6 py-6 min-w-0">
       <header className="flex items-center justify-between">
         <div>
           <div className="text-xs uppercase tracking-[0.3em] text-zinc-500">会议室</div>
@@ -2064,7 +2095,158 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       <footer className="mt-3 text-xs text-zinc-600">
         STT：DashScope · 声纹：pyannoteAI（约 45s 后台识别）· AI 专家:@关键词召唤 或点头像 / 文字打字
       </footer>
-    </main>
+        </main>
+
+        {/* v26.10-Room Phase 1: 右栏 — 任务 + 提醒 + 统计 (Phase 3 接管) */}
+        <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-ink-800 bg-ink-900/30 px-3 py-4 xl:block">
+          <div className="space-y-4">
+            <section>
+              <div className="text-xs uppercase tracking-wider text-zinc-500">
+                📌 任务与工单
+              </div>
+              <p className="mt-2 text-xs text-zinc-600">
+                Phase 3 即将接管: 会议中 AI 实时提取的 任务 弹出在这里.
+              </p>
+            </section>
+            <section>
+              <div className="text-xs uppercase tracking-wider text-zinc-500">
+                🔔 主持人提醒
+              </div>
+              <p className="mt-2 text-xs text-zinc-600">
+                议程超时 / 跑题 / 僵局 提示卡片.
+              </p>
+            </section>
+            <section>
+              <div className="text-xs uppercase tracking-wider text-zinc-500">
+                💡 AI 建议
+              </div>
+              <p className="mt-2 text-xs text-zinc-600">
+                根据 讨论关键词 智能推荐 召唤 哪个 AI 专家.
+              </p>
+            </section>
+            <section>
+              <div className="text-xs uppercase tracking-wider text-zinc-500">
+                📊 会议统计
+              </div>
+              <p className="mt-2 text-xs text-zinc-600">
+                实时 发言句数 / AI 参与次数 / 任务提取数 / 议程覆盖率.
+              </p>
+            </section>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+// v26.10-Room Phase 1: 顶部条 — 标题 + 状态徽章 + 计时 + 模式提示 + 返回链接
+function MeetingRoomTopBar({
+  title,
+  mode,
+  phase,
+  statusText,
+  meetingId,
+  invitedAgentCount,
+}: {
+  title?: string;
+  mode?: string;
+  phase: "idle" | "live" | "ended";
+  statusText: string;
+  meetingId: string;
+  invitedAgentCount: number;
+}) {
+  // 计时器 (会议开始后累加)
+  const [elapsedMs, setElapsedMs] = useState<number>(0);
+  useEffect(() => {
+    if (phase !== "live") return;
+    const start = Date.now() - elapsedMs;
+    const t = setInterval(() => {
+      setElapsedMs(Date.now() - start);
+    }, 1000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+  const fmtElapsed = (ms: number) => {
+    const sec = Math.floor(ms / 1000);
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    const h = Math.floor(m / 60);
+    if (h > 0) {
+      return `${h}:${String(m % 60).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    }
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  };
+
+  const statusColor =
+    phase === "live"
+      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+      : phase === "ended"
+        ? "bg-zinc-700/30 text-zinc-400 border-zinc-700"
+        : "bg-zinc-700/30 text-zinc-400 border-zinc-700";
+  const statusLabel =
+    phase === "live"
+      ? "🟢 实时会议中"
+      : phase === "ended"
+        ? "⚫ 已结束"
+        : "⚪ 待开始";
+
+  return (
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-ink-800 bg-ink-900/60 px-4 backdrop-blur">
+      <div className="flex items-center gap-3 min-w-0">
+        <Link
+          href="/"
+          className="shrink-0 text-xs text-zinc-500 hover:text-zinc-200"
+          title="返回首页"
+        >
+          ← 首页
+        </Link>
+        <span className="shrink-0 text-zinc-700">·</span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+              会议室
+            </span>
+            {mode === "auto" && (
+              <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
+                AI 自主
+              </span>
+            )}
+          </div>
+          <h1 className="truncate text-sm font-medium text-white">
+            {title || "正在加载…"}
+          </h1>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${statusColor}`}
+          title={statusText}
+        >
+          {phase === "live" && (
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+          )}
+          {statusLabel}
+          {phase === "live" && (
+            <span className="font-mono tabular-nums">
+              · {fmtElapsed(elapsedMs)}
+            </span>
+          )}
+        </span>
+        {invitedAgentCount > 0 && (
+          <span className="hidden rounded-full bg-violet-500/15 px-2.5 py-1 text-xs text-violet-300 sm:inline-flex">
+            🤖 {invitedAgentCount} AI 专家
+          </span>
+        )}
+        {mode === "auto" && (
+          <Link
+            href={`/meeting/${meetingId}/orchestrate`}
+            className="rounded-md bg-amber-500/15 border border-amber-500/30 px-2.5 py-1 text-xs text-amber-200 hover:bg-amber-500/25"
+          >
+            ⚖️ Orchestrate
+          </Link>
+        )}
+      </div>
+    </header>
   );
 }
 
