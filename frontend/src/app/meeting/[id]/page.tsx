@@ -1187,27 +1187,39 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           />
         </aside>
 
-        {/* 中栏 — 现有 main 内容 (Phase 2 + 3 重组) */}
-        <main className="flex-1 overflow-y-auto px-6 py-6 min-w-0">
-      {/* v26.10-Room Phase 1.2: 顶部 split — 左 会议元信息 / 右 AI 专家大画廊 */}
-      <header className="grid gap-6 lg:grid-cols-[minmax(0,280px)_1fr]">
-        <div>
-          <div className="text-xs uppercase tracking-[0.3em] text-zinc-500">会议室</div>
-          <h1 className="mt-1 text-2xl font-semibold text-white">
-            {meetingMeta?.title || "正在加载…"}
-          </h1>
-          <p className="mt-1 text-xs text-zinc-500">实时字幕 · 异步贴姓名</p>
+        {/* 中栏 — 现有 main 内容 */}
+        <main className="flex-1 overflow-y-auto px-6 py-4 min-w-0">
+      {/* v26.10-Room P5.5: 中栏 header 已 全部精简 —
+          会议室/标题/状态/计时 → 顶部 chrome 已有 (不重复)
+          AI 画廊 + 开始/结束 按钮 → 一行紧凑展示, 节省 ~200px 纵向空间 */}
+      <header className="flex items-center gap-3">
+        <button
+          onClick={start}
+          disabled={phase !== "idle"}
+          className="shrink-0 rounded-lg bg-accent-500 px-3 py-1.5 text-xs font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent-400 transition"
+        >
+          ▶ 开始会议
+        </button>
+        <button
+          onClick={stop}
+          disabled={phase !== "live"}
+          className="shrink-0 rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs text-rose-300 disabled:cursor-not-allowed disabled:opacity-30 hover:bg-rose-500/10 transition"
+        >
+          ■ 结束会议
+        </button>
+        <span className="h-6 w-px shrink-0 bg-ink-700" />
+        {/* AI 画廊 占满剩余空间 (50x50 头像 + 名字 + 横滑) */}
+        <div className="min-w-0 flex-1">
+          <MeetingAgentGallery
+            invitedAgents={(() => {
+              const ids = new Set(meetingMeta?.attendee_agent_ids || []);
+              return ids.size > 0 ? agents.filter((a) => ids.has(a.id)) : [];
+            })()}
+            phase={phase}
+            busyAgents={busyAgents}
+            onInvoke={invokeAgent}
+          />
         </div>
-        {/* v26.10-Room Phase 1.2: AI 专家画廊 (200x200 大头像 + 名字 上下结构 + 横向滚动) */}
-        <MeetingAgentGallery
-          invitedAgents={(() => {
-            const ids = new Set(meetingMeta?.attendee_agent_ids || []);
-            return ids.size > 0 ? agents.filter((a) => ids.has(a.id)) : [];
-          })()}
-          phase={phase}
-          busyAgents={busyAgents}
-          onInvoke={invokeAgent}
-        />
       </header>
 
       {/* v26.3-07f auto 会议 顶部 banner: 标识 + 跳 orchestrate + 分歧待裁决.
@@ -1265,36 +1277,9 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         </div>
       )}
 
-      <div className="mt-5 flex items-center gap-3">
-        <span
-          className={`inline-flex h-2.5 w-2.5 rounded-full ${
-            phase === "live"
-              ? "bg-emerald-400 shadow-[0_0_8px] shadow-emerald-400/50"
-              : phase === "ended"
-              ? "bg-amber-400"
-              : "bg-zinc-600"
-          }`}
-        />
-        <span className="text-sm text-zinc-400">{statusText}</span>
-      </div>
-
-      {/* v26.10-Room Phase 1.2: AI 邀请条 已挪到顶部画廊, 这里 只留按钮 */}
-      <div className="mt-5 flex flex-wrap items-center gap-3">
-        <button
-          onClick={start}
-          disabled={phase !== "idle"}
-          className="rounded-lg bg-accent-500 px-4 py-2 text-sm font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent-400 transition"
-        >
-          开始会议
-        </button>
-        <button
-          onClick={stop}
-          disabled={phase !== "live"}
-          className="rounded-lg border border-rose-500/40 px-4 py-2 text-sm text-rose-300 disabled:cursor-not-allowed disabled:opacity-30 hover:bg-rose-500/10 transition"
-        >
-          结束会议
-        </button>
-      </div>
+      {/* v26.10-Room P5.5: 老 状态指示 + [开始/结束] 按钮 全部 上移到 header 行,
+          会议室/标题/计时/状态 全部 已在 顶部 chrome (MeetingRoomTopBar).
+          这里 不再 重复展示, 节省 ~150px 纵向空间. */}
 
       {/* v25.12-#2: Tab 化 nav — 实录 / 纪要 */}
       <nav className="mt-5 flex gap-1 border-b border-ink-700">
@@ -2046,35 +2031,27 @@ function MeetingAgentGallery({
   busyAgents: Set<string>;
   onInvoke: (a: Agent) => void;
 }) {
+  // v26.10-Room P5.5: 紧凑空状态 (inline, 不再撑高)
   if (invitedAgents.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/30 p-6 text-center">
-        <p className="text-xs text-zinc-500">
-          这场会议 没邀请 AI 专家 — 创建会议时勾选 AI 专家, 它们 就会出现 在这里.
-        </p>
+      <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+        <span>🤖 未邀请 AI 专家</span>
         <Link
           href="/me/profile/agents"
-          className="mt-2 inline-block text-xs text-accent-400 hover:text-accent-500"
+          className="text-accent-400 hover:text-accent-500"
         >
-          + 管理 AI 专家
+          + 管理
         </Link>
       </div>
     );
   }
   return (
-    <div>
-      <div className="mb-2 flex items-center justify-between">
-        <div className="text-xs uppercase tracking-wider text-zinc-500">
-          🤖 参会 AI 专家 · {invitedAgents.length}
-        </div>
-        {phase !== "live" && (
-          <span className="text-[10px] text-zinc-600">
-            开始会议后 点头像让 AI 发言
-          </span>
-        )}
-      </div>
-      {/* 横向滚动容器 — 多了自动滑动. 卡片 ~80x90 (50x50 头像 + 名字 + 领域) */}
-      <div className="scrollbar-thin -mx-1 flex gap-2 overflow-x-auto pb-1 pl-1">
+    <div className="flex items-center gap-2">
+      <span className="shrink-0 text-[10px] uppercase tracking-wider text-zinc-500">
+        🤖 AI · {invitedAgents.length}
+      </span>
+      {/* v26.10-Room P5.5: 横向滚动容器 紧凑 inline 模式 — 卡片 ~70x70 (50x50 头像 + 名字小字) */}
+      <div className="scrollbar-thin flex flex-1 gap-2 overflow-x-auto">
         {invitedAgents.map((a) => {
           const busy = busyAgents.has(a.id);
           const enabled = phase === "live" && !busy;
