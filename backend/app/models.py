@@ -79,6 +79,14 @@ class Workspace(Base):
         DateTime(timezone=True), nullable=True, index=True
     )
 
+    # v26.13.2: Perplexity 自生成知识 月配额 — admin 可调.
+    # 默认 100 次/月 平衡 cost. 触发 Perplexity 抓取 时 +1, 月初 cron sweep 重置.
+    perplexity_monthly_quota: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    perplexity_used_this_month: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    perplexity_used_reset_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
 
 class WorkspaceMembership(Base):
     """A user's role in a workspace. Sprint F.1 makes this truly N:M —
@@ -1238,10 +1246,17 @@ class KnowledgeDocument(Base):
     # v21: 数据 5 级分级.同 Task.data_classification 的语义.
     data_classification: Mapped[str] = mapped_column(String(16), default="general", index=True)
     # v26.2: 沉淀来源 — 标识这个 KB 文档是从哪里来的:
-    #   'manual'  — 人工上传(默认,老数据)
-    #   'task'    — 任务办结自动沉淀,source_task_id 指向原 task
-    #   'meeting' — 会议纪要沉淀(预留)
+    #   'manual'          — 人工上传(默认,老数据)
+    #   'task'            — 任务办结自动沉淀,source_task_id 指向原 task
+    #   'meeting'         — 会议纪要沉淀(预留)
+    #   'perplexity_auto' — v26.13.2: AI 用 Perplexity 抓取 互联网 资料 入 KB
     source_type: Mapped[str] = mapped_column(String(16), default="manual", index=True)
+    # v26.13.2: Perplexity 抓取 来源 元数据 (信任信号 — 用户能 点 URL 看 原文)
+    source_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    source_query: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_fetched_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # v26.2: 反向链 到 任务 / agent / 审批人 — 用于 KB document 页 显示
     # "来源:任务《xxx》 by AI <agent>",以及 ABAC 决定可见性.
     # ON DELETE SET NULL:任务被删 doc 不连带删,但 link 失效.
@@ -1459,8 +1474,13 @@ class KbSedimentationDraft(Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
     )
-    task_id: Mapped[uuid.UUID] = mapped_column(
-        PgUUID(as_uuid=True), ForeignKey("task.id", ondelete="CASCADE"), index=True
+    # v26.13.2: draft 来源 — 区分 任务沉淀 vs Perplexity 抓取
+    #   'task_sediment'   — 老 v26.5 行为, task_id 必填
+    #   'perplexity_auto' — v26.13.2 新增, task_id 为 NULL, 走 meta 字段 存 query+citations
+    kind: Mapped[str] = mapped_column(String(32), default="task_sediment", index=True)
+    # v26.13.2: task_id 改 nullable — Perplexity 抓取 没有 task. ondelete=CASCADE 不变.
+    task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("task.id", ondelete="CASCADE"), nullable=True, index=True
     )
     target_agent_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("agent.id", ondelete="CASCADE"), index=True
@@ -1470,8 +1490,20 @@ class KbSedimentationDraft(Base):
         PgUUID(as_uuid=True), ForeignKey("knowledge_base.id", ondelete="SET NULL"),
         nullable=True,
     )
-    # 拟写入的 summary (LLM 生成)
+    # 拟写入的 summary (LLM 生成 / Perplexity 抓取后 的 synth)
     proposed_summary: Mapped[str] = mapped_column(Text)
+    # v26.13.2: 拟写入 KB 的 文档 文件名 (Perplexity 路径 用; task 路径 默认 None 让
+    # 系统 自动 用 "任务沉淀 · <task_title>")
+    proposed_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # v26.13.2: Perplexity 专属 meta —
+    #   {
+    #     "source_query": "用户 触发的 query 字串",
+    #     "primary_url": "Perplexity 返回 的 第一个 citation URL (可点 看原文)",
+    #     "citations": [{"url": "...", "title": "..."}, ...],
+    #     "fetched_at": "ISO 时间戳"
+    #   }
+    # task 路径 默认 None.
+    meta: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     # 触发沉淀的人 (一般是 task 的 curator / dispatcher / 审批人)
     curator_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
@@ -1486,4 +1518,36 @@ class KbSedimentationDraft(Base):
     consolidated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
+# ============================================================================
+# v26.13.2: SearchProviderConfig — workspace 级 检索/搜索 API 配置.
+# 跟 ModelProviderConfig 平行结构, 但 这是 检索 服务 (Perplexity / 未来 Tavily/Serper),
+# 不是 LLM. 故意 拆 两表 — schema 清晰, 上 UI 时 两个 section 分开 展示.
+# ============================================================================
+
+class SearchProviderConfig(Base):
+    """
+    Workspace 级 检索 API 配置. 当前 仅 支持 Perplexity, 后续 可加 Tavily / Serper /
+    Brave Search. UNIQUE (workspace_id, provider).
+    """
+    __tablename__ = "search_provider_config"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "provider", name="uq_workspace_search_provider"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(32))  # 'perplexity' | (未来) 'tavily' / 'serper'
+    api_key: Mapped[str] = mapped_column(Text)
+    base_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # 当前 仅 Perplexity 一家, is_active 仅 一个 row 为 True. 留 字段 给 未来 多家 切换.
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

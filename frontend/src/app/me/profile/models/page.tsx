@@ -172,7 +172,8 @@ export default function ModelsAdmin() {
 
   return (
     <div>
-      <p className="text-sm text-zinc-500">
+      <h2 className="text-base font-medium text-zinc-200">🧠 LLM 模型</h2>
+      <p className="mt-1 text-sm text-zinc-500">
         配置不同 LLM 供应商的 API Key 和默认模型。**勾选「设为默认」**的那一个会被会议纪要、长期记忆抽取等直接调用。Dify 内部会用自己配置的模型，与此处独立。
       </p>
       {msg && <p className="mt-3 text-sm text-zinc-300">{msg}</p>}
@@ -334,6 +335,254 @@ export default function ModelsAdmin() {
           );
         })}
       </div>
+
+      {/* v26.13.2: 检索 / 搜索 API section (Perplexity 等) */}
+      <SearchProvidersSection />
+    </div>
+  );
+}
+
+// ============================================================================
+// v26.13.2: 检索 / 搜索 API section — Perplexity 配置
+// ============================================================================
+type SearchCatalogEntry = {
+  name: string;
+  label: string;
+  default_base_url: string;
+  api_key_help: string;
+  docs_url: string;
+};
+type SearchConfig = {
+  id: string;
+  provider: string;
+  base_url: string | null;
+  is_active: boolean;
+  note: string | null;
+  masked_key: string;
+};
+type SearchForm = {
+  api_key: string;
+  base_url: string;
+  is_active: boolean;
+  note: string;
+};
+const EMPTY_SEARCH_FORM: SearchForm = {
+  api_key: "",
+  base_url: "",
+  is_active: false,
+  note: "",
+};
+
+function SearchProvidersSection() {
+  const [catalog, setCatalog] = useState<SearchCatalogEntry[]>([]);
+  const [configs, setConfigs] = useState<SearchConfig[]>([]);
+  const [forms, setForms] = useState<Record<string, SearchForm>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState("");
+  const [testing, setTesting] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<Record<string, { ok: boolean; msg: string }>>({});
+
+  const refresh = useCallback(async () => {
+    try {
+      const [c, cfgs] = await Promise.all([
+        api.listSearchProviderCatalog(),
+        api.listSearchProviderConfigs(),
+      ]);
+      setCatalog(c);
+      setConfigs(cfgs);
+      const next: Record<string, SearchForm> = {};
+      for (const sp of c) {
+        const existing = cfgs.find((x) => x.provider === sp.name);
+        next[sp.name] = {
+          api_key: "",
+          base_url: existing?.base_url ?? sp.default_base_url,
+          is_active: existing?.is_active ?? false,
+          note: existing?.note ?? "",
+        };
+      }
+      setForms(next);
+    } catch (e) {
+      setMsg(e instanceof Error ? `❌ ${e.message}` : "加载失败");
+    }
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const save = async (provider: string) => {
+    const f = forms[provider];
+    if (!f) return;
+    const cfg = configs.find((c) => c.provider === provider);
+    if (!cfg && !f.api_key) {
+      setMsg("首次保存需填写 API Key");
+      return;
+    }
+    setBusy(provider);
+    setMsg("");
+    try {
+      await api.saveSearchProviderConfig(provider, {
+        provider,
+        api_key: f.api_key,
+        base_url: f.base_url || undefined,
+        is_active: f.is_active,
+        note: f.note || undefined,
+      });
+      setMsg(`✅ ${provider} 已保存`);
+      await refresh();
+    } catch (e) {
+      setMsg(e instanceof Error ? `❌ ${e.message}` : "保存失败");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const testCreds = async (provider: string) => {
+    setTesting(provider);
+    setTestResult((prev) => ({ ...prev, [provider]: { ok: false, msg: "测试中..." } }));
+    try {
+      const r = await api.testSearchProvider(provider);
+      setTestResult((prev) => ({ ...prev, [provider]: r }));
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : "测试失败";
+      setTestResult((prev) => ({ ...prev, [provider]: { ok: false, msg: detail } }));
+    } finally {
+      setTesting(null);
+    }
+  };
+
+  const remove = async (provider: string) => {
+    if (!confirm(`确认删除 ${provider} 的配置？`)) return;
+    setBusy(provider);
+    try {
+      await api.deleteSearchProviderConfig(provider);
+      await refresh();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (catalog.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-12">
+      <h2 className="text-base font-medium text-zinc-200">🔍 检索 / 搜索 API</h2>
+      <p className="mt-1 text-sm text-zinc-500">
+        配置 联网检索 API (Perplexity 等), 用于 <span className="text-accent-400">"AI 帮我 补充 这块 知识"</span> 闭环 —
+        manager 给 query, 后端 调 Perplexity 抓取 互联网 资料 → 沉淀草稿 → 审批 → 入 KB.
+        跟 LLM 模型 独立 (Perplexity 不是 LLM).
+      </p>
+
+      <div className="mt-4 space-y-4">
+        {catalog.map((sp) => {
+          const cfg = configs.find((c) => c.provider === sp.name);
+          const f = forms[sp.name] ?? EMPTY_SEARCH_FORM;
+          const update = (k: keyof SearchForm, v: string | boolean) =>
+            setForms((prev) => ({ ...prev, [sp.name]: { ...prev[sp.name], [k]: v } }));
+          const tr = testResult[sp.name];
+          return (
+            <section
+              key={sp.name}
+              className={`rounded-xl border p-5 ${
+                cfg?.is_active
+                  ? "border-violet-500/40 bg-violet-500/5"
+                  : "border-ink-700 bg-ink-900"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-base font-medium text-white">{sp.label}</span>
+                    {cfg?.is_active && (
+                      <span className="rounded-full bg-violet-500/20 px-2 py-0.5 text-xs text-violet-300">
+                        当前默认
+                      </span>
+                    )}
+                    {cfg && !cfg.is_active && (
+                      <span className="rounded-full bg-zinc-700/40 px-2 py-0.5 text-xs text-zinc-400">
+                        已配置 {cfg.masked_key}
+                      </span>
+                    )}
+                  </div>
+                  <a
+                    href={sp.docs_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 inline-block text-xs text-zinc-500 hover:text-accent-400"
+                  >
+                    {sp.api_key_help} ↗
+                  </a>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field
+                  label="API Key"
+                  placeholder={cfg ? "(粘贴新 key 即可覆盖)" : "必填"}
+                  value={f.api_key}
+                  onChange={(v) => update("api_key", v)}
+                  type="password"
+                />
+                <Field
+                  label="Base URL"
+                  value={f.base_url}
+                  placeholder={sp.default_base_url}
+                  onChange={(v) => update("base_url", v)}
+                />
+                <Field
+                  label="备注（可选）"
+                  value={f.note}
+                  onChange={(v) => update("note", v)}
+                />
+              </div>
+
+              <label className="mt-4 inline-flex items-center gap-2 text-sm text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={f.is_active}
+                  onChange={(e) => update("is_active", e.target.checked)}
+                  className="h-4 w-4 accent-violet-500"
+                />
+                设为默认（仅一个 检索 provider 可同时为默认）
+              </label>
+
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => save(sp.name)}
+                  disabled={busy === sp.name}
+                  className="rounded-lg bg-violet-500 px-4 py-1.5 text-sm font-medium text-white shadow disabled:opacity-50 hover:bg-violet-400 transition"
+                >
+                  {busy === sp.name ? "保存中..." : "保存"}
+                </button>
+                {cfg && (
+                  <button
+                    onClick={() => testCreds(sp.name)}
+                    disabled={testing === sp.name}
+                    className="rounded-lg border border-violet-500/40 px-4 py-1.5 text-sm text-violet-300 hover:bg-violet-500/10 transition disabled:opacity-50"
+                  >
+                    {testing === sp.name ? "测试中..." : "🧪 测试 API"}
+                  </button>
+                )}
+                {cfg && (
+                  <button
+                    onClick={() => remove(sp.name)}
+                    disabled={busy === sp.name}
+                    className="ml-auto rounded-lg border border-rose-500/30 px-4 py-1.5 text-sm text-rose-300 hover:bg-rose-500/10 transition"
+                  >
+                    删除
+                  </button>
+                )}
+              </div>
+              {tr && (
+                <p className={`mt-3 text-xs ${tr.ok ? "text-emerald-300" : "text-rose-300"}`}>
+                  {tr.ok ? "✅" : "❌"} {tr.msg}
+                </p>
+              )}
+            </section>
+          );
+        })}
+      </div>
+      {msg && <p className="mt-3 text-sm text-zinc-300">{msg}</p>}
     </div>
   );
 }

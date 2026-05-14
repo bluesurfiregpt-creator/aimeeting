@@ -4,6 +4,7 @@ import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, type KnowledgeBase, type KnowledgeDocument } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { PerplexityFetchModal } from "@/components/PerplexityFetchModal";
 
 const STATUS_TONE: Record<string, string> = {
   uploading: "bg-zinc-700/40 text-zinc-300",
@@ -39,6 +40,8 @@ export default function KbDetailPage({
   const [docs, setDocs] = useState<KnowledgeDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  // v26.13.2: Perplexity 抓取 modal
+  const [perplexityOpen, setPerplexityOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(async () => {
@@ -117,19 +120,42 @@ export default function KbDetailPage({
             <p className="mt-1 text-sm text-zinc-400">{kb.description}</p>
           )}
         </div>
-        <label className="cursor-pointer rounded-lg bg-accent-500 px-4 py-2 text-sm font-medium text-white shadow hover:bg-accent-400 transition">
-          {uploading ? "上传中..." : "上传文档"}
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            disabled={uploading}
-            accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.markdown,.csv,.json,.yaml,.yml,.text,.log,.jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp,.gif"
-            onChange={(e) => onUpload(e.target.files)}
-            className="hidden"
-          />
-        </label>
+        <div className="flex items-center gap-2">
+          {/* v26.13.2: AI 帮我补充 — Perplexity 抓互联网 → 沉淀草稿 → 审批 入 KB */}
+          <button
+            type="button"
+            onClick={() => setPerplexityOpen(true)}
+            className="group relative overflow-hidden rounded-lg p-[2px] shadow-lg shadow-violet-500/20 transition hover:shadow-violet-500/40"
+            title="AI 帮我从互联网抓取该 KB 主题相关的最新资料"
+          >
+            <span aria-hidden className="absolute inset-0 rounded-lg animate-ai-flow" />
+            <span className="relative inline-flex items-center gap-1.5 rounded-[6px] bg-ink-950 px-3 py-1.5 text-sm font-medium text-white group-hover:bg-ink-900">
+              <span className="animate-ai-sparkle">✨</span>
+              AI 帮我补充
+            </span>
+          </button>
+          <label className="cursor-pointer rounded-lg bg-accent-500 px-4 py-2 text-sm font-medium text-white shadow hover:bg-accent-400 transition">
+            {uploading ? "上传中..." : "上传文档"}
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              disabled={uploading}
+              accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.markdown,.csv,.json,.yaml,.yml,.text,.log,.jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp,.gif"
+              onChange={(e) => onUpload(e.target.files)}
+              className="hidden"
+            />
+          </label>
+        </div>
       </header>
+
+      {/* v26.13.2: Perplexity 抓取 modal */}
+      {perplexityOpen && (
+        <PerplexityFetchModal
+          kbId={kbId}
+          onClose={() => setPerplexityOpen(false)}
+        />
+      )}
 
       <p className="mt-2 text-xs text-zinc-500">
         支持 PDF(含扫描件 OCR) / DOCX / XLSX / TXT / MD / CSV / JSON / YAML / 图片(JPG/PNG/BMP/TIFF/WebP/GIF), 单文件 ≤ 50 MB。上传后自动解析、切块、嵌入。扫描件 / 图片走 Qwen-VL OCR,30-60s/页。

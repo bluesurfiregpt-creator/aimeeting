@@ -29,6 +29,8 @@ from .routers import access_requests as access_requests_router
 from .routers import agent_templates as agent_templates_router  # v26.6-01
 from .routers import agents as agents_router
 from .routers import chat as chat_router  # v26.13.1 AI 私聊 调试模式
+from .routers import perplexity_fetch as perplexity_fetch_router  # v26.13.2
+from .routers import search_providers as search_providers_router  # v26.13.2
 from .routers import asr_vocabulary as asr_vocabulary_router  # v25.9
 from .routers import audit as audit_router
 from .routers import auth as auth_router
@@ -140,6 +142,8 @@ app.include_router(memory_drafts_router.router)  # v26.5-Lineage
 app.include_router(lineage_router.router)  # v26.5-Lineage P2
 app.include_router(agent_templates_router.router)  # v26.6-01 AI 模板生成器
 app.include_router(chat_router.router)  # v26.13.1 AI 私聊 调试模式
+app.include_router(search_providers_router.router)  # v26.13.2 检索 API CRUD
+app.include_router(perplexity_fetch_router.router)  # v26.13.2 Perplexity 抓取触发
 
 
 @app.get("/healthz")

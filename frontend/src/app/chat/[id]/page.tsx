@@ -30,6 +30,7 @@ import {
   MicPermissionError,
 } from "@/lib/audioCapture";
 import { toast } from "@/lib/toast";
+import { PerplexityFetchModal } from "@/components/PerplexityFetchModal";
 
 const AGENT_COLOR_HEX: Record<string, string> = {
   violet: "#8b5cf6", rose: "#f43f5e", emerald: "#10b981", amber: "#f59e0b",
@@ -47,6 +48,8 @@ type UIMessage = {
   attachments?: ChatAttachment[];   // 仅 user 消息 可能 有
   citations?: AgentCitation[];     // 仅 assistant 完成 时 有
   debug?: { kb_hits: number; memory_hits: number };
+  // v26.13.2: 后端 给 此 assistant 消息 推了 kb_miss_hint → 显 "📚 用 Perplexity 补充" 按钮
+  kbMiss?: { kb_id: string; suggested_query: string; reason: string };
 };
 
 // 浏览器 sessionStorage key — 每个 user × agent 唯一
@@ -97,6 +100,12 @@ export default function ChatPage({
   const [voiceMode, setVoiceMode] = useState(false);
   const captureRef = useRef<AudioCaptureHandle | null>(null);
   const sttRef = useRef<ChatSttSocket | null>(null);
+
+  // v26.13.2: Perplexity 补充 modal (闭环 — 私聊里点 "📚 补充" 弹这个)
+  const [perplexityModal, setPerplexityModal] = useState<{
+    kb_id: string;
+    query: string;
+  } | null>(null);
 
   // SSE abort controller (用户 取消 / 卸载页面 时 取消)
   const abortRef = useRef<AbortController | null>(null);
@@ -235,6 +244,23 @@ export default function ChatPage({
               draft[draft.length - 1] = {
                 ...last,
                 debug: { kb_hits: ev.kb_hits, memory_hits: ev.memory_hits },
+              };
+            }
+            return draft;
+          });
+        } else if (ev.type === "kb_miss_hint") {
+          // v26.13.2: 后端 检测到 AI 没引用 KB → 挂到 最后 一条 assistant 上
+          setMessages((prev) => {
+            const draft = prev.slice();
+            const last = draft[draft.length - 1];
+            if (last && last.role === "assistant") {
+              draft[draft.length - 1] = {
+                ...last,
+                kbMiss: {
+                  kb_id: ev.kb_id,
+                  suggested_query: ev.suggested_query,
+                  reason: ev.reason,
+                },
               };
             }
             return draft;
@@ -436,7 +462,15 @@ export default function ChatPage({
               </div>
             ) : (
               messages.map((m) => (
-                <MessageBubble key={m.id} msg={m} agentName={displayName} colorHex={colorHex} />
+                <MessageBubble
+                  key={m.id}
+                  msg={m}
+                  agentName={displayName}
+                  colorHex={colorHex}
+                  onPerplexityFetch={(kb_id, query) =>
+                    setPerplexityModal({ kb_id, query })
+                  }
+                />
               ))
             )}
           </div>
@@ -606,6 +640,16 @@ export default function ChatPage({
           </aside>
         )}
       </div>
+
+      {/* v26.13.2 闭环: Perplexity 补充 modal — kb_miss 按钮点击 后 弹 */}
+      {perplexityModal && (
+        <PerplexityFetchModal
+          kbId={perplexityModal.kb_id}
+          agentId={agentId}
+          prefilledQuery={perplexityModal.query}
+          onClose={() => setPerplexityModal(null)}
+        />
+      )}
     </main>
   );
 }
@@ -617,10 +661,13 @@ function MessageBubble({
   msg,
   agentName,
   colorHex,
+  onPerplexityFetch,
 }: {
   msg: UIMessage;
   agentName: string;
   colorHex: string;
+  // v26.13.2: 闭环 — 点 "📚 补充" 时 触发
+  onPerplexityFetch?: (kb_id: string, query: string) => void;
 }) {
   if (msg.role === "user") {
     return (
@@ -675,6 +722,23 @@ function MessageBubble({
                 </span>
               ))}
             </div>
+          </div>
+        )}
+        {/* v26.13.2 闭环: AI 没引用 KB → 显 一键 用 Perplexity 补充 入口 */}
+        {msg.done && msg.kbMiss && (
+          <div className="mt-2 rounded-lg border border-violet-500/30 bg-violet-500/5 p-2">
+            <p className="text-[11px] text-violet-200">
+              💡 {msg.kbMiss.reason}
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                onPerplexityFetch?.(msg.kbMiss!.kb_id, msg.kbMiss!.suggested_query)
+              }
+              className="mt-1.5 rounded-lg bg-violet-500 px-3 py-1 text-xs font-medium text-white shadow hover:bg-violet-400"
+            >
+              📚 用 Perplexity 帮我补充 这块
+            </button>
           </div>
         )}
       </div>

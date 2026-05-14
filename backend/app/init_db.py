@@ -135,6 +135,18 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     #   nickname — 可选 拟人外号 (e.g. "数妙妙" / "文爆爆"). NULL 时 前端 fallback 全名.
     ("agent", "invoke_count", "INTEGER NOT NULL DEFAULT 0"),
     ("agent", "nickname", "VARCHAR(64)"),
+    # v26.13.2: Workspace 级 Perplexity 月配额
+    ("workspace", "perplexity_monthly_quota", "INTEGER NOT NULL DEFAULT 100"),
+    ("workspace", "perplexity_used_this_month", "INTEGER NOT NULL DEFAULT 0"),
+    ("workspace", "perplexity_used_reset_at", "TIMESTAMPTZ"),
+    # v26.13.2: KnowledgeDocument 加 Perplexity 抓取 溯源 字段
+    ("knowledge_document", "source_url", "VARCHAR(1024)"),
+    ("knowledge_document", "source_query", "TEXT"),
+    ("knowledge_document", "source_fetched_at", "TIMESTAMPTZ"),
+    # v26.13.2: KbSedimentationDraft 加 kind + 改 task_id nullable + 加 meta / filename
+    ("kb_sedimentation_draft", "kind", "VARCHAR(32) NOT NULL DEFAULT 'task_sediment'"),
+    ("kb_sedimentation_draft", "proposed_filename", "VARCHAR(255)"),
+    ("kb_sedimentation_draft", "meta", "JSON"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).
@@ -171,6 +183,12 @@ async def init_db() -> None:
             await conn.execute(
                 text(f"ALTER TABLE {table} ALTER COLUMN {col} TYPE {spec}")
             )
+
+        # 2c. v26.13.2: KbSedimentationDraft.task_id 改 nullable — Perplexity 抓取
+        # 草稿 没 关联 task. DROP NOT NULL 是 PG 幂等 op, 已 nullable 时 no-op.
+        await conn.execute(text(
+            "ALTER TABLE kb_sedimentation_draft ALTER COLUMN task_id DROP NOT NULL"
+        ))
 
         # 3. drop legacy unique constraints (idempotent — IF EXISTS)
         for table, constraint in _LEGACY_CONSTRAINTS:

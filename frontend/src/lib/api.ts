@@ -1983,6 +1983,64 @@ export const api = {
   updateAgent: (id: string, a: Partial<AgentInput>) => jpatch<Agent>(`/api/agents/${id}`, a),
   deleteAgent: (id: string) => jdelete(`/api/agents/${id}`),
 
+  // v26.13.2: Search Providers (Perplexity etc.) — 跟 LLM 模型 平行 的 API 配置
+  listSearchProviderCatalog: () =>
+    jget<Array<{
+      name: string;
+      label: string;
+      default_base_url: string;
+      api_key_help: string;
+      docs_url: string;
+    }>>("/api/search-providers/catalog"),
+  listSearchProviderConfigs: () =>
+    jget<Array<{
+      id: string;
+      provider: string;
+      base_url: string | null;
+      is_active: boolean;
+      note: string | null;
+      masked_key: string;
+      created_at: string;
+      updated_at: string;
+    }>>("/api/search-providers"),
+  saveSearchProviderConfig: (
+    provider: string,
+    body: {
+      provider: string;
+      api_key?: string;
+      base_url?: string;
+      is_active?: boolean;
+      note?: string;
+    },
+  ) => jput(`/api/search-providers/${provider}`, body),
+  activateSearchProvider: (provider: string) =>
+    jpost(`/api/search-providers/${provider}/activate`, {}),
+  deleteSearchProviderConfig: (provider: string) =>
+    jdelete(`/api/search-providers/${provider}`),
+  testSearchProvider: (provider: string) =>
+    jpost<{ ok: boolean; msg: string }>(`/api/search-providers/${provider}/test`, {}),
+
+  // v26.13.2: Perplexity 抓取 触发 — 创建 沉淀草稿
+  perplexityFetch: (body: {
+    kb_id: string;
+    agent_id: string;
+    query: string;
+    recency?: "day" | "week" | "month" | "year" | null;
+  }) =>
+    jpost<{
+      drafts_created: number;
+      drafts_skipped_dedup: number;
+      quota_used: number;
+      quota_remaining: number;
+      drafts: Array<{
+        id: string;
+        proposed_filename: string | null;
+        citations_count: number;
+      }>;
+      primary_url: string | null;
+      answer_preview: string;
+    }>("/api/knowledge/perplexity-fetch", body),
+
   // v26.13.1: AI 私聊 调试模式 — 上传 文件 in-memory 解析 (不存盘)
   parseChatFile: async (file: File): Promise<{
     text: string;

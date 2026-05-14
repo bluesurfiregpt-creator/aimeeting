@@ -39,12 +39,18 @@ class DraftOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     workspace_id: uuid.UUID
-    task_id: uuid.UUID
+    # v26.13.2: kind 'task_sediment' (老) | 'perplexity_auto' (新). Perplexity task_id 为 None.
+    kind: str = "task_sediment"
+    task_id: Optional[uuid.UUID] = None
     task_title: Optional[str] = None
     target_agent_id: uuid.UUID
     target_agent_name: Optional[str] = None
     target_kb_id: Optional[uuid.UUID] = None
     proposed_summary: str
+    # v26.13.2: Perplexity 草稿 用 (task 草稿 默认 None — 系统 自动 命名)
+    proposed_filename: Optional[str] = None
+    # v26.13.2: Perplexity 抓取 元数据 — { source_query, primary_url, citations, fetched_at }
+    meta: Optional[dict] = None
     curator_user_id: Optional[uuid.UUID] = None
     curator_user_name: Optional[str] = None
     primary_user_id: uuid.UUID
@@ -67,7 +73,8 @@ async def _resolve_draft_out(
     """批量 resolve task.title / agent.name / curator.name 给 DraftOut."""
     if not drafts:
         return []
-    task_ids = {d.task_id for d in drafts}
+    # v26.13.2: task_id 现在 nullable — Perplexity 草稿 没 task. 过滤 None 防 SQL error.
+    task_ids = {d.task_id for d in drafts if d.task_id is not None}
     agent_ids = {d.target_agent_id for d in drafts}
     user_ids = {d.curator_user_id for d in drafts if d.curator_user_id}
 
@@ -103,7 +110,7 @@ async def _resolve_draft_out(
     for d in drafts:
         out.append(DraftOut.model_validate({
             **d.__dict__,
-            "task_title": task_titles.get(d.task_id),
+            "task_title": task_titles.get(d.task_id) if d.task_id else None,
             "target_agent_name": agent_names.get(d.target_agent_id),
             "curator_user_name": (
                 user_names.get(d.curator_user_id) if d.curator_user_id else None
@@ -180,27 +187,48 @@ async def approve_draft(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    """批准 → 实际沉淀 KB. 复用 consolidate_task_to_agent_kb (走 override_summary)."""
+    """批准 → 实际沉淀 KB.
+
+    分流 by draft.kind:
+      - 'task_sediment'  (老 v26.5): 复用 consolidate_task_to_agent_kb
+      - 'perplexity_auto' (v26.13.2): 直接 写 KnowledgeDocument + chunk + embed,
+        因为 没 关联 task, 也 不走 task 沉淀 那套 source_ref 标记.
+    """
     d = await _load_draft_with_abac(draft_id, session, auth)
     if d.status != "pending":
         raise HTTPException(409, f"draft status={d.status}, 不能再批")
 
-    # 触发实际沉淀
-    # 把 draft.proposed_summary 作为 override_summary 传给 consolidator
-    from ..task_consolidator import (
-        ConsolidationError,
-        consolidate_task_to_agent_kb,
-    )
-    try:
-        await consolidate_task_to_agent_kb(
-            d.task_id,
-            target_agent_id=d.target_agent_id,
-            override_summary=d.proposed_summary,
-            curator_user_id=auth.user.id,
-            force=False,
+    kind = getattr(d, "kind", None) or "task_sediment"
+
+    if kind == "perplexity_auto":
+        # v26.13.2 路径
+        from ..perplexity_consolidator import consolidate_perplexity_draft
+        try:
+            await consolidate_perplexity_draft(
+                draft_id=d.id,
+                curator_user_id=auth.user.id,
+            )
+        except Exception as e:
+            logger.exception("perplexity consolidate failed")
+            raise HTTPException(500, f"consolidate failed: {e}")
+    else:
+        # 老 v26.5 路径 — task 沉淀
+        from ..task_consolidator import (
+            ConsolidationError,
+            consolidate_task_to_agent_kb,
         )
-    except ConsolidationError as e:
-        raise HTTPException(500, f"consolidate failed: {e}")
+        if d.task_id is None:
+            raise HTTPException(500, f"task_sediment draft 缺少 task_id, draft={d.id}")
+        try:
+            await consolidate_task_to_agent_kb(
+                d.task_id,
+                target_agent_id=d.target_agent_id,
+                override_summary=d.proposed_summary,
+                curator_user_id=auth.user.id,
+                force=False,
+            )
+        except ConsolidationError as e:
+            raise HTTPException(500, f"consolidate failed: {e}")
 
     # 标 draft approved
     d.status = "approved"
@@ -218,7 +246,8 @@ async def approve_draft(
             severity="normal",
             payload={
                 "draft_id": str(d.id),
-                "task_id": str(d.task_id),
+                "task_id": str(d.task_id) if d.task_id else None,
+                "draft_kind": kind,
                 "approver_name": auth.user.name,
             },
         )
@@ -228,7 +257,11 @@ async def approve_draft(
     await audit_log(
         session, auth, "kb_sedimentation.approve",
         target_type="kb_sedimentation_draft", target_id=str(d.id),
-        payload={"task_id": str(d.task_id), "agent_id": str(d.target_agent_id)},
+        payload={
+            "kind": kind,
+            "task_id": str(d.task_id) if d.task_id else None,
+            "agent_id": str(d.target_agent_id),
+        },
     )
     out = await _resolve_draft_out(session, [d])
     return out[0]

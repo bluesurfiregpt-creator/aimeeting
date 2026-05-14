@@ -37,6 +37,8 @@ export type ChatStreamEvent =
   | { type: "agent_message_chunk"; agent_id: string; chunk: string }
   | { type: "agent_message_end"; agent_id: string; text: string; citations: AgentCitation[] }
   | { type: "chat_debug_info"; agent_id: string; kb_hits: number; memory_hits: number }
+  // v26.13.2: AI 回完 + 没引用 KB → 后端 推 此帧 让 前端 显 "用 Perplexity 补充" 按钮
+  | { type: "kb_miss_hint"; agent_id: string; kb_id: string; suggested_query: string; reason: string }
   | { type: "system"; msg: string };
 
 export type AgentCitation = {

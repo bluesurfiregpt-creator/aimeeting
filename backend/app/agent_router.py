@@ -859,6 +859,23 @@ async def invoke_agent_for_chat(
             "citations": citations,
         })
 
+        # v26.13.2: 闭环 — 如果 AI 有 绑 KB 但 本次 召回 0 chunks 且 用户 问题 不平凡,
+        # 推 kb_miss_hint, 前端 显 "📚 用 Perplexity 帮我补充 这块" 按钮.
+        if (
+            full  # AI 真的 回复 了 (排除 配额fail / agent_unconfigured)
+            and len(citations) == 0
+            and agent.knowledge_base_ids  # agent 绑了 KB, 才有 "补充" 意义
+            and last_user_msg
+            and len(last_user_msg.strip()) >= 5
+        ):
+            await on_message({
+                "type": "kb_miss_hint",
+                "agent_id": str(agent.id),
+                "kb_id": str(agent.knowledge_base_ids[0]),  # 推荐 入 第一个 KB
+                "suggested_query": last_user_msg.strip()[:200],
+                "reason": "本次 回复 没 引用 KB 中 任何 文档 — 可能 该 知识点 还没 进 KB.",
+            })
+
 
 async def _agents_for_meeting(db: AsyncSession, meeting_id: uuid.UUID) -> list[Agent]:
     """Active agents 显式邀请到本会议的.
