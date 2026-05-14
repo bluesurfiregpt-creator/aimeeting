@@ -126,7 +126,19 @@ export default function KnowledgeAdmin() {
 
   return (
     <div>
-      <p className="text-sm text-zinc-500">
+      {/* v26.14-P1: 心智模型 提示 — KB vs Memory 用户 容易 混淆, 顶部 一句话 讲清. */}
+      <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-3 text-xs leading-5 text-zinc-300">
+        <span className="font-medium text-sky-200">📚 知识库 = AI 能 查得到的 书架</span>
+        <span className="ml-1 text-zinc-400">
+          — 文档 摆 在 这, AI 回答 时 走 RAG 召回 检索 (不一定 每次 都 用, 跟 问题 相关 才 引).
+        </span>
+        <span className="mx-1 text-zinc-700">·</span>
+        <span className="text-zinc-400">跟 「🧠 长期记忆」区别:</span>
+        <Link href="/me/profile/memory" className="ml-1 text-sky-300 hover:text-sky-200">长期记忆</Link>
+        <span className="text-zinc-400"> 是 AI 已经 内化 的 短句 经验 (每次 prompt 必带), KB 是 RAG 才用.</span>
+      </div>
+
+      <p className="mt-4 text-sm text-zinc-500">
         把业务文档(PDF / Word / Excel / Markdown / TXT)上传到知识库, AI 专家在会议中回答时会**优先**引用这里的内容。每个工作空间独立, 不会跨租户共享。
       </p>
 

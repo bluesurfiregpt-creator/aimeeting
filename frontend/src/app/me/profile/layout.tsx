@@ -46,8 +46,8 @@ type NavItem = {
   icon: string;
   /** 角色可见性 — undefined = 所有登录用户 */
   needsRole?: "full" | "manager+";
-  /** badge 数 (从 me.task_counts 取) */
-  badgeKey?: "kb_sedimentation_pending";
+  /** badge 数 (从 me.task_counts 取). v26.14: 加 approval_pending_total = kb + memory 合并 */
+  badgeKey?: "kb_sedimentation_pending" | "approval_pending_total";
   /** external = 跳走 (不是子页) */
   external?: boolean;
 };
@@ -57,6 +57,15 @@ type NavGroup = {
   items: NavItem[];
 };
 
+// v26.14-P1: sidebar 重拼 4 → 5 块. 按 "用户 心智 任务" 划分, 不再 按 "技术实体".
+// 老 4 块: 我 / AI 数据中心 / 工作空间 / 系统配置 — AI/KB/Memory 全 混在 一块, 会议
+// 不见踪影 (要走 顶部 链接 跳), 用户 找不到 路.
+// 新 5 块:
+//   🪪 我              — 身份 + 任务 + 看板 (一切 从 "我" 开始)
+//   🤖 我的 AI 团队    — AI 专家 配置 + 模板 (跟 大脑 / 经验 拆开 — 这是 "管 AI 本身")
+//   🧠 知识 与 经验    — KB (书架) + Memory (经验) + 审批 + 血缘 (这是 "管 AI 的 大脑")
+//   🎙️ 会议 系统       — 历史/新建/声纹/ASR (会议 是 经验 产出 触发器, 单成一块 更清)
+//   ⚙️ 系统 配置       — 空间/成员/LLM/巡检/日志 (admin 用 — manager 平时 不进)
 const NAV_GROUPS: NavGroup[] = [
   {
     title: "🪪 我",
@@ -66,26 +75,11 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/dashboard", label: "数据看板", icon: "📊", external: true },
     ],
   },
-  // v26.5-Lineage P2: 合并原 🤖 AI 专家 + 📚 数据 → 🧬 AI 数据中心
-  // 把 AI 配置 / KB / Memory / 审批 / 模板 / 血缘图 全放在一个大模块下,
-  // 让用户能清楚看到三者的耦合关系.
   {
-    title: "🧬 AI 数据中心",
+    title: "🤖 我的 AI 团队",
     items: [
-      {
-        href: "/me/profile/lineage",
-        label: "全景血缘图",
-        icon: "🌐",
-      },
-      { href: "/me/profile/agents", label: "AI 专家", icon: "🤖" },
-      { href: "/me/profile/knowledge", label: "知识库", icon: "📚" },
-      { href: "/me/profile/memory", label: "长期记忆", icon: "🧠" },
-      {
-        href: "/me/profile/sedimentation",
-        label: "审批中心",
-        icon: "🔔",
-        badgeKey: "kb_sedimentation_pending",
-      },
+      { href: "/", label: "AI 卡片浏览", icon: "🏠", external: true },
+      { href: "/me/profile/agents", label: "AI 专家管理", icon: "🤖" },
       {
         href: "/me/profile/agents/template",
         label: "AI 模板生成器",
@@ -95,7 +89,40 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: "🏢 工作空间",
+    title: "🧠 知识 与 经验",
+    items: [
+      { href: "/me/profile/knowledge", label: "知识库 (📚 书架)", icon: "📚" },
+      { href: "/me/profile/memory", label: "长期记忆 (🧠 经验)", icon: "🧠" },
+      {
+        href: "/me/profile/sedimentation",
+        label: "审批中心",
+        icon: "🔔",
+        // v26.14-P1: 合并 kb_sedimentation + memory_draft 两类 pending 草稿 数
+        badgeKey: "approval_pending_total",
+      },
+      {
+        href: "/me/profile/lineage",
+        label: "全景血缘图",
+        icon: "🌐",
+      },
+    ],
+  },
+  {
+    title: "🎙️ 会议 系统",
+    items: [
+      { href: "/meetings", label: "历史会议", icon: "📜", external: true },
+      { href: "/meetings/new", label: "新建会议", icon: "➕", external: true },
+      { href: "/me/profile/voiceprints", label: "声纹库", icon: "🗣" },
+      {
+        href: "/me/profile/asr",
+        label: "ASR 词表",
+        icon: "🎙",
+        needsRole: "full",
+      },
+    ],
+  },
+  {
+    title: "⚙️ 系统 配置",
     items: [
       {
         href: "/me/profile/workspace",
@@ -115,24 +142,12 @@ const NAV_GROUPS: NavGroup[] = [
         icon: "🔑",
         needsRole: "full",
       },
-    ],
-  },
-  {
-    title: "⚙️ 系统配置",
-    items: [
       {
         href: "/me/profile/models",
-        label: "LLM 模型",
+        label: "LLM / 检索 API",
         icon: "🧮",
         needsRole: "full",
       },
-      {
-        href: "/me/profile/asr",
-        label: "ASR 词表",
-        icon: "🎙",
-        needsRole: "full",
-      },
-      { href: "/me/profile/voiceprints", label: "声纹库", icon: "🗣" },
       {
         href: "/me/profile/cron",
         label: "定期巡检",
@@ -219,10 +234,13 @@ export default function WorkstationLayout({
         </Link>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
+      <div className="grid gap-6 lg:grid-cols-[240px_1fr]">
         {/* Sidebar */}
         <aside className="lg:sticky lg:top-20 lg:self-start">
-          <nav className="space-y-5">
+          {/* v26.14-P1: 顶部 心智模型 mini 卡 — 一眼 看懂 4 个 实体 的 关系.
+              新用户 友好, 老用户 滑过去 也 不占 主 space. */}
+          <MindMapCard />
+          <nav className="mt-4 space-y-5">
             {NAV_GROUPS.map((g) => {
               const visibleItems = g.items.filter((it) => isItemVisible(it, role));
               if (visibleItems.length === 0) return null;
@@ -237,11 +255,7 @@ export default function WorkstationLayout({
                         <NavLink
                           item={it}
                           active={isActive(pathname, it.href, it.external)}
-                          badge={
-                            it.badgeKey
-                              ? (me.task_counts?.[it.badgeKey] as number) ?? 0
-                              : 0
-                          }
+                          badge={computeBadge(it, me)}
                         />
                       </li>
                     ))}
@@ -264,6 +278,49 @@ function isActive(pathname: string, href: string, external?: boolean): boolean {
   // 完全匹配 或 子路径匹配 (但 /me/profile 完全匹配, 不匹配 /me/profile/agents)
   if (href === "/me/profile") return pathname === "/me/profile";
   return pathname === href || pathname.startsWith(href + "/");
+}
+
+// v26.14-P1: badge 计数 helper — approval_pending_total 是 合并 kb + memory 草稿
+function computeBadge(item: NavItem, me: Me): number {
+  if (!item.badgeKey) return 0;
+  if (item.badgeKey === "approval_pending_total") {
+    return (
+      (me.task_counts?.kb_sedimentation_pending ?? 0) +
+      (me.task_counts?.memory_draft_pending ?? 0)
+    );
+  }
+  return (me.task_counts?.[item.badgeKey] as number) ?? 0;
+}
+
+// v26.14-P1: 心智模型 mini 卡 — 把 4 个 核心实体 的 关系 一图 讲清.
+// 帮 新用户 + 我们 自己 不 迷路 — 因为 实体 多, 关系 复杂.
+function MindMapCard() {
+  return (
+    <div className="rounded-xl border border-ink-700 bg-ink-900/50 p-3">
+      <div className="mb-2 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-zinc-500">
+        <span>🪜</span>
+        <span>心智 模型</span>
+      </div>
+      <div className="space-y-1.5 text-[11px] leading-4">
+        <div className="text-zinc-200">🤖 <span className="font-medium">AI 专家</span></div>
+        <div className="ml-3 flex items-baseline gap-1.5 text-zinc-400">
+          <span className="text-zinc-600">┣</span>
+          <span>📚 书架</span>
+          <span className="text-zinc-600">— 查得到 的 资料</span>
+        </div>
+        <div className="ml-3 flex items-baseline gap-1.5 text-zinc-400">
+          <span className="text-zinc-600">┣</span>
+          <span>🧠 经验</span>
+          <span className="text-zinc-600">— 已 记住 的 事</span>
+        </div>
+        <div className="ml-3 flex items-baseline gap-1.5 text-zinc-400">
+          <span className="text-zinc-600">┗</span>
+          <span>🎙️ 会议</span>
+          <span className="text-zinc-600">— 产出 上面 两者</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function NavLink({

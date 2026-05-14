@@ -87,6 +87,11 @@ export default function AuthHeader() {
     );
   }
 
+  // v26.14-P1: 待审 N 红点 — kb_sedimentation_pending + memory_draft_pending 合
+  const approvalPending =
+    (me.task_counts?.kb_sedimentation_pending ?? 0) +
+    (me.task_counts?.memory_draft_pending ?? 0);
+
   return (
     <div className="fixed right-4 top-3 z-30 flex items-center gap-2">
       {/* v26.4 Platform Admin · 仅 PLATFORM_ADMIN_EMAILS 白名单内邮箱显示 ⚡ 入口 */}
@@ -99,6 +104,19 @@ export default function AuthHeader() {
           className="grid h-8 w-8 place-items-center rounded-full border border-rose-500/50 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20"
         >
           ⚡
+        </Link>
+      )}
+      {/* v26.14-P1: 待审 红点 — 提醒 manager 有 草稿 等 自己 处理.
+          老 设计 入口 只 在 sidebar, manager 不主动 看 永远 不知道. */}
+      {approvalPending > 0 && (
+        <Link
+          href="/me/profile/sedimentation"
+          title={`${approvalPending} 个 草稿 等你 审批 (沉淀 + 长期记忆 + Perplexity 抓取)`}
+          aria-label="待审"
+          data-testid="approval-pending-badge"
+          className="relative grid h-8 min-w-[2rem] place-items-center rounded-full border border-amber-500/50 bg-amber-500/15 px-2 text-amber-200 hover:bg-amber-500/25"
+        >
+          <span className="text-xs font-medium">🔔 {approvalPending}</span>
         </Link>
       )}
       <NotificationBell />

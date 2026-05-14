@@ -492,6 +492,8 @@ function SummonModal({
           </button>
         </div>
 
+        {/* v26.14-P1: 文案 升级 — 两个 选项 各 加 一句 明确 区别 ("AI 记不记得 这次")
+            老 设计 用户 经常 不知 该 选 哪个; 现在 用 "🔧 调试" vs "🎤 真协作" 二元 区分. */}
         <p className="mt-4 text-xs text-zinc-500">选择 协作 方式:</p>
 
         <div className="mt-2 space-y-2">
@@ -506,12 +508,13 @@ function SummonModal({
             <div className="flex-1">
               <div className="text-sm font-medium text-zinc-100">
                 一对一 私聊
-                <span className="ml-2 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] text-amber-300">
-                  即将上线
+                <span className="ml-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium text-amber-200">
+                  🔧 调试模式
                 </span>
               </div>
-              <p className="text-[11px] text-zinc-500">
-                单独 跟 这位 专家 聊 — 不开会议, 不占 字幕通道
+              <p className="mt-0.5 text-[11px] leading-4 text-zinc-500">
+                试 它 的 能力 — <span className="text-zinc-300">内容 不留, 不 影响 它 的 记忆</span>.
+                上传 文件 / 语音 测试. 关 浏览器 即清.
               </p>
             </div>
             <span className="text-zinc-600">→</span>
@@ -528,9 +531,19 @@ function SummonModal({
             <div className="flex-1">
               <div className="text-sm font-medium text-zinc-100">
                 邀请到 会议
+                <span className="ml-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium text-emerald-200">
+                  💼 真协作
+                </span>
               </div>
-              <p className="text-[11px] text-zinc-500">
-                {busy ? "创建中…" : "新建一场 hybrid 会议, 自动 邀请 这位 AI 加入"}
+              <p className="mt-0.5 text-[11px] leading-4 text-zinc-500">
+                {busy
+                  ? "创建中…"
+                  : (
+                    <>
+                      真 协作 — <span className="text-zinc-300">留 transcript, 可 沉淀 经验 / 资料</span>.
+                      会议结束 系统 自动 抽 Memory + 待 manager 审批 入 KB.
+                    </>
+                  )}
               </p>
             </div>
             <span className="text-accent-300">→</span>

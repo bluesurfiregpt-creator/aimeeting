@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { api, type Agent, type Me, type Memory } from "@/lib/api";
 import { SkeletonList } from "@/components/Skeleton";
 
@@ -134,7 +135,19 @@ export default function MemoryAdmin() {
 
   return (
     <div>
-      <p className="text-sm text-zinc-500">
+      {/* v26.14-P1: 心智模型 提示 — Memory vs KB 区别 在这 也 讲一次. */}
+      <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-3 text-xs leading-5 text-zinc-300">
+        <span className="font-medium text-violet-200">🧠 长期记忆 = AI 已经 内化的 经验</span>
+        <span className="ml-1 text-zinc-400">
+          — 短句 事实/决定/风险, AI 每次 回答 时 自动 带在 system prompt (不用 检索).
+        </span>
+        <span className="mx-1 text-zinc-700">·</span>
+        <span className="text-zinc-400">跟 「📚 知识库」区别:</span>
+        <Link href="/me/profile/knowledge" className="ml-1 text-violet-300 hover:text-violet-200">知识库</Link>
+        <span className="text-zinc-400"> 是 RAG 召回 时 才 翻 的 书架, 长期记忆 是 AI 始终 记得 的 经验.</span>
+      </div>
+
+      <p className="mt-4 text-sm text-zinc-500">
         长期记忆是 AI 跨会议引用的事实库。会后系统自动从纪要里抽取(决策/风险/待办/分歧)并入库；这里你也可以手工添加。AI 专家在会议中会基于关键词检索最相关的记忆,作为 system prompt 的一部分。
       </p>
 
