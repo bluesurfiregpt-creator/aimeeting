@@ -123,6 +123,9 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("long_term_memory", "curated_at", "TIMESTAMPTZ"),
     # v26.7-03: KB document 也显式追溯到 会议 (血缘图直连).
     ("knowledge_document", "source_meeting_id", "UUID"),
+    # v26.9-Avatar: AI 专家"数字员工"形象 — 静态全身像 + 动图全身像
+    ("agent", "full_body_url", "VARCHAR(512)"),
+    ("agent", "full_body_animated_url", "VARCHAR(512)"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

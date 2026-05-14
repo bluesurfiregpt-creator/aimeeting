@@ -387,6 +387,9 @@ export type Agent = {
   id: string;
   name: string;
   avatar_url: string | null;
+  // v26.9-Avatar: AI "数字员工" 3 种形象
+  full_body_url?: string | null;          // 静态全身 200x388
+  full_body_animated_url?: string | null; // 动图全身 200x388
   domain: string | null;
   persona: string | null;
   tone: string | null;
@@ -1946,9 +1949,26 @@ export const api = {
 
   // Agents
   listAgents: () => jget<Agent[]>("/api/agents"),
+  getAgent: (id: string) => jget<Agent>(`/api/agents/${id}`),
   createAgent: (a: AgentInput) => jpost<Agent>("/api/agents", a),
   updateAgent: (id: string, a: Partial<AgentInput>) => jpatch<Agent>(`/api/agents/${id}`, a),
   deleteAgent: (id: string) => jdelete(`/api/agents/${id}`),
+  // v26.9-Avatar: 上传 3 种形象 (头像 / 静态全身 / 动图全身)
+  uploadAgentAvatar: async (id: string, file: File): Promise<Agent> => {
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    return jpostForm<Agent>(`/api/agents/${id}/avatar`, fd);
+  },
+  uploadAgentFullBody: async (id: string, file: File): Promise<Agent> => {
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    return jpostForm<Agent>(`/api/agents/${id}/full-body`, fd);
+  },
+  uploadAgentFullBodyAnimated: async (id: string, file: File): Promise<Agent> => {
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    return jpostForm<Agent>(`/api/agents/${id}/full-body-animated`, fd);
+  },
 
   getMeetingBriefing: (id: string) =>
     jget<{ briefing_md: string | null; status: "ready" | "empty" }>(

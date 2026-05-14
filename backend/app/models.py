@@ -233,6 +233,11 @@ class Agent(Base):
     )
     name: Mapped[str] = mapped_column(String(128))
     avatar_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    # v26.9-Avatar: AI 专家"数字员工"形象 — 3 种尺寸 (头像 / 静态全身 / 动图全身)
+    # 设计 200x200 / 200x388 / 200x388.GIF, 用于 详情页 hero / 选择器 popup /
+    # 会议中 思考态. 见 v26.9 spec.
+    full_body_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    full_body_animated_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     domain: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     persona: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     tone: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)

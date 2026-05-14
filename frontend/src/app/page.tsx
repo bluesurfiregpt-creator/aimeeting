@@ -498,7 +498,7 @@ export default function Home() {
                               AGENT_COLOR_BG[a.color || "violet"] || AGENT_COLOR_BG.violet;
                             const isOn = pickedAgents.has(a.id);
                             return (
-                              <li key={a.id}>
+                              <li key={a.id} className="relative group/agent">
                                 <label
                                   className={`flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 transition hover:shadow-md ${
                                     isOn
@@ -513,7 +513,18 @@ export default function Home() {
                                       onChange={() => toggleAgent(a.id)}
                                       className="h-4 w-4 accent-accent-500"
                                     />
-                                    🤖 {a.name}
+                                    {/* v26.9-Avatar: 真实头像 24x24 fallback 🤖 */}
+                                    {a.avatar_url ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img
+                                        src={a.avatar_url}
+                                        alt={a.name}
+                                        className="h-6 w-6 rounded-full object-cover"
+                                      />
+                                    ) : (
+                                      <span className="text-base" aria-hidden>🤖</span>
+                                    )}
+                                    {a.name}
                                   </span>
                                   {a.domain && (
                                     <span className="ml-2 truncate text-[10px] text-zinc-500">
@@ -521,6 +532,32 @@ export default function Home() {
                                     </span>
                                   )}
                                 </label>
+                                {/* v26.9-Avatar: hover popup 显示全身像 + persona 摘要 */}
+                                {a.full_body_url && (
+                                  <div className="pointer-events-none absolute bottom-full left-0 z-20 mb-2 hidden w-80 rounded-xl border border-ink-700 bg-ink-900 p-3 shadow-2xl group-hover/agent:block">
+                                    <div className="flex gap-3">
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={a.full_body_url}
+                                        alt={a.name}
+                                        width={80}
+                                        height={155}
+                                        className="rounded border border-ink-700 object-cover"
+                                      />
+                                      <div className="min-w-0 flex-1 text-xs">
+                                        <div className="font-medium text-white">{a.name}</div>
+                                        {a.domain && (
+                                          <div className="text-zinc-500">{a.domain}</div>
+                                        )}
+                                        {a.persona && (
+                                          <p className="mt-1.5 line-clamp-4 text-zinc-300">
+                                            {a.persona}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
                               </li>
                             );
                           })}

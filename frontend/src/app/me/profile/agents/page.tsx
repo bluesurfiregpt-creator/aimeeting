@@ -258,6 +258,17 @@ export default function AgentsAdmin() {
           <TextArea label="人格 / 背景说明" value={form.persona} onChange={(v) => setForm({ ...form, persona: v })} placeholder="你是一名资深产品经理，重点关注用户价值与商业逻辑..." />
           <Field label="关键词（逗号分隔，命中即被触发）" value={form.keywords} onChange={(v) => setForm({ ...form, keywords: v })} placeholder="需求, 用户价值, MVP" />
 
+          {/* v26.9-Avatar: 形象上传区 — 仅 编辑模式 显示 (需要 agent.id) */}
+          {editing && (
+            <AvatarUploadSection
+              agentId={editing}
+              currentAvatarUrl={agents.find((a) => a.id === editing)?.avatar_url ?? null}
+              currentFullBodyUrl={agents.find((a) => a.id === editing)?.full_body_url ?? null}
+              currentAnimatedUrl={agents.find((a) => a.id === editing)?.full_body_animated_url ?? null}
+              onUploaded={refresh}
+            />
+          )}
+
           <div>
             <span className="text-xs text-zinc-500">颜色（气泡）</span>
             <div className="mt-1 flex gap-2">
@@ -524,6 +535,134 @@ function TextArea({
   );
 }
 
+// v26.9-Avatar: AI 形象上传区 — 头像 / 静态全身 / 动图全身 3 个 slot
+function AvatarUploadSection({
+  agentId,
+  currentAvatarUrl,
+  currentFullBodyUrl,
+  currentAnimatedUrl,
+  onUploaded,
+}: {
+  agentId: string;
+  currentAvatarUrl: string | null;
+  currentFullBodyUrl: string | null;
+  currentAnimatedUrl: string | null;
+  onUploaded: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 p-3">
+      <div className="text-xs uppercase tracking-wider text-violet-300">
+        🪪 AI 数字员工形象 (3 种尺寸)
+      </div>
+      <p className="mt-1 text-[11px] text-zinc-500">
+        给 AI 上传 头像 / 静态全身 / 动图全身 — 让 AI 看起来 像 一个 活生生的人.
+        会议气泡 / 列表 / 详情页 都会用上.
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <AvatarSlot
+          label="头像"
+          spec="200×200 PNG/JPG · max 500KB"
+          currentUrl={currentAvatarUrl}
+          aspect="square"
+          accept="image/png,image/jpeg,image/webp"
+          uploadFn={(f) => api.uploadAgentAvatar(agentId, f)}
+          onUploaded={onUploaded}
+        />
+        <AvatarSlot
+          label="静态全身"
+          spec="200×388 PNG · max 800KB"
+          currentUrl={currentFullBodyUrl}
+          aspect="tall"
+          accept="image/png,image/jpeg,image/webp"
+          uploadFn={(f) => api.uploadAgentFullBody(agentId, f)}
+          onUploaded={onUploaded}
+        />
+        <AvatarSlot
+          label="动图全身"
+          spec="200×388 GIF/APNG · max 2MB"
+          currentUrl={currentAnimatedUrl}
+          aspect="tall"
+          accept="image/gif,image/webp,image/apng,image/png"
+          uploadFn={(f) => api.uploadAgentFullBodyAnimated(agentId, f)}
+          onUploaded={onUploaded}
+        />
+      </div>
+    </div>
+  );
+}
+
+function AvatarSlot({
+  label,
+  spec,
+  currentUrl,
+  aspect,
+  accept,
+  uploadFn,
+  onUploaded,
+}: {
+  label: string;
+  spec: string;
+  currentUrl: string | null;
+  aspect: "square" | "tall";
+  accept: string;
+  uploadFn: (f: File) => Promise<unknown>;
+  onUploaded: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const w = 100;
+  const h = aspect === "tall" ? 194 : 100;
+  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setBusy(true);
+    try {
+      await uploadFn(f);
+      toast.success(`✅ ${label} 已上传`);
+      onUploaded();
+    } catch (err) {
+      void err;
+    } finally {
+      setBusy(false);
+      e.target.value = "";
+    }
+  };
+  return (
+    <label className="flex cursor-pointer flex-col items-center gap-1.5">
+      <div
+        className="relative overflow-hidden rounded-lg border-2 border-dashed border-ink-700 bg-ink-950/60 hover:border-violet-500/50"
+        style={{ width: w, height: h }}
+      >
+        {currentUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={currentUrl}
+            alt={label}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="grid h-full w-full place-items-center text-zinc-600">
+            <span className="text-2xl">+</span>
+          </div>
+        )}
+        {busy && (
+          <div className="absolute inset-0 grid place-items-center bg-black/60 text-xs text-white">
+            上传中…
+          </div>
+        )}
+        <input
+          type="file"
+          accept={accept}
+          onChange={onPick}
+          className="hidden"
+          disabled={busy}
+        />
+      </div>
+      <span className="text-xs font-medium text-zinc-300">{label}</span>
+      <span className="text-[10px] text-zinc-500">{spec}</span>
+    </label>
+  );
+}
+
 // v26.8-UI-03: AI 专家卡片 — persona 折叠 + 启用开关 + 徽章优化 + 🛠 我管理
 function AgentCard({
   agent: a,
@@ -548,12 +687,34 @@ function AgentCard({
   const isUnbound = !isModerator && !a.primary_user_name;
   return (
     <li className="group rounded-xl border border-ink-700 bg-ink-900 p-4 transition hover:border-zinc-600 hover:shadow-md">
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-3">
+        {/* v26.9-Avatar: 头像 48x48 (有 avatar_url) 或 颜色 dot (fallback) */}
+        <Link
+          href={`/me/profile/agents/${a.id}`}
+          className="shrink-0"
+          title="查看 AI 详情"
+        >
+          {a.avatar_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={a.avatar_url}
+              alt={a.name}
+              className="h-12 w-12 rounded-full border-2 object-cover transition hover:scale-105"
+              style={{ borderColor: cssColor(a.color ?? "violet") }}
+            />
+          ) : (
+            <div
+              className="grid h-12 w-12 place-items-center rounded-full border-2 text-lg transition hover:scale-105"
+              style={{
+                borderColor: cssColor(a.color ?? "violet"),
+                backgroundColor: `${cssColor(a.color ?? "violet")}22`,
+              }}
+            >
+              🤖
+            </div>
+          )}
+        </Link>
         <div className="flex min-w-0 flex-1 items-center gap-2 flex-wrap">
-          <span
-            className="h-3 w-3 shrink-0 rounded-full"
-            style={{ backgroundColor: cssColor(a.color ?? "violet") }}
-          />
           {/* v26.8-UI-03: 未绑科室 黄 dot (替代整行黄警告) */}
           {isUnbound && (
             <span
@@ -562,7 +723,13 @@ function AgentCard({
               aria-label="未绑科室"
             />
           )}
-          <span className="font-medium text-white">{a.name}</span>
+          {/* v26.9-Avatar: 名字 改成 link 跳详情页 */}
+          <Link
+            href={`/me/profile/agents/${a.id}`}
+            className="font-medium text-white hover:text-accent-400"
+          >
+            {a.name}
+          </Link>
           {/* v26.8-UI-03: ⭐ 我维护 → 🛠 我管理 (语义更明确) */}
           {me && a.primary_user_id === me.user_id && (
             <span

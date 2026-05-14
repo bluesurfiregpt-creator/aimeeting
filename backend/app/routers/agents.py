@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,9 @@ from ..auth import (
 )
 from ..db import get_session
 from ..models import Agent
+from ..oss_client import OSSClient
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -30,6 +34,8 @@ class AgentIn(BaseModel):
     """创建 agent 用 — name 必填."""
     name: str
     avatar_url: Optional[str] = None
+    full_body_url: Optional[str] = None  # v26.9-Avatar
+    full_body_animated_url: Optional[str] = None  # v26.9-Avatar
     domain: Optional[str] = None
     persona: Optional[str] = None
     tone: Optional[str] = None
@@ -52,6 +58,8 @@ class AgentPatchIn(BaseModel):
     """
     name: Optional[str] = None
     avatar_url: Optional[str] = None
+    full_body_url: Optional[str] = None  # v26.9-Avatar
+    full_body_animated_url: Optional[str] = None  # v26.9-Avatar
     domain: Optional[str] = None
     persona: Optional[str] = None
     tone: Optional[str] = None
@@ -72,6 +80,8 @@ class AgentOut(BaseModel):
     id: uuid.UUID
     name: str
     avatar_url: Optional[str] = None
+    full_body_url: Optional[str] = None  # v26.9-Avatar
+    full_body_animated_url: Optional[str] = None  # v26.9-Avatar
     domain: Optional[str] = None
     persona: Optional[str] = None
     tone: Optional[str] = None
@@ -278,4 +288,179 @@ async def delete_agent(
         session, auth, "agent.delete",
         target_type="agent", target_id=str(agent_id),
         payload={"name": name},
+    )
+
+
+# ============================================================================
+# v26.9-Avatar · AI 专家形象上传 (3 种尺寸)
+# ============================================================================
+# 设计 (跟用户对齐):
+#   avatar              200x200    PNG/JPG     头像 (列表 / 气泡 / sidebar)
+#   full_body           200x388    PNG (透明)   静态全身 (详情页 hero)
+#   full_body_animated  200x388    GIF/APNG    动图全身 (详情页 alive 态)
+# 实现:
+#   - 用 Pillow 校验 mime + 尺寸 (允许 ±10% 容差) + 文件大小
+#   - 上传到 OSS, key = agents/{ws_id}/{agent_id}/{kind}.{ext}
+#   - 用 signed_url (7 天) 写入 agent.{kind}_url 字段
+#   - ABAC: 走 is_agent_manager (跟 PATCH 同等级)
+
+_AVATAR_SIZE_LIMIT = 500 * 1024     # 500 KB
+_FULLBODY_SIZE_LIMIT = 800 * 1024   # 800 KB
+_FULLBODY_ANIMATED_SIZE_LIMIT = 2 * 1024 * 1024  # 2 MB (GIF 较大)
+_SIZE_TOLERANCE = 0.15  # ±15% 尺寸容差
+
+_ALLOWED_IMG_MIME = {"image/png", "image/jpeg", "image/jpg", "image/webp"}
+_ALLOWED_ANIMATED_MIME = {"image/gif", "image/webp", "image/apng", "image/png"}
+
+
+def _check_image_size(
+    data: bytes,
+    expected_w: int,
+    expected_h: int,
+    file_kind: str,
+) -> tuple[str, str]:
+    """v26.9-Avatar: 用 Pillow 校验图片尺寸 + 提取 mime + 后缀.
+
+    返回 (mime, ext). 不合规 raise HTTPException.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        raise HTTPException(503, "Pillow 未安装 — 联系运维")
+    import io
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.verify()
+    except Exception as e:
+        raise HTTPException(400, f"不是有效图片: {e}")
+    # verify 后 img 不能 再用, 重新打开取 尺寸 + format
+    img = Image.open(io.BytesIO(data))
+    w, h = img.size
+    fmt = (img.format or "").lower()  # 'png' 'jpeg' 'gif' 'webp'
+    # 尺寸容差检查
+    if abs(w - expected_w) / expected_w > _SIZE_TOLERANCE:
+        raise HTTPException(
+            400,
+            f"{file_kind} 宽度 {w}px 不在 {expected_w}±{int(_SIZE_TOLERANCE*100)}% 范围"
+        )
+    if abs(h - expected_h) / expected_h > _SIZE_TOLERANCE:
+        raise HTTPException(
+            400,
+            f"{file_kind} 高度 {h}px 不在 {expected_h}±{int(_SIZE_TOLERANCE*100)}% 范围"
+        )
+    ext_map = {"png": "png", "jpeg": "jpg", "gif": "gif", "webp": "webp", "apng": "apng"}
+    ext = ext_map.get(fmt, "bin")
+    mime = f"image/{fmt}" if fmt != "jpeg" else "image/jpeg"
+    return mime, ext
+
+
+async def _upload_agent_image(
+    *,
+    agent_id: str,
+    file: UploadFile,
+    session: AsyncSession,
+    auth: AuthContext,
+    kind: str,  # 'avatar' / 'full_body' / 'full_body_animated'
+    expected_w: int,
+    expected_h: int,
+    max_bytes: int,
+    allowed_mime: set[str],
+) -> AgentOut:
+    """统一的 agent 图片上传逻辑."""
+    a = await _load_owned_agent(agent_id, session, auth)
+    if not await is_agent_manager(session, auth, a.id):
+        raise HTTPException(
+            403,
+            "[权限不足] 仅 owner / admin / leader,或该 AI 的 primary_user 可上传形象"
+        )
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "空文件")
+    if len(raw) > max_bytes:
+        raise HTTPException(
+            413, f"文件太大 ({len(raw)} bytes), 上限 {max_bytes // 1024}KB"
+        )
+    mime, ext = _check_image_size(raw, expected_w, expected_h, kind)
+    if mime not in allowed_mime:
+        raise HTTPException(
+            400, f"不支持的图片格式 {mime}, 允许: {', '.join(sorted(allowed_mime))}"
+        )
+
+    # 上传 OSS
+    oss = OSSClient()
+    if not oss.configured:
+        raise HTTPException(503, "OSS 未配置")
+    oss_key = f"agents/{auth.workspace.id}/{a.id}/{kind}.{ext}"
+    oss.put_bytes(oss_key, raw, content_type=mime)
+    # 用 长 expire 签名 URL (7 天). 前端 next.js 默认不 cache cross-origin,
+    # 浏览器会自己 cache 直到 url 变. 7 天后 重新上传 / 重新 fetch 即可.
+    signed = oss.signed_url(oss_key, expires_seconds=7 * 24 * 3600)
+
+    # 更新字段
+    if kind == "avatar":
+        a.avatar_url = signed
+    elif kind == "full_body":
+        a.full_body_url = signed
+    elif kind == "full_body_animated":
+        a.full_body_animated_url = signed
+    await session.commit()
+    await session.refresh(a)
+
+    await audit_log(
+        session, auth, f"agent.upload_{kind}",
+        target_type="agent", target_id=str(a.id),
+        payload={"name": a.name, "byte_size": len(raw), "oss_key": oss_key},
+    )
+    name_by_uid = await _resolve_primary_user_names(session, [a])
+    return _to_out(a, name_by_uid.get(a.primary_user_id))
+
+
+@router.post("/{agent_id}/avatar", response_model=AgentOut)
+async def upload_avatar(
+    agent_id: str,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.9-Avatar: 上传 头像 200x200 (PNG/JPG/WebP, max 500KB)."""
+    return await _upload_agent_image(
+        agent_id=agent_id, file=file, session=session, auth=auth,
+        kind="avatar",
+        expected_w=200, expected_h=200,
+        max_bytes=_AVATAR_SIZE_LIMIT,
+        allowed_mime=_ALLOWED_IMG_MIME,
+    )
+
+
+@router.post("/{agent_id}/full-body", response_model=AgentOut)
+async def upload_full_body(
+    agent_id: str,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.9-Avatar: 上传 静态全身 200x388 (PNG/JPG/WebP, max 800KB)."""
+    return await _upload_agent_image(
+        agent_id=agent_id, file=file, session=session, auth=auth,
+        kind="full_body",
+        expected_w=200, expected_h=388,
+        max_bytes=_FULLBODY_SIZE_LIMIT,
+        allowed_mime=_ALLOWED_IMG_MIME,
+    )
+
+
+@router.post("/{agent_id}/full-body-animated", response_model=AgentOut)
+async def upload_full_body_animated(
+    agent_id: str,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.9-Avatar: 上传 动图全身 200x388 (GIF/APNG/WebP, max 2MB)."""
+    return await _upload_agent_image(
+        agent_id=agent_id, file=file, session=session, auth=auth,
+        kind="full_body_animated",
+        expected_w=200, expected_h=388,
+        max_bytes=_FULLBODY_ANIMATED_SIZE_LIMIT,
+        allowed_mime=_ALLOWED_ANIMATED_MIME,
     )

@@ -1949,7 +1949,27 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                           className="mb-1 flex items-center justify-between gap-2 text-xs font-medium uppercase tracking-wider"
                           style={{ color: tailwindColor(l.agentColor) }}
                         >
-                          <span>🤖 {l.agentName}</span>
+                          {/* v26.9-Avatar: 真实头像 32x32 (fallback 🤖) */}
+                          {(() => {
+                            const ag = agents.find((x) => x.id === l.agentId);
+                            const avatarUrl = ag?.avatar_url;
+                            return (
+                              <span className="flex items-center gap-2">
+                                {avatarUrl ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={avatarUrl}
+                                    alt={l.agentName}
+                                    className="h-7 w-7 rounded-full border-2 object-cover"
+                                    style={{ borderColor: tailwindColor(l.agentColor) }}
+                                  />
+                                ) : (
+                                  <span className="text-base" aria-hidden>🤖</span>
+                                )}
+                                <span>{l.agentName}</span>
+                              </span>
+                            );
+                          })()}
                           {!l.done && (
                             <span className="rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] text-violet-300">
                               生成中…
