@@ -276,10 +276,11 @@ function NavLink({
   badge: number;
 }) {
   const base =
-    "group flex items-center justify-between rounded-lg px-3 py-1.5 text-sm transition";
+    "group relative flex items-center justify-between rounded-lg px-3 py-1.5 text-sm transition";
+  // v26.8-UI-08: 选中态加 border-l + 更强视觉反馈
   const tone = active
-    ? "bg-accent-500/15 text-accent-300"
-    : "text-zinc-400 hover:bg-ink-800 hover:text-zinc-100";
+    ? "bg-accent-500/15 text-accent-300 border-l-2 border-accent-500"
+    : "text-zinc-400 border-l-2 border-transparent hover:bg-ink-800 hover:text-zinc-100";
   return (
     <Link href={item.href} className={`${base} ${tone}`}>
       <span className="flex items-center gap-2">
@@ -288,7 +289,7 @@ function NavLink({
         </span>
         <span>{item.label}</span>
         {item.external && (
-          <span className="text-[10px] text-zinc-600" aria-hidden>
+          <span className="text-[10px] text-zinc-700 opacity-0 group-hover:opacity-100 transition" aria-hidden>
             ↗
           </span>
         )}

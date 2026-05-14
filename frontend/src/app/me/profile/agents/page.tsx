@@ -416,85 +416,26 @@ export default function AgentsAdmin() {
         ) : (
           <ul className="mt-3 space-y-2">
             {agents.map((a) => (
-              <li key={a.id} className="rounded-xl border border-ink-700 bg-ink-900 p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="h-3 w-3 rounded-full"
-                      style={{ backgroundColor: cssColor(a.color ?? "violet") }}
-                    />
-                    <span className="font-medium text-white">{a.name}</span>
-                    {/* v26.5-Profile: manager 自己 primary 的 agent 加 ⭐ */}
-                    {me && a.primary_user_id === me.user_id && (
-                      <span
-                        className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300"
-                        title="你是这个 AI 的 primary_user (维护人)"
-                      >
-                        ⭐ 我维护
-                      </span>
-                    )}
-                    {!a.is_active && (
-                      <span className="rounded-full bg-zinc-700/40 px-2 py-0.5 text-xs text-zinc-400">已停用</span>
-                    )}
-                    {a.role === "moderator" && (
-                      <span
-                        className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300"
-                        title="工作空间内置主持人,用于自动议程监督。建议保留。"
-                      >
-                        🛡 内置主持人
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {/* v26.5 role-aware: 编辑按钮 仅 当 canEdit(this agent) */}
-                    {canEdit(a) ? (
-                      <button onClick={() => startEdit(a)} className="text-xs text-zinc-400 hover:text-white">编辑</button>
-                    ) : (
-                      <span
-                        className="text-xs text-zinc-600"
-                        title={`此 AI 由 ${a.primary_user_name ?? "(未绑)"} 管理,你无权编辑`}
-                      >
-                        🔒
-                      </span>
-                    )}
-                    {a.role === "moderator" ? (
-                      <span className="text-xs text-zinc-700" title="内置主持人不可删除">🛡</span>
-                    ) : canDelete(a) ? (
-                      <button onClick={() => remove(a.id, a.name)} className="text-xs text-rose-400 hover:text-rose-300">删除</button>
-                    ) : null}
-                  </div>
-                </div>
-                {a.domain && <div className="mt-1 text-xs text-zinc-500">{a.domain}</div>}
-                {a.persona && <p className="mt-2 text-xs text-zinc-400 line-clamp-2">{a.persona}</p>}
-                {a.keywords && a.keywords.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {a.keywords.map((k) => (
-                      <span key={k} className="rounded bg-ink-800 px-2 py-0.5 text-xs text-zinc-400">
-                        {k}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {a.knowledge_base_ids && a.knowledge_base_ids.length > 0 && (
-                  <p className="mt-2 text-xs text-zinc-500">
-                    📚 已绑定 {a.knowledge_base_ids.length} 个知识库
-                  </p>
-                )}
-                {/* v26.0: 科室账号绑定状态 */}
-                {a.role !== "moderator" && (
-                  <p className="mt-1 text-xs">
-                    {a.primary_user_name ? (
-                      <span className="text-emerald-300">
-                        🔗 绑科室账号: {a.primary_user_name} ✅ 可接任务
-                      </span>
-                    ) : (
-                      <span className="text-amber-300">
-                        ⚠️ 未绑科室账号 — 不能接受任务派发,点 编辑 配置
-                      </span>
-                    )}
-                  </p>
-                )}
-              </li>
+              <AgentCard
+                key={a.id}
+                agent={a}
+                me={me}
+                canEdit={canEdit(a)}
+                canDelete={canDelete(a)}
+                onEdit={() => startEdit(a)}
+                onRemove={() => remove(a.id, a.name)}
+                onToggleActive={async () => {
+                  // v26.8-UI-03: 快速 启用/禁用 切换
+                  if (!canEdit(a)) return;
+                  try {
+                    await api.updateAgent(a.id, { is_active: !a.is_active });
+                    toast.success(`✅ 已${a.is_active ? "停用" : "启用"}: ${a.name}`);
+                    await refresh();
+                  } catch (e) {
+                    void e;  // api.ts 已 toast
+                  }
+                }}
+              />
             ))}
           </ul>
         )}
@@ -580,5 +521,155 @@ function TextArea({
         className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
       />
     </label>
+  );
+}
+
+// v26.8-UI-03: AI 专家卡片 — persona 折叠 + 启用开关 + 徽章优化 + 🛠 我管理
+function AgentCard({
+  agent: a,
+  me,
+  canEdit,
+  canDelete,
+  onEdit,
+  onRemove,
+  onToggleActive,
+}: {
+  agent: Agent;
+  me: Me | null;
+  canEdit: boolean;
+  canDelete: boolean;
+  onEdit: () => void;
+  onRemove: () => void;
+  onToggleActive: () => void;
+}) {
+  const [personaExpanded, setPersonaExpanded] = useState(false);
+  const isModerator = a.role === "moderator";
+  // v26.8-UI-03: 未绑科室 提示 由 整行黄警告 改 dot + tooltip
+  const isUnbound = !isModerator && !a.primary_user_name;
+  return (
+    <li className="group rounded-xl border border-ink-700 bg-ink-900 p-4 transition hover:border-zinc-600 hover:shadow-md">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2 flex-wrap">
+          <span
+            className="h-3 w-3 shrink-0 rounded-full"
+            style={{ backgroundColor: cssColor(a.color ?? "violet") }}
+          />
+          {/* v26.8-UI-03: 未绑科室 黄 dot (替代整行黄警告) */}
+          {isUnbound && (
+            <span
+              className="h-2 w-2 shrink-0 rounded-full bg-amber-400"
+              title="⚠️ 未绑科室账号 — 不能接受任务派发, 点 编辑 配置"
+              aria-label="未绑科室"
+            />
+          )}
+          <span className="font-medium text-white">{a.name}</span>
+          {/* v26.8-UI-03: ⭐ 我维护 → 🛠 我管理 (语义更明确) */}
+          {me && a.primary_user_id === me.user_id && (
+            <span
+              className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300"
+              title="你是这个 AI 的 primary_user (管理人)"
+            >
+              🛠 我管理
+            </span>
+          )}
+          {!a.is_active && (
+            <span className="rounded-full bg-zinc-700/40 px-2 py-0.5 text-xs text-zinc-400">已停用</span>
+          )}
+          {isModerator && (
+            <span
+              className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300"
+              title="工作空间内置主持人, 用于自动议程监督, 建议保留"
+            >
+              🛡 系统内置
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {/* v26.8-UI-03: 快速 启用/禁用 toggle */}
+          {canEdit && !isModerator && (
+            <button
+              type="button"
+              onClick={onToggleActive}
+              className={`text-xs transition ${
+                a.is_active
+                  ? "text-emerald-400 hover:text-zinc-500"
+                  : "text-zinc-600 hover:text-emerald-400"
+              }`}
+              title={a.is_active ? "点击 停用" : "点击 启用"}
+            >
+              {a.is_active ? "● 启用" : "○ 禁用"}
+            </button>
+          )}
+          {canEdit ? (
+            <button onClick={onEdit} className="text-xs text-zinc-400 hover:text-white">
+              ✏️ 编辑
+            </button>
+          ) : (
+            <span
+              className="text-xs text-zinc-600"
+              title={`此 AI 由 ${a.primary_user_name ?? "(未绑)"} 管理, 你无权编辑`}
+            >
+              🔒
+            </span>
+          )}
+          {isModerator ? (
+            <span className="text-xs text-zinc-700" title="系统内置 不可删除">🛡</span>
+          ) : canDelete ? (
+            <button onClick={onRemove} className="text-xs text-rose-400 hover:text-rose-300">
+              🗑️
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {a.domain && <div className="mt-1 text-xs text-zinc-500">{a.domain}</div>}
+      {/* v26.8-UI-03: persona 默认 2 行 + "展开/收起" */}
+      {a.persona && (
+        <div className="mt-2">
+          <p
+            className={`text-xs text-zinc-400 ${
+              personaExpanded ? "" : "line-clamp-2"
+            }`}
+          >
+            {a.persona}
+          </p>
+          {a.persona.length > 80 && (
+            <button
+              type="button"
+              onClick={() => setPersonaExpanded((v) => !v)}
+              className="mt-0.5 text-[10px] text-accent-400 hover:text-accent-500"
+            >
+              {personaExpanded ? "← 收起" : "展开 ↓"}
+            </button>
+          )}
+        </div>
+      )}
+      {a.keywords && a.keywords.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {a.keywords.slice(0, 5).map((k) => (
+            <span key={k} className="rounded bg-ink-800 px-2 py-0.5 text-xs text-zinc-400">
+              {k}
+            </span>
+          ))}
+          {a.keywords.length > 5 && (
+            <span
+              className="rounded bg-ink-800 px-2 py-0.5 text-xs text-zinc-500"
+              title={a.keywords.slice(5).join(", ")}
+            >
+              +{a.keywords.length - 5}
+            </span>
+          )}
+        </div>
+      )}
+      {!isModerator && a.primary_user_name && (
+        <p className="mt-2 text-[11px] text-emerald-300/80">
+          🔗 {a.primary_user_name} · ✅ 可接任务
+        </p>
+      )}
+      {a.knowledge_base_ids && a.knowledge_base_ids.length > 0 && (
+        <p className="mt-1 text-[11px] text-zinc-500">
+          📚 {a.knowledge_base_ids.length} 个 KB
+        </p>
+      )}
+    </li>
   );
 }

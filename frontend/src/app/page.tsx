@@ -36,6 +36,9 @@ export default function Home() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pickedAgents, setPickedAgents] = useState<Set<string>>(new Set());
+  // v26.8-UI-01: AI 搜索 + 分组折叠
+  const [agentSearch, setAgentSearch] = useState("");
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState("");
   // M3.0: agenda items (optional). Each row: title (required) + budget min.
   // `agenda` is committed to the API only when at least one row has a title.
@@ -344,14 +347,20 @@ export default function Home() {
         </div>
 
         {/* v25.7-#1: 邀请 AI 专家(可多选;不勾任何 = 无 AI 触发) */}
+        {/* v26.8-UI-01: 加 🔍 搜索 + 已选 N 计数 + 分组折叠 */}
         <div className="mt-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-xs text-zinc-500">
               邀请 AI 专家
+              {/* v26.8-UI-01: 已选 N 计数徽标 */}
+              {pickedAgents.size > 0 && (
+                <span className="ml-2 rounded-full bg-accent-500/20 px-2 py-0.5 text-[10px] font-medium text-accent-300">
+                  已选 {pickedAgents.size}
+                </span>
+              )}
               {mode === "auto" ? (
                 <span className="ml-1 text-amber-300">
-                  (AI 自主模式必勾 · 至少 3 个 · 系统会让它们轮流发言;
-                  必须先在 admin 给每个 AI 专家绑科室账号才能接任务)
+                  (AI 自主模式必勾 · 至少 3 个)
                 </span>
               ) : (
                 <span className="text-zinc-600">
@@ -363,18 +372,77 @@ export default function Home() {
               + 管理 AI 专家
             </Link>
           </div>
+          {/* v26.8-UI-01: 搜索 + 已选 chips */}
+          {agents.length > 0 && (
+            <div className="mt-2 space-y-2">
+              <input
+                type="text"
+                value={agentSearch}
+                onChange={(e) => setAgentSearch(e.target.value)}
+                placeholder="🔍 搜索 AI 专家 (按名字 / 领域 / 关键词)"
+                className="w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-1.5 text-sm text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
+              />
+              {pickedAgents.size > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {Array.from(pickedAgents).slice(0, 10).map((aid) => {
+                    const a = agents.find((x) => x.id === aid);
+                    if (!a) return null;
+                    return (
+                      <span
+                        key={aid}
+                        className="inline-flex items-center gap-1 rounded-full bg-accent-500/15 px-2 py-0.5 text-[10px] text-accent-300"
+                      >
+                        🤖 {a.name}
+                        <button
+                          type="button"
+                          onClick={() => toggleAgent(aid)}
+                          className="text-accent-200 hover:text-rose-300"
+                          title="移除"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    );
+                  })}
+                  {pickedAgents.size > 10 && (
+                    <span className="text-[10px] text-zinc-500">
+                      + 还有 {pickedAgents.size - 10}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {agents.length === 0 ? (
             <p className="mt-2 text-sm text-zinc-600" data-testid="no-agents-hint">
               还没有 AI 专家。去 <Link href="/me/profile/agents" className="text-accent-400">AI 配置</Link> 创建。
             </p>
           ) : (
-            // v26.6-04: 按 primary_user_name 分组 (用 domain 作为 fallback);
-            // 让 用户 一眼能看出 "邀请房屋安全科长的 3 个 AI" / "物业科的 2 个 AI"
+            // v26.6-04 + v26.8-UI-01: 按 primary_user_name 分组 + 搜索 + 折叠
             <div className="mt-3 space-y-3" data-testid="agent-picker">
               {(() => {
-                // 分组 key: primary_user_name 优先 (主科室), domain fallback, "未分组" 兜底
+                // v26.8-UI-01 搜索过滤 (name + domain + keywords)
+                const q = agentSearch.trim().toLowerCase();
+                const filtered = q
+                  ? agents.filter((a) => {
+                      const hay = [
+                        a.name,
+                        a.domain ?? "",
+                        ...(a.keywords ?? []),
+                      ].join(" ").toLowerCase();
+                      return hay.includes(q);
+                    })
+                  : agents;
+                if (filtered.length === 0) {
+                  return (
+                    <p className="rounded-lg border border-ink-700 bg-ink-950 p-3 text-center text-xs text-zinc-500">
+                      没找到匹配「{q}」的 AI 专家
+                    </p>
+                  );
+                }
+                // 分组 key
                 const groups: Record<string, typeof agents> = {};
-                for (const a of agents) {
+                for (const a of filtered) {
                   const key = a.primary_user_name
                     ? `👤 ${a.primary_user_name}`
                     : a.domain
@@ -386,48 +454,81 @@ export default function Home() {
                 const sortedGroups = Object.entries(groups).sort((a, b) =>
                   a[0].localeCompare(b[0]),
                 );
-                return sortedGroups.map(([groupName, groupAgents]) => (
-                  <div key={groupName}>
-                    <div className="mb-1.5 flex items-center gap-2 text-xs text-zinc-500">
-                      <span className="font-medium">{groupName}</span>
-                      <span className="text-zinc-700">·</span>
-                      <span>{groupAgents.length} AI</span>
+                // v26.8-UI-01: 搜索时全部展开,无搜索时大组 (≥4 个) 默认折叠
+                const groupCount = sortedGroups.length;
+                return sortedGroups.map(([groupName, groupAgents]) => {
+                  const isCollapsed = q
+                    ? false
+                    : (collapsedGroups.has(groupName)
+                        || (groupCount > 4 && !collapsedGroups.has(`_open:${groupName}`)));
+                  const toggleCollapse = () => {
+                    setCollapsedGroups((s) => {
+                      const next = new Set(s);
+                      if (groupCount > 4) {
+                        // 默认折叠模式: 用 _open: 前缀标记 "已展开"
+                        const openKey = `_open:${groupName}`;
+                        if (next.has(openKey)) next.delete(openKey);
+                        else next.add(openKey);
+                      } else {
+                        // 默认展开模式: 直接用 groupName 标记 "已折叠"
+                        if (next.has(groupName)) next.delete(groupName);
+                        else next.add(groupName);
+                      }
+                      return next;
+                    });
+                  };
+                  return (
+                    <div key={groupName}>
+                      <button
+                        type="button"
+                        onClick={toggleCollapse}
+                        className="mb-1.5 flex w-full items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300"
+                      >
+                        <span className="text-[10px]" aria-hidden>
+                          {isCollapsed ? "▶" : "▼"}
+                        </span>
+                        <span className="font-medium">{groupName}</span>
+                        <span className="text-zinc-700">·</span>
+                        <span>{groupAgents.length} AI</span>
+                      </button>
+                      {!isCollapsed && (
+                        <ul className="grid gap-2 sm:grid-cols-2">
+                          {groupAgents.map((a) => {
+                            const tone =
+                              AGENT_COLOR_BG[a.color || "violet"] || AGENT_COLOR_BG.violet;
+                            const isOn = pickedAgents.has(a.id);
+                            return (
+                              <li key={a.id}>
+                                <label
+                                  className={`flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 transition hover:shadow-md ${
+                                    isOn
+                                      ? tone
+                                      : "border-ink-700 bg-ink-950 text-zinc-300 hover:border-zinc-600"
+                                  }`}
+                                >
+                                  <span className="flex items-center gap-2 text-sm">
+                                    <input
+                                      type="checkbox"
+                                      checked={isOn}
+                                      onChange={() => toggleAgent(a.id)}
+                                      className="h-4 w-4 accent-accent-500"
+                                    />
+                                    🤖 {a.name}
+                                  </span>
+                                  {a.domain && (
+                                    <span className="ml-2 truncate text-[10px] text-zinc-500">
+                                      {a.domain}
+                                    </span>
+                                  )}
+                                </label>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
                     </div>
-                    <ul className="grid gap-2 sm:grid-cols-2">
-                      {groupAgents.map((a) => {
-                        const tone =
-                          AGENT_COLOR_BG[a.color || "violet"] || AGENT_COLOR_BG.violet;
-                        const isOn = pickedAgents.has(a.id);
-                        return (
-                          <li key={a.id}>
-                            <label
-                              className={`flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 transition ${
-                                isOn
-                                  ? tone
-                                  : "border-ink-700 bg-ink-950 text-zinc-300 hover:border-zinc-600"
-                              }`}
-                            >
-                              <span className="flex items-center gap-2 text-sm">
-                                <input
-                                  type="checkbox"
-                                  checked={isOn}
-                                  onChange={() => toggleAgent(a.id)}
-                                  className="h-4 w-4 accent-accent-500"
-                                />
-                                🤖 {a.name}
-                              </span>
-                              {a.domain && (
-                                <span className="ml-2 truncate text-[10px] text-zinc-500">
-                                  {a.domain}
-                                </span>
-                              )}
-                            </label>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                ));
+                  );
+                });
               })()}
             </div>
           )}

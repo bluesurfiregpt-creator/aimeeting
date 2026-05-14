@@ -94,11 +94,39 @@ export default function SedimentationPage() {
         {loading ? (
           <p className="text-sm text-zinc-500">加载中…</p>
         ) : drafts.length === 0 ? (
-          <p className="rounded-xl border border-ink-700 bg-ink-900 p-8 text-center text-sm text-zinc-500">
-            {tab === "pending" && `✨ 没有待你审批的${topTab === "kb" ? "KB 沉淀" : "Memory 沉淀"}`}
-            {tab === "approved" && "尚无 已批准 的"}
-            {tab === "rejected" && "尚无 已驳回 的"}
-          </p>
+          // v26.8-UI-06: 空状态加 引导
+          <div className="rounded-xl border border-ink-700 bg-ink-900 p-8 text-center">
+            <div className="text-4xl" aria-hidden>
+              {tab === "pending" ? "📭" : tab === "approved" ? "✅" : "🗑️"}
+            </div>
+            <h4 className="mt-3 text-sm font-medium text-zinc-200">
+              {tab === "pending" && `暂无待你审批的 ${topTab === "kb" ? "KB" : "Memory"} 沉淀`}
+              {tab === "approved" && `尚无 已批准 的${topTab === "kb" ? "KB" : "Memory"} 沉淀`}
+              {tab === "rejected" && `尚无 已驳回 的${topTab === "kb" ? "KB" : "Memory"} 沉淀`}
+            </h4>
+            {tab === "pending" && (
+              <p className="mx-auto mt-2 max-w-md text-xs text-zinc-500 leading-relaxed">
+                当会议或任务自动提取知识内容后, 拟挂到 你维护的 AI 上, 需要 你审批
+                才能 真正 入库 到对应的 AI 知识库 / 长期记忆.
+              </p>
+            )}
+            {tab === "pending" && (
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                <a
+                  href="/me"
+                  className="rounded-lg border border-ink-700 px-4 py-1.5 text-xs text-zinc-300 hover:bg-ink-800"
+                >
+                  → 我的任务
+                </a>
+                <a
+                  href="/me/profile/agents"
+                  className="rounded-lg border border-ink-700 px-4 py-1.5 text-xs text-zinc-300 hover:bg-ink-800"
+                >
+                  → 我管理的 AI
+                </a>
+              </div>
+            )}
+          </div>
         ) : topTab === "kb" ? (
           <ul className="space-y-2">
             {kbDrafts.map((d) => (
