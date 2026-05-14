@@ -2021,6 +2021,8 @@ export const api = {
     jpost<{ ok: boolean; msg: string }>(`/api/search-providers/${provider}/test`, {}),
 
   // v26.13.2: Perplexity 抓取 触发 — 创建 沉淀草稿
+  // v26.13.2-fix4: silent=true — modal 自己 toast "Perplexity 抓取失败" 更具体,
+  // 不让 全局 拦截器 弹 "请求失败 (400)" 重复 一次.
   perplexityFetch: (body: {
     kb_id: string;
     agent_id: string;
@@ -2039,7 +2041,7 @@ export const api = {
       }>;
       primary_url: string | null;
       answer_preview: string;
-    }>("/api/knowledge/perplexity-fetch", body),
+    }>("/api/knowledge/perplexity-fetch", body, { silent: true }),
 
   // v26.13.1: AI 私聊 调试模式 — 上传 文件 in-memory 解析 (不存盘)
   parseChatFile: async (file: File): Promise<{
