@@ -1901,12 +1901,21 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
             </div>
 
             {/* 右:AI 专家发言(倒序最新在上)— md+ 占 2/5 */}
+            {/* v26.10-Room Phase 2: 第一条 (最新) 用 大焦点卡片, 历史紧凑列表 */}
             <div
               data-testid="agent-panel"
               className="md:col-span-2 h-[55vh] overflow-y-auto rounded-xl border border-violet-500/30 bg-ink-900 p-5"
             >
               <div className="mb-3 flex items-center justify-between border-b border-violet-500/20 pb-2">
-                <h2 className="text-sm font-medium text-violet-200">🤖 AI 专家发言</h2>
+                <h2 className="text-sm font-medium text-violet-200">
+                  🤖 AI 专家发言
+                  {agentLines.some((l) => l.kind === "agent" && !l.done) && (
+                    <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] text-emerald-300">
+                      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                      生成中
+                    </span>
+                  )}
+                </h2>
                 <span className="text-[10px] text-zinc-500">
                   {agentLines.length} 条
                 </span>
@@ -1921,68 +1930,14 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
                 </div>
               ) : (
                 <ul className="space-y-3">
-                  {agentLines.map((l) =>
+                  {agentLines.map((l, idx) =>
                     l.kind === "agent" ? (
-                      <li
+                      <AgentMessageItem
                         key={l.id}
-                        className="rounded-lg border border-ink-700 bg-ink-950 p-3 text-sm leading-relaxed"
-                        style={{ borderLeft: `3px solid ${tailwindColor(l.agentColor)}` }}
-                      >
-                        <div
-                          className="mb-1 flex items-center justify-between gap-2 text-xs font-medium uppercase tracking-wider"
-                          style={{ color: tailwindColor(l.agentColor) }}
-                        >
-                          {/* v26.9-Avatar: 真实头像 32x32 (fallback 🤖) */}
-                          {(() => {
-                            const ag = agents.find((x) => x.id === l.agentId);
-                            const avatarUrl = ag?.avatar_url;
-                            return (
-                              <span className="flex items-center gap-2">
-                                {avatarUrl ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    src={avatarUrl}
-                                    alt={l.agentName}
-                                    className="h-7 w-7 rounded-full border-2 object-cover"
-                                    style={{ borderColor: tailwindColor(l.agentColor) }}
-                                  />
-                                ) : (
-                                  <span className="text-base" aria-hidden>🤖</span>
-                                )}
-                                <span>{l.agentName}</span>
-                              </span>
-                            );
-                          })()}
-                          {!l.done && (
-                            <span className="rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] text-violet-300">
-                              生成中…
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-zinc-100 whitespace-pre-wrap">
-                          {l.text}
-                          {!l.done ? <span className="ml-1 animate-pulse">▌</span> : null}
-                        </div>
-                        {l.done && l.citations && l.citations.length > 0 && (
-                          <div
-                            className="mt-2 flex flex-wrap gap-1 border-t border-ink-800 pt-2"
-                            data-testid="agent-citations"
-                          >
-                            <span className="text-[10px] text-zinc-500">📚 引用</span>
-                            {l.citations.map((c, i) => (
-                              <span
-                                key={c.chunk_id}
-                                title={`${c.snippet}${c.snippet.length >= 240 ? "…" : ""}\n\n相关度: ${(1 - c.distance).toFixed(2)}`}
-                                className="cursor-help rounded-full border border-ink-700 bg-ink-900 px-2 py-0.5 text-[10px] text-zinc-400 hover:border-violet-500/40 hover:text-violet-200"
-                              >
-                                [{i + 1}] {c.document_filename.length > 24
-                                  ? c.document_filename.slice(0, 22) + "…"
-                                  : c.document_filename}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </li>
+                        line={l}
+                        isFocus={idx === 0}
+                        agents={agents}
+                      />
                     ) : null,
                   )}
                 </ul>
@@ -2049,42 +2004,23 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       </footer>
         </main>
 
-        {/* v26.10-Room Phase 1: 右栏 — 任务 + 提醒 + 统计 (Phase 3 接管) */}
+        {/* v26.10-Room Phase 3: 右栏 — 真实数据 (提醒 / AI 建议 / 任务 / 统计) */}
         <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-ink-800 bg-ink-900/30 px-3 py-4 xl:block">
-          <div className="space-y-4">
-            <section>
-              <div className="text-xs uppercase tracking-wider text-zinc-500">
-                📌 任务与工单
-              </div>
-              <p className="mt-2 text-xs text-zinc-600">
-                Phase 3 即将接管: 会议中 AI 实时提取的 任务 弹出在这里.
-              </p>
-            </section>
-            <section>
-              <div className="text-xs uppercase tracking-wider text-zinc-500">
-                🔔 主持人提醒
-              </div>
-              <p className="mt-2 text-xs text-zinc-600">
-                议程超时 / 跑题 / 僵局 提示卡片.
-              </p>
-            </section>
-            <section>
-              <div className="text-xs uppercase tracking-wider text-zinc-500">
-                💡 AI 建议
-              </div>
-              <p className="mt-2 text-xs text-zinc-600">
-                根据 讨论关键词 智能推荐 召唤 哪个 AI 专家.
-              </p>
-            </section>
-            <section>
-              <div className="text-xs uppercase tracking-wider text-zinc-500">
-                📊 会议统计
-              </div>
-              <p className="mt-2 text-xs text-zinc-600">
-                实时 发言句数 / AI 参与次数 / 任务提取数 / 议程覆盖率.
-              </p>
-            </section>
-          </div>
+          <MeetingRoomRightPanel
+            phase={phase}
+            moderator={moderator}
+            recommendation={recommendation}
+            dissent={dissent}
+            lines={lines}
+            agents={agents}
+            meetingMeta={meetingMeta}
+            onInvokeAgent={(agentId) => {
+              const a = agents.find((x) => x.id === agentId);
+              if (a) invokeAgent(a);
+            }}
+            onDismissModerator={() => setModerator(null)}
+            onDismissRecommendation={() => setRecommendation(null)}
+          />
         </aside>
       </div>
     </div>
@@ -2132,7 +2068,7 @@ function MeetingAgentGallery({
         )}
       </div>
       {/* 横向滚动容器 — 多了自动滑动. 卡片 ~80x90 (50x50 头像 + 名字 + 领域) */}
-      <div className="-mx-1 flex gap-2 overflow-x-auto pb-1 pl-1">
+      <div className="scrollbar-thin -mx-1 flex gap-2 overflow-x-auto pb-1 pl-1">
         {invitedAgents.map((a) => {
           const busy = busyAgents.has(a.id);
           const enabled = phase === "live" && !busy;
@@ -2223,6 +2159,453 @@ function MeetingAgentGallery({
         >
           <span>+ 管理</span>
         </Link>
+      </div>
+    </div>
+  );
+}
+
+// v26.10-Room Phase 2: AI 发言条目 — 第一条 (isFocus) 用大焦点卡片样式
+// 历史紧凑列表. 含 v26.9-Avatar 真实头像 + 引用 citations.
+function AgentMessageItem({
+  line: l,
+  isFocus,
+  agents,
+}: {
+  line: LiveLine & { kind: "agent" };
+  isFocus: boolean;
+  agents: Agent[];
+}) {
+  const ag = agents.find((x) => x.id === l.agentId);
+  const avatarUrl = ag?.avatar_url;
+  const color = tailwindColor(l.agentColor);
+  // 焦点卡片 = 大 + 边框颜色 + 渐变背景 (含正在生成时 ring 动画)
+  if (isFocus) {
+    return (
+      <li
+        className="relative rounded-xl border-2 p-4 text-sm leading-relaxed shadow-lg transition"
+        style={{
+          borderColor: color,
+          background: `linear-gradient(135deg, ${color}10, ${color}05)`,
+          animation: !l.done ? "focusGlow 2s ease-in-out infinite" : undefined,
+        }}
+        data-testid="agent-focus-card"
+      >
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2.5">
+            {avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={avatarUrl}
+                alt={l.agentName}
+                className="h-10 w-10 rounded-full border-2 object-cover"
+                style={{ borderColor: color }}
+              />
+            ) : (
+              <span
+                className="grid h-10 w-10 place-items-center rounded-full text-sm font-semibold text-white"
+                style={{ backgroundColor: color }}
+              >
+                {l.agentName.slice(0, 1)}
+              </span>
+            )}
+            <span className="flex flex-col">
+              <span
+                className="text-sm font-semibold"
+                style={{ color }}
+              >
+                {l.agentName}
+              </span>
+              <span className="text-[10px] text-zinc-500">
+                {l.done ? "已发言" : "正在发言…"}
+              </span>
+            </span>
+          </span>
+          {!l.done && (
+            <span className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-300">
+              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+              生成中
+            </span>
+          )}
+        </div>
+        <div className="text-base text-zinc-100 whitespace-pre-wrap leading-relaxed">
+          {l.text}
+          {!l.done ? <span className="ml-1 animate-pulse">▌</span> : null}
+        </div>
+        {l.done && l.citations && l.citations.length > 0 && (
+          <div
+            className="mt-3 flex flex-wrap gap-1 border-t pt-2"
+            style={{ borderColor: `${color}30` }}
+            data-testid="agent-citations"
+          >
+            <span className="text-[10px] text-zinc-500">📚 引用</span>
+            {l.citations.map((c, i) => (
+              <span
+                key={c.chunk_id}
+                title={`${c.snippet}${c.snippet.length >= 240 ? "…" : ""}\n\n相关度: ${(1 - c.distance).toFixed(2)}`}
+                className="cursor-help rounded-full border border-ink-700 bg-ink-900 px-2 py-0.5 text-[10px] text-zinc-400 hover:border-violet-500/40 hover:text-violet-200"
+              >
+                [{i + 1}]{" "}
+                {c.document_filename.length > 24
+                  ? c.document_filename.slice(0, 22) + "…"
+                  : c.document_filename}
+              </span>
+            ))}
+          </div>
+        )}
+      </li>
+    );
+  }
+  // 历史 紧凑卡片 (老样式 略缩)
+  return (
+    <li
+      className="rounded-lg border border-ink-700 bg-ink-950 p-2.5 text-xs leading-relaxed opacity-90"
+      style={{ borderLeft: `3px solid ${color}` }}
+    >
+      <div
+        className="mb-1 flex items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-wider"
+        style={{ color }}
+      >
+        <span className="flex items-center gap-1.5">
+          {avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={avatarUrl}
+              alt={l.agentName}
+              className="h-5 w-5 rounded-full border object-cover"
+              style={{ borderColor: color }}
+            />
+          ) : (
+            <span className="text-sm" aria-hidden>🤖</span>
+          )}
+          <span>{l.agentName}</span>
+        </span>
+      </div>
+      <div className="text-zinc-200 whitespace-pre-wrap line-clamp-3">
+        {l.text}
+      </div>
+      {l.done && l.citations && l.citations.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          <span className="text-[9px] text-zinc-500">📚</span>
+          {l.citations.slice(0, 3).map((c, i) => (
+            <span
+              key={c.chunk_id}
+              title={c.snippet}
+              className="cursor-help rounded-full border border-ink-700 bg-ink-900 px-1.5 py-0.5 text-[9px] text-zinc-500"
+            >
+              [{i + 1}]
+            </span>
+          ))}
+          {l.citations.length > 3 && (
+            <span className="text-[9px] text-zinc-600">
+              +{l.citations.length - 3}
+            </span>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+// v26.10-Room Phase 3: 右栏 — 真实数据展示 (提醒 / 建议 / 任务 / 统计)
+function MeetingRoomRightPanel({
+  phase,
+  moderator,
+  recommendation,
+  dissent,
+  lines,
+  agents,
+  meetingMeta,
+  onInvokeAgent,
+  onDismissModerator,
+  onDismissRecommendation,
+}: {
+  phase: "idle" | "live" | "ended";
+  moderator: {
+    kind: "off_topic" | "time_warning" | "stuck";
+    title: string;
+    body: string;
+    agent_id: string;
+    agent_name: string;
+    agent_color: string;
+    invoke_query: string;
+    auto_summon_at_ms: number | null;
+  } | null;
+  recommendation: {
+    agent_id: string;
+    agent_name: string;
+    agent_color: string;
+    reason: string;
+  } | null;
+  dissent: {
+    topic: string;
+    parties: string[];
+    agent_id: string;
+    agent_name: string;
+    agent_color: string;
+    reason: string;
+  } | null;
+  lines: LiveLine[];
+  agents: Agent[];
+  meetingMeta: {
+    title: string;
+    status: string;
+    agenda: AgendaItem[] | null;
+    attendee_agent_ids: string[];
+    mode?: "human" | "hybrid" | "auto";
+  } | null;
+  onInvokeAgent: (agentId: string) => void;
+  onDismissModerator: () => void;
+  onDismissRecommendation: () => void;
+}) {
+  // v26.10-Room Phase 3: 实时统计 (从 lines 计算)
+  const userLines = lines.filter((l) => l.kind === "user");
+  const agentLines = lines.filter((l) => l.kind === "agent");
+  const speakingAgentIds = new Set(
+    agentLines.filter((l) => !l.done).map((l) => l.agentId),
+  );
+  // 议程信息
+  const agenda = meetingMeta?.agenda ?? null;
+  const currentAgendaTitle =
+    moderator?.kind === "off_topic" || moderator?.kind === "time_warning"
+      ? null
+      : agenda?.[0]?.title;
+  // 任务速览 — 暂时 从 lines 里 简单 抽取 (Phase 3+: 接 真实 action_items endpoint)
+  // 这里 用 简单启发: 含 "@" 提及 或 "任务" 关键词 的 实录句
+  const taskHints = userLines
+    .filter((l) => l.text && (l.text.includes("@") || /任务|工单|跟进|落实/.test(l.text)))
+    .slice(-3);
+
+  return (
+    <div className="space-y-4">
+      {/* 主持人提醒 (高优先级, 进行中才显示) */}
+      {phase === "live" && moderator && (
+        <ReminderCard
+          icon={
+            moderator.kind === "off_topic"
+              ? "🎯"
+              : moderator.kind === "time_warning"
+              ? "⏱"
+              : "😴"
+          }
+          tone="amber"
+          title={moderator.title}
+          body={moderator.body}
+          onDismiss={onDismissModerator}
+          actionLabel="召唤主持人 →"
+          onAction={() => {
+            onInvokeAgent(moderator.agent_id);
+            onDismissModerator();
+          }}
+        />
+      )}
+
+      {/* 共识分歧提醒 */}
+      {phase === "live" && dissent && (
+        <ReminderCard
+          icon="⚖️"
+          tone="rose"
+          title={`检测到分歧 · ${dissent.topic}`}
+          body={dissent.reason}
+        />
+      )}
+
+      {/* AI 建议 */}
+      {phase === "live" && recommendation && (
+        <ReminderCard
+          icon="💡"
+          tone="violet"
+          title={`建议召唤 ${recommendation.agent_name}`}
+          body={recommendation.reason}
+          onDismiss={onDismissRecommendation}
+          actionLabel={`召唤 ${recommendation.agent_name} →`}
+          onAction={() => {
+            onInvokeAgent(recommendation.agent_id);
+            onDismissRecommendation();
+          }}
+        />
+      )}
+
+      {/* 议程进度 */}
+      {agenda && agenda.length > 0 && (
+        <section className="rounded-xl border border-ink-700 bg-ink-900 p-3">
+          <div className="text-xs uppercase tracking-wider text-zinc-500">
+            📋 议程 · {agenda.length} 项
+          </div>
+          <ul className="mt-2 space-y-1.5 text-xs">
+            {agenda.map((item, i) => (
+              <li
+                key={i}
+                className={`flex items-start gap-2 rounded px-2 py-1 ${
+                  i === 0 && phase === "live"
+                    ? "bg-accent-500/10 text-accent-200"
+                    : "text-zinc-400"
+                }`}
+              >
+                <span className="mt-0.5 text-[10px] text-zinc-500">
+                  {i + 1}.
+                </span>
+                <span className="flex-1 truncate">{item.title}</span>
+                {item.time_budget_min && (
+                  <span className="text-[10px] text-zinc-600">
+                    {item.time_budget_min}分
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* 任务速览 (Phase 3 简版, 未来 接 真实 action_items endpoint) */}
+      <section className="rounded-xl border border-ink-700 bg-ink-900 p-3">
+        <div className="flex items-center justify-between">
+          <div className="text-xs uppercase tracking-wider text-zinc-500">
+            📌 任务与工单
+          </div>
+          <span className="text-[10px] text-zinc-600">
+            {taskHints.length === 0 ? "暂无" : `${taskHints.length} 条`}
+          </span>
+        </div>
+        {taskHints.length === 0 ? (
+          <p className="mt-2 text-[11px] text-zinc-600">
+            会议结束 AI 自动提取行动项. 或会议中 说 "@xx 跟进" 触发.
+          </p>
+        ) : (
+          <ul className="mt-2 space-y-1.5">
+            {taskHints.map((l) => (
+              <li
+                key={l.id}
+                className="rounded border border-ink-700 bg-ink-950 p-2 text-[11px] text-zinc-300"
+              >
+                <div className="line-clamp-2">{l.text}</div>
+                <div className="mt-0.5 text-[9px] text-zinc-600">
+                  {l.speakerName || "未识别"} ·{" "}
+                  {l.startMs != null
+                    ? `${Math.floor(l.startMs / 60000)}:${String(Math.floor((l.startMs % 60000) / 1000)).padStart(2, "0")}`
+                    : ""}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* 会议统计 */}
+      <section className="rounded-xl border border-ink-700 bg-ink-900 p-3">
+        <div className="text-xs uppercase tracking-wider text-zinc-500">
+          📊 会议统计
+        </div>
+        <dl className="mt-2 grid grid-cols-2 gap-2 text-xs">
+          <StatItem label="发言句数" value={userLines.length} />
+          <StatItem label="AI 参与" value={agentLines.length} />
+          <StatItem
+            label="正在说"
+            value={speakingAgentIds.size}
+            highlight={speakingAgentIds.size > 0}
+          />
+          <StatItem label="参会 AI" value={agents.length} />
+        </dl>
+      </section>
+
+      {/* 引导文字 (空状态) */}
+      {phase === "idle" && (
+        <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/30 p-3 text-[11px] text-zinc-600">
+          <p>会议未开始. 提醒 / 任务 / 建议 将在 进行中 实时弹出.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReminderCard({
+  icon,
+  tone,
+  title,
+  body,
+  onDismiss,
+  actionLabel,
+  onAction,
+}: {
+  icon: string;
+  tone: "amber" | "rose" | "violet" | "blue";
+  title: string;
+  body: string;
+  onDismiss?: () => void;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  const cls = {
+    amber: "border-amber-500/40 bg-amber-500/5 text-amber-100",
+    rose: "border-rose-500/40 bg-rose-500/5 text-rose-100",
+    violet: "border-violet-500/40 bg-violet-500/5 text-violet-100",
+    blue: "border-sky-500/40 bg-sky-500/5 text-sky-100",
+  }[tone];
+  const dotCls = {
+    amber: "bg-amber-400",
+    rose: "bg-rose-400",
+    violet: "bg-violet-400",
+    blue: "bg-sky-400",
+  }[tone];
+  return (
+    <section
+      className={`rounded-xl border p-3 ${cls}`}
+      style={{ animation: "slideInRight 0.3s ease-out" }}
+    >
+      <div className="flex items-start gap-2">
+        <span className={`mt-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full ${dotCls}`} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium">
+              {icon} {title}
+            </span>
+            {onDismiss && (
+              <button
+                type="button"
+                onClick={onDismiss}
+                className="shrink-0 text-xs opacity-60 hover:opacity-100"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <p className="mt-1 text-[11px] opacity-80">{body}</p>
+          {actionLabel && onAction && (
+            <button
+              type="button"
+              onClick={onAction}
+              className="mt-2 rounded-md bg-white/10 px-2.5 py-1 text-[11px] hover:bg-white/20"
+            >
+              {actionLabel}
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function StatItem({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: number;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={`rounded border bg-ink-950/60 p-2 ${
+        highlight ? "border-emerald-500/40" : "border-ink-700"
+      }`}
+    >
+      <div className="text-[10px] text-zinc-500">{label}</div>
+      <div
+        className={`mt-0.5 font-mono text-base ${
+          highlight ? "text-emerald-300animate-pulse" : "text-zinc-100"
+        }`}
+      >
+        {value}
       </div>
     </div>
   );

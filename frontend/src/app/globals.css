@@ -11,3 +11,45 @@ html, body {
   background: #0b0d12;
   color: #e6e8ee;
 }
+
+/* v26.10-Room Phase 4: 会议室动画 */
+
+/* 焦点 AI 卡片 — 正在发言时的呼吸边框 (用 border-color rgba 周期) */
+@keyframes focusGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.05); }
+  50% { box-shadow: 0 0 24px 0 rgba(139,92,246,0.25); }
+}
+
+/* 右栏提醒卡片 — 从右侧 slide-in */
+@keyframes slideInRight {
+  from {
+    transform: translateX(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* AI 头像画廊 — 思考中 圆环呼吸 */
+@keyframes ringPulse {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.05); opacity: 1; }
+}
+
+/* 隐藏滚动条但保持可滑动 (画廊 + 任务面板等) */
+.scrollbar-thin::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
