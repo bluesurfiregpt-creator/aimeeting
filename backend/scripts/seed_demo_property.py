@@ -446,13 +446,13 @@ FINISHED_MEETINGS = [
                 "agent_name": "客户服务",
                 "content": "B 栋 电梯 维保 一直 是 投诉 重点. 维保 公司 多次 整改 无效 时, 第一 选择 是 换 — 不要 反复 整改 浪费 业主 信任.",
                 "status": "pending",
-                "evidence_anchor_idx": 7,  # AI 发言 行 index
+                "evidence_anchor_idx": 6,  # 真人 行: lijg "维保 公司 要 换. 这 是 第一 个 决策."
             },
             {
                 "agent_name": "数据洞察",
                 "content": "Q1 投诉 同比 上升 时, 优先 看 单栋 + 单分类 异常 集中 — 比 看 总量 更易 找出 抓手.",
                 "status": "approved",  # 自动 approve, 用于 演示 已入库 + chip
-                "evidence_anchor_idx": 1,
+                "evidence_anchor_idx": 4,  # 真人 行: hanx "B 栋, 主要 围绕 电梯 异响."
             },
         ],
     },
@@ -540,13 +540,13 @@ FINISHED_MEETINGS = [
                 "agent_name": "财务核算",
                 "content": "评估 大型 维修 方案 时, 必 算 5 年 总 持有 成本 (含 维保 + 残值), 不 单看 一次性 投入. 长期 看 全 替换 比 大修 更 经济.",
                 "status": "pending",
-                "evidence_anchor_idx": 1,
+                "evidence_anchor_idx": 3,  # 真人: lijg "92 万. 走 65 万 + 78 万 都够 — 38 万 大修 也行, 但 5 年 后 还得 再投."
             },
             {
                 "agent_name": "政策法规",
                 "content": "维修 资金 大额 使用 (≥ 50 万) 公示 时, 必 同时 列 多 家 方案 对比 + 法规 引用, 防 业主 质疑 程序.",
                 "status": "pending",
-                "evidence_anchor_idx": 5,
+                "evidence_anchor_idx": 8,  # 真人: chensy "65 万 一笔 大额, 风险 在 业主 群里 有人 反对 拖 进度. 建议 先 在 群里 摸 一下 底."
             },
         ],
     },
@@ -622,7 +622,7 @@ FINISHED_MEETINGS = [
                 "agent_name": "政策法规",
                 "content": "《个保法》对 物业 公司 三 大 风险 点: 1) 业主 信息 未 单独 同意 收集; 2) 信息 未 加密 / 未 分权; 3) 给 第三方 (含 关联 公司) 未经 同意. 整改 优先级 高.",
                 "status": "pending",
-                "evidence_anchor_idx": 1,
+                "evidence_anchor_idx": 4,  # 真人: chensy "Excel 那 份 必须 处理 — 这 是 合规 雷."
             },
         ],
     },
@@ -922,7 +922,7 @@ async def _seed_memory_drafts(
             if line_id is not None:
                 anchor_line_ids = [line_id]
 
-        # 已存在 跳过
+        # 已存在 — 仅 backfill source_line_ids (老 跑 时 anchor 错位 留 NULL)
         existing = (
             await db.execute(
                 select(MemoryDraft).where(
@@ -932,7 +932,25 @@ async def _seed_memory_drafts(
             )
         ).scalar_one_or_none()
         if existing:
+            if existing.source_line_ids is None and anchor_line_ids:
+                existing.source_line_ids = anchor_line_ids
+                logger.info("memory draft backfill source_line_ids: %s", md_spec["content"][:30])
             continue
+        # 已 入库 commit (status=approved 路径 重 跑 时) — 也 backfill
+        if md_spec["status"] == "approved":
+            existing_mem = (
+                await db.execute(
+                    select(LongTermMemory).where(
+                        LongTermMemory.workspace_id == workspace_id,
+                        LongTermMemory.content == md_spec["content"],
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing_mem:
+                if existing_mem.source_line_ids is None and anchor_line_ids:
+                    existing_mem.source_line_ids = anchor_line_ids
+                    logger.info("memory committed backfill source_line_ids: %s", md_spec["content"][:30])
+                continue
 
         if md_spec["status"] == "approved":
             # 直接 入 LongTermMemory + 不 进 draft 池 (跳 审批 — 给 演示 看)
