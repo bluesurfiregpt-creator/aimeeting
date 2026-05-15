@@ -1261,7 +1261,9 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
 
   return (
     <div className="flex h-screen flex-col bg-ink-950">
-      {/* v26.10-Room Phase 1: 顶部条 — 标题 + 状态 + 计时 + 关闭 */}
+      {/* v26.10-Room Phase 1: 顶部条 — 标题 + 状态 + 计时 + 关闭
+          v26.14-fix1: 控件行 (开始/结束/恢复/AI画廊/邀请) 合并到 顶部 chrome 第二排,
+          中栏 顶部 那 ~80px 让出 给 主对话区. */}
       <MeetingRoomTopBar
         title={meetingMeta?.title}
         mode={meetingMeta?.mode}
@@ -1272,6 +1274,18 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           const ids = new Set(meetingMeta?.attendee_agent_ids || []);
           return ids.size > 0 ? agents.filter((a) => ids.has(a.id)).length : 0;
         })()}
+        // v26.14-fix1: 控件行 props
+        onStart={start}
+        onStop={stop}
+        onResume={resume}
+        showResumeButton={phase === "live" && !socketRef.current}
+        invitedAgents={(() => {
+          const ids = new Set(meetingMeta?.attendee_agent_ids || []);
+          return ids.size > 0 ? agents.filter((a) => ids.has(a.id)) : [];
+        })()}
+        busyAgents={busyAgents}
+        onInvokeAgent={invokeAgent}
+        onInviteClick={() => setInviteModalOpen(true)}
       />
 
       {/* v26.10-Room Phase 1: 三栏 grid */}
@@ -1293,51 +1307,10 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           />
         </aside>
 
-        {/* 中栏 — 现有 main 内容 */}
+        {/* 中栏 — 现有 main 内容
+            v26.14-fix1: 老 header (开始/结束/AI画廊/邀请) 已 全部 移到 顶部 chrome 第二排,
+            中栏 顶部 现在 直接 接 内容, 多 ~80px 给 主对话区. */}
         <main className="flex-1 overflow-y-auto px-6 py-4 min-w-0">
-      {/* v26.10-Room P5.5: 中栏 header 已 全部精简 —
-          会议室/标题/状态/计时 → 顶部 chrome 已有 (不重复)
-          AI 画廊 + 开始/结束 按钮 → 一行紧凑展示, 节省 ~200px 纵向空间 */}
-      <header className="flex items-center gap-3">
-        <button
-          onClick={start}
-          disabled={phase !== "idle"}
-          className="shrink-0 rounded-lg bg-accent-500 px-3 py-1.5 text-xs font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent-400 transition"
-        >
-          ▶ 开始会议
-        </button>
-        {/* v26.11-fix1: phase=live 但 WS 没连 (重进 ongoing 会议) → 显示 🎙️ 恢复录音.
-            走 resume() — 单独 一个 callback, 不走 start() 的 idle 守卫. */}
-        {phase === "live" && !socketRef.current && (
-          <button
-            onClick={resume}
-            className="shrink-0 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white shadow hover:bg-emerald-400 transition"
-          >
-            🎙️ 恢复录音
-          </button>
-        )}
-        <button
-          onClick={stop}
-          disabled={phase !== "live"}
-          className="shrink-0 rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs text-rose-300 disabled:cursor-not-allowed disabled:opacity-30 hover:bg-rose-500/10 transition"
-        >
-          ■ 结束会议
-        </button>
-        <span className="h-6 w-px shrink-0 bg-ink-700" />
-        {/* AI 画廊 占满剩余空间 (50x50 头像 + 名字 + 横滑) */}
-        <div className="min-w-0 flex-1">
-          <MeetingAgentGallery
-            invitedAgents={(() => {
-              const ids = new Set(meetingMeta?.attendee_agent_ids || []);
-              return ids.size > 0 ? agents.filter((a) => ids.has(a.id)) : [];
-            })()}
-            phase={phase}
-            busyAgents={busyAgents}
-            onInvoke={invokeAgent}
-            onInviteClick={() => setInviteModalOpen(true)}
-          />
-        </div>
-      </header>
 
       {/* v26.11-fix2: 邀请 AI 弹窗 — 多选 workspace 内 未邀请 的 AI →
           调 inviteMeetingAgents → 后端 写 MeetingAttendee + 广播.
@@ -3232,6 +3205,15 @@ function MeetingRoomTopBar({
   statusText,
   meetingId,
   invitedAgentCount,
+  // v26.14-fix1: 控件行 props (合并 老 中栏 header)
+  onStart,
+  onStop,
+  onResume,
+  showResumeButton,
+  invitedAgents,
+  busyAgents,
+  onInvokeAgent,
+  onInviteClick,
 }: {
   title?: string;
   mode?: string;
@@ -3239,6 +3221,14 @@ function MeetingRoomTopBar({
   statusText: string;
   meetingId: string;
   invitedAgentCount: number;
+  onStart: () => void;
+  onStop: () => void;
+  onResume: () => void;
+  showResumeButton: boolean;
+  invitedAgents: Agent[];
+  busyAgents: Set<string>;
+  onInvokeAgent: (a: Agent) => void;
+  onInviteClick: () => void;
 }) {
   // 计时器 (会议开始后累加)
   const [elapsedMs, setElapsedMs] = useState<number>(0);
@@ -3276,60 +3266,101 @@ function MeetingRoomTopBar({
         : "⚪ 待开始";
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-ink-800 bg-ink-900/60 px-4 backdrop-blur">
-      <div className="flex items-center gap-3 min-w-0">
-        <Link
-          href="/"
-          className="shrink-0 text-xs text-zinc-500 hover:text-zinc-200"
-          title="返回首页"
-        >
-          ← 首页
-        </Link>
-        <span className="shrink-0 text-zinc-700">·</span>
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-              会议室
-            </span>
-            {mode === "auto" && (
-              <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
-                AI 自主
+    // v26.14-fix1: 顶部 chrome 改 2 行 — 上行 标题/状态, 下行 控件 (老 中栏 header).
+    // 总高 ~96px (2 行 + 边框), 比 老 56px chrome + 80px 中栏 header = 136px 节省 ~40px.
+    <header className="flex shrink-0 flex-col border-b border-ink-800 bg-ink-900/60 backdrop-blur">
+      {/* Row 1: 标题 + 状态 + 计时 */}
+      <div className="flex h-12 items-center justify-between px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link
+            href="/"
+            className="shrink-0 text-xs text-zinc-500 hover:text-zinc-200"
+            title="返回首页"
+          >
+            ← 首页
+          </Link>
+          <span className="shrink-0 text-zinc-700">·</span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                会议室
+              </span>
+              {mode === "auto" && (
+                <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
+                  AI 自主
+                </span>
+              )}
+            </div>
+            <h1 className="truncate text-sm font-medium text-white">
+              {title || "正在加载…"}
+            </h1>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${statusColor}`}
+            title={statusText}
+          >
+            {phase === "live" && (
+              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+            )}
+            {statusLabel}
+            {phase === "live" && (
+              <span className="font-mono tabular-nums">
+                · {fmtElapsed(elapsedMs)}
               </span>
             )}
-          </div>
-          <h1 className="truncate text-sm font-medium text-white">
-            {title || "正在加载…"}
-          </h1>
-        </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${statusColor}`}
-          title={statusText}
-        >
-          {phase === "live" && (
-            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-          )}
-          {statusLabel}
-          {phase === "live" && (
-            <span className="font-mono tabular-nums">
-              · {fmtElapsed(elapsedMs)}
+          </span>
+          {invitedAgentCount > 0 && (
+            <span className="hidden rounded-full bg-violet-500/15 px-2.5 py-1 text-xs text-violet-300 sm:inline-flex">
+              🤖 {invitedAgentCount} AI 专家
             </span>
           )}
-        </span>
-        {invitedAgentCount > 0 && (
-          <span className="hidden rounded-full bg-violet-500/15 px-2.5 py-1 text-xs text-violet-300 sm:inline-flex">
-            🤖 {invitedAgentCount} AI 专家
-          </span>
-        )}
-        {mode === "auto" && (
-          <Link
-            href={`/meeting/${meetingId}/orchestrate`}
-            className="rounded-md bg-amber-500/15 border border-amber-500/30 px-2.5 py-1 text-xs text-amber-200 hover:bg-amber-500/25"
+          {mode === "auto" && (
+            <Link
+              href={`/meeting/${meetingId}/orchestrate`}
+              className="rounded-md border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs text-amber-200 hover:bg-amber-500/25"
+            >
+              ⚖️ Orchestrate
+            </Link>
+          )}
+        </div>
+      </div>
+
+      {/* Row 2: 控件 — 开始/结束/恢复 + AI 画廊 + 邀请 (老 中栏 header) */}
+      <div className="flex h-12 items-center gap-3 border-t border-ink-800/60 px-4">
+        <button
+          onClick={onStart}
+          disabled={phase !== "idle"}
+          className="shrink-0 rounded-lg bg-accent-500 px-3 py-1.5 text-xs font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent-400 transition"
+        >
+          ▶ 开始会议
+        </button>
+        {showResumeButton && (
+          <button
+            onClick={onResume}
+            className="shrink-0 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white shadow hover:bg-emerald-400 transition"
           >
-            ⚖️ Orchestrate
-          </Link>
+            🎙️ 恢复录音
+          </button>
         )}
+        <button
+          onClick={onStop}
+          disabled={phase !== "live"}
+          className="shrink-0 rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs text-rose-300 disabled:cursor-not-allowed disabled:opacity-30 hover:bg-rose-500/10 transition"
+        >
+          ■ 结束会议
+        </button>
+        <span className="h-6 w-px shrink-0 bg-ink-700" />
+        <div className="min-w-0 flex-1">
+          <MeetingAgentGallery
+            invitedAgents={invitedAgents}
+            phase={phase}
+            busyAgents={busyAgents}
+            onInvoke={onInvokeAgent}
+            onInviteClick={onInviteClick}
+          />
+        </div>
       </div>
     </header>
   );
