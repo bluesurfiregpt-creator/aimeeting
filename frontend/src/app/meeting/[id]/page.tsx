@@ -345,6 +345,11 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   // (the "more aggressive" UX agreed for stuck specifically).
   const [moderator, setModerator] = useState<{
     kind: "off_topic" | "time_warning" | "stuck";
+    // v26.14-P4.3: off_topic 的 三档 严重度 — 仅 kind=off_topic 有效, 其他 kind 留 undefined.
+    //   suspected: 角落 轻提示, 不打断
+    //   confirmed: 中等 banner (老 默认)
+    //   severe:    全屏 modal + auto_summon 倒计时
+    severity?: "suspected" | "confirmed" | "severe";
     title: string;
     body: string;
     agent_id: string;
@@ -355,6 +360,17 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     auto_summon_at_ms: number | null;
   } | null>(null);
   const moderatorTimerRef = useRef<number | null>(null);
+  // v26.14-P4.3: 偏题 历史 — 抽屉 里 列 本场 所有 off_topic 事件 (含 已 dismissed 的).
+  // 让 用户 知道 "AI 监测 在 工作" + 过去 几次 提醒 啥 内容.
+  const [topicHistory, setTopicHistory] = useState<
+    Array<{
+      ts: number;
+      severity: "suspected" | "confirmed" | "severe";
+      summary: string;
+      current_agenda_item: string | null;
+      suggested_agenda_item: string | null;
+    }>
+  >([]);
   // Live countdown display for stuck banners. Refreshed via interval so the
   // banner shows "5 → 4 → 3 → 2 → 1" without re-rendering the parent on
   // every tick (we only re-render this small piece). null = no countdown.
@@ -512,8 +528,30 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       setModeratorCountdown(null);
 
       if (e.type === "agenda_off_topic") {
+        // v26.14-P4.3: 根据 severity 分 三档 渲染.
+        // 老 后端 不带 severity 时 兼容 视为 "confirmed" (中等强度).
+        const severity = e.off_topic_severity ?? "confirmed";
+        // 落 历史 — 任何 severity 都 入抽屉, 让 用户 看到 监测 在 工作
+        setTopicHistory((prev) =>
+          [
+            {
+              ts: Date.now(),
+              severity,
+              summary: e.off_topic_summary || e.reason,
+              current_agenda_item: e.current_agenda_item,
+              suggested_agenda_item: e.suggested_agenda_item,
+            },
+            ...prev,
+          ].slice(0, 20),
+        );
+        // severe 严重时 加 自动 召唤 倒计时 (跟 stuck 同套), 但 走 off_topic 路径
+        const severeAutoSummonAt =
+          severity === "severe" && e.auto_summon_after_s
+            ? Date.now() + Math.max(2, Math.min(15, e.auto_summon_after_s)) * 1000
+            : null;
         setModerator({
           kind: "off_topic",
+          severity,
           title: e.current_agenda_item
             ? `已偏离议程「${e.current_agenda_item}」`
             : "讨论已偏离议程",
@@ -525,8 +563,17 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           invoke_query: `请你作为主持人,简短提醒大家回到议程项「${
             e.suggested_agenda_item ?? e.current_agenda_item ?? "原议题"
           }」。`,
-          auto_summon_at_ms: null,
+          auto_summon_at_ms: severeAutoSummonAt,
         });
+        // severe 时 启 倒计时 显示 (跟 stuck 同套机制)
+        if (severeAutoSummonAt !== null) {
+          const initialSec = Math.ceil((severeAutoSummonAt - Date.now()) / 1000);
+          setModeratorCountdown(initialSec);
+          moderatorCountdownIntervalRef.current = window.setInterval(() => {
+            const remain = Math.ceil((severeAutoSummonAt - Date.now()) / 1000);
+            setModeratorCountdown(remain > 0 ? remain : 0);
+          }, 250);
+        }
       } else if (e.type === "agenda_time_warning") {
         setModerator({
           kind: "time_warning",
@@ -564,13 +611,22 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         }, 250);
       }
 
-      // Auto-dismiss banner after 90s if user does nothing (off_topic + time_warning)
-      // Stuck has its own auto-fire via auto_summon_at_ms; we don't auto-dismiss it
-      // before that fires.
-      if (e.type !== "agenda_stuck") {
+      // v26.14-P4.3 auto-dismiss 策略:
+      //   - suspected off_topic: 12s 自动消失 (轻提示, 不打断, 没 dismiss 也 自走)
+      //   - confirmed off_topic / time_warning: 90s 自动消失 (老默认)
+      //   - severe off_topic: 不 自动 dismiss, 等 auto_summon 计时 走完
+      //   - stuck: 不 自动 dismiss, 等 auto_summon_at_ms 走完
+      const hasAutoFire =
+        e.type === "agenda_stuck" ||
+        (e.type === "agenda_off_topic" && e.off_topic_severity === "severe");
+      if (!hasAutoFire) {
+        const autoDismissMs =
+          e.type === "agenda_off_topic" && e.off_topic_severity === "suspected"
+            ? 12_000
+            : 90_000;
         moderatorTimerRef.current = window.setTimeout(() => {
           setModerator(null);
-        }, 90_000);
+        }, autoDismissMs);
       }
       return;
     }
@@ -1843,78 +1899,159 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         </div>
       ) : null}
 
-      {/* M3.0: 主持人 banner (off-topic + time warning) */}
-      {moderator && phase === "live" ? (
-        <div
-          data-testid={`moderator-banner-${moderator.kind}`}
-          className={
-            // Stuck banner is more prominent — orange-red border + soft pulse
-            // to telegraph the imminent auto-summon.
-            moderator.kind === "stuck"
-              ? "mt-3 flex items-center justify-between gap-3 rounded-lg border border-orange-500/60 bg-orange-500/10 px-3 py-2 animate-pulse"
-              : "mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2"
-          }
-          style={{ borderLeftColor: tailwindColor(moderator.agent_color), borderLeftWidth: 3 }}
-        >
-          <div className="flex min-w-0 flex-1 items-center gap-2 text-sm text-zinc-200">
-            <span className="text-base">
-              {moderator.kind === "off_topic"
-                ? "🧭"
-                : moderator.kind === "time_warning"
-                ? "⏱️"
-                : "🔄"}
-            </span>
-            <span className="min-w-0">
-              <span
+      {/* v26.14-P4.3: 三档 off_topic 提醒 — 跟 stuck / time_warning 共用 state.
+            - severe (off_topic):    全屏 modal + 模糊背景 + 倒计时 (后面 JSX 单独 渲)
+            - confirmed (off_topic): 中等 banner (老 默认 amber)
+            - suspected (off_topic): 细窄 角落 toast, 没大 CTA, 12s 自走
+            - stuck:                 orange + pulse + 倒计时 (老 默认)
+            - time_warning:          中等 banner (老 默认 amber) */}
+      {moderator && phase === "live" && !(moderator.kind === "off_topic" && moderator.severity === "severe") ? (
+        moderator.kind === "off_topic" && moderator.severity === "suspected" ? (
+          // 轻提示 — 细窄一行, 没大 CTA, 用户 可 直接 关
+          <div
+            data-testid="moderator-banner-off_topic-suspected"
+            className="mt-3 flex items-center justify-between gap-2 rounded-md border border-zinc-700 bg-zinc-900/60 px-3 py-1.5 text-xs"
+          >
+            <div className="flex min-w-0 items-center gap-2 text-zinc-400">
+              <span>👀</span>
+              <span className="truncate">
+                <span className="text-zinc-300">可能 偏题:</span> {moderator.body}
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                onClick={acceptModerator}
+                disabled={busyAgents.has(moderator.agent_id)}
+                className="text-[10px] text-zinc-500 hover:text-zinc-200 disabled:opacity-50"
+              >
+                召唤 {moderator.agent_nickname?.trim() || moderator.agent_name}
+              </button>
+              <button
+                data-testid="moderator-dismiss"
+                onClick={dismissModerator}
+                className="text-zinc-600 hover:text-zinc-300"
+                title="忽略"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        ) : (
+          // 中等 banner (confirmed off_topic / time_warning / stuck) — 老 渲染
+          <div
+            data-testid={`moderator-banner-${moderator.kind}`}
+            className={
+              moderator.kind === "stuck"
+                ? "mt-3 flex items-center justify-between gap-3 rounded-lg border border-orange-500/60 bg-orange-500/10 px-3 py-2 animate-pulse"
+                : "mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2"
+            }
+            style={{ borderLeftColor: tailwindColor(moderator.agent_color), borderLeftWidth: 3 }}
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-2 text-sm text-zinc-200">
+              <span className="text-base">
+                {moderator.kind === "off_topic"
+                  ? "🧭"
+                  : moderator.kind === "time_warning"
+                  ? "⏱️"
+                  : "🔄"}
+              </span>
+              <span className="min-w-0">
+                <span
+                  className={
+                    moderator.kind === "stuck"
+                      ? "font-medium text-orange-200"
+                      : "font-medium text-amber-200"
+                  }
+                >
+                  {moderator.title}
+                </span>
+                <span className="mx-1 text-zinc-500">·</span>
+                <span className="text-zinc-400">{moderator.body}</span>
+                {moderator.kind === "stuck" && moderatorCountdown !== null ? (
+                  <span
+                    data-testid="moderator-countdown"
+                    className="ml-2 rounded bg-orange-500/30 px-1.5 py-0.5 text-xs font-semibold text-orange-100"
+                  >
+                    {moderatorCountdown}s 后自动召唤
+                  </span>
+                ) : null}
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                data-testid="moderator-accept"
+                onClick={acceptModerator}
+                disabled={busyAgents.has(moderator.agent_id)}
                 className={
                   moderator.kind === "stuck"
-                    ? "font-medium text-orange-200"
-                    : "font-medium text-amber-200"
+                    ? "rounded-lg bg-orange-500 px-3 py-1 text-xs font-medium text-white shadow transition disabled:opacity-50 hover:bg-orange-400"
+                    : "rounded-lg px-3 py-1 text-xs font-medium text-white shadow transition disabled:opacity-50"
+                }
+                style={
+                  moderator.kind === "stuck"
+                    ? undefined
+                    : { backgroundColor: tailwindColor(moderator.agent_color) }
                 }
               >
-                {moderator.title}
-              </span>
-              <span className="mx-1 text-zinc-500">·</span>
-              <span className="text-zinc-400">{moderator.body}</span>
-              {moderator.kind === "stuck" && moderatorCountdown !== null ? (
-                <span
-                  data-testid="moderator-countdown"
-                  className="ml-2 rounded bg-orange-500/30 px-1.5 py-0.5 text-xs font-semibold text-orange-100"
-                >
-                  {moderatorCountdown}s 后自动召唤
+                {moderator.kind === "stuck"
+                  ? "立刻召唤"
+                  : `召唤${moderator.agent_nickname?.trim() || moderator.agent_name}`}
+              </button>
+              <button
+                data-testid="moderator-dismiss"
+                onClick={dismissModerator}
+                className="text-xs text-zinc-500 hover:text-zinc-300"
+                title={moderator.kind === "stuck" ? "取消自动召唤" : "忽略"}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )
+      ) : null}
+
+      {/* v26.14-P4.3: 严重偏题 全屏 modal — severity=severe 时 走 此路径,
+            模糊背景 + 中央卡片 + 倒计时, 给 用户 强烈 阻断 感. */}
+      {moderator && phase === "live" && moderator.kind === "off_topic" && moderator.severity === "severe" ? (
+        <div
+          data-testid="moderator-modal-severe"
+          className="fixed inset-0 z-50 grid place-items-center bg-black/70 backdrop-blur-md p-4 animate-[slideInDown_180ms_ease-out]"
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border-2 border-rose-500/60 bg-ink-900 p-5 shadow-[0_0_60px_rgba(244,63,94,0.3)]"
+            style={{ borderLeftColor: tailwindColor(moderator.agent_color), borderLeftWidth: 4 }}
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-2xl">🚨</span>
+              <h2 className="text-base font-semibold text-rose-200">严重 偏题</h2>
+              {moderatorCountdown !== null ? (
+                <span className="ml-auto rounded bg-rose-500/30 px-2 py-0.5 text-xs font-semibold text-rose-100">
+                  {moderatorCountdown}s 后 自动 召唤
                 </span>
               ) : null}
-            </span>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              data-testid="moderator-accept"
-              onClick={acceptModerator}
-              disabled={busyAgents.has(moderator.agent_id)}
-              className={
-                moderator.kind === "stuck"
-                  ? "rounded-lg bg-orange-500 px-3 py-1 text-xs font-medium text-white shadow transition disabled:opacity-50 hover:bg-orange-400"
-                  : "rounded-lg px-3 py-1 text-xs font-medium text-white shadow transition disabled:opacity-50"
-              }
-              style={
-                moderator.kind === "stuck"
-                  ? undefined
-                  : { backgroundColor: tailwindColor(moderator.agent_color) }
-              }
-            >
-              {/* v26.12-Home: nickname 优先 */}
-              {moderator.kind === "stuck"
-                ? "立刻召唤"
-                : `召唤${moderator.agent_nickname?.trim() || moderator.agent_name}`}
-            </button>
-            <button
-              data-testid="moderator-dismiss"
-              onClick={dismissModerator}
-              className="text-xs text-zinc-500 hover:text-zinc-300"
-              title={moderator.kind === "stuck" ? "取消自动召唤" : "忽略"}
-            >
-              ✕
-            </button>
+            </div>
+            <div className="space-y-2 text-sm text-zinc-300">
+              <p className="font-medium text-zinc-100">{moderator.title}</p>
+              <p className="text-xs leading-5 text-zinc-400">{moderator.body}</p>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                data-testid="moderator-accept"
+                onClick={acceptModerator}
+                disabled={busyAgents.has(moderator.agent_id)}
+                className="flex-1 rounded-lg bg-rose-500 px-4 py-2 text-sm font-medium text-white shadow hover:bg-rose-400 disabled:opacity-50"
+              >
+                立刻 召唤 {moderator.agent_nickname?.trim() || moderator.agent_name}
+              </button>
+              <button
+                data-testid="moderator-dismiss"
+                onClick={dismissModerator}
+                className="rounded-lg border border-ink-700 px-3 py-2 text-xs text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
+                title="取消 自动 召唤"
+              >
+                忽略
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -2154,6 +2291,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
             lines={lines}
             agents={agents}
             meetingMeta={meetingMeta}
+            // v26.14-P4.3: 偏题 历史 抽屉 — 让 用户 看到 监测 在 工作
+            topicHistory={topicHistory}
             onInvokeAgent={(agentId) => {
               const a = agents.find((x) => x.id === agentId);
               if (a) invokeAgent(a);
@@ -2933,6 +3072,7 @@ function MeetingRoomRightPanel({
   lines,
   agents,
   meetingMeta,
+  topicHistory,
   onInvokeAgent,
   onDismissModerator,
   onDismissRecommendation,
@@ -2941,6 +3081,7 @@ function MeetingRoomRightPanel({
   meetingId: string;
   moderator: {
     kind: "off_topic" | "time_warning" | "stuck";
+    severity?: "suspected" | "confirmed" | "severe";  // v26.14-P4.3
     title: string;
     body: string;
     agent_id: string;
@@ -2975,6 +3116,14 @@ function MeetingRoomRightPanel({
     attendee_agent_ids: string[];
     mode?: "human" | "hybrid" | "auto";
   } | null;
+  // v26.14-P4.3: 偏题 历史 — 抽屉 用; 老 是 banner 闪一下 就 没, 看不到 历史 → 用户 不知 监测 在 工作.
+  topicHistory: Array<{
+    ts: number;
+    severity: "suspected" | "confirmed" | "severe";
+    summary: string;
+    current_agenda_item: string | null;
+    suggested_agenda_item: string | null;
+  }>;
   onInvokeAgent: (agentId: string) => void;
   onDismissModerator: () => void;
   onDismissRecommendation: () => void;
@@ -3018,8 +3167,12 @@ function MeetingRoomRightPanel({
 
   return (
     <div className="space-y-4">
-      {/* 主持人提醒 (高优先级, 进行中才显示) */}
-      {phase === "live" && moderator && (
+      {/* v26.14-P4.3: 偏题 抽屉 — 折叠 历史 列表, 标签 显 count badge.
+            放 最顶 — 老 banner 闪一下 就 没, 用户 不知 监测 在 工作; 抽屉 让 它 可追溯. */}
+      <TopicHistoryDrawer topicHistory={topicHistory} phase={phase} />
+
+      {/* 主持人提醒 (高优先级, 进行中才显示) — suspected 跳过 这里 (老侧栏 卡片 太重 不 适合 轻提示) */}
+      {phase === "live" && moderator && moderator.severity !== "suspected" && (
         <ReminderCard
           icon={
             moderator.kind === "off_topic"
@@ -3284,6 +3437,133 @@ function AgendaTimeline({
           );
         })}
       </ol>
+    </section>
+  );
+}
+
+// v26.14-P4.3: 偏题 历史 抽屉 — 折叠 在 右栏 顶部.
+//   - 默认 折叠, 显 "🎯 偏题 监测 · N 次" + 三色 mini 点
+//   - 展开 后 列 最近 N 条 (severity / 时间 / 摘要 / 议程 提示)
+//   - phase=live + history 为 空: 显 "AI 正在 监测... (0 次 偏题)" 提示 (让 用户 知道 在 工作)
+//   - phase=ended OR history>0: 正常 显
+function TopicHistoryDrawer({
+  topicHistory,
+  phase,
+}: {
+  topicHistory: Array<{
+    ts: number;
+    severity: "suspected" | "confirmed" | "severe";
+    summary: string;
+    current_agenda_item: string | null;
+    suggested_agenda_item: string | null;
+  }>;
+  phase: "idle" | "live" | "ended";
+}) {
+  const [open, setOpen] = useState(false);
+  const count = topicHistory.length;
+  if (phase === "idle") return null;
+
+  // 统计 三档 各 几次
+  const counts = topicHistory.reduce(
+    (acc, h) => {
+      acc[h.severity] = (acc[h.severity] || 0) + 1;
+      return acc;
+    },
+    { suspected: 0, confirmed: 0, severe: 0 } as Record<string, number>,
+  );
+
+  return (
+    <section
+      data-testid="topic-history-drawer"
+      className="rounded-lg border border-ink-700 bg-ink-900/40"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition hover:bg-ink-900/60"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-base">🎯</span>
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-zinc-200">
+              偏题 监测
+              {count > 0 ? (
+                <span className="ml-1.5 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-200">
+                  {count} 次
+                </span>
+              ) : (
+                <span className="ml-1.5 text-[9px] text-emerald-400">在线</span>
+              )}
+            </div>
+            <div className="mt-0.5 text-[10px] text-zinc-500">
+              {count === 0
+                ? phase === "live"
+                  ? "AI 实时 看 是否 跑题, 暂未 触发"
+                  : "本场 AI 未 检出 偏题"
+                : `${counts.severe ? `严重 ${counts.severe} · ` : ""}${
+                    counts.confirmed ? `确认 ${counts.confirmed} · ` : ""
+                  }${counts.suspected ? `疑似 ${counts.suspected}` : ""}`.replace(/ · $/, "")}
+            </div>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {count > 0 ? (
+            <div className="flex gap-1">
+              {counts.severe > 0 && (
+                <span className="h-2 w-2 rounded-full bg-rose-500" title={`严重 ${counts.severe}`} />
+              )}
+              {counts.confirmed > 0 && (
+                <span className="h-2 w-2 rounded-full bg-amber-500" title={`确认 ${counts.confirmed}`} />
+              )}
+              {counts.suspected > 0 && (
+                <span className="h-2 w-2 rounded-full bg-zinc-400" title={`疑似 ${counts.suspected}`} />
+              )}
+            </div>
+          ) : null}
+          <span className="text-xs text-zinc-600">{open ? "▾" : "▸"}</span>
+        </div>
+      </button>
+
+      {open && count > 0 ? (
+        <ul className="max-h-72 space-y-1.5 overflow-y-auto border-t border-ink-700 px-3 py-2 scrollbar-thin">
+          {topicHistory.map((h, i) => {
+            const tone =
+              h.severity === "severe"
+                ? "border-rose-500/40 bg-rose-500/5"
+                : h.severity === "confirmed"
+                ? "border-amber-500/40 bg-amber-500/5"
+                : "border-zinc-700 bg-zinc-900/30";
+            const sevLabel =
+              h.severity === "severe" ? "严重" : h.severity === "confirmed" ? "确认" : "疑似";
+            const sevColor =
+              h.severity === "severe"
+                ? "text-rose-200"
+                : h.severity === "confirmed"
+                ? "text-amber-200"
+                : "text-zinc-400";
+            const timeStr = new Date(h.ts).toLocaleTimeString("zh-CN", {
+              hour12: false,
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+            return (
+              <li key={i} className={`rounded-md border px-2.5 py-1.5 text-[11px] ${tone}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`font-medium ${sevColor}`}>{sevLabel}</span>
+                  <span className="text-zinc-600">{timeStr}</span>
+                </div>
+                <p className="mt-0.5 text-zinc-300 leading-4">{h.summary}</p>
+                {h.current_agenda_item || h.suggested_agenda_item ? (
+                  <p className="mt-0.5 text-[10px] text-zinc-500">
+                    {h.current_agenda_item ? `在「${h.current_agenda_item}」` : ""}
+                    {h.suggested_agenda_item ? ` → 建议「${h.suggested_agenda_item}」` : ""}
+                  </p>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
     </section>
   );
 }
