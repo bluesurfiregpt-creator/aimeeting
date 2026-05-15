@@ -1609,6 +1609,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       <div style={{ display: viewTab === "minutes" ? "block" : "none" }}>
         {/* v26.14-P2: 顶部 "本场收获" panel — 让 用户 看到 这场 会 给 AI 留下 啥 */}
         {phase === "ended" ? <HarvestPanel meetingId={meetingId} /> : null}
+        {/* v26.14-P5.4: 全景 时间线 — 议程 进度 + AI 事件 时序 合一 */}
+        {phase === "ended" ? <MeetingTimelinePanel meetingId={meetingId} /> : null}
         {phase === "ended" ? (
           <SummaryCard
             meetingId={meetingId}
@@ -4280,6 +4282,119 @@ function mergeSpeakers(local: LiveLine[], serverLines: TranscriptLine[]): LiveLi
 //   🧠 长期记忆 草稿: N 条 (M 待审 · K 已批)  ← 闭环 入口
 //   📚 知识库 草稿: N 条 (M 待审 · K 已批)    ← 通常 0, 等 任务办结 后 产
 // 不直接 展开 所有列表 (默认 折叠), 点 才 展. 避免 minutes tab 顶部 太占 空间.
+
+// ============================================================================
+// v26.14-P5.4: 会议 全景 时间线 — minutes tab 顶部 (在 HarvestPanel 下方)
+// ============================================================================
+// 让 用户 一眼 看 整场 怎么 走 的:
+//   - 议程 各 项 起/止 (实/预 时间)
+//   - AI 事件 (off_topic / stuck / advance_suggested / time_warning)
+//   - 用户 推进/跳转 操作
+// 默认 展开 (8+ 条 时 折叠). HarvestPanel 给 "这场 留下 啥" (产出),
+// Timeline 给 "这场 怎么 进 的" (过程) — 互补.
+function MeetingTimelinePanel({ meetingId }: { meetingId: string }) {
+  const [data, setData] = useState<import("@/lib/api").MeetingTimeline | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    api.getMeetingTimeline(meetingId)
+      .then((d) => { if (alive) setData(d); })
+      .catch(() => { if (alive) setData(null); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [meetingId]);
+
+  if (loading) {
+    return (
+      <div className="mt-4 rounded-xl border border-ink-700 bg-ink-900/40 p-4 text-xs text-zinc-500">
+        🕒 全景时间线 加载中…
+      </div>
+    );
+  }
+  if (!data || data.events.length === 0) {
+    // 无 议程 或 无 audit — 不强 显示空panel, 避免 占地
+    return null;
+  }
+
+  const events = data.events;
+  // 默认 折叠 阈值: > 8 条
+  const DEFAULT_LIMIT = 8;
+  const visible = collapsed ? events.slice(0, DEFAULT_LIMIT) : events;
+  const hasMore = events.length > DEFAULT_LIMIT;
+
+  return (
+    <section
+      data-testid="meeting-timeline"
+      className="mt-4 rounded-xl border border-ink-700 bg-ink-900 p-4"
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-medium text-zinc-100">🕒 全景 时间线</h3>
+          <span className="rounded-full border border-ink-700 px-1.5 py-0.5 text-[10px] text-zinc-500">
+            {events.length} 条
+          </span>
+        </div>
+        {hasMore && (
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            className="text-[11px] text-zinc-500 hover:text-zinc-300"
+          >
+            {collapsed ? `展开 全部 (${events.length})` : `折叠 (仅显 前 ${DEFAULT_LIMIT})`}
+          </button>
+        )}
+      </div>
+      <ol className="space-y-1.5">
+        {visible.map((e, i) => (
+          <TimelineRow key={`${e.ts}-${i}`} event={e} />
+        ))}
+      </ol>
+      {collapsed && hasMore && (
+        <p className="mt-2 text-center text-[10px] text-zinc-600">
+          … 还有 {events.length - DEFAULT_LIMIT} 条
+        </p>
+      )}
+    </section>
+  );
+}
+
+function TimelineRow({ event }: { event: import("@/lib/api").TimelineEvent }) {
+  const time = new Date(event.ts).toLocaleTimeString("zh-CN", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  // 颜色 by kind — agenda_start/end 中性, off_topic/stuck rose, advance_* emerald
+  const tone = (() => {
+    switch (event.kind) {
+      case "off_topic":
+      case "stuck":
+        return "border-l-rose-500/60";
+      case "time_warning":
+        return "border-l-amber-500/60";
+      case "advance_suggested":
+      case "advance_action":
+      case "agenda_end":
+        return "border-l-emerald-500/60";
+      case "jump_action":
+        return "border-l-violet-500/60";
+      default:  // agenda_start, anything else
+        return "border-l-zinc-600";
+    }
+  })();
+  return (
+    <li
+      className={`flex items-start gap-3 rounded-md border-l-2 bg-ink-950/40 px-3 py-1.5 ${tone}`}
+    >
+      <span className="shrink-0 font-mono text-[10px] text-zinc-500">{time}</span>
+      <span className="min-w-0 flex-1 text-xs text-zinc-300">{event.label}</span>
+    </li>
+  );
+}
 
 function HarvestPanel({ meetingId }: { meetingId: string }) {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.harvestMeeting>> | null>(null);

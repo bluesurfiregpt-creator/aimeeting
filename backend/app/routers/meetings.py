@@ -2279,6 +2279,169 @@ async def dev_inject_monitor_event(
     return {"ok": True, "injected": synthetic}
 
 
+# ---------------------------------------------------------------------------
+# v26.14-P5.4: 会议 全景 时间线 — minutes tab 用
+# ---------------------------------------------------------------------------
+# 会议 结束后, 给 用户 看 一遍 整场 怎么 走 的:
+#   - 议程 各 项 的 实际 起止 + 用时
+#   - 中间 触发 过 啥 AI 事件 (off_topic / stuck / advance_suggested / time_warning)
+#   - 用户 自己 推进 / 跳转 议程 的 操作 时间戳
+# 数据 源:
+#   - meeting.agenda_progress (P5.1 写入)
+#   - audit_log filter by target_id = meeting.id AND action LIKE 'agenda.%' OR
+#     action LIKE 'meeting.agenda.%'
+#
+# ABAC: workspace 任何 成员 可看 (跟 GET /agenda-progress 一致).
+
+
+class TimelineEvent(BaseModel):
+    ts: datetime
+    kind: str  # agenda_start | agenda_end | off_topic | stuck | time_warning
+               # | advance_suggested | advance_action | jump_action
+    label: str
+    details: Optional[dict] = None
+
+
+class MeetingTimelineOut(BaseModel):
+    events: list[TimelineEvent]
+    has_agenda: bool
+
+
+def _format_audit_label(action: str, payload: dict) -> str:
+    """v26.14-P5.4: 把 audit_log 行 转 一句 人话 timeline label."""
+    if action == "agenda.agenda_off_topic":
+        sev = payload.get("off_topic_severity") or "?"
+        sev_label = {"suspected": "疑似", "confirmed": "确认", "severe": "严重"}.get(sev, sev)
+        summary = payload.get("off_topic_summary") or payload.get("reason") or ""
+        return f"⚠️ {sev_label} 偏题 — {summary}"
+    if action == "agenda.agenda_stuck":
+        summary = payload.get("stuck_summary") or payload.get("reason") or ""
+        return f"🔄 讨论 陷入 僵局 — {summary}"
+    if action == "agenda.agenda_time_warning":
+        elapsed = payload.get("elapsed_min")
+        text = payload.get("time_warning_text") or payload.get("reason") or ""
+        return f"⏱ 时间 预警 — {text}{f' (已开会 {elapsed}m)' if elapsed else ''}"
+    if action == "agenda.agenda_advance_suggested":
+        reason = payload.get("advance_reason") or payload.get("reason") or ""
+        nxt = payload.get("next_agenda_item")
+        return f"🚀 AI 建议 推进 → 「{nxt}」 — {reason}" if nxt else f"🚀 AI 建议 推进 — {reason}"
+    if action == "meeting.agenda.advance":
+        from_idx = payload.get("from_idx")
+        to_idx = payload.get("to_idx")
+        is_complete = payload.get("is_complete")
+        if is_complete:
+            return f"✅ 议程 已完成 (推进 至 末项 之后)"
+        return f"➡️ 推进 议程 {from_idx + 1 if from_idx is not None else '?'} → {to_idx + 1 if to_idx is not None else '?'}"
+    if action == "meeting.agenda.jump":
+        from_idx = payload.get("from_idx")
+        to_idx = payload.get("to_idx")
+        return f"↪ 跳转 议程 {from_idx + 1 if from_idx is not None else '?'} → {to_idx + 1 if to_idx is not None else '?'}"
+    return action
+
+
+@router.get("/{meeting_id}/timeline", response_model=MeetingTimelineOut)
+async def get_meeting_timeline(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.14-P5.4: 会议 全景 时间线 — 议程 进度 + AI 事件 时序 合一.
+
+    minutes tab (会议结束后) 顶部 渲. 任何 ws 成员 可看.
+    """
+    m = await _load_owned_meeting(meeting_id, session, auth)
+
+    events: list[TimelineEvent] = []
+
+    # 1. 议程 进度 — 各 项 的 start / end
+    for prog in (m.agenda_progress or []):
+        try:
+            idx = int(prog.get("idx"))
+        except (TypeError, ValueError):
+            continue
+        agenda = m.agenda or []
+        if idx < 0 or idx >= len(agenda):
+            continue
+        item = agenda[idx]
+        title = (item.get("title") or "").strip() or f"议程项 {idx + 1}"
+        budget = item.get("time_budget_min")
+
+        if prog.get("started_at"):
+            try:
+                ts = datetime.fromisoformat(prog["started_at"].replace("Z", "+00:00"))
+                events.append(TimelineEvent(
+                    ts=ts,
+                    kind="agenda_start",
+                    label=f"▶️ 进入 议程 {idx + 1}: {title}",
+                    details={"idx": idx, "title": title, "time_budget_min": budget},
+                ))
+            except (ValueError, AttributeError):
+                pass
+
+        if prog.get("ended_at"):
+            try:
+                end_ts = datetime.fromisoformat(prog["ended_at"].replace("Z", "+00:00"))
+                start_ts = (
+                    datetime.fromisoformat(prog["started_at"].replace("Z", "+00:00"))
+                    if prog.get("started_at") else None
+                )
+                elapsed_min = int((end_ts - start_ts).total_seconds() / 60) if start_ts else None
+                budget_str = f"/{budget}m 预算" if budget else ""
+                used_str = f"用时 {elapsed_min}m{budget_str}" if elapsed_min is not None else ""
+                events.append(TimelineEvent(
+                    ts=end_ts,
+                    kind="agenda_end",
+                    label=f"✓ 完成 议程 {idx + 1}: {title}{f' ({used_str})' if used_str else ''}",
+                    details={
+                        "idx": idx, "title": title,
+                        "elapsed_min": elapsed_min, "time_budget_min": budget,
+                    },
+                ))
+            except (ValueError, AttributeError):
+                pass
+
+    # 2. AI 事件 + 用户 操作 — 拉 audit_log
+    from ..models import AuditLog as _AuditLog
+    from sqlalchemy import or_
+    audit_rows = (
+        await session.execute(
+            select(_AuditLog).where(
+                _AuditLog.target_id == str(m.id),
+                or_(
+                    _AuditLog.action.like("agenda.agenda_%"),
+                    _AuditLog.action.like("meeting.agenda.%"),
+                ),
+            ).order_by(_AuditLog.ts)
+        )
+    ).scalars().all()
+
+    for r in audit_rows:
+        action = r.action
+        # kind 映射 (剥前缀)
+        if action.startswith("agenda.agenda_"):
+            kind = action.replace("agenda.agenda_", "")  # off_topic / stuck / time_warning / advance_suggested
+        elif action == "meeting.agenda.advance":
+            kind = "advance_action"
+        elif action == "meeting.agenda.jump":
+            kind = "jump_action"
+        else:
+            kind = action
+        events.append(TimelineEvent(
+            ts=r.ts,
+            kind=kind,
+            label=_format_audit_label(action, r.payload or {}),
+            details=r.payload or {},
+        ))
+
+    # 排序 by ts (Python sort 稳定 — 同时间 的 顺序 不变)
+    events.sort(key=lambda e: e.ts)
+
+    return MeetingTimelineOut(
+        events=events,
+        has_agenda=bool(m.agenda and len(m.agenda) > 0),
+    )
+
+
 class DissentRunNowOut(BaseModel):
     fired: bool
     payload: Optional[dict] = None

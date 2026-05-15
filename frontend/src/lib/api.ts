@@ -295,6 +295,29 @@ export type AgendaProgress = {
   items: AgendaProgressItem[];
 };
 
+/** v26.14-P5.4: 会议 全景 时间线 — minutes tab 顶部 渲. */
+export type TimelineEventKind =
+  | "agenda_start"
+  | "agenda_end"
+  | "off_topic"
+  | "stuck"
+  | "time_warning"
+  | "advance_suggested"
+  | "advance_action"
+  | "jump_action";
+
+export type TimelineEvent = {
+  ts: string;
+  kind: TimelineEventKind | string;  // 字符串 兜底 — 后端 加 新 kind 不挂
+  label: string;
+  details?: Record<string, unknown> | null;
+};
+
+export type MeetingTimeline = {
+  events: TimelineEvent[];
+  has_agenda: boolean;
+};
+
 /** M3.0: a tracked TODO from a meeting (auto-extracted or manually added). */
 export type ActionItem = {
   id: string;
@@ -1381,6 +1404,9 @@ export const api = {
     jpost<AgendaProgress>(`/api/meetings/${id}/agenda-advance`, {}),
   jumpAgenda: (id: string, idx: number) =>
     jpost<AgendaProgress>(`/api/meetings/${id}/agenda-jump`, { idx }),
+  // v26.14-P5.4: 会议 全景 时间线 — 议程进度 + AI事件 时序 合一
+  getMeetingTimeline: (id: string) =>
+    jget<MeetingTimeline>(`/api/meetings/${id}/timeline`),
   // v26.14-P5.1: dev 工具 — 仅 owner 可调; 测 三档 UI 用
   devInjectMonitorEvent: (
     id: string,
