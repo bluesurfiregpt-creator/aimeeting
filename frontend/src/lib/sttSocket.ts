@@ -132,6 +132,17 @@ export type AgentsInvitedEvent = {
   attendee_agent_ids: string[];        // meeting 的 完整 邀请 列表 (含 本次 新增 + 旧)
 };
 
+/** v26.14-P5.1: 议程 推进 (or 跳转) — 全 房间 同步 进度.
+ *  jump 也走 此 event (前端 不需 区分 — 都是 "进度 变了, 去刷"). */
+export type AgendaAdvancedEvent = {
+  type: "agenda_advanced";
+  from_idx: number;
+  to_idx: number;
+  is_complete: boolean;     // 议程 全部 走完 (to_idx >= len(agenda))
+  advanced_by_user_id: string;
+  advanced_by_user_name: string;
+};
+
 /** Synthetic event the wrapper emits on its own (not from the wire) so
  *  the UI can show "重连中…" / "已重连" without snooping at WS state. */
 export type ReconnectEvent = {
@@ -154,6 +165,7 @@ export type SttEvent =
   | AgendaTimeWarningEvent
   | AgendaStuckEvent
   | AgentsInvitedEvent
+  | AgendaAdvancedEvent
   | ReconnectEvent;
 
 export interface SttSocket {

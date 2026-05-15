@@ -294,6 +294,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     agenda: AgendaItem[] | null;
     attendee_agent_ids: string[];  // v25.10 Bug 1: 邀请的 AI 才显示
     mode?: "human" | "hybrid" | "auto";   // v26.3
+    created_by_user_id?: string | null;   // v26.14-P5.2
   } | null>(null);
   // v26.3-07f: auto 会议 分歧统计 (横幅显示 + 跳 orchestrate)
   const [autoMeetingInfo, setAutoMeetingInfo] = useState<{
@@ -381,6 +382,11 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   // v26.14-P4.1-fix: 离开 会议室 二选一 modal — "回到工作台 / 结束整场"
   const [leaveModalOpen, setLeaveModalOpen] = useState(false);
+  // v26.14-P5.2: 议程 进度 — 老 是 read-only strip; 现 升级 到 进度条 + 推进
+  const [agendaProgress, setAgendaProgress] = useState<
+    import("@/lib/api").AgendaProgress | null
+  >(null);
+  const [advancing, setAdvancing] = useState(false);
 
   // Pool of attendees we let users pick from when manually correcting a
   // line's speaker after the meeting. Loaded after stop() because it's
@@ -462,6 +468,21 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       );
       if (e.agent_ids.length > 0) {
         toast.info(`已邀请 ${e.agent_ids.length} 位 AI 加入会议`);
+      }
+      return;
+    }
+    if (e.type === "agenda_advanced") {
+      // v26.14-P5.2: 议程 推进 — 全 房间 同步, 自己 advance 也 收 此 event.
+      // 重新 拉 agenda-progress (含 各 项 时间戳) — 老 state 立刻 失效.
+      api.getAgendaProgress(meetingId).then(
+        (p) => setAgendaProgress(p),
+        () => { /* silent */ },
+      );
+      // 提示 (自己 推进 + 别人 推进 都 显, 让 共识 可见)
+      if (e.is_complete) {
+        toast.info(`议程 已 全部 走完 (由 ${e.advanced_by_user_name} 推进)`);
+      } else {
+        toast.info(`议程 推进 到 第 ${e.to_idx + 1} 项 (由 ${e.advanced_by_user_name})`);
       }
       return;
     }
@@ -1024,7 +1045,15 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           agenda: m.agenda ?? null,
           attendee_agent_ids: m.attendee_agent_ids ?? [],
           mode: m.mode,
+          created_by_user_id: m.created_by_user_id ?? null,
         });
+        // v26.14-P5.2: 初次 拉 议程 进度 (静默 fallback — 老 会议 没 progress 也不挂)
+        if (m.agenda && m.agenda.length > 0) {
+          api.getAgendaProgress(meetingId).then(
+            (p) => { if (alive) setAgendaProgress(p); },
+            () => { /* silent — 老 会议 / 权限 问题 都 不打扰 */ },
+          );
+        }
         // v26.3-07f: auto 会议 拉 consensus 统计 (分歧 banner 用)
         if (m.mode === "auto") {
           api.listMeetingConsensus(meetingId).then(
@@ -1147,6 +1176,38 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   const dismissDissent = useCallback(() => {
     setDissent(null);
   }, []);
+
+  // v26.14-P5.2: 推进 议程 到 下一项 (按钮 仅 leader+ / 创建人 见)
+  const advanceAgendaCb = useCallback(async () => {
+    if (advancing) return;
+    setAdvancing(true);
+    try {
+      const p = await api.advanceAgenda(meetingId);
+      // 自己 这台 立刻 显, 别人 走 WS event 同步
+      setAgendaProgress(p);
+    } catch (err) {
+      // api.ts 已 toast 错误 (含 rate-limit 429); 这里 静默
+      void err;
+    } finally {
+      setAdvancing(false);
+    }
+  }, [advancing, meetingId]);
+  // v26.14-P5.2: 跳到 任一 议程项 (用户 点 strip 上 别项)
+  const jumpAgendaCb = useCallback(
+    async (idx: number) => {
+      if (advancing) return;
+      setAdvancing(true);
+      try {
+        const p = await api.jumpAgenda(meetingId, idx);
+        setAgendaProgress(p);
+      } catch (err) {
+        void err;
+      } finally {
+        setAdvancing(false);
+      }
+    },
+    [advancing, meetingId],
+  );
 
   // M3.0: summon the moderator (built-in agent) to actually intervene.
   // Same shape as acceptDissent — sends invoke_agent over WS with a custom
@@ -2056,24 +2117,30 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         </div>
       ) : null}
 
-      {/* M3.0: 议程 strip — read-only 显示这场会议的议程项. */}
+      {/* v26.14-P5.2: 议程 进度 strip — 老 read-only 升级 推进式.
+            - 显 各 项 状态 (active 绿 / done 灰勾 / pending 灰)
+            - 当前 项 显 实/预 时间 (如 12/15m)
+            - 超时 红色
+            - 末 加 推进 / 跳转 按钮 (controller 才 见) */}
       {meetingMeta?.agenda && meetingMeta.agenda.length > 0 ? (
-        <div
-          data-testid="agenda-strip"
-          className="mt-3 rounded-lg border border-ink-700 bg-ink-950/40 px-3 py-2 text-xs"
-        >
-          <div className="text-zinc-500">本场议程</div>
-          <ol className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-            {meetingMeta.agenda.map((item, i) => (
-              <li key={i} className="text-zinc-300">
-                <span className="text-zinc-600">{i + 1}.</span> {item.title}
-                {item.time_budget_min ? (
-                  <span className="ml-1 text-zinc-600">({item.time_budget_min}m)</span>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        </div>
+        <AgendaProgressStrip
+          agenda={meetingMeta.agenda}
+          progress={agendaProgress}
+          phase={phase}
+          canControl={(() => {
+            // leader+ OR 会议 创建人 可控
+            if (!me) return false;
+            if (WRITE_ROLES.has(me.role)) return true;
+            if (
+              meetingMeta?.created_by_user_id &&
+              me.user_id === meetingMeta.created_by_user_id
+            ) return true;
+            return false;
+          })()}
+          advancing={advancing}
+          onAdvance={advanceAgendaCb}
+          onJump={jumpAgendaCb}
+        />
       ) : null}
 
       {/* v25.7-#3: 双面板布局 — 实录(60%) + AI 专家发言(40%) */}
@@ -2622,6 +2689,180 @@ function InviteAgentsModal({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// v26.14-P5.2: 议程 进度 strip — 推进式 + 一键 advance + 跳转
+// ============================================================================
+// 老 read-only strip (仅 标题 + 预算分钟) → 推进式:
+//   - 各 项 显 状态 (active 绿圆 / done 灰勾 / pending 灰圈)
+//   - 当前 active 项 显 实/预 时间, 超时 红色
+//   - controller (leader+ OR 创建人) 见 "推进 →" 按钮 + 各 项 可点 (跳转)
+//   - 议程 全部 走完 显 "✓ 议程 已完成" hint, 推进 按钮 灰
+function AgendaProgressStrip({
+  agenda,
+  progress,
+  phase,
+  canControl,
+  advancing,
+  onAdvance,
+  onJump,
+}: {
+  agenda: AgendaItem[];
+  progress: import("@/lib/api").AgendaProgress | null;
+  phase: "idle" | "live" | "ended";
+  canControl: boolean;
+  advancing: boolean;
+  onAdvance: () => void;
+  onJump: (idx: number) => void;
+}) {
+  // v26.14-P5.2: 自 tick 30s — 让 active 项 elapsed 数字 自走 不依赖 后端 refetch
+  const [tickNonce, setTickNonce] = useState(0);
+  useEffect(() => {
+    if (phase !== "live") return;
+    const t = setInterval(() => setTickNonce((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, [phase]);
+  // 没 progress (老 会议 OR 还没 init) 时 fallback 老 read-only 显示
+  const items = progress?.items;
+  const currentIdx = progress?.current_idx ?? null;
+  const isComplete = progress?.is_complete ?? false;
+  const showControls = canControl && phase === "live" && !!progress?.has_agenda;
+  // tickNonce 只 用于 触发 re-render (elapsed_seconds 算 from started_at)
+  void tickNonce;
+
+  return (
+    <div
+      data-testid="agenda-strip"
+      className="mt-3 flex items-start justify-between gap-3 rounded-lg border border-ink-700 bg-ink-950/40 px-3 py-2 text-xs"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-zinc-500">本场议程</span>
+          {isComplete && (
+            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-300">
+              ✓ 已完成
+            </span>
+          )}
+        </div>
+        <ol className="mt-1.5 flex flex-wrap items-center gap-x-1 gap-y-1.5">
+          {agenda.map((item, i) => {
+            const prog = items?.[i];
+            const isActive = currentIdx === i && !isComplete;
+            const isDone = prog?.status === "done" || (currentIdx !== null && i < currentIdx);
+            // 当前项 — 实/预 时间. active 时 client-side 算 (跟 tickNonce 自走);
+            // done 时 用 server snapshot (固定 不变).
+            let elapsedMin: number | null = null;
+            if (isActive && prog?.started_at) {
+              const ms = Date.now() - new Date(prog.started_at).getTime();
+              elapsedMin = Math.max(0, Math.floor(ms / 60000));
+            } else if (prog?.elapsed_seconds != null) {
+              elapsedMin = Math.floor(prog.elapsed_seconds / 60);
+            }
+            const budgetMin = item.time_budget_min ?? null;
+            const overBudget =
+              isActive && elapsedMin !== null && budgetMin !== null && elapsedMin >= budgetMin;
+            const warningBudget =
+              isActive && elapsedMin !== null && budgetMin !== null
+                ? elapsedMin / budgetMin >= 0.8 && !overBudget
+                : false;
+
+            const dotIcon = isDone ? "✓" : isActive ? "●" : "○";
+            const dotColor = isDone
+              ? "text-zinc-500"
+              : isActive
+              ? overBudget
+                ? "text-rose-400"
+                : warningBudget
+                ? "text-amber-400"
+                : "text-emerald-400"
+              : "text-zinc-600";
+            const titleColor = isDone
+              ? "text-zinc-500 line-through"
+              : isActive
+              ? "text-zinc-100 font-medium"
+              : "text-zinc-400";
+
+            const timeStr = isActive
+              ? budgetMin
+                ? `${elapsedMin ?? 0}/${budgetMin}m`
+                : elapsedMin !== null
+                ? `${elapsedMin}m`
+                : ""
+              : isDone && elapsedMin !== null
+              ? `${elapsedMin}m`
+              : budgetMin
+              ? `${budgetMin}m`
+              : "";
+
+            const clickable = showControls && !isActive && !isComplete;
+            const Comp = clickable ? "button" : "span";
+
+            return (
+              <li key={i} className="flex items-center gap-1">
+                <Comp
+                  type={clickable ? "button" : undefined}
+                  onClick={clickable ? () => onJump(i) : undefined}
+                  disabled={clickable ? advancing : undefined}
+                  title={clickable ? `跳到 第 ${i + 1} 项` : undefined}
+                  className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 ${
+                    clickable
+                      ? "transition hover:bg-ink-800 disabled:opacity-50"
+                      : ""
+                  }`}
+                >
+                  <span className={`text-xs ${dotColor}`}>{dotIcon}</span>
+                  <span className={titleColor}>{item.title}</span>
+                  {timeStr && (
+                    <span
+                      className={
+                        overBudget
+                          ? "text-rose-400 font-medium"
+                          : warningBudget
+                          ? "text-amber-400"
+                          : "text-zinc-600"
+                      }
+                    >
+                      ({timeStr})
+                    </span>
+                  )}
+                </Comp>
+                {i < agenda.length - 1 && (
+                  <span className="text-zinc-700">→</span>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+
+      {/* 推进 按钮 — controller + live + 仍有 下一项 */}
+      {showControls && !isComplete && currentIdx !== null && currentIdx < agenda.length - 1 && (
+        <button
+          type="button"
+          onClick={onAdvance}
+          disabled={advancing}
+          data-testid="agenda-advance-btn"
+          className="shrink-0 self-start rounded-lg bg-accent-500 px-2.5 py-1 text-[11px] font-medium text-white shadow transition hover:bg-accent-400 disabled:opacity-50"
+          title="把 当前项 标记 完成, 进 下一项"
+        >
+          推进 →
+        </button>
+      )}
+      {showControls && !isComplete && currentIdx !== null && currentIdx === agenda.length - 1 && (
+        <button
+          type="button"
+          onClick={onAdvance}
+          disabled={advancing}
+          data-testid="agenda-finish-btn"
+          className="shrink-0 self-start rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-300 transition hover:border-emerald-500 hover:bg-emerald-500/20 disabled:opacity-50"
+          title="完成 最后一项 — 议程 即 全部 走完"
+        >
+          ✓ 完成 末项
+        </button>
+      )}
     </div>
   );
 }

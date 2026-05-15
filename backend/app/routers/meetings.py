@@ -89,6 +89,8 @@ def _to_meeting_out(
             # v26.3
             "mode": m.mode or "hybrid",
             "auto_state": m.auto_state,
+            # v26.14-P5.2: 创建人 — 前端 据此 显/隐 议程 推进 按钮
+            "created_by_user_id": m.created_by_user_id,
         }
     )
 

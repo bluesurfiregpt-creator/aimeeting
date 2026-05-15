@@ -270,6 +270,29 @@ export type Meeting = {
   // v26.3 召集人模式
   mode?: "human" | "hybrid" | "auto";
   auto_state?: Record<string, unknown> | null;
+  // v26.14-P5.2: 会议 创建人 — 前端 据此 显/隐 议程 推进 按钮
+  created_by_user_id?: string | null;
+};
+
+/** v26.14-P5.1: 议程 进度 — agenda 项 + 各 项 时间/状态. */
+export type AgendaProgressItem = {
+  idx: number;
+  title: string;
+  time_budget_min?: number | null;
+  note?: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  elapsed_seconds: number | null;
+  status: "active" | "done" | "pending";
+  advanced_by_user_id: string | null;
+};
+
+export type AgendaProgress = {
+  current_idx: number | null;
+  total_items: number;
+  is_complete: boolean;
+  has_agenda: boolean;
+  items: AgendaProgressItem[];
 };
 
 /** M3.0: a tracked TODO from a meeting (auto-extracted or manually added). */
@@ -1350,6 +1373,33 @@ export const api = {
       invalid: string[];
       attendee_agent_ids: string[];
     }>(`/api/meetings/${id}/agents`, { agent_ids }),
+
+  // v26.14-P5.1: 议程 进度 + 推进
+  getAgendaProgress: (id: string) =>
+    jget<AgendaProgress>(`/api/meetings/${id}/agenda-progress`),
+  advanceAgenda: (id: string) =>
+    jpost<AgendaProgress>(`/api/meetings/${id}/agenda-advance`, {}),
+  jumpAgenda: (id: string, idx: number) =>
+    jpost<AgendaProgress>(`/api/meetings/${id}/agenda-jump`, { idx }),
+  // v26.14-P5.1: dev 工具 — 仅 owner 可调; 测 三档 UI 用
+  devInjectMonitorEvent: (
+    id: string,
+    payload: {
+      event_type: "agenda_off_topic" | "agenda_stuck" | "agenda_time_warning";
+      off_topic_severity?: "suspected" | "confirmed" | "severe";
+      off_topic_summary?: string;
+      current_agenda_item?: string;
+      suggested_agenda_item?: string;
+      stuck_summary?: string;
+      auto_summon_after_s?: number;
+      time_warning_text?: string;
+      elapsed_min?: number;
+      reason?: string;
+    },
+  ) => jpost<{ ok: boolean; injected: Record<string, unknown> }>(
+    `/api/meetings/${id}/dev/inject-monitor-event`,
+    payload,
+  ),
 
   // v26.3-03: agent messages + consensus
   listMeetingConsensus: (meetingId: string) =>

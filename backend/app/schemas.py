@@ -58,6 +58,9 @@ class MeetingOut(BaseModel):
     # v26.3: 会议模式 + auto 调度状态
     mode: str = "hybrid"
     auto_state: Optional[dict] = None
+    # v26.14-P5.2: 会议 创建人 — 前端 据此 决定 议程 推进 按钮 是否 可见
+    # (跟 backend ABAC 一致: leader+ OR 创建人 可 推进).
+    created_by_user_id: Optional[uuid.UUID] = None
 
 
 class TranscriptLine(BaseModel):
