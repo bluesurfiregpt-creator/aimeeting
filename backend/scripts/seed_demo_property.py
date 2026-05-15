@@ -44,6 +44,7 @@ from app.models import (
     LongTermMemory,
     Meeting,
     MeetingActionItem,
+    MeetingAgentMessage,
     MeetingAttendee,
     MeetingTranscript,
     MemoryAgentLink,
@@ -675,8 +676,9 @@ async def _create_meeting_with_transcripts(
     user_ids: dict[str, uuid.UUID],
     agent_ids: dict[str, uuid.UUID],
     finished: bool,
-) -> tuple[uuid.UUID, list[int]]:
-    """创建 meeting + transcript + 返回 transcript line_id 数组 (跟 spec.transcript 一一对应)."""
+) -> tuple[uuid.UUID, list[int | None]]:
+    """创建 meeting + transcript + 返回 spec_idx 到 line_id 映射
+    (AI 行 在 数组 中 是 None — 跟 spec.transcript 一一 对齐)."""
     if finished:
         started_at = datetime.now(timezone.utc) - timedelta(days=spec["days_ago"])
         ended_at = started_at + timedelta(minutes=spec["duration_min"])
@@ -697,15 +699,26 @@ async def _create_meeting_with_transcripts(
     ).scalar_one_or_none()
     if existing:
         logger.info("meeting skip (exists): %s", spec["title"])
-        # 拉 已有 transcript line_ids
-        rows = (
+        # 拉 已有 transcript ids — 但 现 顺序 跟 spec 不一定 对齐 (AI lines 在 别表),
+        # 简化: 按 顺序 把 真 transcript ids 填 进 spec 中 真人 行 位置, AI 位 None.
+        real_rows = (
             await db.execute(
                 select(MeetingTranscript.id)
                 .where(MeetingTranscript.meeting_id == existing.id)
                 .order_by(MeetingTranscript.id)
             )
         ).all()
-        return existing.id, [r[0] for r in rows]
+        real_ids = iter([r[0] for r in real_rows])
+        line_ids: list[int | None] = []
+        for entry in spec["transcript"]:
+            # 同 main loop 的 判定: AI 行 = (None, None, agent_name)
+            is_ai = (
+                len(entry) == 3
+                and entry[0] is None
+                and entry[2]
+            )
+            line_ids.append(None if is_ai else next(real_ids, None))
+        return existing.id, line_ids
 
     # 议程 progress 数据 — 已结束 会议: 全 done; 进行中: 第一项 done, 第 current_idx active
     agenda_progress = []
@@ -781,8 +794,9 @@ async def _create_meeting_with_transcripts(
         if aid:
             db.add(MeetingAttendee(meeting_id=m.id, agent_id=aid))
 
-    # 加 transcript — 行 ID 顺序 累积
-    transcript_line_ids: list[int] = []
+    # 加 transcript — spec_idx_to_line_id 跟 spec.transcript 一一对应
+    # AI 行 走 MeetingAgentMessage (不入 transcript), 对应 位 None.
+    transcript_line_ids: list[int | None] = []
     for i, entry in enumerate(spec["transcript"]):
         # entry 形态:
         #   (speaker_email, text, agent_name)
@@ -796,19 +810,21 @@ async def _create_meeting_with_transcripts(
             email, text, agent_name = entry
 
         if agent_name and not text:
-            # AI 发言 — 从 agent_messages 取 文本
+            # AI 发言 写 MeetingAgentMessage (跟 真人 transcript 不同 表).
+            # transcript_line_ids 不 push 这条 — 不参与 evidence_anchor (那 仅 真人 行).
             agent_messages = spec.get("agent_messages", {})
             text = agent_messages.get(agent_name) or "(seed: 缺 agent 文本)"
             agent_id = agent_ids.get(agent_name)
-            line = MeetingTranscript(
-                meeting_id=m.id,
-                text=text,
-                start_ms=_ms_offset(i),
-                end_ms=_ms_offset(i) + 8000,
-                is_final=True,
-                agent_id=agent_id,
-                speaker_status="agent",
-            )
+            if agent_id:
+                db.add(MeetingAgentMessage(
+                    meeting_id=m.id,
+                    agent_id=agent_id,
+                    text=text,
+                    trigger="manual",
+                    trigger_payload={"seeded": True, "order": i},
+                ))
+            transcript_line_ids.append(None)  # 占位 — 跟 spec idx 对齐
+            continue
         else:
             uid = user_ids.get(email) if email else None
             line = MeetingTranscript(
@@ -835,7 +851,7 @@ async def _create_meeting_with_transcripts(
 async def _seed_action_items(
     db: AsyncSession, meeting_id: uuid.UUID, spec: dict,
     user_ids: dict[str, uuid.UUID],
-    transcript_line_ids: list[int],
+    transcript_line_ids: list[int | None],
 ) -> None:
     """为 spec.action_items 建 MeetingActionItem 行, evidence_anchor_line_ids 用 真 行 ID."""
     for ai_spec in spec.get("action_items", []):
@@ -851,10 +867,11 @@ async def _seed_action_items(
         if existing:
             continue
         anchor_idx = ai_spec.get("transcript_anchor_idx")
+        anchor_line_ids = None
         if anchor_idx is not None and 0 <= anchor_idx < len(transcript_line_ids):
-            anchor_line_ids = [transcript_line_ids[anchor_idx]]
-        else:
-            anchor_line_ids = None
+            line_id = transcript_line_ids[anchor_idx]
+            if line_id is not None:  # 不 是 AI 行 占位
+                anchor_line_ids = [line_id]
         assignee_uid = user_ids.get(ai_spec.get("assignee_email"))
         due_at = None
         if "due_offset_days" in ai_spec:
@@ -879,11 +896,10 @@ async def _seed_memory_drafts(
     spec: dict,
     agent_ids: dict[str, uuid.UUID],
     user_ids: dict[str, uuid.UUID],
-    transcript_line_ids: list[int],
+    transcript_line_ids: list[int | None],
 ) -> None:
     """为 spec.memory_drafts 建 MemoryDraft (status=pending) 或
     LongTermMemory (status=approved 时 直接 入库 + Memory + Link)."""
-    creator_email = spec["attendee_emails"][0]
 
     for md_spec in spec.get("memory_drafts", []):
         agent_name = md_spec["agent_name"]
@@ -895,13 +911,16 @@ async def _seed_memory_drafts(
             await db.execute(select(Agent).where(Agent.id == agent_id))
         ).scalar_one_or_none()
         if not agent_row or not agent_row.primary_user_id:
+            logger.warning("memory draft skip — agent %s has no primary_user", agent_name)
             continue
         primary_user_id = agent_row.primary_user_id
 
         anchor_idx = md_spec.get("evidence_anchor_idx")
         anchor_line_ids = None
         if anchor_idx is not None and 0 <= anchor_idx < len(transcript_line_ids):
-            anchor_line_ids = [transcript_line_ids[anchor_idx]]
+            line_id = transcript_line_ids[anchor_idx]
+            if line_id is not None:
+                anchor_line_ids = [line_id]
 
         # 已存在 跳过
         existing = (
