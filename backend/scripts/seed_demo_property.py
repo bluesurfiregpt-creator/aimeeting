@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import hash_password
 from app.db import SessionLocal
 from app.models import (
     Agent,
@@ -48,6 +49,7 @@ from app.models import (
     MemoryAgentLink,
     MemoryDraft,
     User,
+    WorkspaceMembership,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s :: %(message)s")
@@ -145,8 +147,60 @@ async def _get_user_by_email(db: AsyncSession, email: str) -> User | None:
     ).scalar_one_or_none()
 
 
+# ============================================================================
+# Demo Users (跟 CLAUDE.md 文档 表 一致)
+# ============================================================================
+
+DEMO_USERS = [
+    # owner 已存在 (bluesurfiregpt) — 跳过 创建
+    {"email": "demo.lijg@futian.gov.cn", "password": "demo123", "name": "李局长", "role": "leader", "department": "局领导"},
+    {"email": "demo.chensy@futian.gov.cn", "password": "demo123", "name": "陈师宇", "role": "admin", "department": "信息中心"},
+    {"email": "demo.fengl@futian.gov.cn", "password": "demo123", "name": "冯磊", "role": "expert", "department": "物业监管科"},
+    {"email": "demo.hanx@futian.gov.cn", "password": "demo123", "name": "韩雪", "role": "member", "department": "物业监管科"},
+]
+
+
+async def seed_users(db: AsyncSession, workspace_id: uuid.UUID) -> dict[str, uuid.UUID]:
+    """idempotent — 按 email 查重. 已存在 跳过 (不 改 密码)."""
+    out: dict[str, uuid.UUID] = {}
+    for spec in DEMO_USERS:
+        existing = await _get_user_by_email(db, spec["email"])
+        if existing:
+            out[spec["email"]] = existing.id
+            logger.info("user skip (exists): %s", spec["email"])
+            continue
+        u = User(
+            email=spec["email"],
+            password_hash=hash_password(spec["password"]),
+            name=spec["name"],
+            role=spec["role"],
+            department=spec["department"],
+            workspace_id=workspace_id,
+            is_active=True,
+        )
+        db.add(u)
+        await db.flush()
+        # workspace_membership 也 加 一条 (workspace ABAC 用)
+        existing_m = (
+            await db.execute(
+                select(WorkspaceMembership).where(
+                    WorkspaceMembership.workspace_id == workspace_id,
+                    WorkspaceMembership.user_id == u.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not existing_m:
+            db.add(WorkspaceMembership(
+                workspace_id=workspace_id, user_id=u.id, role=spec["role"],
+            ))
+        out[spec["email"]] = u.id
+        logger.info("user added: %s (%s, role=%s)", spec["email"], spec["name"], spec["role"])
+    await db.commit()
+    return out
+
+
 async def seed_agents(db: AsyncSession, workspace_id: uuid.UUID) -> dict[str, uuid.UUID]:
-    """idempotent — 按 name + workspace 查重."""
+    """idempotent — 按 name + workspace 查重. 已存在 但 primary_user_id 缺 时 补."""
     out: dict[str, uuid.UUID] = {}
     for spec in DEMO_AGENTS:
         existing = (
@@ -159,7 +213,14 @@ async def seed_agents(db: AsyncSession, workspace_id: uuid.UUID) -> dict[str, uu
         ).scalar_one_or_none()
         if existing:
             out[spec["name"]] = existing.id
-            logger.info("agent skip (exists): %s", spec["name"])
+            # 老 跑 时 没 找到 primary_user 的 agent 这 次 补 一下
+            if existing.primary_user_id is None:
+                primary_user = await _get_user_by_email(db, spec["primary_user_email"])
+                if primary_user:
+                    existing.primary_user_id = primary_user.id
+                    logger.info("agent primary backfilled: %s → %s", spec["name"], spec["primary_user_email"])
+            else:
+                logger.info("agent skip (exists): %s", spec["name"])
             continue
         primary_user = await _get_user_by_email(db, spec["primary_user_email"])
         a = Agent(
@@ -267,11 +328,12 @@ async def seed_kb(
     for doc_spec in KB_DOCS:
         doc = KnowledgeDocument(
             kb_id=kb.id,
-            workspace_id=workspace_id,
             filename=doc_spec["filename"],
             mime_type="text/markdown",
             status="ready",
             source_type="manual",
+            char_count=len(doc_spec["content"]),
+            chunk_count=1,
         )
         db.add(doc)
         await db.flush()
@@ -911,7 +973,10 @@ async def main() -> None:
         workspace_id = owner.workspace_id
         logger.info("workspace_id = %s", workspace_id)
 
-        # 拉 全部 涉及 emails 的 user_ids
+        # 0. 先 seed demo users (跟 CLAUDE.md 表 一致 — 4 个 demo 账号)
+        await seed_users(db, workspace_id)
+
+        # 拉 全部 涉及 emails 的 user_ids (重新 拉, 含 刚创 的)
         all_emails = {"bluesurfiregpt@gmail.com"} | set()
         for spec in FINISHED_MEETINGS:
             all_emails.update(spec["attendee_emails"])
@@ -925,9 +990,9 @@ async def main() -> None:
             if u:
                 user_ids[email] = u.id
             else:
-                logger.warning("email 找 不 到 user: %s", email)
+                logger.warning("email 找 不 到 user (跳过 关联): %s", email)
 
-        # 1. seed agents
+        # 1. seed agents (现 primary_user 应能 找到)
         agent_ids = await seed_agents(db, workspace_id)
 
         # 2. seed KB (绑 政策法规 AI — 法规 类 知识)
