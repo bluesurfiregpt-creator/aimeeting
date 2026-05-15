@@ -2682,9 +2682,11 @@ function MeetingAgentGallery({
                   ? `开始会议后, 点头像让「${displayName}」基于讨论发言`
                   : busy
                   ? `${displayName} 正在发言…`
-                  : `点击让「${displayName}」基于讨论发言`
+                  : `点击让「${displayName}」基于讨论发言${a.nickname ? ` (${a.name})` : ""}`
               }
-              className={`group flex shrink-0 flex-col items-center gap-1 rounded-lg border p-1.5 transition ${
+              // v26.14-P4.1-fix2: 横向 紧凑 — 28x28 头像 + 名字 inline,
+              // 总高 ~36px 安全 嵌进 chrome Row 2 (h-12=48px). 老 80x90 会 溢出.
+              className={`group flex h-9 shrink-0 items-center gap-1.5 rounded-md border px-1.5 transition ${
                 enabled
                   ? "border-transparent hover:border-white/20 hover:bg-ink-900/50"
                   : busy
@@ -2692,15 +2694,15 @@ function MeetingAgentGallery({
                     : "border-transparent opacity-60 cursor-not-allowed"
               }`}
             >
-              {/* 头像 50x50 */}
+              {/* 头像 28x28 — 老 50x50 加 上下 标签 撑高 90px 溢出 chrome */}
               <div
-                className="relative overflow-hidden rounded-full"
+                className="relative shrink-0 overflow-hidden rounded-full"
                 style={{
-                  width: 50,
-                  height: 50,
+                  width: 28,
+                  height: 28,
                   boxShadow: busy
-                    ? `0 0 0 2px ${color}, 0 0 8px ${color}80`
-                    : `0 0 0 1.5px ${color}40`,
+                    ? `0 0 0 1.5px ${color}, 0 0 6px ${color}80`
+                    : `0 0 0 1px ${color}40`,
                   background: `linear-gradient(135deg, ${color}30, ${color}10)`,
                 }}
               >
@@ -2709,13 +2711,13 @@ function MeetingAgentGallery({
                   <img
                     src={a.avatar_url}
                     alt={displayName}
-                    width={50}
-                    height={50}
+                    width={28}
+                    height={28}
                     className="h-full w-full object-cover transition group-hover:scale-105"
                   />
                 ) : (
                   <div
-                    className="grid h-full w-full place-items-center text-base font-semibold text-white"
+                    className="grid h-full w-full place-items-center text-[11px] font-semibold text-white"
                     style={{ backgroundColor: color }}
                   >
                     {displayName.slice(0, 1)}
@@ -2725,32 +2727,22 @@ function MeetingAgentGallery({
                 {busy && (
                   <div className="absolute -bottom-0.5 -right-0.5">
                     <span
-                      className="inline-block h-2 w-2 animate-pulse rounded-full ring-1 ring-ink-950"
-                      style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
+                      className="inline-block h-1.5 w-1.5 animate-pulse rounded-full ring-1 ring-ink-950"
+                      style={{ backgroundColor: color, boxShadow: `0 0 4px ${color}` }}
                     />
                   </div>
                 )}
               </div>
-              {/* 名字 + 领域 — v26.12-Home: nickname 主, name 副 (有 nickname 才显 副); 没 nickname 仅 显 name */}
-              <div className="text-center" style={{ maxWidth: 80 }}>
-                <div className="truncate text-[11px] font-medium text-zinc-100">
-                  {displayName}
-                </div>
-                {!busy && a.nickname?.trim() ? (
-                  <div className="truncate text-[9px] text-zinc-500" title={a.name}>
-                    {a.name}
-                  </div>
-                ) : !busy && a.domain ? (
-                  <div className="truncate text-[9px] text-zinc-500">
-                    {a.domain}
-                  </div>
-                ) : null}
-                {busy && (
-                  <div className="text-[9px] text-emerald-300">
-                    💬 发言中
-                  </div>
-                )}
-              </div>
+              {/* 名字 inline — 仅 一行, 超长 truncate. 详细 信息 (name/domain) 由 title hover 显. */}
+              <span
+                className={`truncate text-[11px] font-medium ${
+                  busy ? "text-emerald-200" : "text-zinc-100"
+                }`}
+                style={{ maxWidth: 80 }}
+              >
+                {displayName}
+                {busy ? " 💬" : ""}
+              </span>
             </button>
           );
         })}
