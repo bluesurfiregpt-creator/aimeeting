@@ -498,3 +498,90 @@ async def upload_full_body_animated(
         max_bytes=_FULLBODY_ANIMATED_SIZE_LIMIT,
         allowed_mime=_ALLOWED_ANIMATED_MIME,
     )
+
+
+# ---------------------------------------------------------------------------
+# v26.14-P3: AI 履历 — /api/agents/{id}/activity
+# ---------------------------------------------------------------------------
+# 用户 在 详情页 看 一个 AI 时 想 知道 "它 干 过 啥" — 老 页面 只 显 静态 配置.
+# 此 endpoint 把 该 AI 在 meeting_transcript 里 的 发言 聚合 出 履历:
+#   - total_lines       该 AI 历史 总 发言 行数
+#   - total_meetings    distinct 参与 会议 数
+#   - recent_meetings   最近 8 场 (该 AI 说过 话 的) — 含 会议 题目 / 状态 / 用 时
+#
+# ABAC: 跟 GET /api/agents/{id} 同 — workspace 内 任何 成员 可看.
+
+
+class RecentMeetingItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    meeting_id: uuid.UUID
+    title: str
+    status: str
+    started_at: Optional[datetime]
+    lines_by_agent: int  # 该 AI 在 这场 说 了 几行
+
+
+class AgentActivityOut(BaseModel):
+    total_lines: int
+    total_meetings: int
+    recent_meetings: list[RecentMeetingItem]
+
+
+@router.get("/{agent_id}/activity", response_model=AgentActivityOut)
+async def get_agent_activity(
+    agent_id: str,
+    limit: int = Query(8, ge=1, le=30),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.14-P3: 返 该 AI 的 履历 — 老 详情页 仅 静态 配置, 此 endpoint 给 出 真实 工作记录."""
+    from sqlalchemy import func
+    from ..models import Meeting, MeetingTranscript
+
+    # 先 校验 agent 在 当前 workspace (复用 _load_owned_agent — 它 已做 workspace 隔离)
+    await _load_owned_agent(agent_id, session, auth)
+
+    # 聚合 1: 总 行数 + distinct 会议 数
+    aggregates = (
+        await session.execute(
+            select(
+                func.count(MeetingTranscript.id).label("total_lines"),
+                func.count(func.distinct(MeetingTranscript.meeting_id)).label("total_meetings"),
+            ).where(MeetingTranscript.agent_id == uuid.UUID(agent_id))
+        )
+    ).one()
+
+    # 聚合 2: 最近 N 场 (按 该 AI 最后 一次 发言 时间 倒序)
+    rows = (
+        await session.execute(
+            select(
+                Meeting.id,
+                Meeting.title,
+                Meeting.status,
+                Meeting.started_at,
+                func.count(MeetingTranscript.id).label("lines_by_agent"),
+            )
+            .join(MeetingTranscript, MeetingTranscript.meeting_id == Meeting.id)
+            .where(MeetingTranscript.agent_id == uuid.UUID(agent_id))
+            .group_by(Meeting.id)
+            .order_by(func.max(MeetingTranscript.id).desc())
+            .limit(limit)
+        )
+    ).all()
+
+    recent = [
+        RecentMeetingItem(
+            meeting_id=r[0],
+            title=r[1] or "(未命名)",
+            status=r[2],
+            started_at=r[3],
+            lines_by_agent=int(r[4]),
+        )
+        for r in rows
+    ]
+
+    return AgentActivityOut(
+        total_lines=int(aggregates.total_lines or 0),
+        total_meetings=int(aggregates.total_meetings or 0),
+        recent_meetings=recent,
+    )

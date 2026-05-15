@@ -23,6 +23,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   api,
   type Agent,
+  type AgentActivity,
   type KnowledgeBase,
   type Me,
   type Memory,
@@ -31,7 +32,8 @@ import { toast } from "@/lib/toast";
 
 const FULL_ADMIN = new Set(["owner", "admin", "leader"]);
 
-type Tab = "card" | "kb" | "memory";
+// v26.14-P3: 加 "履历" tab — 该 AI 历史 发言 + 参与 会议 (老 仅 静态 配置 三件)
+type Tab = "card" | "kb" | "memory" | "history";
 
 export default function AgentDetailPage() {
   const router = useRouter();
@@ -41,6 +43,8 @@ export default function AgentDetailPage() {
   const [me, setMe] = useState<Me | null>(null);
   const [allKbs, setAllKbs] = useState<KnowledgeBase[]>([]);
   const [memories, setMemories] = useState<Memory[]>([]);
+  // v26.14-P3: 履历 数据 — 该 AI 历史 发言 聚合
+  const [activity, setActivity] = useState<AgentActivity | null>(null);
   const [tab, setTab] = useState<Tab>("card");
   const [loading, setLoading] = useState(true);
   // hover 切换 全身像 (静态 ↔ 动图)
@@ -50,16 +54,19 @@ export default function AgentDetailPage() {
     if (!agentId) return;
     setLoading(true);
     try {
-      const [a, m, kbs, mems] = await Promise.all([
+      const [a, m, kbs, mems, act] = await Promise.all([
         api.getAgent(agentId),
         api.me().catch(() => null),
         api.listKnowledgeBases().catch(() => [] as KnowledgeBase[]),
         api.listMemories(undefined, undefined, agentId).catch(() => [] as Memory[]),
+        // v26.14-P3: 履历 — 失败 静默 fallback (老 数据 没说过话 的 AI 是 0/0/[])
+        api.getAgentActivity(agentId).catch(() => null),
       ]);
       setAgent(a);
       setMe(m);
       setAllKbs(kbs);
       setMemories(mems);
+      setActivity(act);
     } catch (e) {
       void e;  // api.ts toast
     } finally {
@@ -209,6 +216,18 @@ export default function AgentDetailPage() {
               v={new Date(agent.created_at).toLocaleDateString("zh-CN")}
             />
           </dl>
+          {/* v26.14-P3: 工作 概要 — 老 仅 静态 配置, 加 invoke_count / 发言行 / 参与会议 三个 stat */}
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px]">
+            <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2.5 py-1 text-violet-200">
+              📣 召唤 {agent.invoke_count ?? 0} 次
+            </span>
+            <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-sky-200">
+              💬 发言 {activity?.total_lines ?? 0} 行
+            </span>
+            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-200">
+              🎙️ 参与 {activity?.total_meetings ?? 0} 场
+            </span>
+          </div>
         </div>
       </section>
 
@@ -217,6 +236,12 @@ export default function AgentDetailPage() {
         <TabBtn label="🪪 工卡" active={tab === "card"} onClick={() => setTab("card")} />
         <TabBtn label={`📚 知识 (${boundKbs.length})`} active={tab === "kb"} onClick={() => setTab("kb")} />
         <TabBtn label={`🧠 记忆 (${memories.length})`} active={tab === "memory"} onClick={() => setTab("memory")} />
+        {/* v26.14-P3: 履历 tab — 让 用户 看到 这 AI "干过 啥", 不 仅 是 静态配置 */}
+        <TabBtn
+          label={`📋 履历 (${activity?.total_meetings ?? 0})`}
+          active={tab === "history"}
+          onClick={() => setTab("history")}
+        />
       </nav>
 
       {/* Tab content */}
@@ -228,6 +253,9 @@ export default function AgentDetailPage() {
       )}
       {tab === "memory" && (
         <MemoryTab memories={memories} />
+      )}
+      {tab === "history" && (
+        <HistoryTab activity={activity} />
       )}
     </div>
   );
@@ -454,6 +482,88 @@ function MemoryTab({ memories }: { memories: Memory[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+// v26.14-P3: 履历 tab — 该 AI 历史 参与 的 最近 N 场 会议 + 各 场 发言 行数
+function HistoryTab({ activity }: { activity: AgentActivity | null }) {
+  if (!activity || activity.recent_meetings.length === 0) {
+    return (
+      <div className="rounded-xl border border-ink-700 bg-ink-900 p-8 text-center text-sm text-zinc-500">
+        <div className="text-3xl" aria-hidden>📋</div>
+        <p className="mt-2">这 AI 还没 参与 过 任何 会议</p>
+        <p className="mt-1 text-xs text-zinc-600">
+          召唤 它 进 会议 (点 头像 OR 关键词 触发) 后, 历史 会 自动 累积 在 这里.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-zinc-500">
+        最近 {activity.recent_meetings.length} 场, 总 参与 {activity.total_meetings} 场 ·
+        总 发言 {activity.total_lines} 行
+      </p>
+      <ul className="space-y-2">
+        {activity.recent_meetings.map((m) => (
+          <li
+            key={m.meeting_id}
+            className="flex items-center justify-between gap-3 rounded-xl border border-ink-700 bg-ink-900 p-3"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-medium text-zinc-100">
+                  {m.title}
+                </span>
+                <MeetingStatusChip status={m.status} />
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-zinc-500">
+                <span>💬 发言 {m.lines_by_agent} 行</span>
+                {m.started_at && (
+                  <span>
+                    🗓 {new Date(m.started_at).toLocaleDateString("zh-CN", {
+                      month: "2-digit",
+                      day: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                )}
+              </div>
+            </div>
+            <Link
+              href={`/meeting/${m.meeting_id}`}
+              className="shrink-0 rounded-lg border border-ink-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-ink-800"
+            >
+              → 进入
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function MeetingStatusChip({ status }: { status: string }) {
+  // ongoing / live → 绿; finished / processed → 灰; idle / draft → 琥珀
+  const tone =
+    status === "ongoing" || status === "live"
+      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+      : status === "finished" || status === "processed"
+      ? "border-zinc-600 bg-zinc-700/30 text-zinc-400"
+      : "border-amber-500/30 bg-amber-500/10 text-amber-300";
+  const label =
+    status === "ongoing" || status === "live"
+      ? "进行中"
+      : status === "processed"
+      ? "已沉淀"
+      : status === "finished"
+      ? "已结束"
+      : status;
+  return (
+    <span className={`rounded-full border px-2 py-0.5 text-[10px] ${tone}`}>
+      {label}
+    </span>
   );
 }
 

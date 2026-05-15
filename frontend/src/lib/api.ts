@@ -416,6 +416,19 @@ export type Agent = {
   created_at: string;
 };
 
+/** v26.14-P3: AI 履历 — 该 AI 历史 发言 聚合, 详情页 履历 tab 用. */
+export type AgentActivity = {
+  total_lines: number;
+  total_meetings: number;
+  recent_meetings: Array<{
+    meeting_id: string;
+    title: string;
+    status: string;
+    started_at: string | null;
+    lines_by_agent: number;
+  }>;
+};
+
 export type AgentInput = Partial<Omit<Agent, "id" | "has_dify_key" | "created_at">> & {
   name: string;
   dify_api_key?: string | null;
@@ -2015,6 +2028,12 @@ export const api = {
   createAgent: (a: AgentInput) => jpost<Agent>("/api/agents", a),
   updateAgent: (id: string, a: Partial<AgentInput>) => jpatch<Agent>(`/api/agents/${id}`, a),
   deleteAgent: (id: string) => jdelete(`/api/agents/${id}`),
+
+  // v26.14-P3: AI 履历 — 该 AI 历史 发言 聚合 (workspace 内 任何 成员 可看)
+  getAgentActivity: (id: string, limit?: number) =>
+    jget<AgentActivity>(
+      `/api/agents/${id}/activity${limit ? `?limit=${limit}` : ""}`,
+    ),
 
   // v26.13.2: Search Providers (Perplexity etc.) — 跟 LLM 模型 平行 的 API 配置
   listSearchProviderCatalog: () =>
