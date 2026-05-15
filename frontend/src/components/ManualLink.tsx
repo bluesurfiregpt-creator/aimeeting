@@ -8,9 +8,10 @@
  *
  * 位置:
  *   - auth 页 (login/register/forgot/reset) 隐藏
- *   - 其他 所有 页面 显示
+ *   - 会议室 /meeting/<id> 也 隐藏 (跟 AppLogo 同套 — chrome 已紧, 别 撞 标题)
+ *   - 其他 所有 一级 页面 显示
  *   - 跟 AppLogo 错开:
- *     · AppLogo 隐藏 的 路径 (/ 主页, /meeting/<id> 会议室) → 自己 占 top-3 left-4
+ *     · AppLogo 隐藏 的 路径 (/ 主页) → 自己 占 top-3 left-4
  *     · AppLogo 可见 路径 → 自己 移 到 AppLogo 右边 (top-3 left-44)
  */
 
@@ -40,7 +41,9 @@ function isAppLogoHidden(pathname: string | null): boolean {
 
 export default function ManualLink() {
   const pathname = usePathname();
-  if (pathname && HIDDEN_PATHS.has(pathname)) return null;  // 跟 AppLogo 一致 不显 在 auth 页
+  if (pathname && HIDDEN_PATHS.has(pathname)) return null;  // auth 页 — 没 必要 显
+  // 会议室 chrome 已 紧 + 顶部 中央 有 倒计时 + 左侧 有 返回 — 系统介绍 在 这里 撞 标题
+  if (isMeetingRoomPath(pathname)) return null;
 
   // AppLogo 当前 是否 在 显 — 决定 我 自己 的 左边 位置
   const appLogoVisible = !isAppLogoHidden(pathname);
