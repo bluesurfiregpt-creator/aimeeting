@@ -849,7 +849,7 @@ async def _create_meeting_with_transcripts(
 
 
 async def _seed_action_items(
-    db: AsyncSession, meeting_id: uuid.UUID, spec: dict,
+    db: AsyncSession, meeting_id: uuid.UUID, workspace_id: uuid.UUID, spec: dict,
     user_ids: dict[str, uuid.UUID],
     transcript_line_ids: list[int | None],
 ) -> None:
@@ -878,6 +878,7 @@ async def _seed_action_items(
             due_at = datetime.now(timezone.utc) + timedelta(days=ai_spec["due_offset_days"])
         ai_row = MeetingActionItem(
             meeting_id=meeting_id,
+            workspace_id=workspace_id,
             content=ai_spec["content"],
             assignee_user_id=assignee_uid,
             due_at=due_at,
@@ -885,7 +886,6 @@ async def _seed_action_items(
             source_type="summary",
             evidence_quote=ai_spec.get("evidence_quote"),
             evidence_anchor_line_ids=anchor_line_ids,
-            topic_keywords=ai_spec.get("topic_keywords"),
         )
         db.add(ai_row)
     await db.commit()
@@ -1024,7 +1024,7 @@ async def main() -> None:
             mid, line_ids = await _create_meeting_with_transcripts(
                 db, workspace_id, spec, user_ids, agent_ids, finished=True,
             )
-            await _seed_action_items(db, mid, spec, user_ids, line_ids)
+            await _seed_action_items(db, mid, workspace_id, spec, user_ids, line_ids)
             await _seed_memory_drafts(db, mid, workspace_id, spec, agent_ids, user_ids, line_ids)
 
         # 4. seed 进行中 meeting
