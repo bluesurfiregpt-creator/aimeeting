@@ -2201,10 +2201,10 @@ async def dev_inject_monitor_event(
 ):
     """v26.14-P5.1: 测试 工具 — 直接 推 一个 合成 monitor event 到 WS, 跳 LLM.
 
-    Kimi 用. 仅 owner 可调.
+    Kimi 用. 仅 leader+ (owner / admin / leader) 可调.
     """
-    if auth.role != "owner":
-        raise HTTPException(403, "[dev tool] 仅 owner 可调用")
+    if not await is_leader_or_admin(session, auth):
+        raise HTTPException(403, "[dev tool] 仅 leader / admin / owner 可调用")
 
     m = await _load_owned_meeting(meeting_id, session, auth)
 
