@@ -51,6 +51,9 @@ export default function SedimentationPage() {
   const [loading, setLoading] = useState(true);
   const [openKbDraft, setOpenKbDraft] = useState<SedimentationDraft | null>(null);
   const [openMemDraft, setOpenMemDraft] = useState<MemoryDraft | null>(null);
+  // v26.14-P7.2: 批量 选 — 仅 Memory pending 用
+  const [selectedMemIds, setSelectedMemIds] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -63,6 +66,7 @@ export default function SedimentationPage() {
     } finally {
       setLoading(false);
     }
+    setSelectedMemIds(new Set());  // 切 tab / 刷新 → 清 选
   }, [topTab, tab]);
 
   useEffect(() => {
@@ -70,6 +74,48 @@ export default function SedimentationPage() {
   }, [refresh]);
 
   const drafts = topTab === "kb" ? kbDrafts : memDrafts;
+  // v26.14-P7.2: 仅 Memory pending tab 显 多选
+  const showBatchUI = topTab === "memory" && tab === "pending";
+  const toggleMemSelect = (id: string) => {
+    setSelectedMemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    setSelectedMemIds((prev) => {
+      const allIds = memDrafts.map((d) => d.id);
+      if (prev.size === allIds.length && allIds.every((i) => prev.has(i))) {
+        return new Set();  // 全选 → 全清
+      }
+      return new Set(allIds);
+    });
+  };
+  const doBatch = async (action: "approve" | "reject") => {
+    if (selectedMemIds.size === 0) return;
+    if (action === "reject") {
+      if (!confirm(`确定 驳回 选 中 的 ${selectedMemIds.size} 条 草稿?`)) return;
+    }
+    setBatchBusy(true);
+    try {
+      const res = await api.batchActionMemoryDrafts(
+        Array.from(selectedMemIds), action,
+      );
+      const verb = action === "approve" ? "通过" : "驳回";
+      if (res.failed === 0) {
+        toast.success(`✅ 批量 ${verb} ${res.succeeded} 条`);
+      } else {
+        toast.info(`${verb} ${res.succeeded} 条 成功, ${res.failed} 条 失败`);
+      }
+      await refresh();
+    } catch (e) {
+      void e;
+    } finally {
+      setBatchBusy(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -172,11 +218,62 @@ export default function SedimentationPage() {
                 draft={d}
                 onClick={() => setOpenMemDraft(d)}
                 isPending={tab === "pending"}
+                selectable={showBatchUI}
+                selected={selectedMemIds.has(d.id)}
+                onToggleSelect={() => toggleMemSelect(d.id)}
               />
             ))}
           </ul>
         )}
       </section>
+
+      {/* v26.14-P7.2: 批量 sticky bar — 仅 Memory pending + 至少 选 1 条 显 */}
+      {showBatchUI && selectedMemIds.size > 0 && (
+        <div
+          data-testid="memdraft-batch-bar"
+          className="fixed bottom-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-accent-500/40 bg-ink-950/95 px-4 py-2 text-sm shadow-[0_0_24px_rgba(99,102,241,0.3)] backdrop-blur"
+        >
+          <span className="text-zinc-300">
+            已选 <span className="font-semibold text-accent-300">{selectedMemIds.size}</span> 条
+          </span>
+          <span className="text-zinc-700">|</span>
+          <button
+            type="button"
+            onClick={toggleSelectAll}
+            className="text-xs text-zinc-500 hover:text-zinc-200"
+          >
+            {selectedMemIds.size === memDrafts.length ? "全清" : "全选"}
+          </button>
+          <span className="text-zinc-700">|</span>
+          <button
+            type="button"
+            onClick={() => doBatch("approve")}
+            disabled={batchBusy}
+            data-testid="memdraft-batch-approve"
+            className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-medium text-white shadow hover:bg-emerald-400 disabled:opacity-50"
+          >
+            {batchBusy ? "处理中…" : `✅ 批量 通过 ${selectedMemIds.size}`}
+          </button>
+          <button
+            type="button"
+            onClick={() => doBatch("reject")}
+            disabled={batchBusy}
+            data-testid="memdraft-batch-reject"
+            className="rounded-full border border-rose-500/40 bg-rose-500/10 px-3 py-1 text-xs text-rose-200 hover:bg-rose-500/20 disabled:opacity-50"
+          >
+            驳回 {selectedMemIds.size}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedMemIds(new Set())}
+            disabled={batchBusy}
+            className="text-zinc-600 hover:text-zinc-300"
+            title="清 选"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {openKbDraft && (
         <KbDraftReviewDialog
@@ -284,14 +381,37 @@ function MemDraftRow({
   draft: d,
   onClick,
   isPending,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
 }: {
   draft: MemoryDraft;
   onClick: () => void;
   isPending: boolean;
+  // v26.14-P7.2: 批量 选 (仅 pending 显)
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   return (
-    <li className="rounded-xl border border-ink-700 bg-ink-900 p-4">
+    <li
+      className={`rounded-xl border p-4 transition ${
+        selected
+          ? "border-accent-500/60 bg-accent-500/5"
+          : "border-ink-700 bg-ink-900"
+      }`}
+    >
       <div className="flex items-start justify-between gap-3">
+        {selectable && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            data-testid="memdraft-select"
+            className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-accent-500"
+            aria-label="选 此条"
+          />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="truncate text-sm font-medium text-white">

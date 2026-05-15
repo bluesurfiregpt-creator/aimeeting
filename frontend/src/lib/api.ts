@@ -2350,6 +2350,16 @@ export const api = {
       proposed_scope_ref?: string | null;
     },
   ) => jpatch<MemoryDraft>(`/api/memory-drafts/${id}`, payload),
+  // v26.14-P7.2: 批量 通过 / 驳回 (一次 最多 50 条; 单条失败 不阻塞 其他)
+  batchActionMemoryDrafts: (
+    draft_ids: string[],
+    action: "approve" | "reject",
+    reason?: string,
+  ) => jpost<{
+    succeeded: number;
+    failed: number;
+    results: Array<{ draft_id: string; ok: boolean; error?: string | null }>;
+  }>("/api/memory-drafts/batch-action", { draft_ids, action, reason }),
 
   // v26.5-Lineage P2: 数据血缘
   getLineage: () => jget<LineageOut>("/api/lineage"),

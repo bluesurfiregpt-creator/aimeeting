@@ -338,3 +338,140 @@ async def reject_draft(
         payload={"reason": d.decision_reason},
     )
     return (await _resolve(session, [d]))[0]
+
+
+# ---------------------------------------------------------------------------
+# v26.14-P7.2: 批量 操作
+# ---------------------------------------------------------------------------
+# 老 流程: 5+ 条 草稿 一条 一条 审 → 顶部 待审 N badge 数字 一直 高 → 用户 视觉 疲劳
+# 干脆 不审. 加 batch 让 5 条 1 次 通过 / 驳回.
+
+
+class BatchActionIn(BaseModel):
+    draft_ids: list[uuid.UUID]
+    action: str  # "approve" | "reject"
+    reason: Optional[str] = None  # 仅 reject 用
+
+
+class BatchItemResult(BaseModel):
+    draft_id: uuid.UUID
+    ok: bool
+    error: Optional[str] = None
+
+
+class BatchActionOut(BaseModel):
+    succeeded: int
+    failed: int
+    results: list[BatchItemResult]
+
+
+async def _approve_one(
+    d: MemoryDraft, session: AsyncSession, auth: AuthContext
+) -> None:
+    """v26.14-P7.2: 单 条 approve 内部 实现, 复用 给 batch."""
+    try:
+        vec = await compute_embedding(d.proposed_content)
+    except EmbeddingError:
+        vec = [0.0] * 1536
+    target_aids: list[uuid.UUID] = []
+    for aid in d.target_agent_ids or []:
+        try:
+            target_aids.append(uuid.UUID(aid))
+        except (ValueError, TypeError):
+            continue
+    m = LongTermMemory(
+        workspace_id=d.workspace_id,
+        scope=d.proposed_scope,
+        scope_ref=d.proposed_scope_ref,
+        content=d.proposed_content,
+        importance=d.proposed_importance,
+        embedding=vec,
+        source_type=d.source_type,
+        source_id=str(d.source_task_id or d.source_meeting_id or ""),
+        source_meeting_id=d.source_meeting_id,
+        source_line_ids=d.source_line_ids,
+        data_classification=d.proposed_data_classification,
+        agent_id=target_aids[0] if target_aids else None,
+        curated_by_user_id=auth.user.id,
+        curated_at=datetime.now(timezone.utc),
+    )
+    session.add(m)
+    await session.flush()
+    for idx, aid in enumerate(target_aids):
+        session.add(
+            MemoryAgentLink(
+                memory_id=m.id,
+                agent_id=aid,
+                is_primary=(idx == 0),
+            )
+        )
+    d.status = "approved"
+    d.decided_at = datetime.now(timezone.utc)
+    d.committed_memory_id = m.id
+
+
+@router.post("/batch-action", response_model=BatchActionOut)
+async def batch_action_drafts(
+    payload: BatchActionIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.14-P7.2: 批量 通过 / 驳回 草稿. 单条 失败 不阻塞 其他.
+
+    ABAC: 跟 单条 一致 — _load_with_abac 仍 检 primary_user.
+    返 partial 结果 让 前端 显 toast "通过 N 条, 失败 M 条".
+    """
+    if payload.action not in ("approve", "reject"):
+        raise HTTPException(400, "action 必须 是 approve 或 reject")
+    if not payload.draft_ids:
+        raise HTTPException(400, "draft_ids 不能 为空")
+    if len(payload.draft_ids) > 50:
+        raise HTTPException(400, "一次 最多 50 条")
+
+    results: list[BatchItemResult] = []
+    succeeded = 0
+    failed = 0
+    reason = (payload.reason or "").strip() or None
+
+    for did in payload.draft_ids:
+        try:
+            # 单条 复用 _load_with_abac 的 校验 (workspace + primary_user)
+            d = await _load_with_abac(str(did), session, auth)
+            if d.status != "pending":
+                raise ValueError(f"状态={d.status}, 跳过")
+            if payload.action == "approve":
+                await _approve_one(d, session, auth)
+                action_name = "memory_draft.approve"
+                audit_payload: dict = {"committed_memory_id": str(d.committed_memory_id)}
+            else:
+                d.status = "rejected"
+                d.decision_reason = reason
+                d.decided_at = datetime.now(timezone.utc)
+                action_name = "memory_draft.reject"
+                audit_payload = {"reason": reason, "via": "batch"}
+            await session.commit()
+            await session.refresh(d)
+            try:
+                await audit_log(
+                    session, auth, action_name,
+                    target_type="memory_draft", target_id=str(d.id),
+                    payload=audit_payload,
+                )
+                await session.commit()
+            except Exception:
+                logger.exception("audit_log fail (non-fatal) for draft %s", did)
+            results.append(BatchItemResult(draft_id=did, ok=True))
+            succeeded += 1
+        except HTTPException as e:
+            await session.rollback()
+            results.append(BatchItemResult(draft_id=did, ok=False, error=str(e.detail)))
+            failed += 1
+        except Exception as e:
+            await session.rollback()
+            logger.exception("batch action draft %s failed", did)
+            results.append(BatchItemResult(draft_id=did, ok=False, error=str(e)))
+            failed += 1
+
+    return BatchActionOut(
+        succeeded=succeeded, failed=failed, results=results,
+    )
