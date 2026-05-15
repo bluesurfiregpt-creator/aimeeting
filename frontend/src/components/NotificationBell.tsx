@@ -196,7 +196,16 @@ function describe(n: Notification): { line: string; href: string | null } {
       const reviewer = typeof p.reviewer_name === "string" ? p.reviewer_name : "";
       const reason = typeof p.reason === "string" ? p.reason : "";
       return {
-        line: `⛔ ${reviewer} 驳回了你提的长期记忆${reason ? `(${reason})` : ""}`,
+        line: `⛔ ${reviewer} 弃用了你提的长期记忆${reason ? `(${reason})` : ""}`,
+        href: "/me/profile/sedimentation",
+      };
+    }
+    case "memory_draft_feedback": {
+      // v26.14-P7.5: 退回 LLM 子类型 — 区分 "弃用" 跟 "退回 重抽"
+      const reviewer = typeof p.reviewer_name === "string" ? p.reviewer_name : "";
+      const feedback = typeof p.feedback === "string" ? p.feedback.slice(0, 60) : "";
+      return {
+        line: `↩ ${reviewer} 退回 你提的长期记忆${feedback ? ` — ${feedback}` : ""}`,
         href: "/me/profile/sedimentation",
       };
     }

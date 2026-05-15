@@ -313,6 +313,11 @@ async def approve_draft(
     d.status = "approved"
     d.decided_at = datetime.now(timezone.utc)
     d.committed_memory_id = m.id
+    # v26.14-P7.5: 通知 草稿 来源 (会议 召集人 / 任务 派单 人) — 让 团队 知道 入库
+    try:
+        await _notify_decision(session, auth, d, "approved")
+    except Exception:
+        logger.exception("notify_decision (approve) failed (non-fatal) for draft %s", d.id)
     await session.commit()
     await session.refresh(d)
     await audit_log(
@@ -348,6 +353,14 @@ async def reject_draft(
     d.decided_at = datetime.now(timezone.utc)
     d.rejection_kind = kind
     d.rejection_feedback = feedback_text if kind == "feedback" else None
+    # v26.14-P7.5: 通知 — feedback 类 yellow severity, discard 类 normal
+    try:
+        await _notify_decision(
+            session, auth, d,
+            "rejected_feedback" if kind == "feedback" else "rejected_discard",
+        )
+    except Exception:
+        logger.exception("notify_decision (reject) failed (non-fatal) for draft %s", d.id)
     await session.commit()
     await session.refresh(d)
     await audit_log(
@@ -385,6 +398,66 @@ class BatchActionOut(BaseModel):
     succeeded: int
     failed: int
     results: list[BatchItemResult]
+
+
+# v26.14-P7.5: 审批 通知 — 通过/拒绝 后 推 给 草稿 来源 (会议 召集人 / 任务 派单 人)
+# 让 团队 知道 自己 抽 出的 经验 入库 没. 跳 自己 不 自通知.
+async def _notify_decision(
+    session: AsyncSession,
+    auth: AuthContext,
+    d: MemoryDraft,
+    decision: str,  # "approved" | "rejected_discard" | "rejected_feedback"
+) -> None:
+    """v26.14-P7.5: 给 草稿 来源 推 一条 Notification — 让 触发者 知道 审批 结果."""
+    target_user_id = None
+    # 1) 优先 source_meeting.created_by_user_id (会议 召集人)
+    if d.source_meeting_id:
+        target_user_id = (
+            await session.execute(
+                select(Meeting.created_by_user_id).where(Meeting.id == d.source_meeting_id)
+            )
+        ).scalar_one_or_none()
+    # 2) fallback source_task.dispatched_by_user_id
+    if not target_user_id and d.source_task_id:
+        target_user_id = (
+            await session.execute(
+                select(Task.dispatched_by_user_id).where(Task.id == d.source_task_id)
+            )
+        ).scalar_one_or_none()
+    # 3) 找不到 OR 自己 决定 自己的 → skip
+    if not target_user_id or target_user_id == auth.user.id:
+        return
+    # 复用 老 kind 名 — 前端 messages page + NotificationBell 已 有 渲染.
+    # rejected_feedback 用 新 kind memory_draft_feedback (frontend 加 case).
+    kind_map = {
+        "approved": "memory_draft_approved",
+        "rejected_discard": "memory_draft_rejected",
+        "rejected_feedback": "memory_draft_feedback",
+    }
+    kind = kind_map.get(decision)
+    if not kind:
+        return
+    severity = "yellow" if decision == "rejected_feedback" else "normal"
+    decided_by_name = getattr(auth.user, "name", None) or "审批人"
+    notif = Notification(
+        workspace_id=d.workspace_id,
+        user_id=target_user_id,
+        kind=kind,
+        severity=severity,
+        payload={
+            "draft_id": str(d.id),
+            # 跟 现有 老 kind 风格 对齐 — approver_name / reviewer_name
+            "approver_name": decided_by_name,
+            "reviewer_name": decided_by_name,
+            "content_preview": (d.proposed_content or "")[:120],
+            "summary_preview": (d.proposed_content or "")[:120],  # 老 字段名 alias
+            "source_meeting_id": str(d.source_meeting_id) if d.source_meeting_id else None,
+            "source_task_id": str(d.source_task_id) if d.source_task_id else None,
+            "reason": d.decision_reason,
+            "feedback": d.rejection_feedback,
+        },
+    )
+    session.add(notif)
 
 
 async def _approve_one(
@@ -465,12 +538,23 @@ async def batch_action_drafts(
                 await _approve_one(d, session, auth)
                 action_name = "memory_draft.approve"
                 audit_payload: dict = {"committed_memory_id": str(d.committed_memory_id)}
+                # v26.14-P7.5: 批量 通过 也 通知 来源
+                try:
+                    await _notify_decision(session, auth, d, "approved")
+                except Exception:
+                    logger.exception("batch notify approve failed for %s", d.id)
             else:
                 d.status = "rejected"
                 d.decision_reason = reason
                 d.decided_at = datetime.now(timezone.utc)
+                # 批量 拒绝 默认 是 discard 类型 (没有 给 个 写 feedback 的 UI)
+                d.rejection_kind = "discard"
                 action_name = "memory_draft.reject"
-                audit_payload = {"reason": reason, "via": "batch"}
+                audit_payload = {"reason": reason, "via": "batch", "kind": "discard"}
+                try:
+                    await _notify_decision(session, auth, d, "rejected_discard")
+                except Exception:
+                    logger.exception("batch notify reject failed for %s", d.id)
             await session.commit()
             await session.refresh(d)
             try:

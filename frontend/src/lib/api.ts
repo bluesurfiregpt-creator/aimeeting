@@ -764,7 +764,9 @@ export type Notification = {
     | "kb_sedimentation_rejected"
     | "memory_draft_pending"
     | "memory_draft_approved"
-    | "memory_draft_rejected";
+    | "memory_draft_rejected"
+    // v26.14-P7.5: 退回 LLM 子类型 (rejection_kind=feedback) — 跟 rejected 区分 显
+    | "memory_draft_feedback";
   severity: "normal" | "yellow" | "red" | "purple";
   payload: Record<string, unknown> | null;
   read_at: string | null;

@@ -248,7 +248,13 @@ function describeNotification(n: Notification): string {
     case "memory_draft_rejected": {
       const reviewer = typeof p.reviewer_name === "string" ? p.reviewer_name : "";
       const reason = typeof p.reason === "string" ? p.reason : "";
-      return `⛔ ${reviewer} 驳回了你提的长期记忆${reason ? `(${reason})` : ""}`;
+      return `⛔ ${reviewer} 弃用了你提的长期记忆${reason ? `(${reason})` : ""}`;
+    }
+    case "memory_draft_feedback": {
+      // v26.14-P7.5: 退回 LLM 子类型 — 审批人 写 了 反馈, 团队 应 看 并 改进 后续 抽取
+      const reviewer = typeof p.reviewer_name === "string" ? p.reviewer_name : "";
+      const feedback = typeof p.feedback === "string" ? p.feedback.slice(0, 80) : "";
+      return `↩ ${reviewer} 退回 你提的长期记忆${feedback ? ` — 反馈: ${feedback}` : ""}`;
     }
     default:
       return n.kind;
