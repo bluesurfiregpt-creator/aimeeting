@@ -345,7 +345,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   // wall clock crosses that timestamp the banner auto-summons the moderator
   // (the "more aggressive" UX agreed for stuck specifically).
   const [moderator, setModerator] = useState<{
-    kind: "off_topic" | "time_warning" | "stuck" | "advance_suggested";
+    kind: "off_topic" | "time_warning" | "stuck" | "advance_suggested" | "decision_summary";
     // v26.14-P4.3: off_topic 的 三档 严重度 — 仅 kind=off_topic 有效, 其他 kind 留 undefined.
     //   suspected: 角落 轻提示, 不打断
     //   confirmed: 中等 banner (老 默认)
@@ -538,7 +538,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       e.type === "agenda_off_topic" ||
       e.type === "agenda_time_warning" ||
       e.type === "agenda_stuck" ||
-      e.type === "agenda_advance_suggested"
+      e.type === "agenda_advance_suggested" ||
+      e.type === "agenda_decision_summary"
     ) {
       // Wipe any previous banner timers (auto-dismiss / auto-fire / countdown)
       if (moderatorTimerRef.current) window.clearTimeout(moderatorTimerRef.current);
@@ -609,6 +610,28 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
             "请你作为主持人,提醒大家时间快到了,需要尽快推进或锁定结论。",
           auto_summon_at_ms: null,
         });
+      } else if (e.type === "agenda_decision_summary") {
+        // v26.14-P6.3: 主动 收口 — 跟 stuck 同套, auto_summon 倒计时 后 用 query 直接 invoke 主持人
+        const seconds = Math.max(2, Math.min(20, e.auto_summon_after_s || 12));
+        const fireAt = Date.now() + seconds * 1000;
+        const cur = e.current_agenda_item;
+        setModerator({
+          kind: "decision_summary",
+          title: cur ? `主持人 即将 帮 收口 「${cur}」` : "主持人 即将 帮 收口",
+          body: e.decision_brief || e.reason,
+          agent_id: e.moderator_agent_id,
+          agent_name: e.moderator_agent_name,
+          agent_nickname: e.moderator_agent_nickname ?? null,
+          agent_color: e.moderator_agent_color,
+          // 关键: invoke_query 用 LLM 给 的 完整 总结 prompt — auto_summon 触发 时 主持人 就 用 这个
+          invoke_query: e.decision_summary_query,
+          auto_summon_at_ms: fireAt,
+        });
+        setModeratorCountdown(seconds);
+        moderatorCountdownIntervalRef.current = window.setInterval(() => {
+          const remain = Math.ceil((fireAt - Date.now()) / 1000);
+          setModeratorCountdown(remain > 0 ? remain : 0);
+        }, 250);
       } else if (e.type === "agenda_advance_suggested") {
         // v26.14-P5.3: LLM 觉得 当前 项 已 收口, 建议 推进 下一项. controller
         // 见 "立刻 推进" 按钮 走 acceptModerator (我们 把 invoke_query 替成 调
@@ -662,14 +685,16 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         }, 250);
       }
 
-      // v26.14-P5.3 auto-dismiss 策略 (扩展 P4.3):
+      // v26.14-P6.3 auto-dismiss 策略 (扩展 P5.3):
       //   - suspected off_topic: 12s 自动消失 (轻提示)
       //   - advance_suggested: 60s 自动消失 (用户 可慢慢决定)
       //   - confirmed off_topic / time_warning: 90s 自动消失 (老默认)
       //   - severe off_topic: 不 自动 dismiss (auto_summon 接管)
       //   - stuck: 不 自动 dismiss (auto_summon 接管)
+      //   - decision_summary: 不 自动 dismiss (auto_summon 接管 — 12s 后 主持人 自动 发言)
       const hasAutoFire =
         e.type === "agenda_stuck" ||
+        e.type === "agenda_decision_summary" ||
         (e.type === "agenda_off_topic" && e.off_topic_severity === "severe");
       if (!hasAutoFire) {
         let autoDismissMs = 90_000;
@@ -2002,7 +2027,50 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
             - stuck:                 orange + pulse + 倒计时 (老 默认)
             - time_warning:          中等 banner (老 默认 amber) */}
       {moderator && phase === "live" && !(moderator.kind === "off_topic" && moderator.severity === "severe") ? (
-        moderator.kind === "advance_suggested" ? (
+        moderator.kind === "decision_summary" ? (
+          // v26.14-P6.3: 主动 收口 banner — 紫色 (区别 emerald 推进 + amber 偏题)
+          // 倒计时 + [立刻 召唤 主持人] / [取消 自动 召唤]
+          <div
+            data-testid="moderator-banner-decision_summary"
+            className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-violet-500/50 bg-violet-500/10 px-3 py-2"
+            style={{ borderLeftColor: tailwindColor(moderator.agent_color), borderLeftWidth: 3 }}
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-2 text-sm text-zinc-200">
+              <span className="text-base">🧭</span>
+              <span className="min-w-0">
+                <span className="font-medium text-violet-200">{moderator.title}</span>
+                <span className="mx-1 text-zinc-500">·</span>
+                <span className="text-zinc-400">{moderator.body}</span>
+                {moderatorCountdown !== null ? (
+                  <span
+                    data-testid="moderator-countdown"
+                    className="ml-2 rounded bg-violet-500/30 px-1.5 py-0.5 text-xs font-semibold text-violet-100"
+                  >
+                    {moderatorCountdown}s 后 主持人 自动 总结
+                  </span>
+                ) : null}
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                data-testid="moderator-accept"
+                onClick={acceptModerator}
+                disabled={busyAgents.has(moderator.agent_id)}
+                className="rounded-lg bg-violet-500 px-3 py-1 text-xs font-medium text-white shadow transition disabled:opacity-50 hover:bg-violet-400"
+              >
+                立刻 召唤
+              </button>
+              <button
+                data-testid="moderator-dismiss"
+                onClick={dismissModerator}
+                className="text-xs text-zinc-500 hover:text-zinc-300"
+                title="取消 自动 召唤"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        ) : moderator.kind === "advance_suggested" ? (
           // v26.14-P5.3: 推进 建议 banner — 主色 emerald (前进 感), 主 CTA "立刻 推进"
           // (仅 controller 见, 直接 调 advance API, 不走 召唤)
           <div
@@ -3397,7 +3465,7 @@ function MeetingRoomRightPanel({
   phase: "idle" | "live" | "ended";
   meetingId: string;
   moderator: {
-    kind: "off_topic" | "time_warning" | "stuck" | "advance_suggested";
+    kind: "off_topic" | "time_warning" | "stuck" | "advance_suggested" | "decision_summary";
     severity?: "suspected" | "confirmed" | "severe";  // v26.14-P4.3
     title: string;
     body: string;
@@ -3489,8 +3557,9 @@ function MeetingRoomRightPanel({
       <TopicHistoryDrawer topicHistory={topicHistory} phase={phase} />
 
       {/* 主持人提醒 (高优先级, 进行中才显示) — suspected 跳过 这里 (老侧栏 卡片 太重 不 适合 轻提示)
-            v26.14-P5.3: advance_suggested 也 跳过 这里 (顶 banner 已有 主 CTA, 侧栏 卡 会 重复) */}
-      {phase === "live" && moderator && moderator.severity !== "suspected" && moderator.kind !== "advance_suggested" && (
+            v26.14-P5.3: advance_suggested 也 跳过 (顶 banner 已有 主 CTA, 侧栏 卡 会 重复)
+            v26.14-P6.3: decision_summary 也 跳过 (顶 banner 已有 倒计时 + 立刻召唤) */}
+      {phase === "live" && moderator && moderator.severity !== "suspected" && moderator.kind !== "advance_suggested" && moderator.kind !== "decision_summary" && (
         <ReminderCard
           icon={
             moderator.kind === "off_topic"

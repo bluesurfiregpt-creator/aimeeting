@@ -2185,6 +2185,9 @@ class DevInjectMonitorEventIn(BaseModel):
     next_agenda_item: Optional[str] = None
     current_agenda_idx: Optional[int] = None
     next_agenda_idx: Optional[int] = None
+    # v26.14-P6.3 decision_summary 用:
+    decision_brief: Optional[str] = None
+    decision_summary_query: Optional[str] = None
     # 通用:
     reason: Optional[str] = None
 
@@ -2265,6 +2268,18 @@ async def dev_inject_monitor_event(
                 "next_agenda_item": payload.next_agenda_item,
                 "current_agenda_idx": payload.current_agenda_idx,
                 "next_agenda_idx": payload.next_agenda_idx,
+            }
+        )
+    elif et == "agenda_decision_summary":
+        # v26.14-P6.3
+        synthetic.update(
+            {
+                "type": "agenda_decision_summary",
+                "decision_brief": payload.decision_brief or "[dev] 测试 决策 收口",
+                "decision_summary_query": payload.decision_summary_query
+                    or "请你 作为 主持人, 帮 大家 把 几个 立场 列 一下, 建议 锁定 一个.",
+                "current_agenda_item": payload.current_agenda_item,
+                "auto_summon_after_s": payload.auto_summon_after_s or 12,
             }
         )
     else:

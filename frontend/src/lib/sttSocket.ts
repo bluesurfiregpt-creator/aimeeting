@@ -159,6 +159,21 @@ export type AgendaAdvanceSuggestedEvent = {
   reason: string;
 };
 
+/** v26.14-P6.3: LLM 判 出现 多个 立场 但 没人 拍板 — 主持人 主动 总结 收口.
+ *  跟 stuck 同 套 — 倒计时 后 自动 召唤 主持人 用 decision_summary_query 发言. */
+export type AgendaDecisionSummaryEvent = {
+  type: "agenda_decision_summary";
+  decision_brief: string;
+  decision_summary_query: string;
+  current_agenda_item: string | null;
+  auto_summon_after_s: number;
+  moderator_agent_id: string;
+  moderator_agent_name: string;
+  moderator_agent_nickname?: string | null;
+  moderator_agent_color: string;
+  reason: string;
+};
+
 /** Synthetic event the wrapper emits on its own (not from the wire) so
  *  the UI can show "重连中…" / "已重连" without snooping at WS state. */
 export type ReconnectEvent = {
@@ -183,6 +198,7 @@ export type SttEvent =
   | AgentsInvitedEvent
   | AgendaAdvancedEvent
   | AgendaAdvanceSuggestedEvent
+  | AgendaDecisionSummaryEvent
   | ReconnectEvent;
 
 export interface SttSocket {

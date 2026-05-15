@@ -136,6 +136,9 @@ _SYSTEM_PROMPT = """你是这场会议的主持人助理。会议有事先约定
   "stuck_summary": "<若 stuck, 一句话写两边各坚持什么>",
   "should_advance": true/false,
   "advance_reason": "<若 should_advance, 不超过 30 字, 说明 为什么 该 进 下一项>",
+  "should_summarize_decision": true/false,
+  "decision_summary_query": "<若 should_summarize_decision, 给 主持人 发的 总结 收口 query, 80-200 字, 中文>",
+  "decision_brief": "<若 should_summarize_decision, banner 上显的 简短 描述, ≤ 30 字, 例: '在 A 方案 / B 方案 之间 没人 拍板'>",
   "reason": "<不超过 30 字的中文短句, 用于 banner 上展示>"
 }
 
@@ -173,10 +176,33 @@ advance_reason 必须 简短 中文, 例:
 - "议程 1 用时 16/15min 超时, 没 新 推进, 建议 进下一项"
 - "全员 沉默 1 分钟, 此项 似 已 没有 讨论"
 
+【should_summarize_decision — v26.14-P6.3】
+跟 should_advance 不同 维度 — advance 是 "议程 时间 上 该 收口", decision_summary
+是 "内容 上 出现 了 多个 立场 但 没人 拍板, 需要 主持人 帮 收一下". 同时 满足:
+1. 议程项 用时 ≥ 70% 预算 (有 一定 讨论 深度)
+2. ≥ 3 人 表态 (LLM 从 transcript 判)
+3. 出现 **多个 不同 倾向 / 方案** 但 没 出现 收口性 / 决议性 发言
+4. 不 在 stuck / off_topic 状态
+
+→ should_summarize_decision = true, 同时 写 decision_summary_query: 一段 给
+主持人 直接 发的 总结 + 引导 收口 query, 例:
+
+"我 帮大家 理一下 — 这一项 大家 的 意见: A 方案 张三/李四 倾向, B 方案 王五
+认为 风险 更小. 建议 先 把 「合规 风险」 和 「实施 时间」 这 两 个 维度 列 一
+下, 再 投票 决定. 是否 锁定 一个?"
+
+decision_brief: 一句 给 banner 显, 例: "A / B 方案 没人 拍板, 主持人 帮 收口"
+
+反例:
+- 仅 一个 立场 (大家 都 同意) → false
+- 仍 在 第一 圈 表态 (人数 不够) → false
+- 出现 收口 性 发言 → 走 should_advance, 这里 false
+
 【优先级】
 - **同一轮 调用 最多 触发 一种**
-- stuck > off_topic_severity ≥ "confirmed" > should_advance > time_warning > off_topic_severity == "suspected"
-- 即:suspected 是 最弱 信号; should_advance 仅在 没 偏题 / 没 stuck 时 才触发
+- stuck > off_topic_severity ≥ "confirmed" > **decision_summary** > should_advance > time_warning > off_topic_severity == "suspected"
+- decision_summary 比 should_advance 强 — 因 它 实际 让 主持人 主动 发言 (不仅 提示)
+- 即:suspected 是 最弱 信号
 
 【reason 要求】
 - 简短 + 对 用户 有意义, 例如:
@@ -331,15 +357,16 @@ async def maybe_check_agenda(
     time_warning = bool(parsed.get("time_warning"))
     stuck = bool(parsed.get("stuck"))
     should_advance = bool(parsed.get("should_advance"))
-    if not (off_topic_active or time_warning or stuck or should_advance):
+    should_summarize_decision = bool(parsed.get("should_summarize_decision"))
+    if not (off_topic_active or time_warning or stuck or should_advance or should_summarize_decision):
         return  # nothing to surface
 
     reason = (parsed.get("reason") or "").strip()[:80]
 
     # Pick which one to fire — only one banner per cycle so we don't spam.
-    # v26.14-P5.3 优先级:
-    #   stuck > off_topic(confirmed/severe) > should_advance > time_warning > off_topic(suspected)
-    # should_advance 比 time_warning 强 — 推进 是 主动 引路, time_warning 仅 是 提醒.
+    # v26.14-P6.3 优先级:
+    #   stuck > off_topic(confirmed/severe) > decision_summary > should_advance > time_warning > off_topic(suspected)
+    # decision_summary 比 advance 强 — advance 仅 提示, decision_summary 实际 触发 主持人 主动 发言
     payload: dict = {
         "moderator_agent_id": str(moderator.id),
         "moderator_agent_name": moderator.name,
@@ -356,6 +383,8 @@ async def maybe_check_agenda(
         fire_type = "stuck"
     elif is_strong_off_topic:
         fire_type = "off_topic"
+    elif should_summarize_decision:
+        fire_type = "decision_summary"
     elif should_advance:
         fire_type = "advance_suggested"
     elif time_warning:
@@ -399,6 +428,32 @@ async def maybe_check_agenda(
                 "suggested_agenda_item": sug_item,
                 # severe 严重时 自动 summon 倒计时 (像 stuck), 让 用户 不点 也 会 介入
                 "auto_summon_after_s": 8 if off_topic_severity == "severe" else None,
+            }
+        )
+    elif fire_type == "decision_summary":
+        # v26.14-P6.3: LLM 判 出现 多个 立场 + 没人 拍板, 主持人 应 主动 总结 收口.
+        # 跟 stuck 同 套 — auto_summon_after_s 倒计时 后 自动 召唤 主持人 用 query 发言.
+        # 12s 默认 — 比 stuck (5s) 慢, 比 severe off-topic (8s) 慢, 给 用户 更多 取消 余地.
+        cur_idx = parsed.get("current_agenda_item_idx")
+        cur_item = (
+            (m.agenda or [])[cur_idx].get("title")
+            if isinstance(cur_idx, int) and 0 <= cur_idx < len(m.agenda or [])
+            else None
+        )
+        summary_query = (parsed.get("decision_summary_query") or "").strip()
+        # 兜底 — LLM 没给 或 太短: 用 generic 总结 prompt
+        if len(summary_query) < 20:
+            summary_query = (
+                f"请你 作为 主持人, 帮 大家 把 当前 议程项{f'「{cur_item}」' if cur_item else ''} "
+                f"出现 的 几个 立场 / 方案 列 一下, 帮 我 们 收口 — 建议 锁定 一个 或 走 投票."
+            )
+        payload.update(
+            {
+                "type": "agenda_decision_summary",
+                "decision_brief": (parsed.get("decision_brief") or reason)[:60],
+                "decision_summary_query": summary_query[:600],
+                "current_agenda_item": cur_item,
+                "auto_summon_after_s": 12,  # 默认 12s 倒计时 后 自动 召唤
             }
         )
     elif fire_type == "advance_suggested":
@@ -460,6 +515,14 @@ async def maybe_check_agenda(
         elif payload["type"] == "agenda_stuck":
             audit_payload.update(
                 stuck_summary=payload.get("stuck_summary"),
+                auto_summon_after_s=payload.get("auto_summon_after_s"),
+            )
+        elif payload["type"] == "agenda_decision_summary":
+            # v26.14-P6.3: 主动 收口 audit — 后续 可统计 LLM 总结 介入 后 用户 是否 真 锁定 决策
+            audit_payload.update(
+                decision_brief=payload.get("decision_brief"),
+                decision_summary_query=payload.get("decision_summary_query"),
+                current_agenda_item=payload.get("current_agenda_item"),
                 auto_summon_after_s=payload.get("auto_summon_after_s"),
             )
         elif payload["type"] == "agenda_advance_suggested":
