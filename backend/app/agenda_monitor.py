@@ -134,6 +134,8 @@ _SYSTEM_PROMPT = """你是这场会议的主持人助理。会议有事先约定
   "time_warning_text": "<若 time_warning, 简短解释>",
   "stuck": true/false,
   "stuck_summary": "<若 stuck, 一句话写两边各坚持什么>",
+  "should_advance": true/false,
+  "advance_reason": "<若 should_advance, 不超过 30 字, 说明 为什么 该 进 下一项>",
   "reason": "<不超过 30 字的中文短句, 用于 banner 上展示>"
 }
 
@@ -156,10 +158,25 @@ _SYSTEM_PROMPT = """你是这场会议的主持人助理。会议有事先约定
    - 反例:有 新数据 / 新方案 出现 → false
    - 反例:正在 快速 达成 共识 (同意/接力) → false
 
+【should_advance — v26.14-P5.3】
+当前 议程项 是否 看起来 **该 推进 到 下一项** 了, 满足 下列 任一 → true:
+1. 出现 **总结性 发言** ("那这件事 就 这么 定了" / "OK 没问题" / "我们 就 按 X 来")
+2. 出现 **决议性 发言** ("通过" / "下一项" / "可以 收 这个 议题 了")
+3. 议程项 已用 时间 ≥ 100% 预算 (overtime), 且 没有 新 推进 意见
+4. 长时间 (≥ 60s 内) 全员 沉默 / 无人 接话
+反例:
+- 仍 在 激烈 讨论 + 出 新观点 → false
+- 时间 还 充裕 + 没 收尾 信号 → false
+
+advance_reason 必须 简短 中文, 例:
+- "已达成 共识 '按 A 方案 走', 可推进"
+- "议程 1 用时 16/15min 超时, 没 新 推进, 建议 进下一项"
+- "全员 沉默 1 分钟, 此项 似 已 没有 讨论"
+
 【优先级】
 - **同一轮 调用 最多 触发 一种**
-- stuck > off_topic_severity ≥ "confirmed" > time_warning > off_topic_severity == "suspected"
-- 即:suspected 是 最弱 信号, time_warning 比 它 更值得 弹
+- stuck > off_topic_severity ≥ "confirmed" > should_advance > time_warning > off_topic_severity == "suspected"
+- 即:suspected 是 最弱 信号; should_advance 仅在 没 偏题 / 没 stuck 时 才触发
 
 【reason 要求】
 - 简短 + 对 用户 有意义, 例如:
@@ -313,15 +330,16 @@ async def maybe_check_agenda(
 
     time_warning = bool(parsed.get("time_warning"))
     stuck = bool(parsed.get("stuck"))
-    if not (off_topic_active or time_warning or stuck):
+    should_advance = bool(parsed.get("should_advance"))
+    if not (off_topic_active or time_warning or stuck or should_advance):
         return  # nothing to surface
 
     reason = (parsed.get("reason") or "").strip()[:80]
 
     # Pick which one to fire — only one banner per cycle so we don't spam.
-    # v26.14-P4.2 优先级:
-    #   stuck > off_topic(confirmed/severe) > time_warning > off_topic(suspected)
-    # suspected 是 最弱 信号, time_warning (议程预算 80%) 比 它 更值得 弹.
+    # v26.14-P5.3 优先级:
+    #   stuck > off_topic(confirmed/severe) > should_advance > time_warning > off_topic(suspected)
+    # should_advance 比 time_warning 强 — 推进 是 主动 引路, time_warning 仅 是 提醒.
     payload: dict = {
         "moderator_agent_id": str(moderator.id),
         "moderator_agent_name": moderator.name,
@@ -338,6 +356,8 @@ async def maybe_check_agenda(
         fire_type = "stuck"
     elif is_strong_off_topic:
         fire_type = "off_topic"
+    elif should_advance:
+        fire_type = "advance_suggested"
     elif time_warning:
         fire_type = "time_warning"
     elif off_topic_severity == "suspected":
@@ -381,6 +401,32 @@ async def maybe_check_agenda(
                 "auto_summon_after_s": 8 if off_topic_severity == "severe" else None,
             }
         )
+    elif fire_type == "advance_suggested":
+        # v26.14-P5.3: LLM 判 当前 项 似乎 已 收口, 建议 推进 下一项. 前端 渲 一个
+        # 主持人 banner + "推进" 按钮 (controller 见) + "稍后" (任何人 见).
+        # 当前 项 / 下一项 title (供 banner 显, 让 用户 一眼 看清 "从 X → Y")
+        cur_idx = parsed.get("current_agenda_item_idx")
+        cur_item = (
+            (m.agenda or [])[cur_idx].get("title")
+            if isinstance(cur_idx, int) and 0 <= cur_idx < len(m.agenda or [])
+            else None
+        )
+        next_idx = (cur_idx + 1) if isinstance(cur_idx, int) and cur_idx >= 0 else None
+        next_item = (
+            (m.agenda or [])[next_idx].get("title")
+            if next_idx is not None and 0 <= next_idx < len(m.agenda or [])
+            else None
+        )
+        payload.update(
+            {
+                "type": "agenda_advance_suggested",
+                "advance_reason": (parsed.get("advance_reason") or "")[:80],
+                "current_agenda_item": cur_item,
+                "next_agenda_item": next_item,
+                "current_agenda_idx": cur_idx if isinstance(cur_idx, int) else None,
+                "next_agenda_idx": next_idx,
+            }
+        )
     else:  # time_warning
         payload.update(
             {
@@ -415,6 +461,15 @@ async def maybe_check_agenda(
             audit_payload.update(
                 stuck_summary=payload.get("stuck_summary"),
                 auto_summon_after_s=payload.get("auto_summon_after_s"),
+            )
+        elif payload["type"] == "agenda_advance_suggested":
+            # v26.14-P5.3: 推进 建议 audit — 后续 可统计 LLM 给的 建议 用户 接受率
+            audit_payload.update(
+                advance_reason=payload.get("advance_reason"),
+                current_agenda_item=payload.get("current_agenda_item"),
+                next_agenda_item=payload.get("next_agenda_item"),
+                current_agenda_idx=payload.get("current_agenda_idx"),
+                next_agenda_idx=payload.get("next_agenda_idx"),
             )
         else:  # agenda_time_warning
             audit_payload.update(

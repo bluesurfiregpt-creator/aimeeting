@@ -143,6 +143,22 @@ export type AgendaAdvancedEvent = {
   advanced_by_user_name: string;
 };
 
+/** v26.14-P5.3: LLM 判 当前 项 似乎 已 收口 / 总结 — 建议 推进 下一项.
+ *  跟 off_topic / stuck 互斥, 同 banner slot. controller 见 "立刻 推进" 按钮. */
+export type AgendaAdvanceSuggestedEvent = {
+  type: "agenda_advance_suggested";
+  advance_reason: string;
+  current_agenda_item: string | null;
+  next_agenda_item: string | null;
+  current_agenda_idx: number | null;
+  next_agenda_idx: number | null;
+  moderator_agent_id: string;
+  moderator_agent_name: string;
+  moderator_agent_nickname?: string | null;
+  moderator_agent_color: string;
+  reason: string;
+};
+
 /** Synthetic event the wrapper emits on its own (not from the wire) so
  *  the UI can show "重连中…" / "已重连" without snooping at WS state. */
 export type ReconnectEvent = {
@@ -166,6 +182,7 @@ export type SttEvent =
   | AgendaStuckEvent
   | AgentsInvitedEvent
   | AgendaAdvancedEvent
+  | AgendaAdvanceSuggestedEvent
   | ReconnectEvent;
 
 export interface SttSocket {

@@ -2168,7 +2168,7 @@ async def jump_agenda(
 
 
 class DevInjectMonitorEventIn(BaseModel):
-    event_type: str  # agenda_off_topic | agenda_stuck | agenda_time_warning | agenda_advanced
+    event_type: str  # agenda_off_topic | agenda_stuck | agenda_time_warning | agenda_advance_suggested
     # off_topic 用:
     off_topic_severity: Optional[str] = None  # suspected | confirmed | severe
     off_topic_summary: Optional[str] = None
@@ -2180,6 +2180,11 @@ class DevInjectMonitorEventIn(BaseModel):
     # time_warning 用:
     time_warning_text: Optional[str] = None
     elapsed_min: Optional[int] = None
+    # v26.14-P5.3 advance_suggested 用:
+    advance_reason: Optional[str] = None
+    next_agenda_item: Optional[str] = None
+    current_agenda_idx: Optional[int] = None
+    next_agenda_idx: Optional[int] = None
     # 通用:
     reason: Optional[str] = None
 
@@ -2249,6 +2254,17 @@ async def dev_inject_monitor_event(
                 "type": "agenda_time_warning",
                 "time_warning_text": payload.time_warning_text or "[dev] 测试 time warning",
                 "elapsed_min": payload.elapsed_min or 10,
+            }
+        )
+    elif et == "agenda_advance_suggested":
+        synthetic.update(
+            {
+                "type": "agenda_advance_suggested",
+                "advance_reason": payload.advance_reason or "[dev] 测试 推进 建议",
+                "current_agenda_item": payload.current_agenda_item,
+                "next_agenda_item": payload.next_agenda_item,
+                "current_agenda_idx": payload.current_agenda_idx,
+                "next_agenda_idx": payload.next_agenda_idx,
             }
         )
     else:

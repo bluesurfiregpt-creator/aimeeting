@@ -345,7 +345,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   // wall clock crosses that timestamp the banner auto-summons the moderator
   // (the "more aggressive" UX agreed for stuck specifically).
   const [moderator, setModerator] = useState<{
-    kind: "off_topic" | "time_warning" | "stuck";
+    kind: "off_topic" | "time_warning" | "stuck" | "advance_suggested";
     // v26.14-P4.3: off_topic 的 三档 严重度 — 仅 kind=off_topic 有效, 其他 kind 留 undefined.
     //   suspected: 角落 轻提示, 不打断
     //   confirmed: 中等 banner (老 默认)
@@ -537,7 +537,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
     if (
       e.type === "agenda_off_topic" ||
       e.type === "agenda_time_warning" ||
-      e.type === "agenda_stuck"
+      e.type === "agenda_stuck" ||
+      e.type === "agenda_advance_suggested"
     ) {
       // Wipe any previous banner timers (auto-dismiss / auto-fire / countdown)
       if (moderatorTimerRef.current) window.clearTimeout(moderatorTimerRef.current);
@@ -608,6 +609,35 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
             "请你作为主持人,提醒大家时间快到了,需要尽快推进或锁定结论。",
           auto_summon_at_ms: null,
         });
+      } else if (e.type === "agenda_advance_suggested") {
+        // v26.14-P5.3: LLM 觉得 当前 项 已 收口, 建议 推进 下一项. controller
+        // 见 "立刻 推进" 按钮 走 acceptModerator (我们 把 invoke_query 替成 调
+        // advance API — 但 acceptModerator 只调 invoke_agent. 为了 复用 现有
+        // 渲染, 这里 反而 不让 acceptModerator 触发 advance — 让 用户 在 strip
+        // 顶部 主动 点 "推进" 按钮. 这条 banner 仅 "知会 + 引导" 作用.)
+        const cur = e.current_agenda_item;
+        const nxt = e.next_agenda_item;
+        const titleText = nxt
+          ? `建议 推进 → 「${nxt}」`
+          : "建议 推进 (无 下一项)";
+        const bodyText = e.advance_reason
+          || (cur ? `「${cur}」似已收口` : "当前 议程项 似已收口");
+        setModerator({
+          kind: "advance_suggested",
+          title: titleText,
+          body: bodyText,
+          agent_id: e.moderator_agent_id,
+          agent_name: e.moderator_agent_name,
+          agent_nickname: e.moderator_agent_nickname ?? null,
+          agent_color: e.moderator_agent_color,
+          // invoke_query 用于 老 路径 "召唤 主持人" — 但 我们 advance banner 上
+          // 的 立刻 推进 按钮 直接 调 advanceAgendaCb 不走 召唤. invoke_query
+          // 留个 fallback 文案 (老 acceptModerator 在 advance kind 也 不会 调用).
+          invoke_query: `请你作为主持人,提醒大家当前议程项${
+            cur ? `「${cur}」` : ""
+          }似乎已经收口,可以推进到下一项${nxt ? `「${nxt}」` : ""}了。`,
+          auto_summon_at_ms: null,
+        });
       } else {
         // M3.0.4 stuck — auto-summon after countdown unless user dismisses
         const seconds = Math.max(2, Math.min(15, e.auto_summon_after_s || 5));
@@ -632,19 +662,22 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         }, 250);
       }
 
-      // v26.14-P4.3 auto-dismiss 策略:
-      //   - suspected off_topic: 12s 自动消失 (轻提示, 不打断, 没 dismiss 也 自走)
+      // v26.14-P5.3 auto-dismiss 策略 (扩展 P4.3):
+      //   - suspected off_topic: 12s 自动消失 (轻提示)
+      //   - advance_suggested: 60s 自动消失 (用户 可慢慢决定)
       //   - confirmed off_topic / time_warning: 90s 自动消失 (老默认)
-      //   - severe off_topic: 不 自动 dismiss, 等 auto_summon 计时 走完
-      //   - stuck: 不 自动 dismiss, 等 auto_summon_at_ms 走完
+      //   - severe off_topic: 不 自动 dismiss (auto_summon 接管)
+      //   - stuck: 不 自动 dismiss (auto_summon 接管)
       const hasAutoFire =
         e.type === "agenda_stuck" ||
         (e.type === "agenda_off_topic" && e.off_topic_severity === "severe");
       if (!hasAutoFire) {
-        const autoDismissMs =
-          e.type === "agenda_off_topic" && e.off_topic_severity === "suspected"
-            ? 12_000
-            : 90_000;
+        let autoDismissMs = 90_000;
+        if (e.type === "agenda_off_topic" && e.off_topic_severity === "suspected") {
+          autoDismissMs = 12_000;
+        } else if (e.type === "agenda_advance_suggested") {
+          autoDismissMs = 60_000;
+        }
         moderatorTimerRef.current = window.setTimeout(() => {
           setModerator(null);
         }, autoDismissMs);
@@ -1967,7 +2000,56 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
             - stuck:                 orange + pulse + 倒计时 (老 默认)
             - time_warning:          中等 banner (老 默认 amber) */}
       {moderator && phase === "live" && !(moderator.kind === "off_topic" && moderator.severity === "severe") ? (
-        moderator.kind === "off_topic" && moderator.severity === "suspected" ? (
+        moderator.kind === "advance_suggested" ? (
+          // v26.14-P5.3: 推进 建议 banner — 主色 emerald (前进 感), 主 CTA "立刻 推进"
+          // (仅 controller 见, 直接 调 advance API, 不走 召唤)
+          <div
+            data-testid="moderator-banner-advance_suggested"
+            className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-2"
+            style={{ borderLeftColor: tailwindColor(moderator.agent_color), borderLeftWidth: 3 }}
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-2 text-sm text-zinc-200">
+              <span className="text-base">🚀</span>
+              <span className="min-w-0">
+                <span className="font-medium text-emerald-200">{moderator.title}</span>
+                <span className="mx-1 text-zinc-500">·</span>
+                <span className="text-zinc-400">{moderator.body}</span>
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {(() => {
+                // controller 才 见 "立刻 推进" 按钮
+                const canControl =
+                  !!me &&
+                  (WRITE_ROLES.has(me.role) ||
+                    (meetingMeta?.created_by_user_id &&
+                      me.user_id === meetingMeta.created_by_user_id));
+                if (!canControl) return null;
+                return (
+                  <button
+                    data-testid="advance-suggested-accept"
+                    onClick={async () => {
+                      await advanceAgendaCb();
+                      setModerator(null);
+                    }}
+                    disabled={advancing}
+                    className="rounded-lg bg-emerald-500 px-3 py-1 text-xs font-medium text-white shadow transition disabled:opacity-50 hover:bg-emerald-400"
+                  >
+                    立刻 推进 →
+                  </button>
+                );
+              })()}
+              <button
+                data-testid="moderator-dismiss"
+                onClick={dismissModerator}
+                className="text-xs text-zinc-500 hover:text-zinc-300"
+                title="稍后 (60s 后 自动 消失)"
+              >
+                稍后
+              </button>
+            </div>
+          </div>
+        ) : moderator.kind === "off_topic" && moderator.severity === "suspected" ? (
           // 轻提示 — 细窄一行, 没大 CTA, 用户 可 直接 关
           <div
             data-testid="moderator-banner-off_topic-suspected"
@@ -3313,7 +3395,7 @@ function MeetingRoomRightPanel({
   phase: "idle" | "live" | "ended";
   meetingId: string;
   moderator: {
-    kind: "off_topic" | "time_warning" | "stuck";
+    kind: "off_topic" | "time_warning" | "stuck" | "advance_suggested";
     severity?: "suspected" | "confirmed" | "severe";  // v26.14-P4.3
     title: string;
     body: string;
@@ -3404,8 +3486,9 @@ function MeetingRoomRightPanel({
             放 最顶 — 老 banner 闪一下 就 没, 用户 不知 监测 在 工作; 抽屉 让 它 可追溯. */}
       <TopicHistoryDrawer topicHistory={topicHistory} phase={phase} />
 
-      {/* 主持人提醒 (高优先级, 进行中才显示) — suspected 跳过 这里 (老侧栏 卡片 太重 不 适合 轻提示) */}
-      {phase === "live" && moderator && moderator.severity !== "suspected" && (
+      {/* 主持人提醒 (高优先级, 进行中才显示) — suspected 跳过 这里 (老侧栏 卡片 太重 不 适合 轻提示)
+            v26.14-P5.3: advance_suggested 也 跳过 这里 (顶 banner 已有 主 CTA, 侧栏 卡 会 重复) */}
+      {phase === "live" && moderator && moderator.severity !== "suspected" && moderator.kind !== "advance_suggested" && (
         <ReminderCard
           icon={
             moderator.kind === "off_topic"
