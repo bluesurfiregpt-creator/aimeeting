@@ -147,6 +147,11 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("kb_sedimentation_draft", "kind", "VARCHAR(32) NOT NULL DEFAULT 'task_sediment'"),
     ("kb_sedimentation_draft", "proposed_filename", "VARCHAR(255)"),
     ("kb_sedimentation_draft", "meta", "JSON"),
+    # v26.14-P5.1: 议程 进度 tracking — 让 议程 从 read-only strip 升级 推进式 流程
+    #   current_agenda_idx: 当前 进行 到 第几项 (0-based); NULL = 议程 未设置 or 未进入
+    #   agenda_progress: 各项 时间戳 [{ idx, started_at, ended_at, advanced_by_user_id, status }]
+    ("meeting", "current_agenda_idx", "INTEGER"),
+    ("meeting", "agenda_progress", "JSON"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

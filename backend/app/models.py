@@ -321,6 +321,22 @@ class Meeting(Base):
     # When absent (None), no monitoring runs (legacy meetings stay untouched).
     agenda: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
 
+    # v26.14-P5.1: 议程 进度 tracking — 让 议程 从 read-only strip 升级 为 推进式 流程.
+    #
+    # current_agenda_idx: 当前 进行 到 第 几项 (0-based).
+    #   NULL  = agenda 未 设置, 或 尚未 进入 第一项 (一般 status=scheduled 时 NULL)
+    #   0..N  = 当前 在 第 N+1 个 议程项
+    #   >=len(agenda) = 议程 已 全部 走完 (前端 提示 "可以 结束会议")
+    #
+    # agenda_progress: 各 项 的 时间 戳 (顺序 跟 agenda 一致, 每 个 item 一条).
+    #   [{ idx, started_at, ended_at, advanced_by_user_id, status }]
+    #   status: "active" | "done" — 同时 只 一项 active. NULL ended_at = active.
+    #
+    # 两者 必须 一起 维护. 老 meeting (v26.14 前 创建) 两者 都 NULL,
+    # 走 老 read-only 路径 不影响.
+    current_agenda_idx: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    agenda_progress: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
+
     # v26.3: 会议模式
     #   human  — 传统真人会议(v17-v25 默认行为)
     #   hybrid — v26.0/.1/.2 默认:真人 + AI 混合(AI 触发式发言)

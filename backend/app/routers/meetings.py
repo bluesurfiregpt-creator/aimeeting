@@ -1770,6 +1770,497 @@ async def run_agenda_monitor(
     return AgendaMonitorRunOut(fired=True, payload=fired)
 
 
+# ---------------------------------------------------------------------------
+# v26.14-P5.1: 议程 进度 tracking + 主动 推进
+# ---------------------------------------------------------------------------
+# 老 议程 是 read-only strip 仅 显标题 + 预算分钟. 没人 知道 当前 进行 第几项,
+# 没 切换 操作, 没 单项 计时. P5 把 议程 从 "看一下" 升级 到 "推进式 流程".
+#
+# 数据 模型 (Meeting):
+#   current_agenda_idx: 当前 在 第 几项 (0-based). NULL = 未 设置 / 未开始.
+#   agenda_progress: [{idx, started_at, ended_at, advanced_by_user_id, status}]
+#                    顺序 跟 agenda 一致, 每 进过 一项 一条.
+#
+# ABAC (advance / jump):
+#   - leader+ 总 可
+#   - 会议 创建人 可
+#   - 其他 → 403
+
+
+class AgendaProgressItem(BaseModel):
+    idx: int
+    title: str
+    time_budget_min: Optional[int] = None
+    note: Optional[str] = None
+    # 时间 戳 (NULL = 未 进过)
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    # 计算 字段 — 实际 用时 (秒); 仍 在 进行 时 = now - started_at
+    elapsed_seconds: Optional[int] = None
+    # active | done | pending
+    status: str
+    advanced_by_user_id: Optional[uuid.UUID] = None
+
+
+class AgendaProgressOut(BaseModel):
+    current_idx: Optional[int] = None
+    total_items: int
+    is_complete: bool   # current_idx >= len(agenda) — 议程 全部 走完
+    has_agenda: bool    # agenda 是否 设置 — 没设 时 前端 不 显 strip
+    items: list[AgendaProgressItem]
+
+
+class AgendaJumpIn(BaseModel):
+    idx: int  # 跳 到 哪个 (0-based)
+
+
+def _init_agenda_progress_if_needed(m: Meeting) -> bool:
+    """v26.14-P5.1: 第一次 进入 一个 有 agenda 但 没 progress 的 会议 时 lazy init.
+
+    返回 是否 mutated (caller 决定 是否 要 commit).
+    """
+    if not m.agenda or len(m.agenda) == 0:
+        return False
+    if m.current_agenda_idx is not None and m.agenda_progress:
+        return False  # already initialized
+    m.current_agenda_idx = 0
+    m.agenda_progress = [
+        {
+            "idx": 0,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "ended_at": None,
+            "advanced_by_user_id": None,
+            "status": "active",
+        }
+    ]
+    return True
+
+
+def _build_agenda_progress_out(m: Meeting) -> AgendaProgressOut:
+    """v26.14-P5.1: 把 meeting 的 agenda + agenda_progress 拼成 前端 用 的 shape.
+
+    每个 agenda 项 + 对应的 progress entry (若 有) → AgendaProgressItem.
+    没 进过 的项 status='pending'. 已 done 的 计算 elapsed_seconds.
+    """
+    agenda = m.agenda or []
+    progress_by_idx: dict[int, dict] = {}
+    for p in (m.agenda_progress or []):
+        try:
+            progress_by_idx[int(p["idx"])] = p
+        except (KeyError, ValueError, TypeError):
+            continue
+
+    now = datetime.now(timezone.utc)
+    items: list[AgendaProgressItem] = []
+    for i, agi in enumerate(agenda):
+        prog = progress_by_idx.get(i)
+        started_at = None
+        ended_at = None
+        status = "pending"
+        advanced_by_user_id = None
+        elapsed_seconds = None
+        if prog:
+            try:
+                if prog.get("started_at"):
+                    started_at = datetime.fromisoformat(prog["started_at"].replace("Z", "+00:00"))
+                if prog.get("ended_at"):
+                    ended_at = datetime.fromisoformat(prog["ended_at"].replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                pass
+            status = prog.get("status") or "pending"
+            uid = prog.get("advanced_by_user_id")
+            if uid:
+                try:
+                    advanced_by_user_id = uuid.UUID(uid)
+                except (ValueError, TypeError):
+                    pass
+            # 计算 elapsed
+            if started_at:
+                end = ended_at if ended_at else now
+                delta = (end - started_at).total_seconds()
+                elapsed_seconds = max(0, int(delta))
+
+        items.append(
+            AgendaProgressItem(
+                idx=i,
+                title=str(agi.get("title") or "").strip() or f"议程项 {i + 1}",
+                time_budget_min=agi.get("time_budget_min"),
+                note=agi.get("note"),
+                started_at=started_at,
+                ended_at=ended_at,
+                elapsed_seconds=elapsed_seconds,
+                status=status,
+                advanced_by_user_id=advanced_by_user_id,
+            )
+        )
+
+    return AgendaProgressOut(
+        current_idx=m.current_agenda_idx,
+        total_items=len(agenda),
+        is_complete=(
+            m.current_agenda_idx is not None and len(agenda) > 0 and m.current_agenda_idx >= len(agenda)
+        ),
+        has_agenda=len(agenda) > 0,
+        items=items,
+    )
+
+
+async def _require_agenda_controller(
+    session: AsyncSession, auth: AuthContext, m: Meeting,
+) -> None:
+    """v26.14-P5.1: ABAC 检查 — leader+ OR 会议 创建人 才可 推进/跳转 议程.
+
+    跟 invite_meeting_agents 同套 — agenda 推进 是 房间 级别 决策.
+    """
+    if await is_leader_or_admin(session, auth):
+        return
+    if m.created_by_user_id is not None and m.created_by_user_id == auth.user.id:
+        return
+    raise HTTPException(
+        403, "[权限不足] 仅 会议创建人 + leader / admin / owner 可推进 议程"
+    )
+
+
+@router.get("/{meeting_id}/agenda-progress", response_model=AgendaProgressOut)
+async def get_agenda_progress(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.14-P5.1: 拿 议程 进度 — 当前 idx + 各 项 时间 + status.
+
+    Lazy init: status=ongoing + 有 agenda 但 没 progress 时 自动 初始化 第一项.
+    任何 ws 成员 可看 (workspace 隔离 在 _load_owned_meeting).
+    """
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    if m.status == "ongoing" and _init_agenda_progress_if_needed(m):
+        await session.commit()
+        await session.refresh(m)
+    return _build_agenda_progress_out(m)
+
+
+@router.post("/{meeting_id}/agenda-advance", response_model=AgendaProgressOut)
+async def advance_agenda(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.14-P5.1: 推进 到 下一议程项.
+
+    行为:
+      1. 当前 active 项 → ended_at = now, status = done
+      2. 新 push 一项 {idx: cur+1, started_at: now, status: active}
+      3. current_agenda_idx +1
+      4. WS 广播 agenda_advanced
+      5. audit_log 写 一条
+
+    Rate-limit: 同 会议 30s 内 不能 重复 推进 (防 误点 / 多人 双触发).
+    """
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    await _require_agenda_controller(session, auth, m)
+
+    if not m.agenda or len(m.agenda) == 0:
+        raise HTTPException(400, "本场 会议 没 设议程, 无法 推进")
+    if m.status != "ongoing":
+        raise HTTPException(400, f"会议 当前 状态 是 {m.status}, 仅 ongoing 可 推进 议程")
+
+    # lazy init 兜底 (一般 get 已经 init 了, 但 advance 也 自洽)
+    _init_agenda_progress_if_needed(m)
+
+    cur_idx = m.current_agenda_idx
+    if cur_idx is None:
+        cur_idx = 0
+    if cur_idx >= len(m.agenda):
+        raise HTTPException(400, "议程 已经 全部 走完, 无 下一项 可推进")
+
+    progress = list(m.agenda_progress or [])
+
+    # rate-limit: 上一次 推进 < 30s 内 → 拒
+    now = datetime.now(timezone.utc)
+    for p in progress:
+        if p.get("idx") == cur_idx and p.get("started_at"):
+            try:
+                started = datetime.fromisoformat(p["started_at"].replace("Z", "+00:00"))
+                if (now - started).total_seconds() < 30:
+                    raise HTTPException(
+                        429,
+                        f"刚 进入 这项 不到 30 秒, 稍后 再推进 (剩 {int(30 - (now - started).total_seconds())} 秒)",
+                    )
+            except (ValueError, AttributeError):
+                pass
+
+    # 1+2: close 当前, open 下一项
+    for p in progress:
+        if p.get("idx") == cur_idx and p.get("status") == "active":
+            p["ended_at"] = now.isoformat()
+            p["status"] = "done"
+            p["advanced_by_user_id"] = str(auth.user.id)
+            break
+
+    new_idx = cur_idx + 1
+    # 只 在 还有 下一项 时 push 新 active 条; 走完 议程 就 只 bump idx (前端 据
+    # current_idx >= total_items 显 "议程 已完成").
+    if new_idx < len(m.agenda):
+        progress.append(
+            {
+                "idx": new_idx,
+                "started_at": now.isoformat(),
+                "ended_at": None,
+                "advanced_by_user_id": None,
+                "status": "active",
+            }
+        )
+    m.agenda_progress = progress
+    m.current_agenda_idx = new_idx
+
+    await session.commit()
+    await session.refresh(m)
+
+    # audit
+    try:
+        await audit_log(
+            session,
+            auth,
+            "meeting.agenda.advance",
+            target_type="meeting",
+            target_id=str(m.id),
+            payload={
+                "from_idx": cur_idx,
+                "to_idx": new_idx,
+                "is_complete": new_idx >= len(m.agenda),
+            },
+        )
+        await session.commit()
+    except Exception:
+        logger.exception("agenda advance audit failed (non-fatal)")
+
+    # WS 广播
+    try:
+        await session_state.broadcast(
+            m.id,
+            {
+                "type": "agenda_advanced",
+                "from_idx": cur_idx,
+                "to_idx": new_idx,
+                "is_complete": new_idx >= len(m.agenda),
+                "advanced_by_user_id": str(auth.user.id),
+                "advanced_by_user_name": auth.user.name,
+            },
+        )
+    except Exception:
+        logger.exception("agenda_advanced broadcast failed (non-fatal)")
+
+    return _build_agenda_progress_out(m)
+
+
+@router.post("/{meeting_id}/agenda-jump", response_model=AgendaProgressOut)
+async def jump_agenda(
+    meeting_id: str,
+    payload: AgendaJumpIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.14-P5.1: 跳 到 任一 议程项 (非 顺序). 跳过的项 标 done, 目标项 active.
+
+    跟 advance 同套 ABAC. 没 rate-limit (跳转 是 用户 明确 决策).
+    """
+    m = await _load_owned_meeting(meeting_id, session, auth)
+    await _require_agenda_controller(session, auth, m)
+
+    if not m.agenda or len(m.agenda) == 0:
+        raise HTTPException(400, "本场 会议 没 设议程, 无法 跳转")
+    if m.status != "ongoing":
+        raise HTTPException(400, f"会议 当前 状态 是 {m.status}, 仅 ongoing 可 跳议程")
+
+    target = payload.idx
+    if target < 0 or target >= len(m.agenda):
+        raise HTTPException(400, f"目标 idx {target} 超出 议程 范围 (0 ~ {len(m.agenda) - 1})")
+
+    _init_agenda_progress_if_needed(m)
+
+    cur_idx = m.current_agenda_idx
+    if cur_idx is None:
+        cur_idx = 0
+
+    if target == cur_idx:
+        # no-op — 已 在 这项
+        return _build_agenda_progress_out(m)
+
+    progress = list(m.agenda_progress or [])
+    now = datetime.now(timezone.utc)
+
+    # 关 当前 active
+    for p in progress:
+        if p.get("status") == "active":
+            p["ended_at"] = now.isoformat()
+            p["status"] = "done"
+            p["advanced_by_user_id"] = str(auth.user.id)
+
+    # 给 target 找 一条 (没 就 push 一条)
+    matched = False
+    for p in progress:
+        if p.get("idx") == target:
+            # 重新 激活 — 老 ended_at 清掉, 老 started_at 留 (历史 痕迹) 不动
+            # 但 status 设 active, ended_at 清
+            p["ended_at"] = None
+            p["status"] = "active"
+            p["started_at"] = now.isoformat()  # 重新 计时
+            matched = True
+            break
+    if not matched:
+        progress.append(
+            {
+                "idx": target,
+                "started_at": now.isoformat(),
+                "ended_at": None,
+                "advanced_by_user_id": str(auth.user.id),
+                "status": "active",
+            }
+        )
+
+    m.agenda_progress = progress
+    m.current_agenda_idx = target
+
+    await session.commit()
+    await session.refresh(m)
+
+    try:
+        await audit_log(
+            session,
+            auth,
+            "meeting.agenda.jump",
+            target_type="meeting",
+            target_id=str(m.id),
+            payload={"from_idx": cur_idx, "to_idx": target},
+        )
+        await session.commit()
+    except Exception:
+        logger.exception("agenda jump audit failed (non-fatal)")
+
+    try:
+        await session_state.broadcast(
+            m.id,
+            {
+                "type": "agenda_advanced",
+                "from_idx": cur_idx,
+                "to_idx": target,
+                "is_complete": False,
+                "advanced_by_user_id": str(auth.user.id),
+                "advanced_by_user_name": auth.user.name,
+            },
+        )
+    except Exception:
+        logger.exception("agenda_advanced(jump) broadcast failed (non-fatal)")
+
+    return _build_agenda_progress_out(m)
+
+
+# ---------------------------------------------------------------------------
+# v26.14-P5.1 配套: 测试 工具 — /dev/inject-monitor-event
+# ---------------------------------------------------------------------------
+# Kimi 测 三档 偏题 UI 时 没 法 制造 真 离题 对话 (走 LLM 走 不通).
+# 此 endpoint 直接 推 一个 合成 monitor event 到 WS, 跳过 filter + LLM.
+# 让 前端 三档 banner / 抽屉 写入 / auto_summon 倒计时 都能 单测.
+#
+# ABAC: 仅 owner — 这是 dev 工具, 不应 给 普通 user.
+
+
+class DevInjectMonitorEventIn(BaseModel):
+    event_type: str  # agenda_off_topic | agenda_stuck | agenda_time_warning | agenda_advanced
+    # off_topic 用:
+    off_topic_severity: Optional[str] = None  # suspected | confirmed | severe
+    off_topic_summary: Optional[str] = None
+    current_agenda_item: Optional[str] = None
+    suggested_agenda_item: Optional[str] = None
+    # stuck 用:
+    stuck_summary: Optional[str] = None
+    auto_summon_after_s: Optional[int] = None
+    # time_warning 用:
+    time_warning_text: Optional[str] = None
+    elapsed_min: Optional[int] = None
+    # 通用:
+    reason: Optional[str] = None
+
+
+@router.post("/{meeting_id}/dev/inject-monitor-event")
+async def dev_inject_monitor_event(
+    meeting_id: str,
+    payload: DevInjectMonitorEventIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.14-P5.1: 测试 工具 — 直接 推 一个 合成 monitor event 到 WS, 跳 LLM.
+
+    Kimi 用. 仅 owner 可调.
+    """
+    if auth.role != "owner":
+        raise HTTPException(403, "[dev tool] 仅 owner 可调用")
+
+    m = await _load_owned_meeting(meeting_id, session, auth)
+
+    # 拿 workspace 的 moderator agent (合成 event 需 它的 id/name/color)
+    moderator = (
+        await session.execute(
+            select(Agent).where(
+                Agent.workspace_id == m.workspace_id,
+                Agent.role == "moderator",
+                Agent.is_active.is_(True),
+            )
+        )
+    ).scalar_one_or_none()
+    if moderator is None:
+        raise HTTPException(400, "workspace 没 moderator agent, 无法 合成 event")
+
+    moderator_fields = {
+        "moderator_agent_id": str(moderator.id),
+        "moderator_agent_name": moderator.name,
+        "moderator_agent_nickname": moderator.nickname,
+        "moderator_agent_color": moderator.color or "amber",
+    }
+
+    et = payload.event_type
+    reason = (payload.reason or "[dev inject]")[:80]
+    synthetic: dict = {**moderator_fields, "reason": reason}
+
+    if et == "agenda_off_topic":
+        synthetic.update(
+            {
+                "type": "agenda_off_topic",
+                "off_topic_severity": payload.off_topic_severity or "confirmed",
+                "off_topic_summary": payload.off_topic_summary or "[dev] 测试 偏题 摘要",
+                "current_agenda_item": payload.current_agenda_item,
+                "suggested_agenda_item": payload.suggested_agenda_item,
+                "auto_summon_after_s": payload.auto_summon_after_s,
+            }
+        )
+    elif et == "agenda_stuck":
+        synthetic.update(
+            {
+                "type": "agenda_stuck",
+                "stuck_summary": payload.stuck_summary or "[dev] 测试 stuck 摘要",
+                "auto_summon_after_s": payload.auto_summon_after_s or 5,
+            }
+        )
+    elif et == "agenda_time_warning":
+        synthetic.update(
+            {
+                "type": "agenda_time_warning",
+                "time_warning_text": payload.time_warning_text or "[dev] 测试 time warning",
+                "elapsed_min": payload.elapsed_min or 10,
+            }
+        )
+    else:
+        raise HTTPException(400, f"不支持 的 event_type: {et}")
+
+    try:
+        await session_state.broadcast(m.id, synthetic)
+    except Exception:
+        logger.exception("dev inject broadcast failed")
+        raise HTTPException(500, "WS 广播 失败")
+
+    return {"ok": True, "injected": synthetic}
+
+
 class DissentRunNowOut(BaseModel):
     fired: bool
     payload: Optional[dict] = None
