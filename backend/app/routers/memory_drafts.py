@@ -61,6 +61,8 @@ class DraftOut(BaseModel):
     decision_reason: Optional[str] = None
     decided_at: Optional[datetime] = None
     committed_memory_id: Optional[uuid.UUID] = None
+    # v26.14-P7.3: 出处 链回 — 行号 = meeting_transcript.id, 前端 渲 chip + 跳 focus
+    source_line_ids: Optional[list[int]] = None
     created_at: datetime
 
 
@@ -215,6 +217,8 @@ async def approve_draft(
         source_type=d.source_type,
         source_id=str(d.source_task_id or d.source_meeting_id or ""),
         source_meeting_id=d.source_meeting_id,
+        # v26.14-P7.3: 出处 链回 — 持久化 source_line_ids, 半年 后 仍 可溯源
+        source_line_ids=d.source_line_ids,
         data_classification=d.proposed_data_classification,
         agent_id=target_aids[0] if target_aids else None,  # 老兼容
         curated_by_user_id=auth.user.id,

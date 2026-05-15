@@ -152,6 +152,10 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     #   agenda_progress: 各项 时间戳 [{ idx, started_at, ended_at, advanced_by_user_id, status }]
     ("meeting", "current_agenda_idx", "INTEGER"),
     ("meeting", "agenda_progress", "JSON"),
+    # v26.14-P7.3: Memory 出处 链回 — 草稿 + 持久 memory 都加 source_line_ids
+    #   行号 = meeting_transcript.id. 让 审批 / 入库 后 都 可 跳 实录 看 上下文.
+    ("memory_draft", "source_line_ids", "JSON"),
+    ("long_term_memory", "source_line_ids", "JSON"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

@@ -81,6 +81,8 @@ class MemoryOut(BaseModel):
     # 溯源
     source_meeting_id: Optional[uuid.UUID] = None
     source_action_item_id: Optional[uuid.UUID] = None
+    # v26.14-P7.3: 实录 出处 链回 — 行号 = meeting_transcript.id, 跳 focus 看 上下文
+    source_line_ids: Optional[list[int]] = None
     curated_by_user_id: Optional[uuid.UUID] = None
     curated_at: Optional[datetime] = None
     created_at: datetime

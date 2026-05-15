@@ -11,8 +11,34 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { api, type MemoryDraft, type SedimentationDraft } from "@/lib/api";
 import { toast } from "@/lib/toast";
+
+// v26.14-P7.3: 出处 链回 chip — Memory 草稿 / 持久 memory 通用.
+//   显 "📝 来自 N 句 → 看上下文", click 跳 /meeting/<mid>?focus=<ids>
+//   meetingId 缺 OR lineIds 空 → 不渲 (老 数据 兼容)
+function SourceLineChip({
+  meetingId,
+  lineIds,
+}: {
+  meetingId: string | null | undefined;
+  lineIds: number[] | null | undefined;
+}) {
+  if (!meetingId || !lineIds || lineIds.length === 0) return null;
+  const focus = lineIds.join(",");
+  return (
+    <Link
+      href={`/meeting/${meetingId}?focus=${focus}`}
+      className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-violet-500/30 bg-violet-500/10 px-1.5 py-0.5 text-[10px] text-violet-200 hover:border-violet-500 hover:bg-violet-500/20"
+      title="跳到 实录 看 这条 经验 的 上下文 (会高亮 + 展开 ±3 句)"
+    >
+      <span aria-hidden>📝</span>
+      <span>来自 {lineIds.length} 句</span>
+      <span className="text-violet-400">→ 看 上下文</span>
+    </Link>
+  );
+}
 
 type TopTab = "kb" | "memory";
 type Tab = "pending" | "approved" | "rejected";
@@ -291,6 +317,11 @@ function MemDraftRow({
             {" · "}创建于 {new Date(d.created_at).toLocaleString("zh-CN")}
             {d.decided_at && ` · 处理于 ${new Date(d.decided_at).toLocaleString("zh-CN")}`}
           </div>
+          {/* v26.14-P7.3: 出处 链回 chip — 拿 source_line_ids 跳 实录 focus */}
+          <SourceLineChip
+            meetingId={d.source_meeting_id}
+            lineIds={d.source_line_ids ?? null}
+          />
           {d.decision_reason && (
             <div className="mt-2 rounded bg-rose-500/5 px-2 py-1 text-xs text-rose-300">
               驳回理由: {d.decision_reason}
@@ -533,6 +564,11 @@ function MemDraftReviewDialog({
                   ? `📋 任务《${draft.source_task_title}》`
                   : draft.source_type}
             </div>
+            {/* v26.14-P7.3: 出处 链回 — 审批 时 一键 跳 实录 看 上下文 */}
+            <SourceLineChip
+              meetingId={draft.source_meeting_id}
+              lineIds={draft.source_line_ids ?? null}
+            />
           </div>
           <div className="rounded-xl border border-ink-700 bg-ink-950/60 p-3">
             <div className="text-xs text-zinc-500">挂给 AI 专家</div>

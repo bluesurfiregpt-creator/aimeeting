@@ -383,6 +383,18 @@ export default function MemoryAdmin() {
                         </span>
                       </div>
                       <p className="mt-2 text-zinc-100">{m.content}</p>
+                      {/* v26.14-P7.3: 出处 链回 — 半年 后 看 这条 经验 仍 可 跳 实录 看 上下文 */}
+                      {m.source_meeting_id && m.source_line_ids && m.source_line_ids.length > 0 ? (
+                        <Link
+                          href={`/meeting/${m.source_meeting_id}?focus=${m.source_line_ids.join(",")}`}
+                          className="mt-2 inline-flex items-center gap-1 rounded-md border border-violet-500/30 bg-violet-500/10 px-1.5 py-0.5 text-[10px] text-violet-200 hover:border-violet-500 hover:bg-violet-500/20"
+                          title="跳到 实录 看 这条 经验 的 上下文"
+                        >
+                          <span aria-hidden>📝</span>
+                          <span>来自 {m.source_line_ids.length} 句</span>
+                          <span className="text-violet-400">→ 看 上下文</span>
+                        </Link>
+                      ) : null}
                     </div>
                     {canDeleteMemory(m) ? (
                       <button

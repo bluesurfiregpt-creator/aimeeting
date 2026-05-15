@@ -1376,6 +1376,10 @@ class LongTermMemory(Base):
     embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(1536), nullable=True)
     # v21: 数据 5 级分级.同 Task.data_classification 的语义.
     data_classification: Mapped[str] = mapped_column(String(16), default="general", index=True)
+    # v26.14-P7.3: 出处 链回 — 这条 memory 由 哪几行 source_meeting 实录 直接 支撑.
+    # 行号 = meeting_transcript.id. 跟 MemoryDraft.source_line_ids 一脉, 通过 时 复制.
+    # 老 memory (升级 前 创建) 此字段 NULL, 前端 fallback 不渲 chip.
+    source_line_ids: Mapped[Optional[list[int]]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -1463,6 +1467,11 @@ class MemoryDraft(Base):
         PgUUID(as_uuid=True), ForeignKey("long_term_memory.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # v26.14-P7.3: 出处 链回 — 这条 候选记忆 由 哪几行 实录 直接 支撑.
+    # 跟 MeetingActionItem.evidence_anchor_line_ids 同套路, 行号 = meeting_transcript.id.
+    # 审批时 用户 点 chip → 跳 /meeting/<source_meeting_id>?focus=<ids> 看 上下文.
+    # 通过 后 复制 到 LongTermMemory.source_line_ids 持久化 — 半年 后 仍 可溯源.
+    source_line_ids: Mapped[Optional[list[int]]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

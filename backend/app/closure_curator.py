@@ -332,10 +332,35 @@ async def curate_closed_task(task_id: UUID) -> dict[str, Any]:
         if primary_user_id and target_agent_id:
             # 走 gate — 进 MemoryDraft, 不写 LongTermMemory
             from .models import MemoryDraft, Notification
+            # v26.14-P7.3: 出处 链回 — 拿 task 关联的 MeetingActionItem.evidence_anchor_line_ids
+            #   + source_meeting_id, 让 审批 时 用户 能 一键 跳 实录 看 上下文.
+            #   action_item 是 task 创建时 dual-write 关系 (task ↔ action_item via task.id ↔ action_item.task_id).
+            #   找 不到 (手工创建 task) 留 NULL.
+            source_meeting_id_for_draft = None
+            source_line_ids_for_draft = None
+            try:
+                ai_row = (
+                    await session.execute(
+                        select(MeetingActionItem).where(
+                            MeetingActionItem.task_id == task.id
+                        )
+                    )
+                ).scalar_one_or_none()
+                if ai_row is not None:
+                    source_meeting_id_for_draft = ai_row.meeting_id
+                    source_line_ids_for_draft = ai_row.evidence_anchor_line_ids or None
+            except Exception:
+                logger.exception(
+                    "closure_curator: lookup action_item for task %s failed (non-fatal)",
+                    task.id,
+                )
+
             draft = MemoryDraft(
                 workspace_id=task.workspace_id,
                 source_type="task",
                 source_task_id=task.id,
+                source_meeting_id=source_meeting_id_for_draft,
+                source_line_ids=source_line_ids_for_draft,
                 target_agent_ids=[str(target_agent_id)],
                 primary_user_id=primary_user_id,
                 proposed_content=curated["summary"][:2000],

@@ -550,6 +550,8 @@ export type Memory = {
   // 溯源
   source_meeting_id?: string | null;
   source_action_item_id?: string | null;
+  // v26.14-P7.3: 实录 出处 链回 — 行号 = meeting_transcript.id, 跳 focus 看 上下文
+  source_line_ids?: number[] | null;
   curated_by_user_id?: string | null;
   curated_at?: string | null;
   created_at: string;
@@ -576,6 +578,8 @@ export type MemoryDraft = {
   decision_reason: string | null;
   decided_at: string | null;
   committed_memory_id: string | null;
+  // v26.14-P7.3: 实录 出处 链回
+  source_line_ids?: number[] | null;
   created_at: string;
 };
 
