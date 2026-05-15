@@ -2,7 +2,7 @@
 
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   MicPermissionError,
   probeAudioCapabilities,
@@ -268,6 +268,7 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   // 实录页 高亮这些 行 + 滚动 + 展开 ±3 句上下文.
   // 同时若 ?tab=minutes 也支持从外部直接跳到 纪要 tab.
   const searchParams = useSearchParams();
+  const router = useRouter();
   const focusIds = useMemo<Set<number>>(() => {
     const raw = searchParams?.get("focus") || "";
     if (!raw) return new Set();
@@ -362,6 +363,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   const moderatorAutoFireTimeoutRef = useRef<number | null>(null);
   // v26.11-fix2: 邀请 AI 弹窗 开关 — 点 "+ 邀请 AI" 按钮 → 打开 InviteAgentsModal
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  // v26.14-P4.1-fix: 离开 会议室 二选一 modal — "回到工作台 / 结束整场"
+  const [leaveModalOpen, setLeaveModalOpen] = useState(false);
 
   // Pool of attendees we let users pick from when manually correcting a
   // line's speaker after the meeting. Loaded after stop() because it's
@@ -1297,6 +1300,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           }
           return total > 0 ? total : null;
         })()}
+        // v26.14-P4.1-fix: 替代 老 ← 首页 直跳
+        onLeaveClick={() => setLeaveModalOpen(true)}
       />
 
       {/* v26.10-Room Phase 1: 三栏 grid */}
@@ -1332,6 +1337,30 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
           allAgents={agents}
           invitedAgentIds={meetingMeta?.attendee_agent_ids || []}
           onClose={() => setInviteModalOpen(false)}
+        />
+      )}
+
+      {/* v26.14-P4.1-fix: 离开 会议室 二选一 modal */}
+      {leaveModalOpen && (
+        <LeaveMeetingModal
+          phase={phase}
+          onClose={() => setLeaveModalOpen(false)}
+          onLeaveContinue={async () => {
+            // 回到工作台 — 关 自己的 录音 + WS, 不调 finalize.
+            // 别 参会人 的 WS / 后端 状态 不动, 会议 仍 ongoing.
+            try { await captureRef.current?.stop(); } catch {}
+            captureRef.current = null;
+            try { socketRef.current?.close(); } catch {}
+            socketRef.current = null;
+            setLeaveModalOpen(false);
+            router.push("/");
+          }}
+          onLeaveEnd={async () => {
+            // 结束 整场 会议 — 走 现有 stop() (调 finalize + 清 WS), 然后 跳走.
+            try { await stop(); } catch {}
+            setLeaveModalOpen(false);
+            router.push("/");
+          }}
         />
       )}
 
@@ -2141,6 +2170,151 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
 // v26.11-fix2: 邀请 AI 弹窗 — 多选 workspace 内 未邀请 的 AI, 调
 // inviteMeetingAgents 后端 写 MeetingAttendee + 广播.
 // 收到 后 自己 也会 走 agents_invited event handler (统一 reducer, 不 重复 setState).
+// ============================================================================
+// v26.14-P4.1-fix: 离开 会议室 二选一 modal
+// ============================================================================
+// 老 ← 首页 直跳 — 但 实际 用户 离开 时 心里 想 的 是 两件 不同 事:
+//   (a) 我 暂离 一下 — 别人 + AI 继续 开会, 我 待会回来
+//   (b) 我 想 散会 — 整场 结束, 进入 沉淀 / 复盘
+// 直跳 等于 默认 (a) 但 不告诉 用户. 这里 显式 让 用户 选.
+//
+// 实现 注意:
+//   (a) onLeaveContinue: 关 自己 WS + 麦克风 → router.push("/")
+//       不 调 finalize, status 仍 ongoing. 别 参会人 WS 不动 (per-user WS).
+//       本机 字幕 / 录音 停止 (因离开 会议室 — 但 这 是 客户端 的 事, 后端 状态 不变).
+//   (b) onLeaveEnd: 调 stop() (现有, 内含 finalize) → router.push("/")
+//       Meeting.status='finished'. 别人 客户端 通过 polling 或 WS close 发现.
+
+function LeaveMeetingModal({
+  phase,
+  onClose,
+  onLeaveContinue,
+  onLeaveEnd,
+}: {
+  phase: "idle" | "live" | "ended";
+  onClose: () => void;
+  onLeaveContinue: () => void;
+  onLeaveEnd: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  // phase=ended 时 不需要 选 — 已经 结束 了, 仅 显 "回到工作台"
+  const isAlreadyEnded = phase === "ended";
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-2xl border border-ink-700 bg-ink-900 p-5 shadow-2xl"
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-zinc-100">离开 会议室</h2>
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+            aria-label="关闭"
+          >
+            ✕
+          </button>
+        </div>
+
+        {isAlreadyEnded ? (
+          <div className="space-y-3">
+            <p className="text-xs text-zinc-400">
+              本场 会议 已 结束. 你 可以 安全 回 工作台.
+            </p>
+            <button
+              type="button"
+              onClick={async () => {
+                setBusy(true);
+                await onLeaveContinue();
+              }}
+              disabled={busy}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent-500 px-4 py-2.5 text-sm font-medium text-white shadow hover:bg-accent-400 disabled:opacity-50"
+            >
+              💼 回到 工作台
+            </button>
+          </div>
+        ) : (
+          <>
+            <p className="mb-3 text-xs text-zinc-500">你 想 怎么 做?</p>
+
+            <div className="space-y-2">
+              {/* 选项 A: 回到工作台 — 会议继续 */}
+              <button
+                type="button"
+                onClick={async () => {
+                  setBusy(true);
+                  await onLeaveContinue();
+                }}
+                disabled={busy}
+                data-testid="leave-continue"
+                className="flex w-full items-start gap-3 rounded-lg border border-ink-700 bg-ink-950 px-4 py-3 text-left transition hover:border-accent-500 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <span className="text-xl">💼</span>
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-zinc-100">
+                    回到 工作台
+                    <span className="ml-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-medium text-emerald-200">
+                      会议 继续
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[11px] leading-4 text-zinc-500">
+                    其他 参会人 + AI <span className="text-zinc-300">不受影响</span>, 继续 录音 / 触发.
+                    你 这台 主机 的 录音 + 字幕 会 停 (因 离开 会议室).
+                    之后 可以 回来 继续.
+                  </p>
+                </div>
+                <span className="text-zinc-600">→</span>
+              </button>
+
+              {/* 选项 B: 结束整场 */}
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!confirm("⚠️ 确定 结束 整场 会议? 所有 人 + AI 都 会 停, 不可 撤销.")) return;
+                  setBusy(true);
+                  await onLeaveEnd();
+                }}
+                disabled={busy}
+                data-testid="leave-end"
+                className="flex w-full items-start gap-3 rounded-lg border border-rose-500/30 bg-rose-500/5 px-4 py-3 text-left transition hover:border-rose-500/60 hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <span className="text-xl">⛔</span>
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-zinc-100">
+                    结束 整场 会议
+                    <span className="ml-2 rounded-full border border-rose-500/40 bg-rose-500/10 px-1.5 py-0.5 text-[9px] font-medium text-rose-200">
+                      不可 撤销
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[11px] leading-4 text-zinc-500">
+                    所有 人 + AI 都 停, 进入 <span className="text-zinc-300">已结束 状态</span>.
+                    之后 是 复盘 + 沉淀 阶段 (查看 纪要 / 审批 草稿 / 等).
+                  </p>
+                </div>
+                <span className="text-rose-300">→</span>
+              </button>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={onClose}
+                disabled={busy}
+                className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+              >
+                取消
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function InviteAgentsModal({
   meetingId,
   allAgents,
@@ -3326,6 +3500,8 @@ function MeetingRoomTopBar({
   onInviteClick,
   // v26.14-P4.1: 计划总时 (sum agenda.time_budget_min); null = 没设议程时间, 仅显 elapsed
   plannedTotalMinutes,
+  // v26.14-P4.1-fix: 离开 会议室 (替代 ← 首页 直跳)
+  onLeaveClick,
 }: {
   title?: string;
   mode?: string;
@@ -3342,6 +3518,7 @@ function MeetingRoomTopBar({
   onInvokeAgent: (a: Agent) => void;
   onInviteClick: () => void;
   plannedTotalMinutes: number | null;
+  onLeaveClick: () => void;
 }) {
   const statusColor =
     phase === "live"
@@ -3360,18 +3537,22 @@ function MeetingRoomTopBar({
     // v26.14-fix1: 顶部 chrome 2 行 — 上行 标题/中央倒计时/状态, 下行 控件.
     // v26.14-P4.1: 倒计时 移到 上行 正中央 (老 在 右侧 status pill 内 不显眼).
     <header className="flex shrink-0 flex-col border-b border-ink-800 bg-ink-900/60 backdrop-blur">
-      {/* Row 1: [左 标题 / 中央 大字 倒计时 / 右 状态pill + AI 数] — 3 段 grid 保 居中 */}
+      {/* Row 1: [左 返回+标题 / 中央 大字 倒计时 / 右 状态pill + AI 数] — 3 段 grid 保 居中
+          v26.14-P4.1-fix: 老 ← 首页 link 直跳 → 改 ← 返回 按钮 + 二选一 modal.
+          AppLogo 已在 会议室 隐藏 (同套修复). 顶部 不再 双 logo 撞. */}
       <div className="grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-3 px-4">
-        {/* 左: 标题 */}
+        {/* 左: 返回 按钮 + 标题 */}
         <div className="flex min-w-0 items-center gap-3">
-          <Link
-            href="/"
-            className="shrink-0 text-xs text-zinc-500 hover:text-zinc-200"
-            title="返回首页"
+          <button
+            type="button"
+            onClick={onLeaveClick}
+            data-testid="leave-meeting-btn"
+            className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-ink-700 bg-ink-950 px-2.5 py-1 text-xs text-zinc-300 hover:border-zinc-600 hover:bg-ink-900 hover:text-white transition"
+            title="离开 会议室 (会问 你 是 结束 整场 还是 仅 回到工作台)"
           >
-            ← 首页
-          </Link>
-          <span className="shrink-0 text-zinc-700">·</span>
+            <span aria-hidden>←</span>
+            <span>返回</span>
+          </button>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">

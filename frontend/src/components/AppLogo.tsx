@@ -17,11 +17,21 @@ const PUBLIC_PATHS = new Set([
   "/reset-password",
 ]);
 
+// v26.14-P4.1-fix: 会议室 (/meeting/<id>) 二级页面 已有 自己的 顶部 chrome 含 [← 返回],
+// 老 AppLogo 漂浮 在 左上 跟 chrome title 撞 + 跟 v26.14 中央 倒计时 抢眼.
+// 跟 v26.11-fix3 AuthHeader 同套 处理 — 在 会议室 整个 隐藏.
+function isMeetingRoomPath(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return /^\/meeting\/[^/]+/.test(pathname);
+}
+
 export default function AppLogo() {
   const pathname = usePathname();
   if (pathname && PUBLIC_PATHS.has(pathname)) return null;
   // 在首页时不显示(避免跟 H1 重复)
   if (pathname === "/") return null;
+  // v26.14-P4.1-fix: 会议室 隐藏
+  if (isMeetingRoomPath(pathname)) return null;
 
   return (
     <div className="fixed left-4 top-3 z-30">
