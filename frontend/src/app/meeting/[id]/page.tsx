@@ -1286,6 +1286,17 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
         busyAgents={busyAgents}
         onInvokeAgent={invokeAgent}
         onInviteClick={() => setInviteModalOpen(true)}
+        // v26.14-P4.1: 倒计时 中央 — 计划总时 = sum(agenda.time_budget_min)
+        plannedTotalMinutes={(() => {
+          const items = meetingMeta?.agenda || [];
+          let total = 0;
+          for (const item of items) {
+            if (typeof item.time_budget_min === "number" && item.time_budget_min > 0) {
+              total += item.time_budget_min;
+            }
+          }
+          return total > 0 ? total : null;
+        })()}
       />
 
       {/* v26.10-Room Phase 1: 三栏 grid */}
@@ -3198,6 +3209,105 @@ function StatItem({
 }
 
 // v26.10-Room Phase 1: 顶部条 — 标题 + 状态徽章 + 计时 + 模式提示 + 返回链接
+// ============================================================================
+// v26.14-P4.1: 中央 倒计时 — 数字钟 风格 (绿色发光 / 黄色预警 / 红色超时)
+// ============================================================================
+// 三态 阈值:
+//   normal (绿)  — phase=live AND elapsed < 80% planned AND 剩余 > 5min
+//   warning (琥珀) — 剩余 ≤ 20% OR 剩余 ≤ 5min
+//   overtime (红) — elapsed > planned (强红 + 显示 +MM:SS)
+// 没设 plannedTotalMinutes (= null) 时 → 永远 normal 绿, 仅 显 已用时间.
+// phase != live → 显 静态 (不动 / 灰色).
+function CountdownClock({
+  phase,
+  plannedTotalMinutes,
+}: {
+  phase: "idle" | "live" | "ended";
+  plannedTotalMinutes: number | null;
+}) {
+  const [elapsedSec, setElapsedSec] = useState<number>(0);
+
+  useEffect(() => {
+    if (phase !== "live") return;
+    const startedAt = Date.now() - elapsedSec * 1000;
+    const t = window.setInterval(() => {
+      setElapsedSec(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
+  // 计算 显示 + 三态
+  const plannedSec = plannedTotalMinutes ? plannedTotalMinutes * 60 : null;
+  const isOvertime = plannedSec !== null && elapsedSec > plannedSec;
+
+  let tone: "normal" | "warning" | "overtime" = "normal";
+  if (phase !== "live") {
+    tone = "normal"; // idle / ended → 绿 静态
+  } else if (isOvertime) {
+    tone = "overtime";
+  } else if (plannedSec !== null) {
+    const remainSec = plannedSec - elapsedSec;
+    const remainRatio = remainSec / plannedSec;
+    // 剩余 ≤ 20% OR 剩余 ≤ 5min → 预警
+    if (remainRatio <= 0.2 || remainSec <= 300) tone = "warning";
+  }
+
+  // 格式化
+  const fmtMS = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  };
+  const overSec = isOvertime ? elapsedSec - (plannedSec ?? 0) : 0;
+  const mainText = isOvertime ? `+${fmtMS(overSec)}` : fmtMS(elapsedSec);
+  const tail = plannedTotalMinutes !== null
+    ? ` / ${plannedTotalMinutes}m`
+    : "";
+
+  const toneClass =
+    tone === "overtime"
+      ? "clock-tone-overtime"
+      : tone === "warning"
+        ? "clock-tone-warning"
+        : "clock-tone-normal";
+
+  // phase=idle 时 显 "—" 占位 (不闪)
+  if (phase === "idle") {
+    return (
+      <div className="flex items-baseline justify-center gap-1.5">
+        <span className="clock-digital text-2xl text-zinc-600">--:--</span>
+        {plannedTotalMinutes !== null && (
+          <span className="text-[11px] font-medium text-zinc-600">
+            / {plannedTotalMinutes}m
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="flex items-baseline justify-center gap-1.5"
+      title={
+        plannedTotalMinutes !== null
+          ? `已开会 ${fmtMS(elapsedSec)} / 计划 ${plannedTotalMinutes} 分钟${
+              isOvertime ? ` (超时 ${fmtMS(overSec)})` : ""
+            }`
+          : `已开会 ${fmtMS(elapsedSec)} (未设议程时间预算)`
+      }
+    >
+      <span className={`clock-digital text-2xl ${toneClass}`}>
+        {mainText}
+      </span>
+      {tail && (
+        <span className="clock-digital text-xs text-zinc-500">{tail}</span>
+      )}
+    </div>
+  );
+}
+
+
 function MeetingRoomTopBar({
   title,
   mode,
@@ -3214,6 +3324,8 @@ function MeetingRoomTopBar({
   busyAgents,
   onInvokeAgent,
   onInviteClick,
+  // v26.14-P4.1: 计划总时 (sum agenda.time_budget_min); null = 没设议程时间, 仅显 elapsed
+  plannedTotalMinutes,
 }: {
   title?: string;
   mode?: string;
@@ -3229,29 +3341,8 @@ function MeetingRoomTopBar({
   busyAgents: Set<string>;
   onInvokeAgent: (a: Agent) => void;
   onInviteClick: () => void;
+  plannedTotalMinutes: number | null;
 }) {
-  // 计时器 (会议开始后累加)
-  const [elapsedMs, setElapsedMs] = useState<number>(0);
-  useEffect(() => {
-    if (phase !== "live") return;
-    const start = Date.now() - elapsedMs;
-    const t = setInterval(() => {
-      setElapsedMs(Date.now() - start);
-    }, 1000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase]);
-  const fmtElapsed = (ms: number) => {
-    const sec = Math.floor(ms / 1000);
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    const h = Math.floor(m / 60);
-    if (h > 0) {
-      return `${h}:${String(m % 60).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-    }
-    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  };
-
   const statusColor =
     phase === "live"
       ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
@@ -3266,11 +3357,12 @@ function MeetingRoomTopBar({
         : "⚪ 待开始";
 
   return (
-    // v26.14-fix1: 顶部 chrome 改 2 行 — 上行 标题/状态, 下行 控件 (老 中栏 header).
-    // 总高 ~96px (2 行 + 边框), 比 老 56px chrome + 80px 中栏 header = 136px 节省 ~40px.
+    // v26.14-fix1: 顶部 chrome 2 行 — 上行 标题/中央倒计时/状态, 下行 控件.
+    // v26.14-P4.1: 倒计时 移到 上行 正中央 (老 在 右侧 status pill 内 不显眼).
     <header className="flex shrink-0 flex-col border-b border-ink-800 bg-ink-900/60 backdrop-blur">
-      {/* Row 1: 标题 + 状态 + 计时 */}
-      <div className="flex h-12 items-center justify-between px-4">
+      {/* Row 1: [左 标题 / 中央 大字 倒计时 / 右 状态pill + AI 数] — 3 段 grid 保 居中 */}
+      <div className="grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-3 px-4">
+        {/* 左: 标题 */}
         <div className="flex min-w-0 items-center gap-3">
           <Link
             href="/"
@@ -3296,7 +3388,15 @@ function MeetingRoomTopBar({
             </h1>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+
+        {/* 中央: 倒计时 — 数字钟 风格, 三态 颜色 (绿/琥珀/红), 发光动画 */}
+        <CountdownClock
+          phase={phase}
+          plannedTotalMinutes={plannedTotalMinutes}
+        />
+
+        {/* 右: 状态pill (去掉 老 计时) + AI 数 + Orchestrate */}
+        <div className="flex items-center justify-end gap-3">
           <span
             className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${statusColor}`}
             title={statusText}
@@ -3305,11 +3405,6 @@ function MeetingRoomTopBar({
               <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
             )}
             {statusLabel}
-            {phase === "live" && (
-              <span className="font-mono tabular-nums">
-                · {fmtElapsed(elapsedMs)}
-              </span>
-            )}
           </span>
           {invitedAgentCount > 0 && (
             <span className="hidden rounded-full bg-violet-500/15 px-2.5 py-1 text-xs text-violet-300 sm:inline-flex">

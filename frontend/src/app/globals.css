@@ -86,6 +86,46 @@ html, body {
   animation: ai-sparkle 3s ease-in-out infinite;
 }
 
+/* v26.14-P4.1: 会议室 顶部 中央 倒计时 — 数字钟 风格 (液晶 / 分段感 / 发光).
+   三态:
+     normal (绿)  — 充裕  (剩余 > 20% AND 剩余 > 5min)
+     warning (琥珀) — 预警 (剩余 ≤ 20% OR 剩余 ≤ 5min)
+     overtime (红) — 超时 (elapsed > planned)
+   超时 + 严重偏离 时, .clock-pulse 加上闪烁. */
+
+/* 数字钟 通用 字体 — 优先 等宽 衬线/无衬线, 跟 LCD 像 (没用 真 LCD 字体 防 license) */
+.clock-digital {
+  font-family: "SF Mono", "JetBrains Mono", "Roboto Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+@keyframes clock-glow-green {
+  0%, 100% { text-shadow: 0 0 6px rgba(16, 185, 129, 0.45), 0 0 12px rgba(16, 185, 129, 0.25); }
+  50%      { text-shadow: 0 0 10px rgba(16, 185, 129, 0.7), 0 0 18px rgba(16, 185, 129, 0.4); }
+}
+@keyframes clock-glow-amber {
+  0%, 100% { text-shadow: 0 0 6px rgba(245, 158, 11, 0.5), 0 0 12px rgba(245, 158, 11, 0.3); }
+  50%      { text-shadow: 0 0 10px rgba(245, 158, 11, 0.75), 0 0 18px rgba(245, 158, 11, 0.45); }
+}
+@keyframes clock-glow-red {
+  0%, 100% { text-shadow: 0 0 7px rgba(244, 63, 94, 0.55), 0 0 14px rgba(244, 63, 94, 0.35); }
+  50%      { text-shadow: 0 0 12px rgba(244, 63, 94, 0.85), 0 0 22px rgba(244, 63, 94, 0.55); }
+}
+.clock-tone-normal {
+  color: #10b981;
+  animation: clock-glow-green 3.5s ease-in-out infinite;
+}
+.clock-tone-warning {
+  color: #f59e0b;
+  animation: clock-glow-amber 2.5s ease-in-out infinite;
+}
+.clock-tone-overtime {
+  color: #f43f5e;
+  animation: clock-glow-red 1.2s ease-in-out infinite;
+}
+
 /* 隐藏滚动条但保持可滑动 (画廊 + 任务面板等) */
 .scrollbar-thin::-webkit-scrollbar {
   height: 6px;
