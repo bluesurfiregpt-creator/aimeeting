@@ -185,6 +185,74 @@ async def get_draft(
     return (await _resolve(session, [d]))[0]
 
 
+# v26.14-P7.1: 草稿 inline 编辑 — 仅 pending 状态 + 仅 primary_user (审批人) 可改.
+# LLM 抽 的 表达 经常 不准, 老 流程 只 通过/驳回 → 烂草稿 多被 弃, 浪费. 加 编辑 让
+# 用户 改 一下 后 通过, 大幅 提通过率 + 降 弃稿率.
+class DraftPatchIn(BaseModel):
+    proposed_content: Optional[str] = None
+    proposed_importance: Optional[float] = None
+    proposed_scope: Optional[str] = None  # user|project|org
+    proposed_scope_ref: Optional[str] = None
+
+
+@router.patch("/{draft_id}", response_model=DraftOut)
+async def patch_draft(
+    draft_id: str,
+    payload: DraftPatchIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.14-P7.1: 草稿 inline 编辑. 仅 pending + 仅 审批人 (primary_user) 可改."""
+    d = await _load_with_abac(draft_id, session, auth)
+    if d.status != "pending":
+        raise HTTPException(409, f"draft 状态={d.status}, 仅 pending 可改")
+
+    data = payload.model_dump(exclude_unset=True)
+    changed: list[str] = []
+
+    if "proposed_content" in data:
+        new_content = (data["proposed_content"] or "").strip()
+        if not new_content:
+            raise HTTPException(400, "proposed_content 不能 为空")
+        if len(new_content) > 2000:
+            new_content = new_content[:2000]
+        if new_content != d.proposed_content:
+            d.proposed_content = new_content
+            changed.append("content")
+
+    if "proposed_importance" in data and data["proposed_importance"] is not None:
+        imp = float(data["proposed_importance"])
+        imp = max(0.0, min(1.0, imp))
+        if abs(imp - d.proposed_importance) > 1e-6:
+            d.proposed_importance = imp
+            changed.append("importance")
+
+    if "proposed_scope" in data and data["proposed_scope"]:
+        if data["proposed_scope"] not in ("user", "project", "org"):
+            raise HTTPException(400, "proposed_scope 必须 是 user|project|org")
+        if data["proposed_scope"] != d.proposed_scope:
+            d.proposed_scope = data["proposed_scope"]
+            changed.append("scope")
+
+    if "proposed_scope_ref" in data:
+        if data["proposed_scope_ref"] != d.proposed_scope_ref:
+            d.proposed_scope_ref = data["proposed_scope_ref"]
+            changed.append("scope_ref")
+
+    if not changed:
+        return (await _resolve(session, [d]))[0]
+
+    await session.commit()
+    await session.refresh(d)
+    await audit_log(
+        session, auth, "memory_draft.edit",
+        target_type="memory_draft", target_id=str(d.id),
+        payload={"changed_fields": changed},
+    )
+    await session.commit()
+    return (await _resolve(session, [d]))[0]
+
+
 @router.post("/{draft_id}/approve", response_model=DraftOut)
 async def approve_draft(
     draft_id: str,

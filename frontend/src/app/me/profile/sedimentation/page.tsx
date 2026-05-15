@@ -503,8 +503,9 @@ function KbDraftReviewDialog({
 }
 
 // v26.5-Lineage: Memory 沉淀审批 dialog (跟 KbDraftReviewDialog 对称)
+// v26.14-P7.1: 加 inline 编辑 — 改 内容/重要度/scope, 改完 一键 "保存+通过"
 function MemDraftReviewDialog({
-  draft,
+  draft: initialDraft,
   onClose,
   onDone,
 }: {
@@ -512,10 +513,67 @@ function MemDraftReviewDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  // local state — 让 inline 编辑 改 完 立刻 显示, 不依赖 父 重渲
+  const [draft, setDraft] = useState<MemoryDraft>(initialDraft);
   const [busy, setBusy] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [showReject, setShowReject] = useState(false);
+  // v26.14-P7.1: 编辑 模式 state
+  const [editing, setEditing] = useState(false);
+  const [editedContent, setEditedContent] = useState(draft.proposed_content);
+  const [editedImportance, setEditedImportance] = useState<number>(draft.proposed_importance);
   const isReadonly = draft.status !== "pending";
+
+  const startEdit = () => {
+    setEditedContent(draft.proposed_content);
+    setEditedImportance(draft.proposed_importance);
+    setEditing(true);
+  };
+  const cancelEdit = () => {
+    setEditing(false);
+    setShowReject(false);
+  };
+  const saveEdit = async (alsoApprove: boolean): Promise<boolean> => {
+    const trimmed = editedContent.trim();
+    if (!trimmed) {
+      toast.error("内容 不能 为空");
+      return false;
+    }
+    const patch: {
+      proposed_content?: string;
+      proposed_importance?: number;
+    } = {};
+    if (trimmed !== draft.proposed_content) patch.proposed_content = trimmed;
+    if (Math.abs(editedImportance - draft.proposed_importance) > 1e-6) {
+      patch.proposed_importance = editedImportance;
+    }
+    if (Object.keys(patch).length === 0 && !alsoApprove) {
+      toast.info("没 改动");
+      setEditing(false);
+      return true;
+    }
+    setBusy(true);
+    try {
+      if (Object.keys(patch).length > 0) {
+        const updated = await api.patchMemoryDraft(draft.id, patch);
+        setDraft(updated);
+      }
+      if (alsoApprove) {
+        await api.approveMemoryDraft(draft.id);
+        toast.success("✅ 已 保存 编辑 + 批准 入库");
+        onDone();
+        return true;
+      }
+      toast.success("已 保存");
+      setEditing(false);
+      return true;
+    } catch (e) {
+      void e;
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const doApprove = async () => {
     setBusy(true);
@@ -584,17 +642,91 @@ function MemDraftReviewDialog({
             </div>
           </div>
           <div className="rounded-xl border border-ink-700 bg-ink-950/60 p-3">
-            <div className="text-xs text-zinc-500">拟写入内容</div>
-            <pre className="mt-1 max-h-60 overflow-y-auto whitespace-pre-wrap text-xs text-zinc-200">
-              {draft.proposed_content}
-            </pre>
-            <div className="mt-2 flex gap-3 text-[11px] text-zinc-500">
-              <span>scope: {draft.proposed_scope}</span>
-              <span>重要度: {draft.proposed_importance.toFixed(1)}</span>
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-zinc-500">拟写入内容</div>
+              {/* v26.14-P7.1: 编辑 按钮 — 仅 pending + 没在 编辑 + 没 在 驳回 模式 显 */}
+              {!isReadonly && !editing && !showReject && (
+                <button
+                  type="button"
+                  onClick={startEdit}
+                  data-testid="memdraft-edit"
+                  className="text-[11px] text-accent-400 hover:text-accent-300"
+                  title="LLM 抽 的 不准? 改 一下 再 通过"
+                >
+                  ✏️ 编辑
+                </button>
+              )}
             </div>
+            {editing ? (
+              <>
+                <textarea
+                  value={editedContent}
+                  onChange={(e) => setEditedContent(e.target.value)}
+                  rows={6}
+                  data-testid="memdraft-content-edit"
+                  className="mt-1 w-full resize-y rounded border border-ink-700 bg-ink-900 px-2 py-1.5 text-xs text-zinc-100 focus:border-accent-500 focus:outline-none"
+                  placeholder="改 表达 / 修主语 / 改 时间 等. 留空 不允许 通过."
+                />
+                <div className="mt-2 flex items-center gap-3 text-[11px] text-zinc-500">
+                  <span>scope: {draft.proposed_scope} (此版 暂不 改)</span>
+                  <label className="flex items-center gap-1.5">
+                    <span>重要度:</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={editedImportance}
+                      onChange={(e) => setEditedImportance(parseFloat(e.target.value))}
+                      className="w-20"
+                    />
+                    <span className="font-mono text-zinc-400">{editedImportance.toFixed(2)}</span>
+                  </label>
+                </div>
+              </>
+            ) : (
+              <>
+                <pre className="mt-1 max-h-60 overflow-y-auto whitespace-pre-wrap text-xs text-zinc-200">
+                  {draft.proposed_content}
+                </pre>
+                <div className="mt-2 flex gap-3 text-[11px] text-zinc-500">
+                  <span>scope: {draft.proposed_scope}</span>
+                  <span>重要度: {draft.proposed_importance.toFixed(1)}</span>
+                </div>
+              </>
+            )}
           </div>
           {!isReadonly &&
-            (showReject ? (
+            (editing ? (
+              // v26.14-P7.1: 编辑 模式 按钮 — 保存+通过 / 仅保存 / 取消
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => saveEdit(true)}
+                  disabled={busy}
+                  data-testid="memdraft-save-and-approve"
+                  className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white shadow disabled:opacity-50 hover:bg-emerald-400"
+                >
+                  {busy ? "处理中…" : "✓ 保存 并 通过"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => saveEdit(false)}
+                  disabled={busy}
+                  className="rounded-lg border border-accent-500/40 bg-accent-500/10 px-4 py-2 text-sm text-accent-200 hover:bg-accent-500/20 disabled:opacity-50"
+                >
+                  仅 保存
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  disabled={busy}
+                  className="rounded-lg border border-ink-700 px-4 py-2 text-sm text-zinc-300 hover:bg-ink-800 disabled:opacity-50"
+                >
+                  取消 编辑
+                </button>
+              </div>
+            ) : showReject ? (
               <div>
                 <label className="block text-sm">
                   <span className="text-xs text-zinc-500">驳回理由 (可选)</span>

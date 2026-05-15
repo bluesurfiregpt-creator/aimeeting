@@ -2340,6 +2340,16 @@ export const api = {
     jpost<MemoryDraft>(`/api/memory-drafts/${id}/approve`, {}),
   rejectMemoryDraft: (id: string, reason?: string) =>
     jpost<MemoryDraft>(`/api/memory-drafts/${id}/reject`, { reason }),
+  // v26.14-P7.1: 草稿 inline 编辑 (审批前 改 一下 通过, 提通过率 + 降弃稿率)
+  patchMemoryDraft: (
+    id: string,
+    payload: {
+      proposed_content?: string;
+      proposed_importance?: number;
+      proposed_scope?: string;
+      proposed_scope_ref?: string | null;
+    },
+  ) => jpatch<MemoryDraft>(`/api/memory-drafts/${id}`, payload),
 
   // v26.5-Lineage P2: 数据血缘
   getLineage: () => jget<LineageOut>("/api/lineage"),
