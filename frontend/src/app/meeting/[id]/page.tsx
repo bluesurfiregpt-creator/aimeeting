@@ -1444,6 +1444,8 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
       {/* v25.12-#2: 纪要 tab — 仅 phase=ended */}
       {/* v25.14: TraceCard 合并到 ActionItemsCard(待办与流转 一卡到底)*/}
       <div style={{ display: viewTab === "minutes" ? "block" : "none" }}>
+        {/* v26.14-P2: 顶部 "本场收获" panel — 让 用户 看到 这场 会 给 AI 留下 啥 */}
+        {phase === "ended" ? <HarvestPanel meetingId={meetingId} /> : null}
         {phase === "ended" ? (
           <SummaryCard
             meetingId={meetingId}
@@ -3364,4 +3366,247 @@ function mergeSpeakers(local: LiveLine[], serverLines: TranscriptLine[]): LiveLi
     };
   });
   return mutated ? out : local;
+}
+
+
+// ============================================================================
+// v26.14-P2: 本场会议 收获 panel
+// ============================================================================
+// 让 用户 开完 会 看到 "这场 会 真的 让 AI 变 聪明了 几条 经验 / 几篇 资料":
+//   📌 Action Items: N 个 (M 已 完成)
+//   🧠 长期记忆 草稿: N 条 (M 待审 · K 已批)  ← 闭环 入口
+//   📚 知识库 草稿: N 条 (M 待审 · K 已批)    ← 通常 0, 等 任务办结 后 产
+// 不直接 展开 所有列表 (默认 折叠), 点 才 展. 避免 minutes tab 顶部 太占 空间.
+
+function HarvestPanel({ meetingId }: { meetingId: string }) {
+  const [data, setData] = useState<Awaited<ReturnType<typeof api.harvestMeeting>> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<"action" | "memory" | "kb" | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    api.harvestMeeting(meetingId)
+      .then((d) => { if (alive) setData(d); })
+      .catch(() => { /* api.ts 已 toast */ })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [meetingId]);
+
+  if (loading) {
+    return (
+      <div className="mt-4 rounded-xl border border-ink-700 bg-ink-900/40 px-4 py-3 text-xs text-zinc-500">
+        🎁 本场收获 加载中…
+      </div>
+    );
+  }
+  if (!data) return null;
+  const isEmpty =
+    data.action_items_total === 0 &&
+    data.memory_drafts_total === 0 &&
+    data.kb_drafts_total === 0;
+
+  return (
+    <section className="mt-4 rounded-xl border border-violet-500/30 bg-gradient-to-br from-violet-500/5 to-ink-900/80 p-4">
+      <header className="flex items-center justify-between">
+        <h3 className="flex items-center gap-2 text-sm font-medium text-violet-200">
+          <span className="text-base">🎁</span>
+          本场 会议 收获
+        </h3>
+        <span className="text-[10px] text-zinc-500">
+          AI 经验 / 资料 / 待办 的 沉淀
+        </span>
+      </header>
+
+      {isEmpty ? (
+        <p className="mt-2 text-xs leading-5 text-zinc-500">
+          本场 暂 无 沉淀 — 会议 较短 或 缺少 可抽取 的 决策/事实.
+          重生成 纪要 (实录 tab) 可 再次 抽取.
+        </p>
+      ) : (
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {/* Action Items */}
+          <HarvestStat
+            icon="📌"
+            label="Action Items"
+            primary={`${data.action_items_total} 个`}
+            sub={
+              data.action_items_total > 0
+                ? `${data.action_items_done} 完成 · ${data.action_items_open} 进行中`
+                : "本场 无 待办"
+            }
+            active={expanded === "action"}
+            disabled={data.action_items_total === 0}
+            onClick={() => setExpanded(expanded === "action" ? null : "action")}
+            tone="amber"
+          />
+          {/* Memory Drafts */}
+          <HarvestStat
+            icon="🧠"
+            label="长期记忆 草稿"
+            primary={`${data.memory_drafts_total} 条`}
+            sub={
+              data.memory_drafts_total > 0
+                ? `${data.memory_drafts_approved} 已批 · ${data.memory_drafts_pending} 待审`
+                : "本场 无 抽取"
+            }
+            active={expanded === "memory"}
+            disabled={data.memory_drafts_total === 0}
+            onClick={() => setExpanded(expanded === "memory" ? null : "memory")}
+            tone="violet"
+          />
+          {/* KB Drafts */}
+          <HarvestStat
+            icon="📚"
+            label="知识库 草稿"
+            primary={`${data.kb_drafts_total} 条`}
+            sub={
+              data.kb_drafts_total > 0
+                ? `${data.kb_drafts_approved} 已批 · ${data.kb_drafts_pending} 待审`
+                : "等 任务办结 后 产"
+            }
+            active={expanded === "kb"}
+            disabled={data.kb_drafts_total === 0}
+            onClick={() => setExpanded(expanded === "kb" ? null : "kb")}
+            tone="sky"
+          />
+        </div>
+      )}
+
+      {/* 展开 详情 列表 */}
+      {expanded === "action" && data.action_items.length > 0 && (
+        <ul className="mt-3 space-y-1.5 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+          {data.action_items.map((it) => (
+            <li key={it.id} className="flex items-start justify-between gap-2 text-xs">
+              <span className="text-zinc-300">
+                <StatusDot status={it.status} />
+                {it.content}
+              </span>
+              <span className="shrink-0 text-[10px] text-zinc-500">
+                {it.assignee_user_name || it.assignee_name_hint || "未派"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {expanded === "memory" && data.memory_drafts.length > 0 && (
+        <div className="mt-3 rounded-lg border border-violet-500/20 bg-violet-500/5 p-3">
+          <ul className="space-y-1.5">
+            {data.memory_drafts.map((d) => (
+              <li key={d.id} className="flex items-start justify-between gap-2 text-xs">
+                <span className="text-zinc-300">
+                  <StatusDot status={d.status} />
+                  {d.proposed_content}
+                </span>
+                <span className="shrink-0 text-[10px] text-zinc-500">
+                  {d.status === "pending" ? "待审" : d.status === "approved" ? "✅ 已批" : d.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {data.memory_drafts_pending > 0 && (
+            <Link
+              href="/me/profile/sedimentation"
+              className="mt-2 inline-block text-[11px] text-violet-300 hover:text-violet-200"
+            >
+              → 去 审批中心 处理 {data.memory_drafts_pending} 条 待审
+            </Link>
+          )}
+        </div>
+      )}
+
+      {expanded === "kb" && data.kb_drafts.length > 0 && (
+        <div className="mt-3 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
+          <ul className="space-y-1.5">
+            {data.kb_drafts.map((d) => (
+              <li key={d.id} className="flex items-start justify-between gap-2 text-xs">
+                <span className="text-zinc-300">
+                  <StatusDot status={d.status} />
+                  {d.proposed_summary_preview}…
+                </span>
+                <span className="shrink-0 text-[10px] text-zinc-500">
+                  {d.status === "pending" ? "待审" : d.status === "approved" ? "✅ 已批" : d.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {data.kb_drafts_pending > 0 && (
+            <Link
+              href="/me/profile/sedimentation"
+              className="mt-2 inline-block text-[11px] text-sky-300 hover:text-sky-200"
+            >
+              → 去 审批中心 处理 {data.kb_drafts_pending} 条 待审
+            </Link>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HarvestStat({
+  icon,
+  label,
+  primary,
+  sub,
+  active,
+  disabled,
+  onClick,
+  tone,
+}: {
+  icon: string;
+  label: string;
+  primary: string;
+  sub: string;
+  active: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  tone: "amber" | "violet" | "sky";
+}) {
+  const toneClasses = {
+    amber: active
+      ? "border-amber-500 bg-amber-500/10"
+      : "border-ink-800 bg-ink-950 hover:border-amber-500/40",
+    violet: active
+      ? "border-violet-500 bg-violet-500/10"
+      : "border-ink-800 bg-ink-950 hover:border-violet-500/40",
+    sky: active
+      ? "border-sky-500 bg-sky-500/10"
+      : "border-ink-800 bg-ink-950 hover:border-sky-500/40",
+  }[tone];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded-lg border px-3 py-2 text-left transition ${toneClasses} ${
+        disabled ? "cursor-default opacity-50" : "cursor-pointer"
+      }`}
+    >
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-zinc-500">
+        <span aria-hidden>{icon}</span>
+        <span>{label}</span>
+      </div>
+      <div className="mt-0.5 text-sm font-medium text-zinc-100">{primary}</div>
+      <div className="text-[10px] text-zinc-500">{sub}</div>
+    </button>
+  );
+}
+
+function StatusDot({ status }: { status: string }) {
+  const color =
+    status === "done" || status === "approved"
+      ? "bg-emerald-400"
+      : status === "rejected" || status === "cancelled"
+      ? "bg-rose-400"
+      : status === "expired"
+      ? "bg-zinc-500"
+      : "bg-amber-400"; // pending / open
+  return (
+    <span
+      className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${color}`}
+      aria-hidden
+    />
+  );
 }

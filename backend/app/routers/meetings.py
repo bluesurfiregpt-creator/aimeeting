@@ -28,6 +28,7 @@ from ..dissent_detector import maybe_detect_dissent
 from ..identify_pipeline import run_identify
 from ..models import (
     Agent,
+    KbSedimentationDraft,
     Meeting,
     MeetingActionItem,
     MeetingActionItemComment,
@@ -35,6 +36,7 @@ from ..models import (
     MeetingAttendee,
     MeetingSpeakerSegment,
     MeetingTranscript,
+    MemoryDraft,
     Notification,
     Task,
     User,
@@ -685,6 +687,167 @@ async def invite_meeting_agents(
         already_invited=already,
         invalid=invalid,
         attendee_agent_ids=list(invited_now),
+    )
+
+
+# ============================================================================
+# v26.14-P2: 会议 "本场收获" 面板 — meeting harvest endpoint
+# 列出 本场 会议 产出 的 三件 东西:
+#   1. Action Items (MeetingActionItem, 直接 关联 meeting_id)
+#   2. Memory Drafts (MemoryDraft, source_meeting_id 关联) — 待审/已批/已拒/已过期
+#   3. KB Sediment Drafts (KbSedimentationDraft via task → 间接关联) — 同上
+#
+# 让 用户 开完 会 看到 "这场 会 真的 让 AI 变 聪明了 几条 经验 / 几篇 资料",
+# 闭环 可见 (不再 黑盒).
+# ============================================================================
+
+class HarvestActionItem(BaseModel):
+    id: uuid.UUID
+    content: str
+    status: str  # open | done | cancelled
+    assignee_user_name: Optional[str] = None
+    assignee_name_hint: Optional[str] = None
+    due_at: Optional[datetime] = None
+
+
+class HarvestMemoryDraft(BaseModel):
+    id: uuid.UUID
+    proposed_content: str
+    status: str  # pending | approved | rejected | expired
+    created_at: datetime
+
+
+class HarvestKbDraft(BaseModel):
+    id: uuid.UUID
+    proposed_summary_preview: str  # 截 80 字
+    status: str
+    created_at: datetime
+
+
+class HarvestOut(BaseModel):
+    # 各类计数 — 顶部 panel 用 "📌 N 个 / 🧠 待审 N / 已审 N / 📚 ..."
+    action_items_total: int
+    action_items_open: int
+    action_items_done: int
+
+    memory_drafts_total: int
+    memory_drafts_pending: int
+    memory_drafts_approved: int
+
+    kb_drafts_total: int
+    kb_drafts_pending: int
+    kb_drafts_approved: int
+
+    # 列表 — panel 展开 后 显
+    action_items: list[HarvestActionItem]
+    memory_drafts: list[HarvestMemoryDraft]
+    kb_drafts: list[HarvestKbDraft]
+
+
+@router.get("/{meeting_id}/harvest", response_model=HarvestOut)
+async def meeting_harvest(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v26.14-P2: 本场 会议 沉淀 收获."""
+    m = await _load_owned_meeting(meeting_id, session, auth)
+
+    # Action items (直接 meeting_id)
+    actions = (
+        await session.execute(
+            select(MeetingActionItem)
+            .where(MeetingActionItem.meeting_id == m.id)
+            .order_by(MeetingActionItem.created_at.asc())
+        )
+    ).scalars().all()
+
+    # Memory drafts (source_meeting_id 直接)
+    mem_drafts = (
+        await session.execute(
+            select(MemoryDraft)
+            .where(MemoryDraft.source_meeting_id == m.id)
+            .order_by(MemoryDraft.created_at.desc())
+        )
+    ).scalars().all()
+
+    # KB drafts (通过 task: task.id 是 本场 action item 的 task_id, 再 join)
+    # 1. 找 本场 action items 的 task_id
+    task_ids = [a.task_id for a in actions if a.task_id is not None]
+    kb_drafts: list[KbSedimentationDraft] = []
+    if task_ids:
+        kb_drafts = list((
+            await session.execute(
+                select(KbSedimentationDraft)
+                .where(
+                    KbSedimentationDraft.task_id.in_(task_ids),
+                    # 仅 task_sediment kind, 不要 把 perplexity_auto 错算 给 本场
+                    KbSedimentationDraft.kind == "task_sediment",
+                )
+                .order_by(KbSedimentationDraft.created_at.desc())
+            )
+        ).scalars().all())
+
+    # Resolve assignee names
+    assignee_uids = {a.assignee_user_id for a in actions if a.assignee_user_id}
+    name_by_uid: dict[uuid.UUID, str] = {}
+    if assignee_uids:
+        rows = (
+            await session.execute(
+                select(User.id, User.name).where(User.id.in_(assignee_uids))
+            )
+        ).all()
+        name_by_uid = {r[0]: r[1] for r in rows}
+
+    # Counts
+    actions_open = sum(1 for a in actions if a.status == "open")
+    actions_done = sum(1 for a in actions if a.status == "done")
+    mem_pending = sum(1 for d in mem_drafts if d.status == "pending")
+    mem_approved = sum(1 for d in mem_drafts if d.status == "approved")
+    kb_pending = sum(1 for d in kb_drafts if d.status == "pending")
+    kb_approved = sum(1 for d in kb_drafts if d.status == "approved")
+
+    return HarvestOut(
+        action_items_total=len(actions),
+        action_items_open=actions_open,
+        action_items_done=actions_done,
+        memory_drafts_total=len(mem_drafts),
+        memory_drafts_pending=mem_pending,
+        memory_drafts_approved=mem_approved,
+        kb_drafts_total=len(kb_drafts),
+        kb_drafts_pending=kb_pending,
+        kb_drafts_approved=kb_approved,
+        action_items=[
+            HarvestActionItem(
+                id=a.id,
+                content=(a.content or "")[:200],
+                status=a.status,
+                assignee_user_name=(
+                    name_by_uid.get(a.assignee_user_id) if a.assignee_user_id else None
+                ),
+                assignee_name_hint=a.assignee_name_hint,
+                due_at=a.due_at,
+            )
+            for a in actions[:20]  # 截 20 条 防爆
+        ],
+        memory_drafts=[
+            HarvestMemoryDraft(
+                id=d.id,
+                proposed_content=(d.proposed_content or "")[:200],
+                status=d.status,
+                created_at=d.created_at,
+            )
+            for d in mem_drafts[:20]
+        ],
+        kb_drafts=[
+            HarvestKbDraft(
+                id=d.id,
+                proposed_summary_preview=(d.proposed_summary or "")[:80],
+                status=d.status,
+                created_at=d.created_at,
+            )
+            for d in kb_drafts[:20]
+        ],
     )
 
 

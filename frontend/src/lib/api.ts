@@ -1292,6 +1292,39 @@ export const api = {
     }),
   getMeeting: (id: string) => jget<Meeting>(`/api/meetings/${id}`),
   finalizeMeeting: (id: string) => jpost<Meeting>(`/api/meetings/${id}/finalize`, {}),
+  // v26.14-P2: 本场会议 收获 — action items + memory 草稿 + KB 草稿 统计 + 列表
+  harvestMeeting: (id: string) =>
+    jget<{
+      action_items_total: number;
+      action_items_open: number;
+      action_items_done: number;
+      memory_drafts_total: number;
+      memory_drafts_pending: number;
+      memory_drafts_approved: number;
+      kb_drafts_total: number;
+      kb_drafts_pending: number;
+      kb_drafts_approved: number;
+      action_items: Array<{
+        id: string;
+        content: string;
+        status: string;
+        assignee_user_name: string | null;
+        assignee_name_hint: string | null;
+        due_at: string | null;
+      }>;
+      memory_drafts: Array<{
+        id: string;
+        proposed_content: string;
+        status: string;
+        created_at: string;
+      }>;
+      kb_drafts: Array<{
+        id: string;
+        proposed_summary_preview: string;
+        status: string;
+        created_at: string;
+      }>;
+    }>(`/api/meetings/${id}/harvest`),
   meetingResult: (id: string) => jget<MeetingResult>(`/api/meetings/${id}/result`),
   // v26.11-fix2: 会议室 邀请 新 AI 加入 会议
   inviteMeetingAgents: (
