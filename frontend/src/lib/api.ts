@@ -580,6 +580,9 @@ export type MemoryDraft = {
   committed_memory_id: string | null;
   // v26.14-P7.3: 实录 出处 链回
   source_line_ids?: number[] | null;
+  // v26.14-P7.4: 拒绝 子类型 + 给 LLM 的 反馈
+  rejection_kind?: "discard" | "feedback" | null;
+  rejection_feedback?: string | null;
   created_at: string;
 };
 
@@ -2338,8 +2341,15 @@ export const api = {
     jget<MemoryDraft>(`/api/memory-drafts/${id}`),
   approveMemoryDraft: (id: string) =>
     jpost<MemoryDraft>(`/api/memory-drafts/${id}/approve`, {}),
-  rejectMemoryDraft: (id: string, reason?: string) =>
-    jpost<MemoryDraft>(`/api/memory-drafts/${id}/reject`, { reason }),
+  rejectMemoryDraft: (
+    id: string,
+    payload: {
+      reason?: string;
+      // v26.14-P7.4: 拒绝 子 类型. discard = 仅 弃用; feedback = 退回 LLM (必填 feedback_text)
+      kind?: "discard" | "feedback";
+      feedback_text?: string;
+    } = {},
+  ) => jpost<MemoryDraft>(`/api/memory-drafts/${id}/reject`, payload),
   // v26.14-P7.1: 草稿 inline 编辑 (审批前 改 一下 通过, 提通过率 + 降弃稿率)
   patchMemoryDraft: (
     id: string,

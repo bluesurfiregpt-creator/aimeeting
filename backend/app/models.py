@@ -1472,6 +1472,12 @@ class MemoryDraft(Base):
     # 审批时 用户 点 chip → 跳 /meeting/<source_meeting_id>?focus=<ids> 看 上下文.
     # 通过 后 复制 到 LongTermMemory.source_line_ids 持久化 — 半年 后 仍 可溯源.
     source_line_ids: Mapped[Optional[list[int]]] = mapped_column(JSON, nullable=True)
+    # v26.14-P7.4: 拒绝 的 子 类型 + 给 LLM 的 反馈
+    #   rejection_kind: "discard" (没意义, 弃用) | "feedback" (退回 LLM, 反馈 在 rejection_feedback)
+    #   rejection_feedback: 用户 写 的 "为什么 这条 不准 / 错在哪", 后续 累积 给 LLM
+    #     prompt 当 negative example. NULL = 仅 弃用, 没 给 LLM 反馈.
+    rejection_kind: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    rejection_feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

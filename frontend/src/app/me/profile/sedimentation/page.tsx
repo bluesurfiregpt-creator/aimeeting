@@ -442,11 +442,16 @@ function MemDraftRow({
             meetingId={d.source_meeting_id}
             lineIds={d.source_line_ids ?? null}
           />
-          {d.decision_reason && (
-            <div className="mt-2 rounded bg-rose-500/5 px-2 py-1 text-xs text-rose-300">
-              驳回理由: {d.decision_reason}
+          {/* v26.14-P7.4: 拒绝 子 类型 区分 显 — discard 红 / feedback 琥珀 */}
+          {d.rejection_kind === "feedback" && d.rejection_feedback ? (
+            <div className="mt-2 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-xs text-amber-200">
+              ↩ 退回 LLM · {d.rejection_feedback}
             </div>
-          )}
+          ) : d.decision_reason ? (
+            <div className="mt-2 rounded bg-rose-500/5 px-2 py-1 text-xs text-rose-300">
+              {d.rejection_kind === "discard" ? "🗑 弃用" : "驳回理由"}: {d.decision_reason}
+            </div>
+          ) : null}
         </div>
         <button
           type="button"
@@ -707,11 +712,24 @@ function MemDraftReviewDialog({
       setBusy(false);
     }
   };
+  // v26.14-P7.4: 拒绝 子 类型 — discard (弃用) | feedback (退回 LLM 必填 reason)
+  const [rejectKind, setRejectKind] = useState<"discard" | "feedback">("discard");
   const doReject = async () => {
+    const text = rejectReason.trim();
+    if (rejectKind === "feedback") {
+      if (text.length < 5) {
+        toast.error("退回 LLM 时 反馈 必填 ≥ 5 字 (写 为什么 不准)");
+        return;
+      }
+    }
     setBusy(true);
     try {
-      await api.rejectMemoryDraft(draft.id, rejectReason.trim() || undefined);
-      toast.success("已驳回");
+      await api.rejectMemoryDraft(draft.id, {
+        kind: rejectKind,
+        feedback_text: rejectKind === "feedback" ? text : undefined,
+        reason: rejectKind === "discard" ? text || undefined : undefined,
+      });
+      toast.success(rejectKind === "feedback" ? "已 退回 LLM (将累积 给 后续 抽取 当 反例)" : "已 弃用");
       onDone();
     } catch (e) {
       void e;
@@ -847,25 +865,78 @@ function MemDraftReviewDialog({
                 </button>
               </div>
             ) : showReject ? (
-              <div>
+              // v26.14-P7.4: 拒绝 二选一 — 弃用 vs 退回 LLM
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-ink-700 bg-ink-950/40 p-3 hover:border-zinc-600">
+                    <input
+                      type="radio"
+                      name="reject_kind"
+                      value="discard"
+                      checked={rejectKind === "discard"}
+                      onChange={() => setRejectKind("discard")}
+                      className="mt-0.5 accent-rose-400"
+                    />
+                    <div className="flex-1">
+                      <div className="text-sm text-zinc-100">🗑 弃用 — 这条 没意义</div>
+                      <div className="mt-0.5 text-[11px] text-zinc-500">
+                        简短 注释 (选填). 这条 仅 标记 弃用, 不影响 LLM 后续 抽取.
+                      </div>
+                    </div>
+                  </label>
+                  <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-ink-700 bg-ink-950/40 p-3 hover:border-zinc-600">
+                    <input
+                      type="radio"
+                      name="reject_kind"
+                      value="feedback"
+                      checked={rejectKind === "feedback"}
+                      onChange={() => setRejectKind("feedback")}
+                      className="mt-0.5 accent-amber-400"
+                    />
+                    <div className="flex-1">
+                      <div className="text-sm text-zinc-100">↩ 退回 LLM 重抽 — 写 反馈 (≥ 5 字)</div>
+                      <div className="mt-0.5 text-[11px] text-zinc-500">
+                        反馈 会 累积 给 后续 抽取 当 反例 (例: "主语 不对, 张三 不是 反对方").
+                      </div>
+                    </div>
+                  </label>
+                </div>
                 <label className="block text-sm">
-                  <span className="text-xs text-zinc-500">驳回理由 (可选)</span>
+                  <span className="text-xs text-zinc-500">
+                    {rejectKind === "feedback"
+                      ? "反馈 内容 (必填, 写 为什么 不准 / 错在哪)"
+                      : "弃用 注释 (可选)"}
+                  </span>
                   <textarea
                     value={rejectReason}
                     onChange={(e) => setRejectReason(e.target.value)}
-                    rows={2}
+                    rows={3}
+                    data-testid="memdraft-reject-text"
                     className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white focus:border-accent-500 focus:outline-none"
-                    placeholder="例: 这条事实有歧义"
+                    placeholder={
+                      rejectKind === "feedback"
+                        ? "例: 主语 不对, 张三 不是 反对方, 是 对 X 部分 有 顾虑"
+                        : "例: 这条事实 有歧义"
+                    }
                   />
                 </label>
-                <div className="mt-3 flex gap-2">
+                <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={doReject}
                     disabled={busy}
-                    className="rounded-lg bg-rose-500 px-4 py-2 text-sm text-white shadow disabled:opacity-50 hover:bg-rose-400"
+                    data-testid="memdraft-reject-confirm"
+                    className={
+                      rejectKind === "feedback"
+                        ? "rounded-lg bg-amber-500 px-4 py-2 text-sm text-white shadow disabled:opacity-50 hover:bg-amber-400"
+                        : "rounded-lg bg-rose-500 px-4 py-2 text-sm text-white shadow disabled:opacity-50 hover:bg-rose-400"
+                    }
                   >
-                    {busy ? "驳回中…" : "确认驳回"}
+                    {busy
+                      ? "处理中…"
+                      : rejectKind === "feedback"
+                      ? "↩ 确认 退回 LLM"
+                      : "🗑 确认 弃用"}
                   </button>
                   <button
                     type="button"

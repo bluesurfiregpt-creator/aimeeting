@@ -156,6 +156,11 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     #   行号 = meeting_transcript.id. 让 审批 / 入库 后 都 可 跳 实录 看 上下文.
     ("memory_draft", "source_line_ids", "JSON"),
     ("long_term_memory", "source_line_ids", "JSON"),
+    # v26.14-P7.4: 拒绝 子类型 + 给 LLM 的 反馈
+    #   rejection_kind: "discard" | "feedback"
+    #   rejection_feedback: 用户 写 的 "为什么 这条 不准 / 错在哪"
+    ("memory_draft", "rejection_kind", "VARCHAR(16)"),
+    ("memory_draft", "rejection_feedback", "TEXT"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

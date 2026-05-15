@@ -63,11 +63,17 @@ class DraftOut(BaseModel):
     committed_memory_id: Optional[uuid.UUID] = None
     # v26.14-P7.3: 出处 链回 — 行号 = meeting_transcript.id, 前端 渲 chip + 跳 focus
     source_line_ids: Optional[list[int]] = None
+    # v26.14-P7.4: 拒绝 子类型 + 给 LLM 的 反馈
+    rejection_kind: Optional[str] = None  # "discard" | "feedback"
+    rejection_feedback: Optional[str] = None
     created_at: datetime
 
 
 class RejectIn(BaseModel):
     reason: Optional[str] = None
+    # v26.14-P7.4: 拒绝 子 类型 — 默认 discard (没意义, 弃用); feedback 时 必填 feedback_text
+    kind: Optional[str] = None  # "discard" | "feedback"; None 视为 discard
+    feedback_text: Optional[str] = None  # 当 kind=feedback 必填 ≥ 5 字
 
 
 async def _resolve(
@@ -327,15 +333,31 @@ async def reject_draft(
     d = await _load_with_abac(draft_id, session, auth)
     if d.status != "pending":
         raise HTTPException(409, f"draft status={d.status}, 不能再驳")
+    # v26.14-P7.4: 区分 弃用 vs 退回 LLM (feedback). feedback 必 须 ≥ 5 字.
+    kind = (payload.kind or "discard").strip()
+    if kind not in ("discard", "feedback"):
+        raise HTTPException(400, "kind 必须 是 discard 或 feedback")
+    feedback_text = (payload.feedback_text or "").strip() or None
+    if kind == "feedback":
+        if not feedback_text or len(feedback_text) < 5:
+            raise HTTPException(
+                400, "退回 LLM 时 feedback_text 必填 且 ≥ 5 字 (写 为什么 不准)"
+            )
     d.status = "rejected"
     d.decision_reason = (payload.reason or "").strip() or None
     d.decided_at = datetime.now(timezone.utc)
+    d.rejection_kind = kind
+    d.rejection_feedback = feedback_text if kind == "feedback" else None
     await session.commit()
     await session.refresh(d)
     await audit_log(
         session, auth, "memory_draft.reject",
         target_type="memory_draft", target_id=str(d.id),
-        payload={"reason": d.decision_reason},
+        payload={
+            "reason": d.decision_reason,
+            "kind": kind,
+            "feedback": feedback_text if kind == "feedback" else None,
+        },
     )
     return (await _resolve(session, [d]))[0]
 
