@@ -74,9 +74,15 @@ export type DissentDetectedEvent = {
   reason: string;
 };
 
-/** M3.0: discussion has drifted from the current agenda item. */
+/** M3.0: discussion has drifted from the current agenda item.
+ *  v26.14-P4.2: 加 off_topic_severity 三档 — 前端 P4.3 据此 渲 不同 强度.
+ *    - "suspected": 轻度怀疑 (3-4 句 弱关联), 角落 提示, 不打断
+ *    - "confirmed": 确认偏离 (5+ 句 不沾边), banner 显眼 + 可关
+ *    - "severe":   严重偏题 (8+ 句 + 占议程 50%+), 全屏 modal + auto_summon 倒计时
+ *  老 后端 不带 severity 时 视为 "confirmed" 兼容. */
 export type AgendaOffTopicEvent = {
   type: "agenda_off_topic";
+  off_topic_severity?: "suspected" | "confirmed" | "severe";
   off_topic_summary: string;
   current_agenda_item: string | null;
   suggested_agenda_item: string | null;
@@ -86,6 +92,8 @@ export type AgendaOffTopicEvent = {
   moderator_agent_nickname?: string | null;
   moderator_agent_color: string;
   reason: string;
+  /** v26.14-P4.2: severe 时 LLM 给 倒计时, 不操作 自动 召唤 主持人. */
+  auto_summon_after_s?: number | null;
 };
 
 /** M3.0: current agenda item's time budget is ≥ 80% spent. */

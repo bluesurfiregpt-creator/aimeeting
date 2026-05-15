@@ -48,11 +48,54 @@ LOOKBACK_LINES = 12
 CHECK_INTERVAL_S = 60       # at most 1 LLM check / 60s / meeting
 COOLDOWN_S = 90             # after a banner fires, suppress for 90s
 
+# v26.14-P4.2: 偏题 触发 阈值 — 至少 N 条 *valid* (post-filter) 连续行 才 LLM 判.
+# 老 是 任何 3 条 finalized 行 (含 嗯啊/单字反应) → 误报 多.
+MIN_VALID_LINES = 3
+
+# v26.14-P4.2: 口头禅 / 短反应 — 仅由 这些 字符 组成 (含 标点) 的 行 → 低信息密度.
+# 不是 黑名单 而是 "整行 都 是 这些" 才 滤. "嗯, 我 觉得 A" 仍 保留.
+_FILLER_TOKENS = set("嗯啊呃哦哎喂咳呀诶嗨好对错是的不行那个这个那么这么")
+_PUNCT_AND_SPACE = set("., 。,;;:::、!!??""''「」()()… 　\t\n\r")
+
 
 @dataclass
 class AgendaSignal:
     kind: str  # off_topic | time_warning | stuck
     payload: dict
+
+
+def _is_low_signal_line(text: str) -> bool:
+    """v26.14-P4.2: 一行 是否 是 低信息密度 (口头禅 / 短反应 / 单字).
+
+    True 时 该行 不计入 偏题 触发 阈值. LLM 仍会 看到 它 (上下文), 但 不 单独 计数.
+
+    判 规则:
+      a) 去 标点 空格 后 < 4 字符 → True
+      b) 去 标点 空格 后 全 由 _FILLER_TOKENS 组成 → True (例: "嗯嗯" "好的" "对对对")
+    """
+    if not text:
+        return True
+    # 去 标点 + 空格
+    stripped = "".join(c for c in text if c not in _PUNCT_AND_SPACE)
+    if len(stripped) < 4:
+        return True
+    if all(c in _FILLER_TOKENS for c in stripped):
+        return True
+    return False
+
+
+def _count_consecutive_valid(rows: list) -> int:
+    """v26.14-P4.2: 从 末尾 倒数 连续 多少 条 是 valid (非 低信息密度).
+
+    遇到 第一条 低信息密度 行 就 停 — 计数 是 "尾部 连续" 而非 总数.
+    这样 一段 闲扯 中间 出现 一句 干货 会 重置 计数, 避免 误报.
+    """
+    n = 0
+    for r in reversed(rows):
+        if _is_low_signal_line(r.text or ""):
+            break
+        n += 1
+    return n
 
 
 # Per-meeting cooldown state (in-process; same caveat as dissent_detector).
@@ -83,7 +126,7 @@ _SYSTEM_PROMPT = """你是这场会议的主持人助理。会议有事先约定
 
 **严格 JSON 单行**输出, 不要包代码块, 不要任何其他文字:
 {
-  "off_topic": true/false,
+  "off_topic_severity": "none" | "suspected" | "confirmed" | "severe",
   "off_topic_summary": "<不超过 25 字, 描述大家在聊什么 vs 应该聊什么>",
   "current_agenda_item_idx": <最近 N 句最匹配的议程项 index, 从 0 开始; 都不匹配填 -1>,
   "suggested_agenda_item_idx": <若 off_topic, 应回到哪个议程项 index>,
@@ -95,17 +138,34 @@ _SYSTEM_PROMPT = """你是这场会议的主持人助理。会议有事先约定
 }
 
 判断规则:
-1. off_topic:近 5 句话题与当前议程项的 title / note 字段几乎不沾边, 且持续 ≥ 3 句 → true
-2. 偶尔的离题闲谈(< 3 句)不算
-3. time_warning:某议程项已用时间 / time_budget_min ≥ 0.8 时 → true (用时由调用方传入)
-4. stuck (僵局):**最近 5+ 句**对话存在**重复立场**且**没新增论据** —— 几个人反复说同一件事但谁也说服不了谁,讨论原地打转 → true
-   - 反例:有新数据 / 新方案出现 → false
-   - 反例:正在快速达成共识(同意/接力) → false
-5. **同一轮调用最多触发一种**,优先级 stuck > off_topic > time_warning
-6. reason 必须**简短并对用户有意义**, 例如:
-   - "在聊午餐安排, 议程是「合规风险评估」, 建议拉回"
-   - "「数据出境讨论」预算 15 分钟已用 13, 建议推进下一项"
-   - "邓西、王架构反复就「先做 A 还是 B」打转, 主持人介入收口"
+
+【off_topic_severity 三级 — v26.14-P4.2】
+评估 最近 N 句 跟 当前 议程项 (title + note) 的 偏离度, 分 4 档:
+
+- "none":整体 在 议程 范围内. 偶尔 一两句 闲扯 不算 偏题.
+- "suspected" (轻度怀疑):**3-4 句** 开始 偏离, 但 还 跟 议程 主题 有 弱关联
+  (例: 议程 是 "合规风险" 在 聊 同部门 的 别项目 经验). 用户 还 可能 自己 拐回来.
+- "confirmed" (确认偏离):**5+ 句** 完全 跟 议程 不沾边, 但 不 紧迫
+  (例: 议程 是 "合规风险" 在 聊 周末 团建).
+- "severe" (严重偏题):**8+ 句** 完全 偏离 + 占用 议程 大量 时间 (elapsed 跟 议程 总预算 的 比 已 超 50%)
+  (例: 议程 是 "数据出境" 整场 在 聊 别公司 的 八卦, 主持人 必须 立刻 介入).
+
+【其他 信号】
+- time_warning:某议程项 已用 时间 / time_budget_min ≥ 0.8 时 → true (用时 由 调用方 传入)
+- stuck (僵局):**最近 5+ 句** 对话 存在 **重复立场** 且 **没新增论据** —— 几个人 反复说 同一件事 但 谁也 说服不了 谁, 讨论 原地 打转 → true
+   - 反例:有 新数据 / 新方案 出现 → false
+   - 反例:正在 快速 达成 共识 (同意/接力) → false
+
+【优先级】
+- **同一轮 调用 最多 触发 一种**
+- stuck > off_topic_severity ≥ "confirmed" > time_warning > off_topic_severity == "suspected"
+- 即:suspected 是 最弱 信号, time_warning 比 它 更值得 弹
+
+【reason 要求】
+- 简短 + 对 用户 有意义, 例如:
+   - "在聊 午餐 安排, 议程 是「合规风险评估」, 建议 拉回"
+   - "「数据出境讨论」预算 15 分钟 已用 13, 建议 推进 下一项"
+   - "邓西、王架构 反复就「先做 A 还是 B」打转, 主持人 介入 收口"
 """
 
 
@@ -145,8 +205,19 @@ async def maybe_check_agenda(
             )
         ).scalars().all()
         rows = list(reversed(rows))
-        if len(rows) < 3:
+        if len(rows) < MIN_VALID_LINES:
             return  # not enough discussion to judge yet
+
+        # v26.14-P4.2: 偏题 触发 阈值 — 至少 N 条 *valid* 连续行 (尾部).
+        # 老 是 "任何 3 条 finalized 行" → 嗯啊/单字反应 也 算, 误报 多.
+        # 改 后 一条 干货 也能 重置 计数, 避免 短反应 触发 误报.
+        consecutive_valid = _count_consecutive_valid(rows)
+        if consecutive_valid < MIN_VALID_LINES:
+            logger.debug(
+                "agenda_monitor skipped meeting %s: only %d consecutive valid lines (need %d)",
+                meeting_id, consecutive_valid, MIN_VALID_LINES,
+            )
+            return
 
         user_ids = {r.speaker_user_id for r in rows if r.speaker_user_id}
         name_by_id: dict[uuid.UUID, str] = {}
@@ -229,18 +300,28 @@ async def maybe_check_agenda(
     if not parsed:
         return
 
-    off_topic = bool(parsed.get("off_topic"))
+    # v26.14-P4.2: 老 schema 是 off_topic: bool, 新 schema 是 off_topic_severity: 4 档.
+    # 兼容: 若 LLM 返 老 字段 (off_topic=true) 也 视为 confirmed, 不让 老模型 突然 哑掉.
+    raw_severity = parsed.get("off_topic_severity")
+    if raw_severity in ("none", "suspected", "confirmed", "severe"):
+        off_topic_severity = raw_severity
+    elif parsed.get("off_topic") is True:
+        off_topic_severity = "confirmed"
+    else:
+        off_topic_severity = "none"
+    off_topic_active = off_topic_severity != "none"
+
     time_warning = bool(parsed.get("time_warning"))
     stuck = bool(parsed.get("stuck"))
-    if not (off_topic or time_warning or stuck):
+    if not (off_topic_active or time_warning or stuck):
         return  # nothing to surface
 
     reason = (parsed.get("reason") or "").strip()[:80]
 
     # Pick which one to fire — only one banner per cycle so we don't spam.
-    # Priority: stuck > off_topic > time_warning. Stuck is the strongest
-    # actionable signal (people locked in disagreement), off_topic next,
-    # time_warning is informational and softest.
+    # v26.14-P4.2 优先级:
+    #   stuck > off_topic(confirmed/severe) > time_warning > off_topic(suspected)
+    # suspected 是 最弱 信号, time_warning (议程预算 80%) 比 它 更值得 弹.
     payload: dict = {
         "moderator_agent_id": str(moderator.id),
         "moderator_agent_name": moderator.name,
@@ -249,7 +330,22 @@ async def maybe_check_agenda(
         "moderator_agent_color": moderator.color or "amber",
         "reason": reason or "议程进度需要关注",
     }
+
+    # 决策 树: 显式 算 一遍 才 不会 漏 case
+    fire_type: str
+    is_strong_off_topic = off_topic_severity in ("confirmed", "severe")
     if stuck:
+        fire_type = "stuck"
+    elif is_strong_off_topic:
+        fire_type = "off_topic"
+    elif time_warning:
+        fire_type = "time_warning"
+    elif off_topic_severity == "suspected":
+        fire_type = "off_topic"
+    else:
+        return  # 不该 到 这里 (上面 已 return), 防御性
+
+    if fire_type == "stuck":
         payload.update(
             {
                 "type": "agenda_stuck",
@@ -260,7 +356,7 @@ async def maybe_check_agenda(
                 "auto_summon_after_s": 5,
             }
         )
-    elif off_topic:
+    elif fire_type == "off_topic":
         cur_idx = parsed.get("current_agenda_item_idx")
         sug_idx = parsed.get("suggested_agenda_item_idx")
         cur_item = (
@@ -276,12 +372,16 @@ async def maybe_check_agenda(
         payload.update(
             {
                 "type": "agenda_off_topic",
+                # v26.14-P4.2: 三级 严重度 — 前端 P4.3 据此 渲 轻/强/全屏 modal
+                "off_topic_severity": off_topic_severity,  # suspected | confirmed | severe
                 "off_topic_summary": (parsed.get("off_topic_summary") or "")[:60],
                 "current_agenda_item": cur_item,
                 "suggested_agenda_item": sug_item,
+                # severe 严重时 自动 summon 倒计时 (像 stuck), 让 用户 不点 也 会 介入
+                "auto_summon_after_s": 8 if off_topic_severity == "severe" else None,
             }
         )
-    else:
+    else:  # time_warning
         payload.update(
             {
                 "type": "agenda_time_warning",
@@ -304,9 +404,12 @@ async def maybe_check_agenda(
         }
         if payload["type"] == "agenda_off_topic":
             audit_payload.update(
+                # v26.14-P4.2: 严重度 也 落 audit, 方便 后续 分析 误报率
+                off_topic_severity=payload.get("off_topic_severity"),
                 current_agenda_item=payload.get("current_agenda_item"),
                 suggested_agenda_item=payload.get("suggested_agenda_item"),
                 off_topic_summary=payload.get("off_topic_summary"),
+                auto_summon_after_s=payload.get("auto_summon_after_s"),
             )
         elif payload["type"] == "agenda_stuck":
             audit_payload.update(
