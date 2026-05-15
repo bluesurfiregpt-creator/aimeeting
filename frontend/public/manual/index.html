@@ -1,0 +1,1257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aimeeting · AI 专家天团 操作手册</title>
+<style>
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #1c2128;
+  --bg-card: #1a1f27;
+  --border: #30363d;
+  --border-light: #21262d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #484f58;
+  --accent: #3b82f6;
+  --accent-glow: rgba(59,130,246,0.3);
+  --accent2: #22d3ee;
+  --hook-bg: rgba(59,130,246,0.08);
+  --hook-border: rgba(59,130,246,0.25);
+  --todo-bg: rgba(234,179,8,0.08);
+  --todo-border: rgba(234,179,8,0.3);
+  --sidebar-width: 260px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.8;
+  overflow-x: hidden;
+}
+
+/* ====== HEADER ====== */
+.site-header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 56px;
+  background: rgba(13,17,23,0.95);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  z-index: 1000;
+  gap: 16px;
+}
+
+.site-header .brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.site-header .brand-icon {
+  width: 32px; height: 32px;
+  background: linear-gradient(135deg, #3b82f6, #22d3ee);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 800;
+  color: #fff;
+}
+
+.site-header .version {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-left: auto;
+}
+
+/* ====== LAYOUT ====== */
+.container {
+  display: flex;
+  min-height: 100vh;
+  padding-top: 56px;
+}
+
+/* ====== SIDEBAR ====== */
+.sidebar {
+  position: fixed;
+  top: 56px; left: 0;
+  width: var(--sidebar-width);
+  height: calc(100vh - 56px);
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-light);
+  overflow-y: auto;
+  padding: 20px 0;
+  z-index: 100;
+}
+
+.sidebar-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 0 20px;
+  margin-bottom: 12px;
+}
+
+.toc-group a {
+  display: block;
+  padding: 8px 20px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  border-left: 2px solid transparent;
+  transition: all 0.2s;
+  line-height: 1.5;
+}
+
+.toc-group a:hover {
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.04);
+  border-left-color: var(--accent);
+}
+
+.toc-group a.core-chapter {
+  color: var(--accent2);
+}
+
+/* ====== MAIN CONTENT ====== */
+.main-content {
+  margin-left: var(--sidebar-width);
+  flex: 1;
+  padding: 40px 48px;
+  max-width: 920px;
+}
+
+/* ====== TYPOGRAPHY ====== */
+.main-content h1 {
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid var(--accent);
+}
+
+.main-content h2 {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 48px 0 20px 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  scroll-margin-top: 72px;
+}
+
+.main-content h3 {
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 32px 0 14px 0;
+  scroll-margin-top: 72px;
+}
+
+.main-content h4 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent2);
+  margin: 24px 0 10px 0;
+}
+
+.main-content p {
+  font-size: 15px;
+  line-height: 1.85;
+  margin-bottom: 14px;
+  color: #c9d1d9;
+}
+
+.main-content blockquote {
+  background: var(--bg-card);
+  border-left: 3px solid var(--accent);
+  padding: 12px 20px;
+  margin: 20px 0;
+  border-radius: 0 8px 8px 0;
+}
+
+.main-content blockquote p {
+  margin-bottom: 0;
+  color: var(--text-secondary);
+}
+
+.main-content blockquote p:last-child { margin-bottom: 0; }
+
+/* ====== TABLES ====== */
+.main-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0 24px 0;
+  font-size: 14px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.main-content thead {
+  background: var(--bg-tertiary);
+}
+
+.main-content th {
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+}
+
+.main-content td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-light);
+  color: #c9d1d9;
+}
+
+.main-content tbody tr:hover {
+  background: rgba(255,255,255,0.02);
+}
+
+/* ====== IMAGES ====== */
+.main-content img {
+  max-width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  margin: 16px 0 4px 0;
+  display: block;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+
+.main-content em {
+  display: block;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+  font-style: normal;
+  padding-left: 4px;
+}
+
+/* ====== CODE / PRE ====== */
+.main-content pre {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin: 16px 0;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #e6edf3;
+}
+
+.main-content code {
+  background: rgba(255,255,255,0.06);
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #ff7b72;
+}
+
+.main-content pre code {
+  background: none;
+  padding: 0;
+  color: #e6edf3;
+}
+
+/* ====== LISTS ====== */
+.main-content ul, .main-content ol {
+  margin: 12px 0 16px 24px;
+  font-size: 15px;
+}
+
+.main-content li {
+  margin-bottom: 6px;
+  color: #c9d1d9;
+}
+
+.main-content hr {
+  border: none;
+  border-top: 1px solid var(--border-light);
+  margin: 32px 0;
+}
+
+/* ====== TODO BLOCK ====== */
+.main-content blockquote:has(> p:first-child > strong:first-child) {
+  background: var(--todo-bg);
+  border-left-color: var(--todo-border);
+}
+
+/* ====== RESPONSIVE ====== */
+@media (max-width: 1024px) {
+  .sidebar { display: none; }
+  .main-content { margin-left: 0; padding: 24px; }
+}
+
+/* ====== SCROLLBAR ====== */
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ====== HERO SECTION ====== */
+.hero-section {
+  background: linear-gradient(135deg, rgba(59,130,246,0.08), rgba(34,211,238,0.05));
+  border: 1px solid var(--hook-border);
+  border-radius: 12px;
+  padding: 28px 32px;
+  margin: 24px 0 32px 0;
+}
+
+.main-content blockquote > p:first-child > strong:first-child {
+  color: var(--accent2);
+}
+</style>
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<header class="site-header">
+  <div class="brand">
+    <div class="brand-icon">Ai</div>
+    <span>Aimeeting · AI 专家天团</span>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <span style="font-size:13px;color:#8b949e;background:rgba(255,255,255,0.05);padding:4px 12px;border-radius:6px;border:1px solid #21262d;">操作手册 + 推广手册</span>
+    <span style="font-size:13px;color:#22d3ee;background:rgba(34,211,238,0.08);padding:4px 12px;border-radius:6px;border:1px solid rgba(34,211,238,0.2);">v2026.05.15</span>
+  </div>
+</header>
+
+<!-- ===== LAYOUT ===== -->
+<div class="container">
+
+<!-- ===== SIDEBAR ===== -->
+<aside class="sidebar">
+  <div class="sidebar-label">目录导航</div>
+  
+<div class="toc-group">
+  <a href="#_1">系统总览</a>
+</div>
+<div class="toc-group">
+  <a href="#_2">5 分钟上手</a>
+</div>
+<div class="toc-group">
+  <a href="#_3">AI 专家天团</a>
+</div>
+<div class="toc-group">
+  <a href="#_4">开一场会</a>
+</div>
+<div class="toc-group">
+  <a href="#_5" class="core-chapter">★ 智能主持 6 个时刻</a>
+</div>
+<div class="toc-group">
+  <a href="#_6" class="core-chapter">★ 自动待办 + 溯源</a>
+</div>
+<div class="toc-group">
+  <a href="#_7" class="core-chapter">★ 知识库（书架）</a>
+</div>
+<div class="toc-group">
+  <a href="#_8" class="core-chapter">★ 长期经验（AI大脑）</a>
+</div>
+<div class="toc-group">
+  <a href="#_9">沉淀审批中心</a>
+</div>
+<div class="toc-group">
+  <a href="#_10">团队协作 + 通知</a>
+</div>
+<div class="toc-group">
+  <a href="#_11">会议复盘</a>
+</div>
+<div class="toc-group">
+  <a href="#_12">立即上手</a>
+</div>
+<div class="toc-group">
+  <a href="#_13">附录</a>
+</div>
+
+
+  <div style="margin-top:32px;padding:0 20px;">
+    <div style="border-top:1px solid #21262d;padding-top:16px;">
+      <div class="sidebar-label">★ 核心章节</div>
+      <div style="font-size:12px;color:#484f58;line-height:1.8;">
+        <div><span style="color:#22d3ee;">第5章</span> 智能主持6个时刻</div>
+        <div><span style="color:#22d3ee;">第6章</span> 自动待办+溯源</div>
+        <div><span style="color:#22d3ee;">第7章</span> 知识库(书架)</div>
+        <div><span style="color:#22d3ee;">第8章</span> 长期经验(AI大脑)</div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- ===== MAIN CONTENT ===== -->
+<main class="main-content">
+<h1>Aimeeting · AI 专家天团 操作手册 + 推广手册</h1>
+<blockquote>
+<p>适用对象：政府机关 / 国企 / 大型企业中层及决策者 | 演示场景：福田物业 demo</p>
+</blockquote>
+<hr />
+<h2>第1章：系统总览 — Aimeeting 是什么</h2>
+<blockquote>
+<p><strong>钩子</strong>：把一群经验老到的同事 + 半个法律顾问 + 一名资深项目经理，装进你的会议室。他们还记得半年前你决定过的每件事。</p>
+</blockquote>
+<p><strong>Aimeeting 是带着 AI 专家跟你一起开会的智能系统。</strong> 你的会议室里坐着的不只是真人同事，还有32位数字员工 — 他们懂消防、懂合规、懂财务、懂运营，记得住过去开会得出的每一条结论。</p>
+<hr />
+<h3>三大痛点</h3>
+<table>
+<thead>
+<tr>
+<th>痛点</th>
+<th>老状态</th>
+<th>后果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>议程跑偏</td>
+<td>议程只是会前一张纸</td>
+<td>1小时的会跑成2小时</td>
+</tr>
+<tr>
+<td>决策黑箱</td>
+<td>几个方案反复讨论没人拍板</td>
+<td>下次重讨论，跨部门卡死</td>
+</tr>
+<tr>
+<td>沉淀流失</td>
+<td>重要决策只留在个人大脑</td>
+<td>同样错误反复犯，离职留真空</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3>三大价值</h3>
+<p><strong>1. 不是录音转文字 — 是 AI 专家真跟你一起开会</strong></p>
+<p>每位 AI 专家自带专业知识，听得懂业务，能接话、能追问。消防专家懂疏散规范，合规专家知道审批红线，数据专家随手能拉趋势图。</p>
+<p><strong>2. 越开越聪明 — 上次议过的事，这次自动引用</strong></p>
+<p>每场会后 AI 自动提取待办和经验教训，审批入库后写进 AI 的"长期经验"。下次聊到相关话题，AI 主动引用过往结论。同样的问题不重复踩。</p>
+<p><strong>3. 全程可追溯 — 每条建议都能链回原话</strong></p>
+<p>点击 AI 任意发言，系统自动定位到当时的实录位置。谁说了什么、为何这样决定，一目了然。离职交接不再怕。</p>
+<hr />
+<p><img alt="主页全景 — 大标题&quot;让会议拥有记忆与专家&quot;+32位 AI 专家卡片网格" src="images/screen-01-home.png" /><br />
+<em>图 1：Aimeeting 主页 — 你的32位 AI 专家天团一览。每张卡片是一位数字员工，显示姓名、头像、专业标签。</em></p>
+<hr />
+<h2>第2章：5 分钟上手 — 给第一次用的你</h2>
+<blockquote>
+<p><strong>钩子</strong>：5 分钟跑通一场真会议，看到 AI 真帮你干活的闭环。</p>
+</blockquote>
+<p>跟着下面 8 步走，5 分钟后你就拥有一场带 AI 专家、带纪要、带待办的完整会议。</p>
+<hr />
+<p><strong>Step 1：登录</strong></p>
+<p>打开系统地址，输入账号密码进入主页。</p>
+<p><strong>Step 2：认识你的 AI 专家天团</strong></p>
+<p>主页中央是大标题"让会议拥有记忆与专家"，下方是 AI 专家卡片网格。当前福田物业场景已预置32位数字员工：数小妙（数据洞察）、法老张（政策法规）、运营李（物业运营）、财王哥（财务核算）、服务赵姐（业主服务）……每位都有头像、名字和专业标签。</p>
+<p><img alt="主页全景 — 32位 AI 专家卡片网格展示" src="images/screen-01-home.png" /><br />
+<em>图 2：主页 — 32位数字员工排成卡片墙，一目了然。</em></p>
+<p><strong>Step 3：查看 AI 专家详情</strong></p>
+<p>点"数小妙"的卡片进入详情页。顶部显示她的三枚徽章：<strong>召唤 0 次</strong> / <strong>发言 0 行</strong> / <strong>参与 0 场</strong>。四个标签页一览无遗：</p>
+<ul>
+<li><strong>工卡</strong>：名字、角色定位、性格设定 — 数小妙是"数据洞察专家，擅长用数据发现问题"</li>
+<li><strong>书架</strong>：这位专家读了哪些资料（规章、流程、标准）</li>
+<li><strong>记忆</strong>：她记住了哪些过往会议的经验教训</li>
+<li><strong>履历</strong>：她参加过哪些会，提过什么关键建议</li>
+</ul>
+<p><img alt="AI详情页 — 数小妙，4个标签页+三枚徽章" src="images/screen-02-agent-detail.png" /><br />
+<em>图 3：AI 专家详情页 — "数小妙"的完整档案。三枚徽章记录她的工作活跃度，履历页是她的绩效档案。</em></p>
+<p><strong>Step 4：回主页，点"+ 新建完整会议"</strong></p>
+<p><strong>Step 5：填写会议信息</strong></p>
+<ul>
+<li>写标题：<strong>"4月安全生产例会"</strong></li>
+<li>设议程：填 2 项，每项加预计时长（分钟）。这是 AI 精准辅助的唯一依据</li>
+<li>邀 AI：搜索"数小妙"，勾选她参会</li>
+</ul>
+<p><img alt="议程设置界面 — &quot;4月安全生产例会&quot;+2项议程+邀请数小妙" src="images/screen-03-agenda-setup.png" /><br />
+<em>图 4：新建会议 — 标题、议程（带时长预算）、邀 AI，三步在同一页完成。议程写得越清楚，AI 越精准。</em></p>
+<p><strong>Step 6：进会议室，点"▶ 开始会议"</strong></p>
+<p>创建后自动进入会议室。顶部绿色倒计时开始跳动，议程进度条显示当前进行到哪一项。</p>
+<p><img alt="会议室主界面 — 顶部倒计时+实时会议中+议程 strip" src="images/screen-04-meeting-room.png" /><br />
+<em>图 5：会议室 — 顶部议程进度条和倒计时，中间实录与 AI 发言区，右侧偏题监测和会议统计面板。</em></p>
+<p><strong>Step 7：文字输入模拟讨论，召唤 AI</strong></p>
+<p>底部输入框打字发言。示例内容：</p>
+<ul>
+<li>"各位好，我们先回顾一下上周的消防检查情况"</li>
+<li>"B栋的灭火器有3个过期了，需要尽快更换"</li>
+<li>"另外电梯维保合同快到期了，这次讨论一下续签还是换供应商"</li>
+<li>"@数据洞察 你怎么看消防器材过期的问题？"</li>
+<li>"需要拉一下数据报表，看看B栋消防设施的整体情况"</li>
+<li>"@数小妙 帮忙分析一下KPI数据，B栋灭火器过期率多少"</li>
+</ul>
+<p>6 条讨论录入后，AI 专家面板根据关键词自动匹配发言。</p>
+<p><img alt="AI发言面板 — 6条文字讨论+AI专家发言区" src="images/screen-05-ai-speaking.png" /><br />
+<em>图 6：文字录入模拟真人讨论，AI 根据内容自动响应。底部输入框支持@指定 AI 发言。</em></p>
+<p><strong>Step 8：结束会议，看本场收获</strong></p>
+<p>点"结束会议"，系统自动切换到纪要页。你会看到：</p>
+<table>
+<thead>
+<tr>
+<th>产出</th>
+<th>去向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>待办</td>
+<td>分配责任人，跟踪到完成</td>
+</tr>
+<tr>
+<td>长期经验</td>
+<td>提交审批，入库后 AI 下次自动引用</td>
+</tr>
+<tr>
+<td>完整纪要 + 时间线</td>
+<td>永久保存，关键词可搜索</td>
+</tr>
+</tbody>
+</table>
+<p><img alt="本场收获 — 会议纪要+待办+统计面板" src="images/screen-06-meeting-summary.png" /><br />
+<em>图 7：结束会议后 — 本场收获页自动展示。无论 AI 发言与否，6 条讨论记录全部留档。</em></p>
+<p><strong>5 分钟闭环完成</strong>。你已体验：创建 → 开会 → AI 参与 → 自动产出的完整链路。</p>
+<hr />
+<h2>第3章：AI 专家天团 — 你的数字同事</h2>
+<blockquote>
+<p><strong>钩子</strong>：他们不是聊天机器人，是数字员工 — 各有性格、专业、记忆、历史履历。</p>
+</blockquote>
+<h3>AI 专家的心智模型</h3>
+<pre><code>AI 专家 = 数字员工（有性格 / 有专业 / 有记忆）
+ ┣ 书架（知识库）— 查得到的资料（规章/文档/流程）
+ ┣ 经验（长期记忆）— 已记住的事（上次议过/决定过/教训）
+ └ 会议 — 触发 AI 工作 + 产出上面两者
+</code></pre>
+<p>书架是"查资料"，长期经验是"记教训"。前者像图书管理员，后者像老主管。合起来才是完整的数字员工。</p>
+<hr />
+<h3>你的团队里有哪些 AI 专家</h3>
+<p>福田物业场景下，系统已预置32位数字员工。举几位代表性的：</p>
+<table>
+<thead>
+<tr>
+<th>AI 专家</th>
+<th>专业领域</th>
+<th>会上能做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>数小妙</strong></td>
+<td>数据洞察</td>
+<td>拉报表、算过期率、对标历史数据</td>
+</tr>
+<tr>
+<td><strong>法老张</strong></td>
+<td>政策法规</td>
+<td>引用消防条例、提示合规红线</td>
+</tr>
+<tr>
+<td><strong>运营李</strong></td>
+<td>物业运营</td>
+<td>解读 KPI、优化巡检流程</td>
+</tr>
+<tr>
+<td><strong>财王哥</strong></td>
+<td>财务核算</td>
+<td>审核预算、对比三家报价</td>
+</tr>
+<tr>
+<td><strong>服务赵姐</strong></td>
+<td>业主服务</td>
+<td>分析投诉趋势、建议沟通策略</td>
+</tr>
+</tbody>
+</table>
+<p>每位性格不同：法老张严谨保守，数小妙用数字说话，服务赵姐语气柔和。开会时他们的发言风格也各不一样。</p>
+<hr />
+<h3>详情页四标签 — 重点是"履历"</h3>
+<p>点任意 AI 卡片进入详情页。顶部三枚徽章（<strong>召唤 N 次 / 发言 N 行 / 参与 N 场</strong>）是这位数字员工的工作量缩影。四个标签页：</p>
+<ul>
+<li><strong>工卡</strong>：身份卡，名字、角色、性格、触发关键词</li>
+<li><strong>书架</strong>：他读过哪些文档（福田物业法规+SOP知识库，3个文档）</li>
+<li><strong>记忆</strong>：176条已入库经验中，与他相关的部分</li>
+<li><strong>履历</strong>：参加过哪些会、发过几次言、提过什么关键建议</li>
+</ul>
+<p><strong>重点看履历</strong>。这不是聊天记录，是绩效档案。哪位专家被召唤得多、发言质量高，一目了然。团队管理者据此判断哪些专家该扩容知识、哪些该调整配置。</p>
+<p><img alt="AI详情页 — 合规专家，4标签页+三枚徽章（召唤0次/发言0行/参与0场）" src="images/screen-02-agent-detail.png" /><br />
+<em>图 8：AI 专家详情页 — "合规专家"示例。三枚徽章记录活跃度，履历页是完整的开会历史。</em></p>
+<hr />
+<h3>AI 模板生成器 — 一句话生成专家团队</h3>
+<p>最省时的玩法：一句话描述会议主题，系统自动拆出需要的 AI 角色。</p>
+<p>输入："下个月消防演练的物资预算审批会"</p>
+<p>自动生成：消防专家（主审方案）+ 财王哥（核对预算）+ 法老张（确认采购流程合规）</p>
+<p>不用逐个翻卡片挑选，一句话搞定专家团队配置。</p>
+<blockquote>
+<p><TODO 人工补图: AI模板生成器完整界面 — 输入框+自动生成的AI角色推荐列表></p>
+</blockquote>
+<hr />
+<h2>第4章：开一场会 — 从议程到召集</h2>
+<blockquote>
+<p><strong>钩子</strong>：一场好会从写好议程开始。AI 的提醒精准度，直接取决于议程写得多清楚。</p>
+</blockquote>
+<h3>创建步骤</h3>
+<p><strong>Step 1：点击"新建会议"</strong></p>
+<p>从主页的"+ 新建完整会议"按钮进入。</p>
+<p><strong>Step 2：写标题</strong></p>
+<p>建议格式：<code>[日期] + [主题]</code>。示例："4月安全生产例会"。标题会被 AI 用来判断议题范围。</p>
+<p><strong>Step 3：设置议程（最关键）</strong></p>
+<p>至少填 2 项，每项加预计时长。标题要具体：</p>
+<ul>
+<li>✅ "确认消防器材采购清单" — AI 知道你在买什么，容易判断偏题</li>
+<li>❌ "讨论预算" — 太泛，AI 几乎无法判断跑题</li>
+</ul>
+<p><img alt="议程设置界面 — &quot;4月安全生产例会&quot;+2项议程+邀请AI专家" src="images/screen-03-agenda-setup.png" /><br />
+<em>图 9：议程设置 — 每项填"预计时长"，这是 AI 做时间提醒和偏题检测的唯一依据。</em></p>
+<p><strong>Step 4：邀请 AI 专家</strong></p>
+<p>根据议题选 1~3 位。安全类选数小妙+法老张，预算类选财王哥+运营李。系统也会根据标题智能推荐。</p>
+<p><img alt="AI专家选择 — 议程设置页底部邀请区域展示可选择的AI专家" src="images/screen-02-agent-detail.png" /><br />
+<em>图 10：选择 AI 专家 — 搜索框输入名字或领域，勾选后图标显示在顶部参会区。</em></p>
+<p><strong>Step 5：创建并分享</strong></p>
+<p>点"开始会议"，系统自动生成会议室。复制链接发给参会同事。</p>
+<hr />
+<h3>议程质量决定 AI 效果</h3>
+<table>
+<thead>
+<tr>
+<th>议程质量</th>
+<th>AI 表现</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3 项，每项有标题+时长</td>
+<td>精准提醒、偏题检测准确</td>
+</tr>
+<tr>
+<td>1 项"其他事项"</td>
+<td>无法判断偏题，AI 成摆设</td>
+</tr>
+</tbody>
+</table>
+<p><strong>花 30 秒写好议程，换来整场会的 AI 精准辅助。</strong></p>
+<hr />
+<h2>第5章：会议室内 — 智能主持的 6 个时刻 ★核心章</h2>
+<blockquote>
+<p><strong>钩子</strong>：传统会议软件只录音。Aimeeting 让 AI 当第二个主持人 — 它在 6 个关键时刻主动出手。</p>
+</blockquote>
+<p>这 6 个时刻不会同时弹出。系统内置优先级，<strong>一次最多只弹一条</strong>，不烦人。</p>
+<hr />
+<h3>时刻 1：「快偏题了」— 三档提醒</h3>
+<p>AI 实时分析讨论内容与议程的匹配度。 drift 时分三档提醒：</p>
+<table>
+<thead>
+<tr>
+<th>档位</th>
+<th>触发条件</th>
+<th>表现形式</th>
+<th>你的操作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>轻提醒</strong></td>
+<td>怀疑偏题</td>
+<td>灰色 toast，安静提示</td>
+<td>忽略或点"继续讨论"</td>
+</tr>
+<tr>
+<td><strong>中等提醒</strong></td>
+<td>确认偏离</td>
+<td>琥珀色横幅</td>
+<td>一键召唤 AI 介入</td>
+</tr>
+<tr>
+<td><strong>严重提醒</strong></td>
+<td>严重偏题</td>
+<td>全屏弹窗，倒计时后自动召唤</td>
+<td>立即处理或让 AI 接管</td>
+</tr>
+</tbody>
+</table>
+<p>我们在会议室中模拟了偏题场景：输入"今天中午吃什么午餐呢，我想吃牛肉面还是炒饭"、"最近那个电影你们看了吗，特效非常震撼"等明显跑题的内容，右侧偏题监测面板实时显示检测状态。</p>
+<p><img alt="会议室 — 本周物业周例会进行中，偏题监测在线，3位AI专家参会" src="images/screen-04b-meeting-room.png" /><br />
+<em>图 11：会议室全景 — 顶部"本周物业周例会(进行中)"，3位 AI 专家（服务赵姐、数小妙、运营李）列在顶部，右侧偏题监测实时在线。</em></p>
+<p><img alt="议程进度条 — 显示当前项已完成(✓)→进行中(●)→待开始(○)" src="images/screen-18-agenda-strip.png" /><br />
+<em>图 12：议程进度条 — 第一项"合规风险评估"已打完勾(✓)，第二项"物业调整讨论"正在跑(●)，带时间计数。</em></p>
+<blockquote>
+<p><TODO 人工补图: 偏题三档提醒截图 — 轻提醒灰色toast / 中等提醒琥珀色横幅 / 严重提醒全屏弹窗></p>
+</blockquote>
+<hr />
+<h3>时刻 2：「时间快到了」— 80% 预算提醒</h3>
+<p>某议程项讨论接近预设时长的 80%，进度条旁时间数字变琥珀色。这是主持人把控节奏的信号 — 可选择加快讨论或延长 5 分钟。</p>
+<p><img alt="议程进度条 — 时间提醒状态，01:41/30m" src="images/screen-18-agenda-strip.png" /><br />
+<em>图 13：时间提醒 — 顶部倒计时 01:41 / 30m，进度条旁时间数字提示剩余时间不多。</em></p>
+<hr />
+<h3>时刻 3：「该进下一项了」— 推进建议</h3>
+<p>AI 判断当前议程已收口（各方意见一致、结论已出），主动弹出推进建议。点击确认后，系统自动高亮下一项议程，AI 先总结上一条结论，再引导进入新议题。</p>
+<p><img alt="推进议程后 — 两项都打完勾(✓→✓)，等待进入第三项(●)" src="images/screen-19-agenda-advance.png" /><br />
+<em>图 14：议程推进 — 第一项和第二项都打勾完成，系统等待主持人确认进入第三项。</em></p>
+<hr />
+<h3>时刻 4：「我帮你们收口」— 决策总结</h3>
+<p>AI 检测到多方案讨论但无人拍板时，主动插话总结各方观点，提出倾向性建议，推动形成决议。紫色横幅弹出，12 秒后主持人自动发言。</p>
+<p><strong>这是决策黑箱的克星</strong>。不再散会后各自解读，AI 在会上把共识钉死。</p>
+<blockquote>
+<p><TODO 人工补图: 决策收口紫色横幅+倒计时 / 主持人自动发言></p>
+</blockquote>
+<hr />
+<h3>时刻 5：「讨论在打转」— 僵局召唤</h3>
+<p>同一话题反复讨论、没有新观点时，AI 判定"僵局"。5 秒倒计时后自动介入：回顾现有观点 → 对比各方案优劣 → 给出倾向性结论或提议表决。</p>
+<p><strong>专门解决"来回说车轱辘话"的会议顽疾。</strong></p>
+<hr />
+<h3>时刻 6：「全程留痕」— 偏题历史抽屉</h3>
+<p>整场偏题记录保存在右侧可折叠抽屉。随时查看：哪次偏题、持续多久、AI 如何处理。这些数据会后写入纪要，成为<strong>会议效率分析的依据</strong>。连续几场偏题到同一方向？说明 deserve 一个独立专题会。</p>
+<hr />
+<h3>优先级机制：不烦人的智能</h3>
+<table>
+<thead>
+<tr>
+<th>优先级</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P0</td>
+<td>严重偏题全屏弹窗</td>
+<td>最高优先级，必须立即处理</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>决策收口 / 僵局召唤</td>
+<td>影响会议产出的关键时刻</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>时间提醒 / 推进建议</td>
+<td>帮主持人把控节奏</td>
+</tr>
+<tr>
+<td>P3</td>
+<td>轻提醒 toast</td>
+<td>最安静，可忽略</td>
+</tr>
+</tbody>
+</table>
+<p><strong>一次最多一条，按 P0→P3 排队弹出。</strong> 不会出现弹窗满天飞的场面。</p>
+<p><strong>这 6 个时刻，是 Aimeeting 区别于普通会议软件的核心壁垒。</strong> 不是录音、不是转文字 — 是一位真正在听、在想、在判断的数字主持人，在你最需要的时候开口。</p>
+<hr />
+<h2>第6章：自动待办 + 全链溯源 — 每条待办都知道自己从哪来</h2>
+<blockquote>
+<p><strong>钩子</strong>：传统会议纪要写待办 = 一个人听完凭记忆总结。我们的待办不一样 — 每条都知道它是哪几句真话抽出的，一键验证。</p>
+</blockquote>
+<h3>痛点：凭记忆列待办的三大隐患</h3>
+<p>你经历过这些吗？散会后纪要员凭记忆写待办，结果责任人和截止时间写错。待办派下去，执行的人一头雾水："这个结论是哪来的？"三个月后追责，原始讨论已经没人记得清。</p>
+<p><strong>凭记忆列待办，是组织执行力最大的漏洞。</strong></p>
+<h3>AI 自动抽待办 — 逐句比对，真人原话</h3>
+<p>会议结束，AI 立即扫描整场实录。逐句比对 → 识别结论性语句 → 匹配责任人和截止时间 → 自动生成待办列表。</p>
+<p>以"电梯改造方案决策会"为例，AI 从中精准抽出 3 条待办：</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>待办内容</th>
+<th>负责人</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>业主群摸底，确认各楼栋意愿</td>
+<td>冯磊</td>
+</tr>
+<tr>
+<td>2</td>
+<td>公示文准备，走公告流程</td>
+<td>陈师宇</td>
+</tr>
+<tr>
+<td>3</td>
+<td>永大 65 万方案确认，核对预算明细</td>
+<td>冯磊</td>
+</tr>
+</tbody>
+</table>
+<p>每条待办下方附带 <strong>evidence_quote</strong> — 一句话摘要，告诉你这条待办是从哪段讨论抽出的。</p>
+<p><img alt="待办列表示例 — 3条待办含evidence_quote摘要" src="images/screen-07-action-items.png" /><br />
+<em>图 15：自动待办列表 — 每条待办都绑定一段原话摘要，不是凭空生成，而是有根有据。</em></p>
+<h3>全链溯源 — 点击就跳到原话，±3 句上下文</h3>
+<p>对待办来源存疑？点击"查看实录原文上下文"，系统直接跳转实录页，<strong>精准高亮那几句原话</strong>，并附带前后各 3 句上下文。</p>
+<p>以冯磊那条"哪一栋？"为例：</p>
+<p>点击溯源按钮 → 实录页自动滚动到对应位置 → 冯磊的发言"哪一栋？"被黄色高亮 → 前后文完整呈现 → 你看到的是<strong>半年前的真人原话，不是 AI 编的</strong></p>
+<p><img alt="实录溯源跳转 — 带?focus=4076参数，高亮冯磊发言&quot;哪一栋？&quot;" src="images/screen-08-transcript-focus.png" /><br />
+<em>图 16：全链溯源 — 点击待办的"查看实录原文上下文"，直接跳到原话位置，高亮显示。半年后质疑待办来源，5 秒拿出证据。</em></p>
+<p><strong>这是信任的基础设施。</strong> 执行人有疑问，一键看原话；管理者要抽查，5 秒定位源头；审计要材料，截个图就是铁证。</p>
+<h3>跟任务系统闭环 — 派单到办结全跟踪</h3>
+<p>待办不是停留在纸面。系统内置完整的任务流转：</p>
+<p><strong>派单 → 接收 → 进行中 → 办结 → 审核</strong></p>
+<p>每个状态节点自动通知责任人。三级催办机制确保不遗漏：</p>
+<table>
+<thead>
+<tr>
+<th>级别</th>
+<th>颜色</th>
+<th>触发条件</th>
+<th>动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>一级</td>
+<td>黄色</td>
+<td>截止前 24 小时</td>
+<td>站内提醒</td>
+</tr>
+<tr>
+<td>二级</td>
+<td>红色</td>
+<td>已逾期</td>
+<td>强制通知 + 升级直属</td>
+</tr>
+<tr>
+<td>三级</td>
+<td>紫色</td>
+<td>逾期 48 小时</td>
+<td>全局通报 + 冻结新会</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><TODO 人工补图: 任务流转状态全景 — 从派单到审核的完整状态机图，含三级催办颜色标识></p>
+</blockquote>
+<h3>核心价值</h3>
+<p><strong>传统待办 = 记忆 + 手写 + 无法验证。我们的待办 = 原话抽取 + 一键溯源 + 闭环跟踪。</strong> 执行的人知道来龙去脉，管理的人随时抽查，审计的人有铁证。组织执行力从"靠人记"变成"靠系统盯"。</p>
+<hr />
+<h2>第7章：知识库（书架）— AI 可查的资料库</h2>
+<blockquote>
+<p><strong>钩子</strong>：AI 不是凭空给建议 — 它翻你给的资料。</p>
+</blockquote>
+<h3>心智模型：知识库 = 书架</h3>
+<p>你把资料放上去，AI 开会时像翻书一样查。法律法规、操作规程、历史档案 — 只要是文档，就能变成 AI 的参考书。</p>
+<p><strong>关键区分</strong>：知识库是"查资料"，长期记忆是"记经验"。前者像图书管理员当场翻书，后者像老主管凭阅历给判断。两者配合，AI 才能既准确又有深度。</p>
+<h3>上传 — 拖进来就行</h3>
+<p>支持 PDF、DOCX、Markdown、TXT 四种格式。操作极简：进入知识库管理页 → 拖拽文件到上传区 → 系统自动处理。</p>
+<p>以福田物业 workspace 为例，已搭建"法规+SOP 知识库"，收录 3 份核心文档：</p>
+<ul>
+<li>《深圳物业管理条例》— 地方法规依据</li>
+<li>《维修资金申请流程》— 内部操作规范</li>
+<li>《业主投诉处理 SOP》— 标准应答流程</li>
+</ul>
+<p><img alt="知识库管理界面 — 福田物业法规+SOP知识库，3个文档列表" src="images/screen-09-kb-detail.png" /><br />
+<em>图 17：知识库总览 — 每个知识库像一座书架，文档是上面的书。显示文档名、格式、字符数和状态。</em></p>
+<h3>自动切分 + 向量化 — AI 快速查找的基础</h3>
+<p>上传后，系统自动完成两步处理：</p>
+<p><strong>第一步：切分资料段。</strong> 把长文档切成逻辑段落，每段保持语义完整。系统为每个分块显示字符数、状态和处理时间。</p>
+<p><strong>第二步：向量化处理。</strong> 将文字转成 AI 能理解的数学表示，实现"语义级搜索" — 你问的是"电梯坏了谁负责"，AI 能匹配到"特种设备维保责任条款"，不需要关键词完全一致。</p>
+<p><img alt="知识库分块详情 — 每文档切成1个分块，显示字符数和处理状态" src="images/screen-10-kb-chunks.png" /><br />
+<em>图 18：资料段详情 — 每个分块显示字符数、创建时间、处理状态。这是 AI 查找资料的最小单元。</em></p>
+<h3>给 AI 绑书架 — 一个 AI 可绑多个知识库</h3>
+<p>配置灵活，支持多对多绑定：</p>
+<ul>
+<li><strong>纵向深绑</strong>：合规专家绑定"法规库 + 合同模板库 + 判例库"</li>
+<li><strong>横向共享</strong>：所有物业 AI 共享"深圳物业管理条例"，确保口径一致</li>
+<li><strong>场景专库</strong>：消防演练季临时给消防专家绑定"应急预案专库"，季后解绑</li>
+</ul>
+<p>知识库更新后，AI 下次开会自动引用最新版本，无需重新配置。</p>
+<h3>AI 发言时引用 — [1][2] 角标，鼠标悬停看原文</h3>
+<p>AI 在会上给出建议时，如果引用了知识库内容，发言末尾会出现 <strong>[1][2] 角标</strong>。鼠标悬停即可看到引用的原文段落。</p>
+<p><strong>场景示例</strong>：</p>
+<blockquote>
+<p>AI 发言："根据现行规定，维修资金申请需要双三分之二业主同意 [1]，建议在本周五前完成公示 [2]。"</p>
+</blockquote>
+<p>鼠标移到 [1] 上 → 弹出《深圳物业管理条例》第 47 条原文。移到 [2] 上 → 弹出《维修资金申请流程》第三步。</p>
+<blockquote>
+<p><TODO 人工补图: AI发言含[1][2]引用角标 — 鼠标悬停弹出原文段落的完整效果></p>
+</blockquote>
+<h3>新功能：自动抓取网络知识 — 政策变动不遗漏</h3>
+<p>谈到 AI 知识库里没有的政策时，系统自动触发网络搜索 → 抓取相关政策网页 → 提取要点 → 生成知识库草稿 → 推送给你审批。</p>
+<p><strong>审批后才入库，AI 才会引用。</strong> 这确保了网络抓取的资料经过人工把关，不会把错误信息喂给 AI。</p>
+<hr />
+<h2>第8章：长期经验（AI 大脑）— 越开越聪明的关键</h2>
+<blockquote>
+<p><strong>钩子</strong>：知识库是 AI"查书"。长期经验是 AI"想起上次你说过啥"。</p>
+</blockquote>
+<h3>心智模型：长期经验 = AI 的经验大脑</h3>
+<p>知识库存的是文档，长期经验存的是<strong>会议中产生的判断、决策和教训</strong>。它让 AI 具备"记性" — 上次会上决定的事，这次自动想起来。</p>
+<p>一条经验可以挂给多个 AI 共享。福田物业 workspace 已有 <strong>176 条已入库经验</strong>，覆盖从业主投诉处理到维修资金审批的各类决策。</p>
+<p><img alt="记忆卡界面 — 显示176条已入库记忆，含&quot;来自1句&quot;chip标签" src="images/screen-11-memory-card.png" /><br />
+<em>图 19：长期经验总览 — 每条经验是一个决策或教训的精炼总结。"来自 N 句"chip 表示这条经验源自 N 句原话，点击可查看完整上下文。</em></p>
+<h3>自动抽经验 — 先审再入库，不直接进 AI 大脑</h3>
+<p>经验入库有两条触发路径：</p>
+<p><strong>路径一：会议结束。</strong> AI 扫描整场实录 → 识别关键决策和教训 → 生成候选经验 → 进入草稿池 → 等待审批。</p>
+<p><strong>路径二：任务办结。</strong> 待办完成后，AI 回顾执行过程 → 提炼成功要素或失败教训 → 生成候选经验 → 进入草稿池。</p>
+<p><strong>关键机制：草稿不进立即入库。</strong> 所有候选经验先进入审批中心，由对应 AI 的 manager 审核。审批通过才写入 AI 大脑，审批驳回则丢弃或退回修改。</p>
+<h3>出处链回 — 每条经验都能追溯到原话（★重点）</h3>
+<p>这是 Aimeeting 区别于所有同类产品的核心设计。</p>
+<p>每条经验带有一个 <strong>"来自 N 句"chip</strong>。点击"看上下文"，系统跳转回半年前的原始会议实录，<strong>精准高亮那 N 句原话</strong>。</p>
+<p><strong>示例</strong>：</p>
+<p>经验内容："Q1 业主投诉处理中，'哪一栋'是首要询问要素，决定后续处理路径。"</p>
+<p>点击"来自 1 句 → 看上下文" → 跳转到 Q1 业主投诉处理评估会实录 → 冯磊的发言"哪一栋？"被黄色高亮 → 前后文完整呈现</p>
+<p><img alt="出处链回 — 点击&quot;来自1句&quot;跳转到原始实录，高亮&quot;哪一栋？&quot;原话" src="images/screen-12-memory-source.png" /><br />
+<em>图 20：出处链回 — 这条经验源自 Q1 业主投诉处理评估会。点击后精准定位到冯磊说"哪一栋？"的位置，前后 3 句上下文完整呈现。</em></p>
+<p><strong>全系统透明，信任建立在透明上。</strong> 你知道 AI 的每个判断来自哪句话，来自哪场会，来自谁的嘴里。这消除了"AI 黑盒"焦虑。</p>
+<h3>自动复用 — 下次开类似会议，AI 主动提上次决策</h3>
+<p>经验入库后，AI 在后续会议中自动检索和复用。</p>
+<p><strong>场景示例</strong>：</p>
+<p>半年前："A 区物业费涨 5%"的决策经过充分讨论，审批入库。</p>
+<p>今天：再次讨论 A 区物业费 → AI 自动在上下文中引入："上次会议已决定 A 区物业费涨 5% [引用经验]，执行效果为业主接受度 92%、缴费率提升 8%。是否沿用此方案？"</p>
+<p><strong>这确保了一个组织的决策连续性。</strong> 不会因为人员轮换、记忆模糊或文档丢失而重复讨论已决事项。新接手的同事也能通过 AI 引用快速了解历史决策。</p>
+<hr />
+<h2>第9章：沉淀审批中心 — 把关让 AI 不学错</h2>
+<blockquote>
+<p><strong>钩子</strong>：AI 抽的经验不一定准，不把关 = AI 学错 = 推错建议。</p>
+</blockquote>
+<h3>痛点：AI 也会出错，谁来把关</h3>
+<p>AI 抽取经验的过程依赖语义理解，存在三类常见偏差：</p>
+<ul>
+<li><strong>过度泛化</strong>：把特定场景的结论套到普遍情况</li>
+<li><strong>遗漏前提</strong>：忽略了"如果 X 才成立"的关键条件</li>
+<li><strong>张冠李戴</strong>：把 A 说的观点归到 B 头上</li>
+</ul>
+<p>不把关直接入库，AI 下次开会引用错误经验，等于在错误的基础上继续出错。<strong>审批中心是质量闸门。</strong></p>
+<h3>审批流概览</h3>
+<p>沉淀审批中心分为 4 个状态：</p>
+<table>
+<thead>
+<tr>
+<th>状态</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>待审</td>
+<td>AI 刚抽的草稿，等你过目</td>
+</tr>
+<tr>
+<td>已通过</td>
+<td>审批通过，已写入 AI 大脑</td>
+</tr>
+<tr>
+<td>已驳回</td>
+<td>审批不通过，分"弃用"和"退回修改"两种</td>
+</tr>
+<tr>
+<td>已过期</td>
+<td>超时未审，系统自动标记</td>
+</tr>
+</tbody>
+</table>
+<p>每个 AI 抽出的草稿，由该 AI 的 manager 负责审。manager 角色在系统中配置，确保审批责任到人。</p>
+<p><img alt="审批中心空状态 — 暂无待审批草稿，所有草稿已处理完毕" src="images/screen-13-approval-list.png" /><br />
+<em>图 21：审批中心 — 当前状态为"暂无待审批草稿"，说明所有草稿都已审批完毕。这是审批中心的空状态界面。</em></p>
+<h3>4 个关键操作</h3>
+<p><strong>1. 在线编辑 — 改几个字就通过</strong></p>
+<p>AI 抽的经验大意对，措辞有小偏差？直接 inline 编辑，改几个字 → 点通过。无需弃用重抽，一次操作完成。</p>
+<p><strong>2. 批量通过 — 一次审 5 条+</strong></p>
+<p>遇到会议质量高、AI 抽取准确的情况，勾选多条草稿 → 批量通过。适合例会、常规审批等低风险场景。</p>
+<p><strong>3. 退回 AI — 写反馈帮它改进</strong></p>
+<p>判定 AI 理解有误？点"退回"，写反馈（至少 5 个字，说明具体问题）。AI 收到反馈后自动学习，<strong>后续同类抽取会避免同样错误</strong>。这是系统越用越聪明的核心机制。</p>
+<p><strong>4. 审批通知 — 结果自动通知来源方</strong></p>
+<p>审批结果实时通知：通过的告知入库成功，驳回的告知原因和修改建议。通知通过系统消息推送，审批人无需额外操作。</p>
+<blockquote>
+<p><TODO 人工补图: inline编辑模式 — 显示textarea文本编辑区+滑动条审批维度></p>
+<p><TODO 人工补图: 拒绝二选一弹窗 — 弃用/退回修改两个选项的确认对话框></p>
+<p><TODO 人工补图: 批量操作栏 — 勾选多条草稿后的批量操作工具栏></p>
+</blockquote>
+<h3>审批的质量标准</h3>
+<p>一条经验是否通过，检查三个维度：</p>
+<table>
+<thead>
+<tr>
+<th>检查项</th>
+<th>通过标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>准确性</td>
+<td>经验内容与原文一致，没有曲解</td>
+</tr>
+<tr>
+<td>完整性</td>
+<td>关键前提条件和适用范围已包含</td>
+</tr>
+<tr>
+<td>通用性</td>
+<td>不是仅适用于特定个案，有可复用价值</td>
+</tr>
+</tbody>
+</table>
+<p><strong>审批不是形式主义，是决定 AI 大脑质量的关键环节。</strong> 花 30 秒审一条，换来 AI 后续无数次正确引用。</p>
+<hr />
+<h2>第10章：团队协作 + 通知中心 — 人与 AI 怎么配合</h2>
+<h3>5 角色体系</h3>
+<p>Aimeeting 采用分层权限设计，5 个角色各司其职：</p>
+<table>
+<thead>
+<tr>
+<th>角色</th>
+<th>权限</th>
+<th>典型使用者</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Owner</td>
+<td>总管，全权限，可移交</td>
+<td>部门一把手</td>
+</tr>
+<tr>
+<td>Admin</td>
+<td>管配置，建知识库、调系统设置</td>
+<td>IT 管理员</td>
+</tr>
+<tr>
+<td>Leader</td>
+<td>召集人，创建会议、邀人参会</td>
+<td>科室负责人</td>
+</tr>
+<tr>
+<td>Manager</td>
+<td>审经验，审批 AI 抽出的草稿</td>
+<td>业务主管</td>
+</tr>
+<tr>
+<td>Member</td>
+<td>参会人，发言、被分配待办</td>
+<td>全体同事</td>
+</tr>
+</tbody>
+</table>
+<p><strong>一个人可以兼多职。</strong> 比如科室负责人同时是 Leader 和 Manager，既能召集会议又能审批经验。</p>
+<h3>通知中心 — 铃铛角标，4 色等级</h3>
+<p>右上角铃铛图标实时显示未读通知数。通知分 4 个优先级，颜色区分一目了然：</p>
+<table>
+<thead>
+<tr>
+<th>颜色</th>
+<th>等级</th>
+<th>典型场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>灰色</td>
+<td>普通</td>
+<td>会议开始提醒、议程推进通知</td>
+</tr>
+<tr>
+<td>黄色</td>
+<td>重要</td>
+<td>待办派发、截止前 24 小时提醒</td>
+</tr>
+<tr>
+<td>红色</td>
+<td>紧急</td>
+<td>任务超期、审批被拒需重审</td>
+</tr>
+<tr>
+<td>紫色</td>
+<td>特急</td>
+<td>严重偏题全屏弹窗、僵局自动召唤</td>
+</tr>
+</tbody>
+</table>
+<p>铃铛展开后显示通知列表，支持一键标记全部已读。重要通知（黄/红/紫）必须逐条处理才会消除角标。</p>
+<blockquote>
+<p><TODO 人工补图: 通知铃铛展开列表 — 显示多条通知的优先级颜色区分和角标数字></p>
+</blockquote>
+<h3>跨部门协作 — 真人与 AI 共参一场会</h3>
+<p>Aimeeting 支持一场会议中，多名真人同事 + 多名 AI 专家共同参会。</p>
+<p><strong>示例：物业协调会</strong></p>
+<p>真人侧：住房保障科 + 物业监管科 + 消防人防管理科</p>
+<p>AI 侧：物业监管 AI + 消防人防 AI + 建设工程质量安全 AI</p>
+<p><strong>6 个真人 + 3 个 AI 同在一个会议室。</strong> AI 之间也有协作：物业监管 AI 谈到消防条款时，自动召唤消防人防 AI 补充专业判断。真人讨论数据时，数据分析 AI 实时验证数字。</p>
+<p>这种混合模式让会议既有真人的判断力和人际关系，又有 AI 的资料调取和记忆能力。</p>
+<hr />
+<h2>第11章：会议复盘 — 全景时间线</h2>
+<blockquote>
+<p><strong>钩子</strong>：散会后想知道"这场会究竟怎么走的"</p>
+</blockquote>
+<h3>本场收获 Panel — 一张图看尽成果</h3>
+<p>会议结束后，系统在本场收获面板中汇总三项核心数据：</p>
+<ul>
+<li><strong>待办 N 项</strong> — 这场会产出了多少待执行任务</li>
+<li><strong>经验草稿 N 项</strong> — 这场会抽出了多少候选经验（待审）</li>
+<li><strong>知识库草稿 N 项</strong> — 这场会抓取了哪些新知识点（待审）</li>
+</ul>
+<p>三张 stat 卡横向排列，一眼看这场会给 AI 留下了什么。</p>
+<p><img alt="本场收获面板 — 3张stat卡显示待办/经验草稿/知识库草稿数量" src="images/screen-06-meeting-summary.png" /><br />
+<em>图 22：本场收获 — 三张数据卡让你一眼知道这场会的产出：待办任务、经验沉淀、知识增量。</em></p>
+<p><img alt="物业周例会会议室 — 含时间线和议程进度元素" src="images/screen-04b-meeting-room.png" /><br />
+<em>图 23：会议室中的时间线元素 — 议程进度条、AI 事件标记、用户操作记录，在同一画面中时序合一。</em></p>
+<h3>全景时间线 — 议程 + AI 事件 + 用户操作，时序合一</h3>
+<p>时间线把三类事件叠在一起，还原会议全貌：</p>
+<p><strong>第一层：议程起止。</strong> 每项议程何时开始、何时结束、是否超时。</p>
+<p><strong>第二层：AI 事件。</strong> 偏题提醒、时间预警、议程推进、决策收口、僵局召唤，每个事件带时间戳和触发原因。</p>
+<p><strong>第三层：用户操作。</strong> 谁点了"延长 5 分钟"、谁召唤了 AI、谁推进了议程。</p>
+<p><strong>示例数据</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>时间</th>
+<th>事件</th>
+<th>类型</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>14:05</td>
+<td>议程 1"上周收尾复盘"开始</td>
+<td>议程</td>
+</tr>
+<tr>
+<td>14:12</td>
+<td>偏题提醒：讨论偏离到"下周团建"</td>
+<td>AI</td>
+</tr>
+<tr>
+<td>14:15</td>
+<td>用户点击"回到议程"</td>
+<td>用户</td>
+</tr>
+<tr>
+<td>14:22</td>
+<td>时间预警：议程 1 剩余 20%</td>
+<td>AI</td>
+</tr>
+<tr>
+<td>14:25</td>
+<td>AI 推进议程 2"本周重点工作"</td>
+<td>AI</td>
+</tr>
+</tbody>
+</table>
+<h3>月度复盘的价值</h3>
+<p>连续开一个月后，时间线数据揭示团队会议效率真相：</p>
+<ul>
+<li>哪项议程老跑偏？→ 说明议程定义不清，需要重写</li>
+<li>哪些决策老拖？→ 说明前置信息不足，会前需补充材料</li>
+<li>AI 介入次数趋势 → 判断团队是否在改善自主把控能力</li>
+</ul>
+<blockquote>
+<p><TODO 人工补图: 全景时间线面板 — 完整的三层时间线视图，议程/AI事件/用户操作叠在一起></p>
+</blockquote>
+<hr />
+<h2>立即上手 — 三步开始</h2>
+<p>这不是又一个工具 — 是你团队的数字同事们，跟你一起越开越聪明。</p>
+<h3>三步开始</h3>
+<p><strong>Step 1：联系销售</strong> — 告诉我们你的场景和需求，获取试用资格和专属部署方案。</p>
+<p><strong>Step 2：选一个真实场景</strong> — 不要从"试试看"开始，从一场真实的部门例会开始。投入真实讨论，才能看到 AI 的真实价值。</p>
+<p><strong>Step 3：上传部门文档</strong> — 法规、流程、标准、历史会议纪要。AI 读了你的资料，才能说你的语言，给专业建议。</p>
+<blockquote>
+<p><TODO 人工补图: 产品二维码 — 扫码联系销售/获取试用入口></p>
+</blockquote>
+<hr />
+<h2>附录：名词对照表</h2>
+<p>系统里的术语，换成你该听的词：</p>
+<table>
+<thead>
+<tr>
+<th>系统内词</th>
+<th>客户该听的词</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>workspace</td>
+<td>团队/组织</td>
+</tr>
+<tr>
+<td>agent</td>
+<td>AI 专家 / 数字员工</td>
+</tr>
+<tr>
+<td>moderator agent</td>
+<td>主持人 AI</td>
+</tr>
+<tr>
+<td>KB</td>
+<td>知识库 / 书架</td>
+</tr>
+<tr>
+<td>long-term memory</td>
+<td>长期经验 / AI 大脑</td>
+</tr>
+<tr>
+<td>action item</td>
+<td>待办</td>
+</tr>
+<tr>
+<td>task</td>
+<td>任务</td>
+</tr>
+<tr>
+<td>transcript</td>
+<td>实录</td>
+</tr>
+<tr>
+<td>off_topic</td>
+<td>偏题 / 跑题</td>
+</tr>
+<tr>
+<td>decision_summary</td>
+<td>决策收口</td>
+</tr>
+<tr>
+<td>primary_user</td>
+<td>manager / 维护人</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>给人工的问题</h2>
+<p>以下内容因技术限制未能完成截图，需人工补录：</p>
+<ol>
+<li>
+<p><strong>审批中心截图缺失</strong>：当前审批中心暂无待审草稿（空状态），screen-14 inline 编辑模式因审批中心为空无法截图。需要制造一条 AI 草稿进入审批流程后，截取 inline 编辑界面。</p>
+</li>
+<li>
+<p><strong>dev/inject API 持续返回 500</strong>：screen-15~17（偏题提醒 banner / 决策收口 banner / 僵局召唤弹窗）无法正常截图。开发环境注入接口故障，需排查后端服务后重试。</p>
+</li>
+<li>
+<p><strong>AI 发言触发条件不明</strong>：会议室中 AI 发言的实时触发逻辑需要确认 — 是否仅在语音输入时触发，文字输入是否也能触发？当前测试中 AI 未在预期时刻发言，需确认触发条件和时序逻辑。</p>
+</li>
+</ol>
+<hr />
+<p><em>手册完</em></p>
+</main>
+
+</div>
+
+<script>
+// Active TOC link on scroll
+const sections = document.querySelectorAll('h2[id]');
+const tocLinks = document.querySelectorAll('.toc-group a');
+
+window.addEventListener('scroll', () => {
+  let current = '';
+  sections.forEach(section => {
+    const top = section.getBoundingClientRect().top;
+    if (top < 120) current = section.id;
+  });
+  tocLinks.forEach(link => {
+    link.style.background = '';
+    link.style.color = '';
+    if (link.getAttribute('href') === '#' + current) {
+      link.style.background = 'rgba(59,130,246,0.1)';
+      link.style.color = '#e6edf3';
+    }
+  });
+});
+</script>
+
+</body>
+</html>

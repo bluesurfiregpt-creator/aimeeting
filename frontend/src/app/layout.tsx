@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import AppLogo from "@/components/AppLogo";
 import AuthHeader from "@/components/AuthHeader";
+import ManualLink from "@/components/ManualLink";
 import Toaster from "@/components/Toaster";
 import VersionBadge from "@/components/VersionBadge";
 
@@ -20,6 +21,7 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body className="font-sans antialiased">
         <AppLogo />
+        <ManualLink />
         <AuthHeader />
         {children}
         <Toaster />
