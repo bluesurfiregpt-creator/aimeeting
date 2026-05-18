@@ -1,25 +1,18 @@
 /**
  * v27.0-mobile · 移动端子树 root layout.
  *
- * 跟桌面 layout 完全隔离 — 桌面 chrome (AppLogo / ManualLink / AuthHeader /
- * VersionBadge) 已由 ChromeGate 在 root 层闸掉, 这里装自己的:
+ * 桌面 chrome (AppLogo / ManualLink / AuthHeader / VersionBadge) 已由 ChromeGate
+ * 闸掉.
  *
- *   ┌──────────────────────────┐
- *   │ TopBar (sticky, h-12)    │
- *   ├──────────────────────────┤
- *   │                           │
- *   │ children                  │
- *   │ (overflow-y-auto)         │
- *   │                           │
- *   ├──────────────────────────┤
- *   │ BottomNav (fixed, h-14)   │
- *   └──────────────────────────┘
+ * v27.0-P2 改动: 删掉 TopBar (问候+图标 那种桌面残留),
+ * 每个页面自己用 PageHeader 渲染顶部 (iOS 大标题风).
  *
- * 移动端仅 dark, 不提供 light. brief 关键词 "深色沉浸".
+ * 仅留:
+ *   - 主内容区 (overflow-y-auto)
+ *   - 底部 BottomNav (sticky)
  */
 
 import BottomNav from "@/components/mobile/BottomNav";
-import TopBar from "@/components/mobile/TopBar";
 
 export default function MobileLayout({
   children,
@@ -28,10 +21,7 @@ export default function MobileLayout({
 }) {
   return (
     <div className="flex min-h-screen flex-col bg-ink-950 text-zinc-100">
-      <TopBar />
-      <main className="flex-1 overflow-y-auto pb-20">
-        {children}
-      </main>
+      <main className="flex-1 overflow-y-auto pb-20">{children}</main>
       <BottomNav />
     </div>
   );
