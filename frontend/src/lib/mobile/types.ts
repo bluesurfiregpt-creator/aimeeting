@@ -80,8 +80,11 @@ export type MobileMeetingListRow = {
   started_at: string | null;
   ended_at: string | null;
   minutes_total: number | null;
+  planned_minutes: number | null;
   agenda_total: number;
   current_agenda_idx: number | null;
+  users_count: number;
+  agents_count: number;
   insights_count: number;
   actions_count: number;
 };
@@ -92,6 +95,19 @@ export type MobileMeetingsListOut = {
 
 // ---------- 专家工卡墙 ---------------------------------------------------
 
+export type AgentRecentMeetingBrief = {
+  meeting_id: string;
+  title: string;
+  started_at: string | null;
+};
+
+export type AgentTasksSummary = {
+  total: number;
+  open_count: number;
+  done_count: number;
+  overdue_count: number;
+};
+
 export type AgentWorkCard = {
   agent_id: string;
   name: string;
@@ -99,9 +115,8 @@ export type AgentWorkCard = {
   domain: string | null;
   color: string | null;
   role: string;
-  recent_insights: AIInsightBrief[];
-  meetings_count: number;
-  insights_count: number;
+  recent_meetings: AgentRecentMeetingBrief[];
+  tasks: AgentTasksSummary;
   last_active: string | null;
 };
 

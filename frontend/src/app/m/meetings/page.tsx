@@ -67,13 +67,29 @@ function MeetingRow({ m }: { m: MobileMeetingListRow }) {
   const s = STATUS_STYLE[m.status] || STATUS_STYLE.finished;
   const isOngoing = m.status === "ongoing";
 
-  let subInfo = "";
-  if (isOngoing && m.minutes_total !== null) {
-    subInfo = `已 ${m.minutes_total} min`;
-  } else if (m.status === "scheduled" && m.started_at) {
-    subInfo = timeAgo(m.started_at);
+  // 时长展示: 实际 / 计划 — overshoot 时实际数飘红
+  const planned = m.planned_minutes;
+  const actual = m.minutes_total;
+  let timeText = "";
+  let timeOver = false;
+  if (isOngoing && actual !== null) {
+    if (planned !== null) {
+      timeOver = actual > planned;
+      timeText = `已 ${actual} / 计划 ${planned} min`;
+    } else {
+      timeText = `已 ${actual} min`;
+    }
+  } else if (m.status === "scheduled") {
+    if (planned !== null) timeText = `计划 ${planned} min`;
+    else if (m.started_at) timeText = timeAgo(m.started_at);
   } else if (m.ended_at) {
-    subInfo = `${timeAgo(m.ended_at)} · 用时 ${m.minutes_total ?? "-"} min`;
+    const base = `${timeAgo(m.ended_at)} · 用时 ${actual ?? "-"} min`;
+    if (planned !== null && actual !== null) {
+      timeOver = actual > planned;
+      timeText = `${base} / 计划 ${planned}`;
+    } else {
+      timeText = base;
+    }
   }
 
   return (
@@ -91,8 +107,14 @@ function MeetingRow({ m }: { m: MobileMeetingListRow }) {
           ) : null}
           <span>{s.label}</span>
         </span>
-        {subInfo ? (
-          <span className="truncate text-[13px] text-zinc-500">· {subInfo}</span>
+        {timeText ? (
+          <span
+            className={`truncate text-[13px] ${
+              timeOver ? "text-amber-300/90" : "text-zinc-500"
+            }`}
+          >
+            · {timeText}
+          </span>
         ) : null}
       </header>
       <p className="mt-2.5 text-[16px] font-medium leading-snug text-zinc-50 line-clamp-2">
@@ -108,6 +130,18 @@ function MeetingRow({ m }: { m: MobileMeetingListRow }) {
             ) : (
               <span>{m.agenda_total} 议题</span>
             )}
+          </span>
+        ) : null}
+        {m.users_count > 0 ? (
+          <span className="flex items-center gap-1">
+            <span>👤</span>
+            <span className="tabular-nums">{m.users_count}</span>
+          </span>
+        ) : null}
+        {m.agents_count > 0 ? (
+          <span className="flex items-center gap-1 text-violet-300/80">
+            <span>🤖</span>
+            <span className="tabular-nums">{m.agents_count}</span>
           </span>
         ) : null}
         {m.insights_count > 0 ? (
