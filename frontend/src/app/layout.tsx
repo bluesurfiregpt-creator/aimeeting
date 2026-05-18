@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import AppLogo from "@/components/AppLogo";
 import AuthHeader from "@/components/AuthHeader";
+import ChromeGate from "@/components/ChromeGate";
 import ManualLink from "@/components/ManualLink";
 import Toaster from "@/components/Toaster";
 import VersionBadge from "@/components/VersionBadge";
@@ -20,12 +21,16 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body className="font-sans antialiased">
-        <AppLogo />
-        <ManualLink />
-        <AuthHeader />
+        <ChromeGate>
+          <AppLogo />
+          <ManualLink />
+          <AuthHeader />
+        </ChromeGate>
         {children}
         <Toaster />
-        <VersionBadge />
+        <ChromeGate>
+          <VersionBadge />
+        </ChromeGate>
         {/* v25-bug-fix #1: 自动注入 Cowork suite,登录后 F12 即可 runCoworkSuite() */}
         <Script
           src="/cowork_suite.js"

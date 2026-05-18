@@ -41,6 +41,7 @@ from .routers import knowledge as knowledge_router
 from .routers import lineage as lineage_router  # v26.5-Lineage P2
 from .routers import me as me_router
 from .routers import memory_drafts as memory_drafts_router  # v26.5-Lineage
+from .routers import mobile as mobile_router  # v27.0-mobile
 from .routers import reports as reports_router
 from .routers import meetings as meetings_router
 from .routers import memory as memory_router
@@ -139,6 +140,7 @@ app.include_router(asr_vocabulary_router.router)  # v25.9
 app.include_router(super_router.router)  # v26.4 Platform Admin
 app.include_router(kb_sedimentation_router.router)  # v26.5-02c
 app.include_router(memory_drafts_router.router)  # v26.5-Lineage
+app.include_router(mobile_router.router)  # v27.0-mobile
 app.include_router(lineage_router.router)  # v26.5-Lineage P2
 app.include_router(agent_templates_router.router)  # v26.6-01 AI 模板生成器
 app.include_router(chat_router.router)  # v26.13.1 AI 私聊 调试模式

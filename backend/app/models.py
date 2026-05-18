@@ -1582,3 +1582,55 @@ class SearchProviderConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+
+# ----------------------------------------------------------------------------
+# v27.0-mobile: AIInsight — AI 智囊 结构化 产出
+# ----------------------------------------------------------------------------
+# MeetingAgentMessage 存 AI 的 raw 发言 文本 (一长 段). 但 移动端 "AI 智囊"
+# 视图 需要 结构化 显: 类型 (建议/风险/洞察/思路) + 一句话 结论 + 一段 依据.
+#
+# 此表 是 raw AgentMessage 的 二次 结构化 索引:
+#   - 一条 AgentMessage 可 抽出 0-N 条 AIInsight (一段 长发言 可能 含 多个 判断)
+#   - source_message_id 反向 溯源, 用户 点 chip 可跳 原 发言
+#   - type 是 离散 枚举, 便于 按 类型 索引 / 按 专家 索引 / 按 议题 索引
+#
+# Populate 路径 (v27.0 MVP):
+#   - backfill 脚本 一次性 扫 老 AgentMessage 用 启发式 抽 (无 LLM 成本)
+#   - 后续 Phase: 会议结束 closure_curator 跑 LLM 抽 结构化
+#
+# 跟 MemoryDraft 区别: Memory 是 待审 入库 的 长期 经验; AIInsight 是 一次
+# 会议内 AI 给的 判断, 不一定 沉淀, 但 永远 可被 检索 / 引用.
+
+class AIInsight(Base):
+    __tablename__ = "ai_insight"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    meeting_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("meeting.id", ondelete="CASCADE"), index=True
+    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("agent.id", ondelete="CASCADE"), index=True
+    )
+    # 类型 — 决定 移动端 chip 颜色 + 优先级:
+    #   "建议"   建议性 — 推 一个 方案
+    #   "风险"   预警性 — 红色, 顶部 优先
+    #   "洞察"   数据 / 现象 发现, 含 数字 / %
+    #   "思路"   解题 思路 / 拆分 角度
+    #   "决策建议" 直接 给 拍 板 选项
+    type: Mapped[str] = mapped_column(String(16), index=True)
+    # 一句话 结论 — 移动端 卡 内 主要 显
+    content: Mapped[str] = mapped_column(Text)
+    # 依据 — 卡 内 ▸ 一行 显, 详情 页 完整 展开
+    evidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 溯源 — 反 跳 原 AgentMessage
+    source_message_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("meeting_agent_message.id", ondelete="SET NULL"), nullable=True,
+    )
+    # 关联 议程 idx (v26.14-P5 议程 进度 tracking) — 让 移动端 按 议题 索引
+    topic_idx: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

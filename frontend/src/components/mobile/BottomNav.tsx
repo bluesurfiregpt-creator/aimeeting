@@ -1,0 +1,83 @@
+"use client";
+
+/**
+ * v27.0-mobile · 底部 nav · 4 个 入口.
+ *
+ * 严按 brief: 按 "用户 当下 任务" 组织, 不 按 系统 模块.
+ *   🎯 今日   📅 会议   ✓ 任务   💡 智囊
+ *
+ * 设计 注意:
+ *   - 4 个 = 移动端 nav 紧凑 上限. 不 加第 5 个 (智囊 一项 涵盖 沉淀 + AI产出)
+ *   - 当前 tab 高亮 — 仅 active 用 实色, 其他 用 灰
+ *   - 不 用 大 emoji 卖萌, 用 lucide 风格 stroke icon 配 短 label
+ *   - sticky bottom, safe-area 适配 iOS 底部 home bar
+ */
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+type NavItem = {
+  href: string;
+  label: string;
+  icon: string;
+  matcher: (path: string) => boolean;
+};
+
+const ITEMS: NavItem[] = [
+  {
+    href: "/m",
+    label: "今日",
+    icon: "🎯",
+    matcher: (p) => p === "/m",
+  },
+  {
+    href: "/m/meetings",
+    label: "会议",
+    icon: "📅",
+    matcher: (p) => p.startsWith("/m/meetings"),
+  },
+  {
+    href: "/m/tasks",
+    label: "任务",
+    icon: "✓",
+    matcher: (p) => p.startsWith("/m/tasks"),
+  },
+  {
+    href: "/m/insights",
+    label: "智囊",
+    icon: "💡",
+    matcher: (p) => p.startsWith("/m/insights"),
+  },
+];
+
+export default function BottomNav() {
+  const pathname = usePathname() || "/m";
+  return (
+    <nav
+      data-testid="mobile-bottom-nav"
+      className="fixed bottom-0 left-0 right-0 z-40 border-t border-ink-800 bg-ink-950/95 backdrop-blur"
+      style={{ paddingBottom: "env(safe-area-inset-bottom, 0)" }}
+    >
+      <ul className="grid grid-cols-4">
+        {ITEMS.map((item) => {
+          const active = item.matcher(pathname);
+          return (
+            <li key={item.href}>
+              <Link
+                href={item.href}
+                className={`flex flex-col items-center gap-0.5 py-2.5 transition ${
+                  active ? "text-violet-300" : "text-zinc-500"
+                }`}
+              >
+                <span className={`text-lg leading-none ${active ? "" : "opacity-60"}`}>
+                  {item.icon}
+                </span>
+                <span className="text-[10px] font-medium">{item.label}</span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
