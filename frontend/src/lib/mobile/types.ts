@@ -90,6 +90,25 @@ export type MobileMeetingsListOut = {
   items: MobileMeetingListRow[];
 };
 
+// ---------- 专家工卡墙 ---------------------------------------------------
+
+export type AgentWorkCard = {
+  agent_id: string;
+  name: string;
+  nickname: string | null;
+  domain: string | null;
+  color: string | null;
+  role: string;
+  recent_insights: AIInsightBrief[];
+  meetings_count: number;
+  insights_count: number;
+  last_active: string | null;
+};
+
+export type AgentsWorkboardOut = {
+  agents: AgentWorkCard[];
+};
+
 // ---------- 任务闭环视图 -----------------------------------------------
 
 export type MobileTaskKind = "confirm" | "approve_draft" | "tracking" | "done";

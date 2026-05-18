@@ -716,6 +716,111 @@ async def get_mobile_tasks(
     )
 
 
+# ============================================================================
+# /api/m/agents/workboard — AI 专家工卡墙
+# ============================================================================
+#
+# 用户校准: A+B 合一 — 工卡列表, 每张卡含该专家最近产出. 移动端 "专家视角".
+# 不展示大头像 / 不像通讯录, 走卡片+chip 的 native app 风.
+
+class AgentWorkCardOut(BaseModel):
+    agent_id: uuid.UUID
+    name: str
+    nickname: Optional[str] = None
+    domain: Optional[str] = None
+    color: Optional[str] = None
+    role: str
+
+    recent_insights: list[AIInsightBrief] = []  # 最近 3 条产出
+    meetings_count: int = 0  # 参与几场会议 (有 insight 输出过的)
+    insights_count: int = 0  # 累计产出几条
+    last_active: Optional[datetime] = None  # 最后一次产出时间
+
+
+class AgentsWorkboardOut(BaseModel):
+    agents: list[AgentWorkCardOut]
+
+
+@router.get("/agents/workboard", response_model=AgentsWorkboardOut)
+async def get_agents_workboard(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v27.0-mobile: 专家视角工卡墙. 列出 workspace 所有 expert AI,
+    每张工卡含: nickname / domain / 最近 3 条产出 / 累计指标.
+
+    排序: 按 last_active 倒序 — 活跃度优先, 闲置 AI 沉底.
+    """
+    ws_id = auth.workspace.id
+
+    # 拉 workspace 所有 active expert agents (排除 moderator 内置主持人)
+    agents = (
+        await session.execute(
+            select(Agent).where(
+                Agent.workspace_id == ws_id,
+                Agent.is_active.is_(True),
+                Agent.role == "expert",
+            )
+        )
+    ).scalars().all()
+
+    cards: list[AgentWorkCardOut] = []
+    for a in agents:
+        # 最近 3 条 insight
+        ins_rows = (
+            await session.execute(
+                select(AIInsight)
+                .where(AIInsight.agent_id == a.id)
+                .order_by(desc(AIInsight.created_at))
+                .limit(3)
+            )
+        ).scalars().all()
+        recent = [
+            AIInsightBrief(
+                id=ins.id,
+                agent_id=ins.agent_id,
+                agent_name=a.name,
+                agent_nickname=a.nickname,
+                type=ins.type,
+                content=ins.content,
+            )
+            for ins in ins_rows
+        ]
+
+        # 聚合: 累计场数 + 累计 insight 数 + last_active
+        agg = (
+            await session.execute(
+                select(
+                    func.count(func.distinct(AIInsight.meeting_id)).label("m_n"),
+                    func.count(AIInsight.id).label("i_n"),
+                    func.max(AIInsight.created_at).label("last"),
+                ).where(AIInsight.agent_id == a.id)
+            )
+        ).one()
+
+        cards.append(AgentWorkCardOut(
+            agent_id=a.id,
+            name=a.name,
+            nickname=a.nickname,
+            domain=a.domain,
+            color=a.color,
+            role=a.role,
+            recent_insights=recent,
+            meetings_count=int(agg.m_n or 0),
+            insights_count=int(agg.i_n or 0),
+            last_active=agg.last,
+        ))
+
+    # 排序: 有活跃的优先 (按 last_active 倒序), 没产出的沉底 (按 name 字典序)
+    def sort_key(c: AgentWorkCardOut):
+        if c.last_active:
+            return (0, -c.last_active.timestamp())
+        return (1, c.name)
+    cards.sort(key=sort_key)
+
+    return AgentsWorkboardOut(agents=cards)
+
+
 @router.get("/insights", response_model=list[AIInsightFull])
 async def list_insights(
     by_agent: Optional[uuid.UUID] = Query(None),

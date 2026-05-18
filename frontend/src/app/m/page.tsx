@@ -14,6 +14,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import AgentWorkCard from "@/components/mobile/AgentWorkCard";
 import HeroOngoingCard from "@/components/mobile/HeroOngoingCard";
 import HeroEmptyCard from "@/components/mobile/HeroEmptyCard";
 import {
@@ -24,7 +25,7 @@ import {
 import PageHeader from "@/components/mobile/PageHeader";
 import SegmentControl from "@/components/mobile/SegmentControl";
 import { mApi } from "@/lib/mobile/api";
-import type { WorkbenchOut } from "@/lib/mobile/types";
+import type { AgentsWorkboardOut, WorkbenchOut } from "@/lib/mobile/types";
 
 type View = "meeting" | "expert";
 
@@ -139,7 +140,7 @@ export default function MobileHomePage() {
       ) : view === "meeting" ? (
         <MeetingView data={data} insightTopics={insightTopics} />
       ) : (
-        <ExpertViewPlaceholder />
+        <ExpertView />
       )}
     </div>
   );
@@ -215,20 +216,75 @@ function MeetingView({
   );
 }
 
-// ===== 专家视角 (Phase 2 next 真做, 暂占位) =============================
+// ===== 专家视角 — 工卡墙 ================================================
 
-function ExpertViewPlaceholder() {
-  return (
-    <div className="px-4 pb-6">
-      <div className="rounded-2xl border border-dashed border-zinc-800 px-6 py-12 text-center">
-        <div className="text-3xl">🧠</div>
-        <p className="mt-4 text-[16px] text-zinc-200">专家视角 · 工卡墙</p>
-        <p className="mt-2 text-[14px] leading-relaxed text-zinc-500">
-          下一步真做: 列出所有 AI 专家工卡,<br />
-          每张含 nickname · 专业 / 最近 2-3 条产出 / 累计指标.<br />
-          点工卡进单专家详情页.
-        </p>
+function ExpertView() {
+  const [data, setData] = useState<AgentsWorkboardOut | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    mApi
+      .getAgentsWorkboard()
+      .then((d) => {
+        if (alive) {
+          setData(d);
+          setError(null);
+        }
+      })
+      .catch((e) => {
+        if (alive) setError(e.message || "load failed");
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="space-y-3 px-4 pb-6">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-32 animate-pulse rounded-2xl bg-ink-900" />
+        ))}
       </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="px-6 py-10 text-center">
+        <p className="text-[16px] text-zinc-200">未能加载专家</p>
+        <p className="mt-2 text-[14px] text-zinc-600">{error}</p>
+      </div>
+    );
+  }
+
+  if (data.agents.length === 0) {
+    return (
+      <div className="mx-4 rounded-2xl border border-dashed border-zinc-800 px-6 py-12 text-center">
+        <div className="text-3xl">🧠</div>
+        <p className="mt-4 text-[16px] text-zinc-200">还没添加 AI 专家</p>
+        <p className="mt-2 text-[13px] text-zinc-600">从桌面端添加 AI 专家</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 px-4 pb-6">
+      <p className="px-1 text-[13px] text-zinc-500">
+        共 {data.agents.length} 位 AI 专家 · 按最近活跃排序
+      </p>
+      {data.agents.map((a) => (
+        <AgentWorkCard
+          key={a.agent_id}
+          agent={a}
+          onClick={() => alert(`Phase 3: 跳 /m/agents/${a.agent_id} 单专家详情页`)}
+        />
+      ))}
     </div>
   );
 }
