@@ -52,3 +52,39 @@ export type WorkbenchOut = {
   pending: WorkbenchPendingTask[];
   todays_insights: AIInsightFull[];
 };
+
+// ---------- 单场 会议 推进 视图 -----------------------------------------
+
+export type MobileMeetingAgendaItem = {
+  idx: number;
+  title: string;
+  time_budget_min: number | null;
+  status: "done" | "active" | "pending";
+  elapsed_min: number | null;
+};
+
+export type MobileMeetingHumanLine = {
+  speaker_name: string;
+  text: string;
+  at_minute: number;
+};
+
+export type MobileMeetingDetail = {
+  meeting_id: string;
+  title: string;
+  status: string;
+  started_minutes_ago: number;
+  can_control: boolean;
+
+  agenda_items: MobileMeetingAgendaItem[];
+  current_agenda_idx: number | null;
+  is_agenda_complete: boolean;
+
+  current_topic_title: string | null;
+  current_topic_elapsed_min: number | null;
+  current_topic_insights: AIInsightFull[];
+  current_topic_recent_lines: MobileMeetingHumanLine[];
+
+  transcript_total: number;
+  other_topics_count: number;
+};

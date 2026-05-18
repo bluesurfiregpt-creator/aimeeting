@@ -5,7 +5,11 @@
  * 因为 那边 含 全 局 toast 路径, 移动端 想 自己 控 错误 显示.
  */
 
-import type { WorkbenchOut, AIInsightFull } from "./types";
+import type {
+  AIInsightFull,
+  MobileMeetingDetail,
+  WorkbenchOut,
+} from "./types";
 
 async function jget<T>(path: string): Promise<T> {
   const r = await fetch(path, {
@@ -20,6 +24,8 @@ async function jget<T>(path: string): Promise<T> {
 
 export const mApi = {
   getWorkbench: () => jget<WorkbenchOut>("/api/m/workbench"),
+  getMeetingDetail: (id: string) =>
+    jget<MobileMeetingDetail>(`/api/m/meetings/${id}`),
   getInsights: (params?: { by_agent?: string; by_meeting?: string; limit?: number }) => {
     const q = new URLSearchParams();
     if (params?.by_agent) q.set("by_agent", params.by_agent);

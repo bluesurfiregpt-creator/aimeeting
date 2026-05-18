@@ -1,0 +1,204 @@
+"use client";
+
+/**
+ * v27.0-mobile · /m/meetings/[id] · 会议室 内 推进 视图.
+ *
+ * 整 屏 结构 (上 → 下):
+ *   1. TopBar — ← 返 / 标题 / ⋮ (复 用 mobile 主 layout TopBar 的 替换 — 见 下)
+ *   2. StageChipsRow — sticky 议程 5 阶段 chip (横滑)
+ *   3. 当前 议题 主卡 (CurrentTopicCard) — 含 AI 智囊 突出块 + 真人 list
+ *   4. 折叠 其他 议题 / 实时转录 (Phase 2 展开)
+ *   5. StickyActionBar — 底部 sticky next action
+ *
+ * Phase 1 MVP — 决策操作 onClick 仅 alert 占位, Phase 2 接 in-card decision
+ * + advance + summon-ai 实 操作 API.
+ */
+
+import { useEffect, useState, use } from "react";
+import Link from "next/link";
+import StageChipsRow from "@/components/mobile/StageChipsRow";
+import CurrentTopicCard from "@/components/mobile/CurrentTopicCard";
+import StickyActionBar from "@/components/mobile/StickyActionBar";
+import { mApi } from "@/lib/mobile/api";
+import type { MobileMeetingDetail } from "@/lib/mobile/types";
+
+function isRiskInsight(insights: { type: string }[]): boolean {
+  return insights.some((i) => i.type === "风险");
+}
+
+export default function MobileMeetingDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = use(params);
+  const [data, setData] = useState<MobileMeetingDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    mApi
+      .getMeetingDetail(id)
+      .then((d) => {
+        if (alive) {
+          setData(d);
+          setError(null);
+        }
+      })
+      .catch((e) => {
+        if (alive) setError(e.message || "load failed");
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="space-y-4 p-4">
+        <div className="h-16 animate-pulse rounded-xl bg-ink-900" />
+        <div className="h-64 animate-pulse rounded-2xl bg-ink-900" />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="space-y-3 p-6 text-center">
+        <p className="text-[15px] text-zinc-300">未 能 加载 会议</p>
+        <p className="text-[13px] text-zinc-600">{error}</p>
+        <Link
+          href="/m"
+          className="inline-flex h-12 items-center justify-center rounded-xl border border-ink-700 px-6 text-[15px] text-zinc-200"
+        >
+          回 工作台
+        </Link>
+      </div>
+    );
+  }
+
+  const hasRisk = isRiskInsight(data.current_topic_insights);
+
+  return (
+    <div className="flex min-h-full flex-col">
+      {/* ===== 会议 head — 返 + title + 状态 ===================== */}
+      <div className="border-b border-ink-800 bg-ink-950/80 px-4 py-3 backdrop-blur">
+        <div className="flex items-center gap-3">
+          <Link
+            href="/m"
+            className="flex h-10 w-10 items-center justify-center -ml-2 text-zinc-400 active:text-zinc-200"
+            aria-label="返回"
+          >
+            <span className="text-xl leading-none">←</span>
+          </Link>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-[16px] font-medium text-zinc-100">
+              {data.title}
+            </h1>
+            <p className="text-[12px] text-zinc-500">
+              {data.status === "ongoing" ? (
+                <>
+                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400 align-middle animate-pulse" />
+                  <span className="ml-1.5 text-emerald-300">进行中</span>
+                  <span className="ml-2 text-zinc-500">· 已 {data.started_minutes_ago} min</span>
+                </>
+              ) : (
+                <span>{data.status}</span>
+              )}
+              <span className="ml-2 text-zinc-600">· {data.transcript_total} 句 实录</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ===== Stage chips (sticky) ============================== */}
+      <StageChipsRow
+        items={data.agenda_items}
+        currentIdx={data.current_agenda_idx}
+        isComplete={data.is_agenda_complete}
+      />
+
+      {/* ===== 主 区域 — 当前 议题 + 折叠 其他 ================== */}
+      <main className="flex-1 space-y-4 p-4 pb-4">
+        {data.is_agenda_complete ? (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-5 text-center">
+            <p className="text-[15px] text-emerald-200">议程 已 全部 完成</p>
+            <p className="mt-1 text-[13px] text-zinc-500">
+              可以 结束 会议, 进 入 沉淀 复盘
+            </p>
+          </div>
+        ) : data.current_topic_title ? (
+          <CurrentTopicCard
+            topicTitle={data.current_topic_title}
+            elapsedMin={data.current_topic_elapsed_min}
+            insights={data.current_topic_insights}
+            recentLines={data.current_topic_recent_lines}
+          />
+        ) : (
+          <div className="rounded-2xl border border-dashed border-zinc-800 p-5 text-center text-[14px] text-zinc-500">
+            议程 还 没 开始
+          </div>
+        )}
+
+        {data.other_topics_count > 1 ? (
+          <details className="rounded-xl border border-ink-800 bg-ink-900/40">
+            <summary className="cursor-pointer list-none px-4 py-3 text-[13px] text-zinc-400">
+              ▾ 其他 议题 ({data.other_topics_count - 1})
+            </summary>
+            <ul className="space-y-1 px-4 pb-3 text-[13px]">
+              {data.agenda_items
+                .filter((it) => it.idx !== data.current_agenda_idx)
+                .map((it) => (
+                  <li key={it.idx} className="flex items-center gap-2 py-1">
+                    <span className="text-[11px] text-zinc-600">
+                      {it.status === "done" ? "✓" : "○"}
+                    </span>
+                    <span
+                      className={
+                        it.status === "done"
+                          ? "text-zinc-500 line-through"
+                          : "text-zinc-400"
+                      }
+                    >
+                      {it.title}
+                    </span>
+                    {it.time_budget_min ? (
+                      <span className="text-[11px] text-zinc-600">
+                        · {it.time_budget_min}m
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+            </ul>
+          </details>
+        ) : null}
+
+        {data.transcript_total > 0 ? (
+          <details className="rounded-xl border border-ink-800 bg-ink-900/40">
+            <summary className="cursor-pointer list-none px-4 py-3 text-[13px] text-zinc-400">
+              ▾ 实时 转录 ({data.transcript_total} 句)
+            </summary>
+            <p className="px-4 pb-3 text-[12px] text-zinc-600">
+              Phase 2 — 完整 转录 视图 (含 高亮 / 跳转 / 编辑 speaker)
+            </p>
+          </details>
+        ) : null}
+      </main>
+
+      {/* ===== Sticky 底部 next action =========================== */}
+      <StickyActionBar
+        canControl={data.can_control}
+        isAgendaComplete={data.is_agenda_complete}
+        currentTopicTitle={data.current_topic_title}
+        hasRiskInsight={hasRisk}
+        onAdvance={() => alert("Phase 2: 推进 议程 — 调 /api/meetings/{id}/agenda-advance")}
+        onSummonAi={() => alert("Phase 2: 召 AI — 走 /api/m/summon-perspective")}
+        onEndMeeting={() => alert("Phase 2: 结束 会议 — 调 finalize")}
+      />
+    </div>
+  );
+}

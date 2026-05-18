@@ -253,6 +253,211 @@ async def get_workbench(
 # /api/m/insights — 智囊 产出 列表 (三 视图 切换)
 # ============================================================================
 
+# ============================================================================
+# /api/m/meetings/{id} — 单 场 会议 推进 视图 聚合
+# ============================================================================
+
+class MobileMeetingAgendaItem(BaseModel):
+    idx: int
+    title: str
+    time_budget_min: Optional[int] = None
+    status: str  # done | active | pending
+    elapsed_min: Optional[int] = None
+
+
+class MobileMeetingHumanLine(BaseModel):
+    speaker_name: str  # 李局长 / 未识别
+    text: str  # 实录 文本 (前 80 字)
+    at_minute: int  # 距 会议 开始 多少 分钟
+
+
+class MobileMeetingDetailOut(BaseModel):
+    meeting_id: uuid.UUID
+    title: str
+    status: str
+    started_minutes_ago: int
+    can_control: bool  # 用户 是否 可 推进 议程 (leader+ OR 创建人)
+
+    # 议程 全 视图
+    agenda_items: list[MobileMeetingAgendaItem]
+    current_agenda_idx: Optional[int] = None
+    is_agenda_complete: bool = False
+
+    # 当前 议题 详情
+    current_topic_title: Optional[str] = None
+    current_topic_elapsed_min: Optional[int] = None
+    current_topic_insights: list[AIInsightFull] = []  # 当前 议题 的 AI 智囊
+    current_topic_recent_lines: list[MobileMeetingHumanLine] = []  # 最近 N 条 真人 实录
+
+    # 折 叠 计数
+    transcript_total: int = 0
+    other_topics_count: int = 0
+
+
+@router.get("/meetings/{meeting_id}", response_model=MobileMeetingDetailOut)
+async def get_mobile_meeting_detail(
+    meeting_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v27.0-mobile: 单 场 会议 推进 视图 聚合 endpoint.
+
+    一 次 拉 全 — meta + agenda + current_topic_insights + recent_lines.
+    移动 端 网 不稳 减 round-trip.
+    """
+    m = (
+        await session.execute(
+            select(Meeting).where(
+                Meeting.id == meeting_id,
+                Meeting.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not m:
+        raise HTTPException(404, "meeting not found")
+
+    now = datetime.now(timezone.utc)
+    started_min = int((now - m.started_at).total_seconds() / 60) if m.started_at else 0
+
+    # can_control: leader+ OR 创建人
+    from ..auth import is_leader_or_admin
+    can_control = await is_leader_or_admin(session, auth)
+    if not can_control and m.created_by_user_id == auth.user.id:
+        can_control = True
+
+    # 议程 项 + progress 合 并
+    agenda = m.agenda or []
+    progress = m.agenda_progress or []
+    progress_by_idx = {p.get("idx"): p for p in progress}
+
+    agenda_items: list[MobileMeetingAgendaItem] = []
+    for i, item in enumerate(agenda):
+        p = progress_by_idx.get(i, {})
+        status = p.get("status") or "pending"
+        elapsed_min = None
+        s = p.get("started_at")
+        e = p.get("ended_at")
+        try:
+            if s:
+                start_t = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                end_t = (
+                    datetime.fromisoformat(e.replace("Z", "+00:00")) if e else now
+                )
+                elapsed_min = max(0, int((end_t - start_t).total_seconds() / 60))
+        except (ValueError, AttributeError):
+            pass
+        agenda_items.append(MobileMeetingAgendaItem(
+            idx=i,
+            title=(item.get("title") or "").strip() or f"议程项 {i + 1}",
+            time_budget_min=item.get("time_budget_min"),
+            status=status,
+            elapsed_min=elapsed_min,
+        ))
+
+    is_complete = (
+        m.current_agenda_idx is not None
+        and len(agenda) > 0
+        and m.current_agenda_idx >= len(agenda)
+    )
+
+    # 当前 议题
+    current_topic_title = None
+    current_topic_elapsed_min = None
+    current_topic_insights: list[AIInsightFull] = []
+    current_topic_recent_lines: list[MobileMeetingHumanLine] = []
+    cur_idx = m.current_agenda_idx
+
+    if cur_idx is not None and not is_complete and 0 <= cur_idx < len(agenda):
+        cur_item = agenda[cur_idx]
+        current_topic_title = (cur_item.get("title") or "").strip() or f"议程项 {cur_idx + 1}"
+        cur_progress = progress_by_idx.get(cur_idx, {})
+        try:
+            s = cur_progress.get("started_at")
+            if s:
+                start_t = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                current_topic_elapsed_min = max(0, int((now - start_t).total_seconds() / 60))
+        except (ValueError, AttributeError):
+            pass
+
+        # AI 智囊 — 该 议题 全部 insights
+        ins_rows = (
+            await session.execute(
+                select(AIInsight, Agent.name, Agent.nickname)
+                .join(Agent, Agent.id == AIInsight.agent_id)
+                .where(
+                    AIInsight.meeting_id == m.id,
+                    AIInsight.topic_idx == cur_idx,
+                )
+                .order_by(desc(AIInsight.created_at))
+            )
+        ).all()
+        for ins, a_name, a_nick in ins_rows:
+            current_topic_insights.append(AIInsightFull(
+                id=ins.id, agent_id=ins.agent_id, agent_name=a_name,
+                agent_nickname=a_nick, type=ins.type, content=ins.content,
+                evidence=ins.evidence, meeting_id=ins.meeting_id,
+                meeting_title=m.title, topic_idx=ins.topic_idx,
+                source_message_id=ins.source_message_id, created_at=ins.created_at,
+            ))
+
+        # 真 人 实录 — 该 议题 开始后 的 transcript lines
+        # 简化: 取 该 议题 started_at 之后 的 最近 10 条
+        from ..models import MeetingTranscript
+        line_q = (
+            select(MeetingTranscript, User.name)
+            .outerjoin(User, User.id == MeetingTranscript.speaker_user_id)
+            .where(MeetingTranscript.meeting_id == m.id)
+            .order_by(desc(MeetingTranscript.id))
+            .limit(10)
+        )
+        # 若 议题 有 started_at 则 filter by start_ms (简单 估 — start_ms 是 距 会议 开始 ms)
+        cur_topic_start = cur_progress.get("started_at")
+        if cur_topic_start and m.started_at:
+            try:
+                topic_t = datetime.fromisoformat(cur_topic_start.replace("Z", "+00:00"))
+                offset_ms = int((topic_t - m.started_at).total_seconds() * 1000)
+                line_q = line_q.where(MeetingTranscript.start_ms >= offset_ms - 5000)
+            except (ValueError, AttributeError):
+                pass
+        line_rows = (await session.execute(line_q)).all()
+        for line, speaker_name in reversed(line_rows):  # 时间 正序
+            ms = line.start_ms or 0
+            current_topic_recent_lines.append(MobileMeetingHumanLine(
+                speaker_name=speaker_name or "未识别",
+                text=(line.text or "")[:80],
+                at_minute=max(0, int(ms / 60_000)),
+            ))
+
+    # transcript 总 数
+    from ..models import MeetingTranscript
+    transcript_total = (
+        await session.execute(
+            select(func.count(MeetingTranscript.id)).where(
+                MeetingTranscript.meeting_id == m.id
+            )
+        )
+    ).scalar() or 0
+
+    other_topics_count = max(0, len(agenda) - (1 if cur_idx is not None else 0))
+
+    return MobileMeetingDetailOut(
+        meeting_id=m.id,
+        title=m.title or "(未命名)",
+        status=m.status,
+        started_minutes_ago=started_min,
+        can_control=can_control,
+        agenda_items=agenda_items,
+        current_agenda_idx=cur_idx,
+        is_agenda_complete=is_complete,
+        current_topic_title=current_topic_title,
+        current_topic_elapsed_min=current_topic_elapsed_min,
+        current_topic_insights=current_topic_insights,
+        current_topic_recent_lines=current_topic_recent_lines,
+        transcript_total=int(transcript_total),
+        other_topics_count=other_topics_count,
+    )
+
+
 @router.get("/insights", response_model=list[AIInsightFull])
 async def list_insights(
     by_agent: Optional[uuid.UUID] = Query(None),

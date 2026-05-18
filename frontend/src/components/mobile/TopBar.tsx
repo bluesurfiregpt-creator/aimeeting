@@ -12,8 +12,16 @@
  */
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+
+// v27.0: 详情 路径 自隐 — 跟 /m/meetings/[id] / /m/tasks/[id] / /m/insights/memory/[id] 一类.
+// list 页 (/m, /m/meetings, /m/tasks, /m/insights) 仍 显 greeting.
+function isDetailRoute(p: string | null): boolean {
+  if (!p) return false;
+  return /^\/m\/[^/]+\/[^/]+/.test(p);
+}
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -25,8 +33,11 @@ function greeting(): string {
 }
 
 export default function TopBar() {
+  const pathname = usePathname();
   const [name, setName] = useState<string>("");
   const [unread, setUnread] = useState<number>(0);
+
+  if (isDetailRoute(pathname)) return null;
 
   useEffect(() => {
     let alive = true;
