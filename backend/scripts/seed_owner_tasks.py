@@ -39,19 +39,19 @@ OWNER_EMAIL = "bluesurfiregpt@gmail.com"
 ACTION_ITEMS = [
     {
         "content": "审核数据合规整改方案 + 拍板 Excel 信息处理优先级",
-        "meeting_title_match": "数据安全合规",
+        "meeting_title_keywords": ["数据", "合规"],  # 全部命中才算
         "due_days": 7,
         "evidence": "陈师宇: Excel 那份必须处理 — 这是合规雷",
     },
     {
         "content": "B 栋电梯改造方案 走永大 OR 通力 — 决策签字",
-        "meeting_title_match": "电梯改造",
+        "meeting_title_keywords": ["电梯", "改造"],
         "due_days": 5,
         "evidence": "李局长: 维保公司要换. 这是第一个决策.",
     },
     {
         "content": "Q1 投诉数据复盘报告 — 汇报给区局",
-        "meeting_title_match": "Q1 业主投诉",
+        "meeting_title_keywords": ["Q1", "投诉"],
         "due_days": 10,
         "evidence": "李局长: Q2 增一次业主满意度调查",
     },
@@ -61,12 +61,12 @@ MEMORY_DRAFTS = [
     {
         "content": "处理跨部门合规整改时, 必须先确认现有 Excel/Word 等离散存储里的业主敏感信息, 再排期整改, 防止漏点引发 12345 投诉.",
         "agent_name": "数据洞察",
-        "meeting_title_match": "数据安全合规",
+        "meeting_title_keywords": ["数据", "合规"],
     },
     {
         "content": "大额维修资金决策走业主大会前, 信息中心/物业管理处必须提前 3 周准备完整对比表, 防止业主群里临时反对拖进度.",
         "agent_name": "数据洞察",
-        "meeting_title_match": "电梯改造",
+        "meeting_title_keywords": ["电梯", "改造"],
     },
 ]
 
@@ -90,9 +90,11 @@ async def main():
             )
         ).scalars().all()
 
-        def find_meeting(name_part: str) -> Meeting | None:
+        def find_meeting_by_keywords(keywords: list[str]) -> Meeting | None:
+            """全部 keywords 都出现在 title 里 (顺序无关, 中间可有任何字符/空格)"""
             for m in meetings:
-                if name_part in (m.title or ""):
+                t = (m.title or "")
+                if all(k in t for k in keywords):
                     return m
             return None
 
@@ -113,9 +115,9 @@ async def main():
                     existing.assignee_user_id = owner.id
                     logger.info("action item 重新绑 owner: %s", spec["content"][:30])
                 continue
-            m = find_meeting(spec["meeting_title_match"])
+            m = find_meeting_by_keywords(spec["meeting_title_keywords"])
             if not m:
-                logger.warning("跳过 (找不到会议): %s", spec["meeting_title_match"])
+                logger.warning("跳过 (找不到会议): %s", spec["meeting_title_keywords"])
                 continue
             due_at = datetime.now(timezone.utc) + timedelta(days=spec["due_days"])
             ai = MeetingActionItem(
@@ -157,9 +159,9 @@ async def main():
                 ).scalar_one_or_none()
                 if existing:
                     continue
-                m = find_meeting(spec["meeting_title_match"])
+                m = find_meeting_by_keywords(spec["meeting_title_keywords"])
                 if not m:
-                    logger.warning("跳过 draft (找不到会议): %s", spec["meeting_title_match"])
+                    logger.warning("跳过 draft (找不到会议): %s", spec["meeting_title_keywords"])
                     continue
                 md = MemoryDraft(
                     workspace_id=ws_id,
