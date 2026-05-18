@@ -458,6 +458,176 @@ async def get_mobile_meeting_detail(
     )
 
 
+# ============================================================================
+# /api/m/tasks — 任务 闭环 视图
+# ============================================================================
+#
+# 聚合 两 类:
+#   - MeetingActionItem where assignee_user_id = me        (任务)
+#   - MemoryDraft where primary_user_id = me + pending     (待审 草稿)
+#
+# 分 三 组:
+#   pending  (默认 展开) — 待 你 处理: 待确认 / 待审 / 阻塞
+#   tracking (折叠) — 跟踪 中: 已 派发 进行中 没 异常
+#   done     (折叠) — 已 完成
+#
+# "其他 参与" — Phase 2 真接 (现 仅 返 count, 链 stub)
+
+
+class MobileTaskItem(BaseModel):
+    kind: str            # confirm | approve_draft | tracking | done
+    id: str              # action_item.id OR memory_draft.id
+    title: str
+    group: str           # pending | tracking | done
+    source_meeting_id: Optional[uuid.UUID] = None
+    source_meeting_title: Optional[str] = None
+    created_at: datetime
+    age_days: Optional[int] = None         # 任务 创建 至今 多少 天
+    insights: list[AIInsightBrief] = []    # action_item 关联 AI 智囊 (前 3 条)
+    cta_primary: Optional[str] = None      # 主 CTA 文案
+    cta_secondary: Optional[str] = None    # 副 CTA 文案
+
+
+class MobileTasksOut(BaseModel):
+    me_primary_count: int
+    other_participating_count: int  # stub — Phase 2 真接
+    items: list[MobileTaskItem]
+
+
+@router.get("/tasks", response_model=MobileTasksOut)
+async def get_mobile_tasks(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v27.0-mobile: 任务 闭环 视图. 我 主责 三 组."""
+    ws_id = auth.workspace.id
+    me_id = auth.user.id
+    now = datetime.now(timezone.utc)
+
+    items: list[MobileTaskItem] = []
+
+    # ----- action items (我 是 assignee) ----------------------------------
+    action_rows = (
+        await session.execute(
+            select(MeetingActionItem, Meeting.title, Meeting.id)
+            .outerjoin(Meeting, Meeting.id == MeetingActionItem.meeting_id)
+            .where(
+                MeetingActionItem.workspace_id == ws_id,
+                MeetingActionItem.assignee_user_id == me_id,
+            )
+            .order_by(desc(MeetingActionItem.created_at))
+        )
+    ).all()
+    for ai, m_title, m_id in action_rows:
+        age_days = max(0, int((now - ai.created_at).total_seconds() / 86400))
+        # 关联 AI 智囊 — 该 议题 前 3 条
+        insights: list[AIInsightBrief] = []
+        if m_id:
+            ins_rows = (
+                await session.execute(
+                    select(AIInsight, Agent.name, Agent.nickname)
+                    .join(Agent, Agent.id == AIInsight.agent_id)
+                    .where(AIInsight.meeting_id == m_id)
+                    .order_by(desc(AIInsight.created_at))
+                    .limit(3)
+                )
+            ).all()
+            for ins, a_name, a_nick in ins_rows:
+                insights.append(AIInsightBrief(
+                    id=ins.id, agent_id=ins.agent_id, agent_name=a_name,
+                    agent_nickname=a_nick, type=ins.type, content=ins.content,
+                ))
+
+        if ai.status == "done":
+            group = "done"
+            kind = "done"
+            cta_p = None
+            cta_s = None
+        elif ai.status == "cancelled":
+            continue  # 跳过 已 取消
+        else:
+            # open — 进一步 分 待确认 vs 跟踪中
+            #   < 2 天 + 无 task_id 转 dispatched → confirm
+            #   else → tracking
+            if age_days < 2:
+                group = "pending"
+                kind = "confirm"
+                cta_p = "确认 派发"
+                cta_s = "改 一下"
+            else:
+                group = "tracking"
+                kind = "tracking"
+                cta_p = None
+                cta_s = None
+        items.append(MobileTaskItem(
+            kind=kind,
+            id=str(ai.id),
+            title=ai.content[:80],
+            group=group,
+            source_meeting_id=m_id,
+            source_meeting_title=m_title,
+            created_at=ai.created_at,
+            age_days=age_days,
+            insights=insights,
+            cta_primary=cta_p,
+            cta_secondary=cta_s,
+        ))
+
+    # ----- memory drafts (我 是 primary_user) -----------------------------
+    draft_rows = (
+        await session.execute(
+            select(MemoryDraft, Meeting.title, Meeting.id)
+            .outerjoin(Meeting, Meeting.id == MemoryDraft.source_meeting_id)
+            .where(
+                MemoryDraft.workspace_id == ws_id,
+                MemoryDraft.primary_user_id == me_id,
+            )
+            .order_by(desc(MemoryDraft.created_at))
+        )
+    ).all()
+    for d, m_title, m_id in draft_rows:
+        age_days = max(0, int((now - d.created_at).total_seconds() / 86400))
+        if d.status == "approved":
+            group = "done"
+            kind = "done"
+            cta_p = None
+            cta_s = None
+        elif d.status == "pending":
+            group = "pending"
+            kind = "approve_draft"
+            cta_p = "通过"
+            cta_s = "驳回"
+        else:
+            continue  # rejected / expired 不显
+        items.append(MobileTaskItem(
+            kind=kind,
+            id=str(d.id),
+            title=d.proposed_content[:80],
+            group=group,
+            source_meeting_id=m_id,
+            source_meeting_title=m_title,
+            created_at=d.created_at,
+            age_days=age_days,
+            insights=[],  # memory drafts 不挂 AI insights (草稿 本身 就 是 AI 抽 的)
+            cta_primary=cta_p,
+            cta_secondary=cta_s,
+        ))
+
+    # 排序: pending 优先 (按 created_at 倒序), 然后 tracking, 然后 done
+    GROUP_ORDER = {"pending": 0, "tracking": 1, "done": 2}
+    items.sort(key=lambda x: (GROUP_ORDER.get(x.group, 9), -x.created_at.timestamp()))
+
+    me_primary = len([x for x in items if x.group != "done"]) + len(
+        [x for x in items if x.group == "done"]
+    )
+
+    return MobileTasksOut(
+        me_primary_count=me_primary,
+        other_participating_count=0,  # Phase 2
+        items=items,
+    )
+
+
 @router.get("/insights", response_model=list[AIInsightFull])
 async def list_insights(
     by_agent: Optional[uuid.UUID] = Query(None),

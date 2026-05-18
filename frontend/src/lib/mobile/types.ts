@@ -69,6 +69,31 @@ export type MobileMeetingHumanLine = {
   at_minute: number;
 };
 
+// ---------- 任务 闭环 视图 -----------------------------------------------
+
+export type MobileTaskKind = "confirm" | "approve_draft" | "tracking" | "done";
+export type MobileTaskGroup = "pending" | "tracking" | "done";
+
+export type MobileTaskItem = {
+  kind: MobileTaskKind;
+  id: string;
+  title: string;
+  group: MobileTaskGroup;
+  source_meeting_id: string | null;
+  source_meeting_title: string | null;
+  created_at: string;
+  age_days: number | null;
+  insights: AIInsightBrief[];
+  cta_primary: string | null;
+  cta_secondary: string | null;
+};
+
+export type MobileTasksOut = {
+  me_primary_count: number;
+  other_participating_count: number;
+  items: MobileTaskItem[];
+};
+
 export type MobileMeetingDetail = {
   meeting_id: string;
   title: string;

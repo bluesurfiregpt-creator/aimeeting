@@ -8,6 +8,7 @@
 import type {
   AIInsightFull,
   MobileMeetingDetail,
+  MobileTasksOut,
   WorkbenchOut,
 } from "./types";
 
@@ -26,6 +27,7 @@ export const mApi = {
   getWorkbench: () => jget<WorkbenchOut>("/api/m/workbench"),
   getMeetingDetail: (id: string) =>
     jget<MobileMeetingDetail>(`/api/m/meetings/${id}`),
+  getTasks: () => jget<MobileTasksOut>("/api/m/tasks"),
   getInsights: (params?: { by_agent?: string; by_meeting?: string; limit?: number }) => {
     const q = new URLSearchParams();
     if (params?.by_agent) q.set("by_agent", params.by_agent);
