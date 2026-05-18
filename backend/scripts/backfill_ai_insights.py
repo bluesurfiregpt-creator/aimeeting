@@ -72,10 +72,12 @@ def _split_content_evidence(text: str) -> tuple[str, str | None]:
 
 async def backfill_one_workspace(db: AsyncSession, workspace_id) -> int:
     """扫 该 workspace 所有 AgentMessage, 给 没 抽过 的 抽 AIInsight."""
+    # 必 join Agent — 老 数据 有 孤儿 message (agent 已被 删) 跳 过
     rows = (
         await db.execute(
             select(MeetingAgentMessage, Meeting.workspace_id, Meeting.id)
             .join(Meeting, Meeting.id == MeetingAgentMessage.meeting_id)
+            .join(Agent, Agent.id == MeetingAgentMessage.agent_id)  # 强制 inner join 过滤 孤儿
             .where(Meeting.workspace_id == workspace_id)
         )
     ).all()
