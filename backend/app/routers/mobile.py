@@ -254,6 +254,94 @@ async def get_workbench(
 # ============================================================================
 
 # ============================================================================
+# /api/m/meetings — 会议列表 (按状态分组)
+# ============================================================================
+
+class MobileMeetingListRow(BaseModel):
+    meeting_id: uuid.UUID
+    title: str
+    status: str
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    minutes_total: Optional[int] = None  # 已开 or 总时长 (分钟)
+    agenda_total: int = 0
+    current_agenda_idx: Optional[int] = None
+    insights_count: int = 0
+    actions_count: int = 0
+
+
+class MobileMeetingsListOut(BaseModel):
+    items: list[MobileMeetingListRow]
+
+
+@router.get("/meetings", response_model=MobileMeetingsListOut)
+async def list_mobile_meetings(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v27.0-mobile: 会议列表 — 进行中 + 即将开始 + 最近完成 (30天).
+
+    前端按 status 分组. 排序: ongoing/scheduled 时间正序, finished/processed 时间倒序.
+    """
+    ws_id = auth.workspace.id
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=30)
+
+    # 拉 候选 meetings: 全部 ongoing + scheduled, 过去 30 天 finished/processed
+    rows = (
+        await session.execute(
+            select(Meeting)
+            .where(
+                Meeting.workspace_id == ws_id,
+                # 进行中/未开 永远拉; finished/processed 只 30 天内
+                (
+                    Meeting.status.in_(["ongoing", "scheduled"])
+                    | ((Meeting.status.in_(["finished", "processed"])) & (Meeting.ended_at >= cutoff))
+                ),
+            )
+            .order_by(desc(Meeting.started_at))
+        )
+    ).scalars().all()
+
+    items: list[MobileMeetingListRow] = []
+    from ..models import MeetingActionItem
+    for m in rows:
+        # 时长 计算
+        minutes_total = None
+        if m.status == "ongoing" and m.started_at:
+            minutes_total = max(0, int((now - m.started_at).total_seconds() / 60))
+        elif m.ended_at and m.started_at:
+            minutes_total = max(0, int((m.ended_at - m.started_at).total_seconds() / 60))
+
+        # 计数 — insights + actions
+        insights_n = (
+            await session.execute(
+                select(func.count(AIInsight.id)).where(AIInsight.meeting_id == m.id)
+            )
+        ).scalar() or 0
+        actions_n = (
+            await session.execute(
+                select(func.count(MeetingActionItem.id)).where(MeetingActionItem.meeting_id == m.id)
+            )
+        ).scalar() or 0
+
+        items.append(MobileMeetingListRow(
+            meeting_id=m.id,
+            title=m.title or "(未命名)",
+            status=m.status,
+            started_at=m.started_at,
+            ended_at=m.ended_at,
+            minutes_total=minutes_total,
+            agenda_total=len(m.agenda or []),
+            current_agenda_idx=m.current_agenda_idx,
+            insights_count=int(insights_n),
+            actions_count=int(actions_n),
+        ))
+
+    return MobileMeetingsListOut(items=items)
+
+
+# ============================================================================
 # /api/m/meetings/{id} — 单 场 会议 推进 视图 聚合
 # ============================================================================
 

@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * v27.0-mobile · 底部 nav · 4 个 入口.
+ * v27.0-mobile · 底部 nav · 4 个入口.
  *
- * 严按 brief: 按 "用户 当下 任务" 组织, 不 按 系统 模块.
+ * 严按 brief: 按 "用户当下任务" 组织, 不按系统模块.
  *   🎯 今日   📅 会议   ✓ 任务   💡 智囊
  *
- * 设计 注意:
- *   - 4 个 = 移动端 nav 紧凑 上限. 不 加第 5 个 (智囊 一项 涵盖 沉淀 + AI产出)
- *   - 当前 tab 高亮 — 仅 active 用 实色, 其他 用 灰
- *   - 不 用 大 emoji 卖萌, 用 lucide 风格 stroke icon 配 短 label
+ * 设计注意:
+ *   - 4 个 = 移动端 nav 紧凑上限. 不加第 5 个 (智囊一项涵盖沉淀 + AI产出)
+ *   - 当前 tab 高亮 — 仅 active 用实色, 其他用灰
+ *   - 不用大 emoji 卖萌, 用 lucide 风格 stroke icon 配短 label
  *   - sticky bottom, safe-area 适配 iOS 底部 home bar
  */
 

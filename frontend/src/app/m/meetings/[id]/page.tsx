@@ -1,17 +1,17 @@
 "use client";
 
 /**
- * v27.0-mobile · /m/meetings/[id] · 会议室 内 推进 视图.
+ * v27.0-mobile · /m/meetings/[id] · 会议室内推进视图.
  *
- * 整 屏 结构 (上 → 下):
- *   1. TopBar — ← 返 / 标题 / ⋮ (复 用 mobile 主 layout TopBar 的 替换 — 见 下)
+ * 整屏结构 (上 → 下):
+ *   1. TopBar — ← 返 / 标题 / ⋮ (复用 mobile 主 layout TopBar 的替换 — 见下)
  *   2. StageChipsRow — sticky 议程 5 阶段 chip (横滑)
- *   3. 当前 议题 主卡 (CurrentTopicCard) — 含 AI 智囊 突出块 + 真人 list
- *   4. 折叠 其他 议题 / 实时转录 (Phase 2 展开)
+ *   3. 当前议题主卡 (CurrentTopicCard) — 含 AI 智囊突出块 + 真人 list
+ *   4. 折叠其他议题 / 实时转录 (Phase 2 展开)
  *   5. StickyActionBar — 底部 sticky next action
  *
  * Phase 1 MVP — 决策操作 onClick 仅 alert 占位, Phase 2 接 in-card decision
- * + advance + summon-ai 实 操作 API.
+ * + advance + summon-ai 实操作 API.
  */
 
 import { useEffect, useState, use } from "react";
@@ -69,13 +69,13 @@ export default function MobileMeetingDetailPage({
   if (error || !data) {
     return (
       <div className="space-y-3 p-6 text-center">
-        <p className="text-[15px] text-zinc-300">未 能 加载 会议</p>
+        <p className="text-[15px] text-zinc-300">未能加载会议</p>
         <p className="text-[13px] text-zinc-600">{error}</p>
         <Link
           href="/m"
           className="inline-flex h-12 items-center justify-center rounded-xl border border-ink-700 px-6 text-[15px] text-zinc-200"
         >
-          回 工作台
+          回工作台
         </Link>
       </div>
     );
@@ -109,7 +109,7 @@ export default function MobileMeetingDetailPage({
               ) : (
                 <span>{data.status}</span>
               )}
-              <span className="ml-2 text-zinc-600">· {data.transcript_total} 句 实录</span>
+              <span className="ml-2 text-zinc-600">· {data.transcript_total} 句实录</span>
             </p>
           </div>
         </div>
@@ -122,13 +122,13 @@ export default function MobileMeetingDetailPage({
         isComplete={data.is_agenda_complete}
       />
 
-      {/* ===== 主 区域 — 当前 议题 + 折叠 其他 ================== */}
+      {/* ===== 主区域 — 当前议题 + 折叠其他 ================== */}
       <main className="flex-1 space-y-4 p-4 pb-4">
         {data.is_agenda_complete ? (
           <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-5 text-center">
-            <p className="text-[15px] text-emerald-200">议程 已 全部 完成</p>
+            <p className="text-[15px] text-emerald-200">议程已全部完成</p>
             <p className="mt-1 text-[13px] text-zinc-500">
-              可以 结束 会议, 进 入 沉淀 复盘
+              可以结束会议, 进入沉淀复盘
             </p>
           </div>
         ) : data.current_topic_title ? (
@@ -140,14 +140,14 @@ export default function MobileMeetingDetailPage({
           />
         ) : (
           <div className="rounded-2xl border border-dashed border-zinc-800 p-5 text-center text-[14px] text-zinc-500">
-            议程 还 没 开始
+            议程还没开始
           </div>
         )}
 
         {data.other_topics_count > 1 ? (
           <details className="rounded-xl border border-ink-800 bg-ink-900/40">
             <summary className="cursor-pointer list-none px-4 py-3 text-[13px] text-zinc-400">
-              ▾ 其他 议题 ({data.other_topics_count - 1})
+              ▾ 其他议题 ({data.other_topics_count - 1})
             </summary>
             <ul className="space-y-1 px-4 pb-3 text-[13px]">
               {data.agenda_items
@@ -180,10 +180,10 @@ export default function MobileMeetingDetailPage({
         {data.transcript_total > 0 ? (
           <details className="rounded-xl border border-ink-800 bg-ink-900/40">
             <summary className="cursor-pointer list-none px-4 py-3 text-[13px] text-zinc-400">
-              ▾ 实时 转录 ({data.transcript_total} 句)
+              ▾ 实时转录 ({data.transcript_total} 句)
             </summary>
             <p className="px-4 pb-3 text-[12px] text-zinc-600">
-              Phase 2 — 完整 转录 视图 (含 高亮 / 跳转 / 编辑 speaker)
+              Phase 2 — 完整转录视图 (含高亮 / 跳转 / 编辑 speaker)
             </p>
           </details>
         ) : null}
@@ -195,9 +195,9 @@ export default function MobileMeetingDetailPage({
         isAgendaComplete={data.is_agenda_complete}
         currentTopicTitle={data.current_topic_title}
         hasRiskInsight={hasRisk}
-        onAdvance={() => alert("Phase 2: 推进 议程 — 调 /api/meetings/{id}/agenda-advance")}
+        onAdvance={() => alert("Phase 2: 推进议程 — 调 /api/meetings/{id}/agenda-advance")}
         onSummonAi={() => alert("Phase 2: 召 AI — 走 /api/m/summon-perspective")}
-        onEndMeeting={() => alert("Phase 2: 结束 会议 — 调 finalize")}
+        onEndMeeting={() => alert("Phase 2: 结束会议 — 调 finalize")}
       />
     </div>
   );

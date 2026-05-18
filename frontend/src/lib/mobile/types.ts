@@ -1,13 +1,13 @@
 /**
- * v27.0-mobile · 移动端 专用 类型.
+ * v27.0-mobile · 移动端专用类型.
  *
- * 跟 后端 backend/app/routers/mobile.py 的 Pydantic 一一 对应.
- * 不 跟 桌面 types 复用 — 移动端 数据 形态 独立, 避免 类型 包袱.
+ * 跟后端 backend/app/routers/mobile.py 的 Pydantic 一一对应.
+ * 不跟桌面 types 复用 — 移动端数据形态独立, 避免类型包袱.
  */
 
 export type AIInsightType = "建议" | "风险" | "洞察" | "思路" | "决策建议";
 
-/** 紧凑版 — 卡内 一行 显, 不 含 依据 */
+/** 紧凑版 — 卡内一行显, 不含依据 */
 export type AIInsightBrief = {
   id: string;
   agent_id: string;
@@ -17,7 +17,7 @@ export type AIInsightBrief = {
   content: string;
 };
 
-/** 完整版 — 含 依据 + 来源, 智囊 列表 用 */
+/** 完整版 — 含依据 + 来源, 智囊列表用 */
 export type AIInsightFull = AIInsightBrief & {
   evidence: string | null;
   meeting_id: string;
@@ -53,7 +53,7 @@ export type WorkbenchOut = {
   todays_insights: AIInsightFull[];
 };
 
-// ---------- 单场 会议 推进 视图 -----------------------------------------
+// ---------- 单场会议推进视图 -----------------------------------------
 
 export type MobileMeetingAgendaItem = {
   idx: number;
@@ -69,7 +69,28 @@ export type MobileMeetingHumanLine = {
   at_minute: number;
 };
 
-// ---------- 任务 闭环 视图 -----------------------------------------------
+// ---------- 会议列表 -----------------------------------------------------
+
+export type MobileMeetingStatus = "ongoing" | "scheduled" | "finished" | "processed";
+
+export type MobileMeetingListRow = {
+  meeting_id: string;
+  title: string;
+  status: MobileMeetingStatus | string;
+  started_at: string | null;
+  ended_at: string | null;
+  minutes_total: number | null;
+  agenda_total: number;
+  current_agenda_idx: number | null;
+  insights_count: number;
+  actions_count: number;
+};
+
+export type MobileMeetingsListOut = {
+  items: MobileMeetingListRow[];
+};
+
+// ---------- 任务闭环视图 -----------------------------------------------
 
 export type MobileTaskKind = "confirm" | "approve_draft" | "tracking" | "done";
 export type MobileTaskGroup = "pending" | "tracking" | "done";

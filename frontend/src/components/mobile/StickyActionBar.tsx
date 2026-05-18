@@ -3,20 +3,20 @@
 /**
  * v27.0-mobile · 会议室 sticky 底部 next action 卡.
  *
- * 按 用户 Q2 校 准: "救命卡 — 任何 时刻 都 知道 该 干啥".
- * 滚 到 哪 都 看 得 见, 紧 贴 在 BottomNav 上方.
+ * 按用户 Q2 校准: "救命卡 — 任何时刻都知道该干啥".
+ * 滚到哪都看得见, 紧贴在 BottomNav 上方.
  *
- * 内 容 优先级:
- *   1. controller (leader+ / 创建人) + 当前 议题 有 风险 insight
- *      → "⚠ <agent> 提了 风险 — [处理] [推进 议程] [继续]"  (Phase 2 in-card decision)
+ * 内容优先级:
+ *   1. controller (leader+ / 创建人) + 当前议题有风险 insight
+ *      → "⚠ <agent> 提了风险 — [处理] [推进议程] [继续]"  (Phase 2 in-card decision)
  *   2. controller + 没风险
- *      → "[推进 议程 →]"
+ *      → "[推进议程 →]"
  *   3. 非 controller
- *      → "[💬 召 AI 加 视角]"
- *   4. 议程 全完成
- *      → "[结束 会议]" (controller) / 灰 hint (非)
+ *      → "[💬 召 AI 加视角]"
+ *   4. 议程全完成
+ *      → "[结束会议]" (controller) / 灰 hint (非)
  *
- * Phase 1 MVP — 仅 实现 2/3/4, 风险 in-card decision 留 Phase 2.
+ * Phase 1 MVP — 仅实现 2/3/4, 风险 in-card decision 留 Phase 2.
  */
 
 import type { AIInsightFull } from "@/lib/mobile/types";
@@ -40,31 +40,31 @@ export default function StickyActionBar({
   onSummonAi,
   onEndMeeting,
 }: Props) {
-  // 案 例 1: 议程 完成
+  // 案例 1: 议程完成
   if (isAgendaComplete) {
     return (
       <Bar>
         {canControl ? (
-          <Primary onClick={onEndMeeting}>结束 会议</Primary>
+          <Primary onClick={onEndMeeting}>结束会议</Primary>
         ) : (
-          <Hint>议程 已 全 完成, 等 主持人 结束</Hint>
+          <Hint>议程已全完成, 等主持人结束</Hint>
         )}
       </Bar>
     );
   }
 
-  // 案 例 2: 有 风险 — 突出 显示 (controller 见 双 选 — phase 1 用 单 推进)
+  // 案例 2: 有风险 — 突出显示 (controller 见双选 — phase 1 用单推进)
   if (hasRiskInsight && currentTopicTitle) {
     return (
       <Bar tone="warn">
         <div className="flex-1 px-1">
-          <p className="text-[12px] text-amber-200/90">⚠ 当前 议题 有 风险</p>
+          <p className="text-[12px] text-amber-200/90">⚠ 当前议题有风险</p>
           <p className="truncate text-[11px] text-zinc-500">
             {currentTopicTitle}
           </p>
         </div>
         {canControl ? (
-          <Primary onClick={onAdvance}>推进 议程</Primary>
+          <Primary onClick={onAdvance}>推进议程</Primary>
         ) : (
           <Primary onClick={onSummonAi}>召 AI</Primary>
         )}
@@ -72,16 +72,16 @@ export default function StickyActionBar({
     );
   }
 
-  // 案 例 3: 默 认
+  // 案例 3: 默认
   return (
     <Bar>
       {canControl ? (
         <>
           <Secondary onClick={onSummonAi}>💬 召 AI</Secondary>
-          <Primary onClick={onAdvance}>推进 议程 →</Primary>
+          <Primary onClick={onAdvance}>推进议程 →</Primary>
         </>
       ) : (
-        <Primary onClick={onSummonAi}>💬 召 AI 加 视角</Primary>
+        <Primary onClick={onSummonAi}>💬 召 AI 加视角</Primary>
       )}
     </Bar>
   );

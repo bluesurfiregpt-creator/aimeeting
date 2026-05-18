@@ -1,8 +1,8 @@
 /**
- * v27.0-mobile · 移动端 子树 root layout.
+ * v27.0-mobile · 移动端子树 root layout.
  *
- * 跟 桌面 layout 完全 隔离 — 桌面 chrome (AppLogo / ManualLink / AuthHeader /
- * VersionBadge) 已 由 ChromeGate 在 root 层 闸 掉, 这 里 装 自己 的:
+ * 跟桌面 layout 完全隔离 — 桌面 chrome (AppLogo / ManualLink / AuthHeader /
+ * VersionBadge) 已由 ChromeGate 在 root 层闸掉, 这里装自己的:
  *
  *   ┌──────────────────────────┐
  *   │ TopBar (sticky, h-12)    │
@@ -15,7 +15,7 @@
  *   │ BottomNav (fixed, h-14)   │
  *   └──────────────────────────┘
  *
- * 移动端 仅 dark, 不 提供 light. brief 关键词 "深色 沉浸".
+ * 移动端仅 dark, 不提供 light. brief 关键词 "深色沉浸".
  */
 
 import BottomNav from "@/components/mobile/BottomNav";

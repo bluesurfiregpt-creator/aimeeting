@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * v27.0-mobile · /m · 今日 工作台 v2.
+ * v27.0-mobile · /m · 今日工作台 v2.
  *
- * 改 自 v1 (用户 第一版 vibe = b 桌面 后台 缩小). 重做 结构:
- *   - Hero 占 ~45% 屏 — 你 现 在 在 推 啥 (主 锚)
- *   - 下方 紧凑 mini list — 一行 一条 摘要 跳 二级, 不 抢 hero
- *   - AI 智囊 按 议题 聚合 — 立 "多视角 辩论" 感, 不 是 RSS feed
+ * 改自 v1 (用户第一版 vibe = b 桌面后台缩小). 重做结构:
+ *   - Hero 占 ~45% 屏 — 你现在在推啥 (主锚)
+ *   - 下方紧凑 mini list — 一行一条摘要跳二级, 不抢 hero
+ *   - AI 智囊按议题聚合 — 立 "多视角辩论" 感, 不是 RSS feed
  *   - Mobile tokens — body 15px, padding 16px, touch target 48-56px
  */
 
@@ -105,14 +105,14 @@ export default function MobileHomePage() {
   if (error || !data) {
     return (
       <div className="space-y-3 p-6 text-center">
-        <p className="text-[15px] text-zinc-300">未 能 加 载</p>
+        <p className="text-[15px] text-zinc-300">未能加载</p>
         <p className="text-[13px] text-zinc-600">{error}</p>
         {error?.includes("401") ? (
           <Link
             href="/login"
             className="inline-flex h-12 items-center justify-center rounded-xl bg-accent-500 px-6 text-[15px] font-medium text-white"
           >
-            去 登 录
+            去登录
           </Link>
         ) : (
           <button
@@ -120,7 +120,7 @@ export default function MobileHomePage() {
             onClick={() => window.location.reload()}
             className="inline-flex h-12 items-center justify-center rounded-xl border border-ink-700 px-6 text-[15px] text-zinc-200"
           >
-            重 试
+            重试
           </button>
         )}
       </div>
@@ -132,22 +132,22 @@ export default function MobileHomePage() {
 
   return (
     <div className="space-y-6 p-4 pb-8">
-      {/* ============ Hero (主 锚, 占 ~45% 屏) =================== */}
+      {/* ============ Hero (主锚, 占 ~45% 屏) =================== */}
       {ongoing_meetings.length > 0 ? (
         <HeroOngoingCard meetings={ongoing_meetings} />
       ) : (
         <HeroEmptyCard />
       )}
 
-      {/* ============ 等 你 处理 (紧凑 mini list) ================ */}
+      {/* ============ 等你处理 (紧凑 mini list) ================ */}
       <section className="space-y-2">
         <SectionHeader
-          title="等 你 处理"
+          title="等你处理"
           countLabel={pending.length > 0 ? `${pending.length} 件` : undefined}
         />
         {pending.length === 0 ? (
           <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] px-4 py-4 text-center text-[13px] text-emerald-300">
-            ✓ 今日 待办 全 处理 完
+            ✓ 今日待办全处理完
           </div>
         ) : (
           <div className="space-y-2">
@@ -158,7 +158,7 @@ export default function MobileHomePage() {
         )}
       </section>
 
-      {/* ============ AI 智囊 (按 议题 聚合) ===================== */}
+      {/* ============ AI 智囊 (按议题聚合) ===================== */}
       <section className="space-y-2">
         <SectionHeader
           title="AI 智囊"
@@ -172,10 +172,10 @@ export default function MobileHomePage() {
         {insightTopics.length === 0 ? (
           <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/40 px-4 py-5 text-center">
             <p className="text-[14px] text-zinc-400">
-              今天 AI 还 没 给 新 判断
+              今天 AI 还没给新判断
             </p>
             <p className="mt-1 text-[12px] text-zinc-600">
-              进 一场 会议 召 AI 加 视角, 立 刻 有 产 出
+              进一场会议召 AI 加视角, 立刻有产出
             </p>
           </div>
         ) : (

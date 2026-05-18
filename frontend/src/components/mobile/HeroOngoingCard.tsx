@@ -1,22 +1,22 @@
 "use client";
 
 /**
- * v27.0-mobile · 首页 Hero — 进行中 会议 主卡.
+ * v27.0-mobile · 首页 Hero — 进行中会议主卡.
  *
- * 占 屏 ~45%. 整 屏 视觉 锚 — 用户 进 首页 立 刻 知 道 "现 在 在 推 啥".
+ * 占屏 ~45%. 整屏视觉锚 — 用户进首页立刻知道 "现在在推啥".
  *
- * 设计 约束:
- *   - 一 张 主卡 占 屏 顶部 大段 (会议 多 时 carousel 切, 一次 仅 显 一张)
- *   - 标题 大字 (22-24px), 状态 副字 (14px), AI 关键判断 callout
- *   - 唯 一 主 CTA: [立即 进入] 全宽 大按钮, touch 48px+
- *   - 不 是 "卡 列表" 中 的 一张, 是 真正 的 信息 主角
+ * 设计约束:
+ *   - 一张主卡占屏顶部大段 (会议多时 carousel 切, 一次仅显一张)
+ *   - 标题大字 (22-24px), 状态副字 (14px), AI 关键判断 callout
+ *   - 唯一主 CTA: [立即进入] 全宽大按钮, touch 48px+
+ *   - 不是 "卡列表" 中的一张, 是真正的信息主角
  */
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { WorkbenchOngoingMeeting } from "@/lib/mobile/types";
 
-// type 配色 — 跟 AIInsightCard 保持 一致
+// type 配色 — 跟 AIInsightCard 保持一致
 const TYPE_TONE: Record<string, { border: string; text: string; bg: string }> = {
   建议: { border: "border-violet-500/50", text: "text-violet-200", bg: "bg-violet-500/10" },
   决策建议: { border: "border-emerald-500/50", text: "text-emerald-200", bg: "bg-emerald-500/10" },
@@ -68,15 +68,15 @@ function HeroSingle({ m }: { m: WorkbenchOngoingMeeting }) {
       className="relative overflow-hidden rounded-2xl border border-accent-500/30 bg-gradient-to-br from-accent-500/[0.12] via-violet-500/[0.05] to-ink-900 p-5"
       data-testid="mobile-hero-ongoing"
     >
-      {/* 顶 部 小 标 */}
-      <p className="text-[13px] text-zinc-400">你 正 在 推 进</p>
+      {/* 顶部小标 */}
+      <p className="text-[13px] text-zinc-400">你正在推进</p>
 
-      {/* 主 标题 */}
+      {/* 主标题 */}
       <h1 className="mt-2 text-[22px] font-medium leading-tight text-zinc-50">
         {m.title}
       </h1>
 
-      {/* 状态 行 */}
+      {/* 状态行 */}
       <div className="mt-2 flex items-center gap-2 text-[13px] text-zinc-400">
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
@@ -86,14 +86,14 @@ function HeroSingle({ m }: { m: WorkbenchOngoingMeeting }) {
         <span>{m.started_minutes_ago} min</span>
       </div>
 
-      {/* 议程 进度 */}
+      {/* 议程进度 */}
       {m.total_agenda_items > 0 ? (
         <div className="mt-4">
           <StageBar cur={m.current_agenda_idx} total={m.total_agenda_items} />
         </div>
       ) : null}
 
-      {/* AI 关键 判断 callout */}
+      {/* AI 关键判断 callout */}
       {insight && tone ? (
         <div className={`mt-4 rounded-xl border-l-[3px] ${tone.border} ${tone.bg} px-4 py-3`}>
           <div className="flex items-center gap-2">
@@ -110,7 +110,7 @@ function HeroSingle({ m }: { m: WorkbenchOngoingMeeting }) {
         </div>
       ) : (
         <div className="mt-4 rounded-xl border border-dashed border-zinc-700/60 px-4 py-3 text-[13px] text-zinc-500">
-          这场 会 AI 还 没 给 关键 判断
+          这场会 AI 还没给关键判断
         </div>
       )}
 
@@ -120,7 +120,7 @@ function HeroSingle({ m }: { m: WorkbenchOngoingMeeting }) {
         className="mt-5 flex h-12 items-center justify-center rounded-xl bg-accent-500 px-4 text-[16px] font-medium text-white shadow-lg shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 transition"
         data-testid="hero-enter-meeting"
       >
-        立即 进入 →
+        立即进入 →
       </Link>
     </article>
   );
@@ -155,12 +155,12 @@ export default function HeroOngoingCard({
 
   if (meetings.length === 0) return null;
 
-  // 单 场 — 直接 渲, 不滑
+  // 单场 — 直接渲, 不滑
   if (meetings.length === 1) {
     return <HeroSingle m={meetings[0]} />;
   }
 
-  // 多 场 — snap 横向, 一次 显 一张 整 屏
+  // 多场 — snap 横向, 一次显一张整屏
   return (
     <div>
       <div

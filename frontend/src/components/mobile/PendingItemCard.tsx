@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * v27.0-mobile · 等我处理 单卡.
+ * v27.0-mobile · 等我处理单卡.
  *
- * 三 种 kind 用 不同 状态 chip + 跳转:
- *   confirm        ⏳ 待 确认 (任务) — amber chip, 跳 /m/tasks/[id]
- *   approve_draft  📝 待 审 (Memory 草稿) — accent chip, 跳 /m/insights (待审 tab)
+ * 三种 kind 用不同状态 chip + 跳转:
+ *   confirm        ⏳ 待确认 (任务) — amber chip, 跳 /m/tasks/[id]
+ *   approve_draft  📝 待审 (Memory 草稿) — accent chip, 跳 /m/insights (待审 tab)
  *   blocked        🚨 阻塞 — rose chip, 跳 /m/tasks/[id]
  *
- * Phase 1 不 做 内嵌 CTA 操作 (那 是 Phase 2 — sheet 弹起 配 决策).
- * 卡 整 个 点 跳 二级 页. CTA 文字 是 hint.
+ * Phase 1 不做内嵌 CTA 操作 (那是 Phase 2 — sheet 弹起配决策).
+ * 卡整个点跳二级页. CTA 文字是 hint.
  */
 
 import Link from "next/link";
@@ -27,14 +27,14 @@ type StatusStyle = {
 const STYLES: Record<WorkbenchPendingTask["kind"], StatusStyle> = {
   confirm: {
     icon: "⏳",
-    label: "待 确认",
+    label: "待确认",
     chipBg: "bg-amber-500/15",
     chipText: "text-amber-200",
     href: (id) => `/m/tasks/${id}`,
   },
   approve_draft: {
     icon: "📝",
-    label: "待 审",
+    label: "待审",
     chipBg: "bg-accent-500/15",
     chipText: "text-accent-200",
     href: () => `/m/insights`,

@@ -3,12 +3,12 @@
 /**
  * v27.0-mobile · 顶部 chrome.
  *
- * 设计 极简:
- *   - 左: 问候 + 用户 名 (从 api.me 拉)
- *   - 右: 🔔 通知 (digit badge) + ⚙ 设置 折叠
+ * 设计极简:
+ *   - 左: 问候 + 用户名 (从 api.me 拉)
+ *   - 右: 🔔 通知 (digit badge) + ⚙ 设置折叠
  *
- * 不 放 logo (移动端 域名 + bottom nav 已足 标识).
- * 不 放 搜索框 (brief 反 chat-style, 搜 走 二级页).
+ * 不放 logo (移动端域名 + bottom nav 已足标识).
+ * 不放搜索框 (brief 反 chat-style, 搜走二级页).
  */
 
 import Link from "next/link";
@@ -16,8 +16,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 
-// v27.0: 详情 路径 自隐 — 跟 /m/meetings/[id] / /m/tasks/[id] / /m/insights/memory/[id] 一类.
-// list 页 (/m, /m/meetings, /m/tasks, /m/insights) 仍 显 greeting.
+// v27.0: 详情路径自隐 — 跟 /m/meetings/[id] / /m/tasks/[id] / /m/insights/memory/[id] 一类.
+// list 页 (/m, /m/meetings, /m/tasks, /m/insights) 仍显 greeting.
 function isDetailRoute(p: string | null): boolean {
   if (!p) return false;
   return /^\/m\/[^/]+\/[^/]+/.test(p);
@@ -25,11 +25,11 @@ function isDetailRoute(p: string | null): boolean {
 
 function greeting(): string {
   const h = new Date().getHours();
-  if (h < 6) return "夜深 了";
+  if (h < 6) return "夜深了";
   if (h < 11) return "早";
-  if (h < 14) return "中午 好";
-  if (h < 18) return "下午 好";
-  return "晚上 好";
+  if (h < 14) return "中午好";
+  if (h < 18) return "下午好";
+  return "晚上好";
 }
 
 export default function TopBar() {
@@ -47,7 +47,7 @@ export default function TopBar() {
         setName(m.name || "");
         const counts = m.task_counts;
         if (counts) {
-          // 简单 合并 — 待 处理 类 累加
+          // 简单合并 — 待处理类累加
           const n =
             (counts.kb_sedimentation_pending ?? 0) +
             (counts.memory_draft_pending ?? 0);

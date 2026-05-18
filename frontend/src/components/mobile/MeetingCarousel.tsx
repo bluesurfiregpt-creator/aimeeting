@@ -1,16 +1,16 @@
 "use client";
 
 /**
- * v27.0-mobile · 进行中 会议 横向 carousel.
+ * v27.0-mobile · 进行中会议横向 carousel.
  *
- * 用户 Q3 选 — 一卡 一屏 滑切. 不 是 list 平铺.
+ * 用户 Q3 选 — 一卡一屏滑切. 不是 list 平铺.
  *
- * 设计 锚:
- *   - snap-x mandatory + 每卡 占 85% 宽 (留 一点 peek 给 下一卡, 暗示 可滑)
- *   - 卡 内 含: 标题 / 推进 阶段 progress / 最新 AI 判断 (chip) / CTA "立即 进入"
- *   - pagination dots 在 carousel 下方, 仅 多 卡 时 显
- *   - 单 卡 时 不 滑动 (overflow-hidden), dots 隐
- *   - 空 状态 — "你 现在 没 进行中 会议" + 引导 跳 /m/meetings
+ * 设计锚:
+ *   - snap-x mandatory + 每卡占 85% 宽 (留一点 peek 给下一卡, 暗示可滑)
+ *   - 卡内含: 标题 / 推进阶段 progress / 最新 AI 判断 (chip) / CTA "立即进入"
+ *   - pagination dots 在 carousel 下方, 仅多卡时显
+ *   - 单卡时不滑动 (overflow-hidden), dots 隐
+ *   - 空状态 — "你现在没进行中会议" + 引导跳 /m/meetings
  */
 
 import Link from "next/link";
@@ -18,11 +18,11 @@ import { useEffect, useRef, useState } from "react";
 import { AIInsightChip } from "./AIInsightCard";
 import type { WorkbenchOngoingMeeting } from "@/lib/mobile/types";
 
-// 5 阶段 chip 行 (会议 推进 5 步)
+// 5 阶段 chip 行 (会议推进 5 步)
 function StageProgress({ currentIdx, total }: { currentIdx: number | null; total: number }) {
-  // total 来自 agenda 项 数 (不 一定 是 5 — brief 是 概念 5 阶段, 实际 议程 项数 可不同)
+  // total 来自 agenda 项数 (不一定是 5 — brief 是概念 5 阶段, 实际议程项数可不同)
   if (total === 0) {
-    return <span className="text-[10px] text-zinc-600">未 设议程</span>;
+    return <span className="text-[10px] text-zinc-600">未设议程</span>;
   }
   const cur = currentIdx ?? 0;
   const isComplete = cur >= total;
@@ -78,11 +78,11 @@ function MeetingCard({ m }: { m: WorkbenchOngoingMeeting }) {
           <AIInsightChip insight={m.latest_insight} />
         </div>
       ) : (
-        <p className="text-[10px] text-zinc-600">还 没 AI 判断 产出</p>
+        <p className="text-[10px] text-zinc-600">还没 AI 判断产出</p>
       )}
 
       <div className="mt-auto text-right">
-        <span className="text-[11px] text-accent-300">立即 进入 →</span>
+        <span className="text-[11px] text-accent-300">立即进入 →</span>
       </div>
     </Link>
   );
@@ -96,7 +96,7 @@ export default function MeetingCarousel({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
 
-  // 滑 完 后 知道 当前 哪 张 — 用于 dots
+  // 滑完后知道当前哪张 — 用于 dots
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || meetings.length <= 1) return;
@@ -119,9 +119,9 @@ export default function MeetingCarousel({
   if (meetings.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-ink-700 bg-ink-900/40 p-4 text-center text-xs text-zinc-500">
-        现在 没 进行中 的 会议
+        现在没进行中的会议
         <Link href="/m/meetings" className="mt-1 block text-[11px] text-accent-400">
-          → 看 全部 会议
+          → 看全部会议
         </Link>
       </div>
     );

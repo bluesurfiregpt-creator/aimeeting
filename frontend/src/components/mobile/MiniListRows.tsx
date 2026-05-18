@@ -1,14 +1,14 @@
 "use client";
 
 /**
- * v27.0-mobile · 下段 紧凑 mini list 行.
+ * v27.0-mobile · 下段紧凑 mini list 行.
  *
- * 跟 Hero 形成 强 视觉 对比 — Hero 是 主 锚 (大), 这 里 是 跳 转 入 口 (小).
- * 一 行 一 条 摘要, 点 跳 二级 屏. 不 再 卡 平铺.
+ * 跟 Hero 形成强视觉对比 — Hero 是主锚 (大), 这里是跳转入口 (小).
+ * 一行一条摘要, 点跳二级屏. 不再卡平铺.
  *
- * 两 类 行:
- *   PendingMiniRow         — 等 你 处理 一条
- *   InsightTopicGroupRow   — AI 智囊 按 议题 聚合 一条 (核 心 — 立 "多 视角 辩论" 感)
+ * 两类行:
+ *   PendingMiniRow         — 等你处理一条
+ *   InsightTopicGroupRow   — AI 智囊按议题聚合一条 (核心 — 立 "多视角辩论" 感)
  */
 
 import Link from "next/link";
@@ -25,14 +25,14 @@ const PENDING_STYLES: Record<
 > = {
   confirm: {
     icon: "⏳",
-    label: "待 确认",
+    label: "待确认",
     chipBg: "bg-amber-500/15",
     chipText: "text-amber-200",
     href: (id) => `/m/tasks/${id}`,
   },
   approve_draft: {
     icon: "📝",
-    label: "待 审",
+    label: "待审",
     chipBg: "bg-accent-500/15",
     chipText: "text-accent-200",
     href: () => `/m/insights`,
@@ -50,7 +50,7 @@ export function PendingMiniRow({ item }: { item: WorkbenchPendingTask }) {
   const s = PENDING_STYLES[item.kind];
   const aiHint =
     item.insights.length > 0
-      ? `◆ ${item.insights.length} 位 AI 已备 立场`
+      ? `◆ ${item.insights.length} 位 AI 已备立场`
       : item.source_meeting_title
       ? `来自 ${item.source_meeting_title}`
       : null;
@@ -77,7 +77,7 @@ export function PendingMiniRow({ item }: { item: WorkbenchPendingTask }) {
   );
 }
 
-// ---------- Insight 按 议题 聚合 行 (★ 核心 — 多视角 辩论 感) -----------
+// ---------- Insight 按议题聚合行 (★ 核心 — 多视角辩论感) -----------
 
 type Topic = {
   key: string;
@@ -97,7 +97,7 @@ export function groupInsightsByTopic(insights: AIInsightFull[]): Topic[] {
       g = {
         key,
         meeting_id: ins.meeting_id,
-        meeting_title: ins.meeting_title || "(未命名 会议)",
+        meeting_title: ins.meeting_title || "(未命名会议)",
         topic_idx: ins.topic_idx,
         insights: [],
       };
@@ -110,7 +110,7 @@ export function groupInsightsByTopic(insights: AIInsightFull[]): Topic[] {
 
 export function InsightTopicGroupRow({ topic }: { topic: Topic }) {
   const n = topic.insights.length;
-  // 数 一下 不同 type 的 数 — 立 "多视角 辩论" 感
+  // 数一下不同 type 的数 — 立 "多视角辩论" 感
   const types = Array.from(new Set(topic.insights.map((i) => i.type)));
   const agentNames = Array.from(
     new Set(
@@ -118,7 +118,7 @@ export function InsightTopicGroupRow({ topic }: { topic: Topic }) {
     )
   );
 
-  // 子标 文案 — 根据 内容 决定
+  // 子标文案 — 根据内容决定
   let subtitle = "";
   if (agentNames.length >= 2) {
     subtitle = `${agentNames.length} 位 AI · ${types.join(" / ")}`;

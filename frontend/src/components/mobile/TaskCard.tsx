@@ -1,16 +1,16 @@
 "use client";
 
 /**
- * v27.0-mobile · 任务 卡 (两 形态).
+ * v27.0-mobile · 任务卡 (两形态).
  *
- * - <TaskCardFull />    完整 — pending 组 用. 含 AI 智囊 紧凑 box + 双 CTA
- * - <TaskRowCompact />  紧凑 单行 — tracking / done 组 用. 仅 状态 + title + age
+ * - <TaskCardFull />    完整 — pending 组用. 含 AI 智囊紧凑 box + 双 CTA
+ * - <TaskRowCompact />  紧凑单行 — tracking / done 组用. 仅状态 + title + age
  */
 
 import { AIInsightChip, AgentLabel, TypeChip } from "./AIInsightCard";
 import type { MobileTaskItem, MobileTaskKind } from "@/lib/mobile/types";
 
-// ---------- kind → 视觉 配 ------------------------------------------------
+// ---------- kind → 视觉配 ------------------------------------------------
 
 type KindStyle = {
   icon: string;
@@ -24,7 +24,7 @@ type KindStyle = {
 const KIND_STYLE: Record<MobileTaskKind, KindStyle> = {
   confirm: {
     icon: "⏳",
-    label: "待 确认",
+    label: "待确认",
     chipBg: "bg-amber-500/15",
     chipText: "text-amber-200",
     cardBorder: "border-amber-500/25",
@@ -32,7 +32,7 @@ const KIND_STYLE: Record<MobileTaskKind, KindStyle> = {
   },
   approve_draft: {
     icon: "📝",
-    label: "待 审",
+    label: "待审",
     chipBg: "bg-accent-500/15",
     chipText: "text-accent-200",
     cardBorder: "border-accent-500/25",
@@ -40,7 +40,7 @@ const KIND_STYLE: Record<MobileTaskKind, KindStyle> = {
   },
   tracking: {
     icon: "·",
-    label: "跟踪 中",
+    label: "跟踪中",
     chipBg: "bg-zinc-800",
     chipText: "text-zinc-400",
     cardBorder: "border-ink-800",
@@ -48,7 +48,7 @@ const KIND_STYLE: Record<MobileTaskKind, KindStyle> = {
   },
   done: {
     icon: "✓",
-    label: "已 完成",
+    label: "已完成",
     chipBg: "bg-emerald-500/10",
     chipText: "text-emerald-300/80",
     cardBorder: "border-ink-800",
@@ -56,7 +56,7 @@ const KIND_STYLE: Record<MobileTaskKind, KindStyle> = {
   },
 };
 
-// ---------- 完整 卡 (pending 组 用) ---------------------------------------
+// ---------- 完整卡 (pending 组用) ---------------------------------------
 
 export function TaskCardFull({
   item,
@@ -98,7 +98,7 @@ export function TaskCardFull({
         {item.title}
       </p>
 
-      {/* AI 智囊 紧凑 box (仅 action item 有) */}
+      {/* AI 智囊紧凑 box (仅 action item 有) */}
       {item.insights.length > 0 ? (
         <section className="mt-3 rounded-xl border border-violet-500/25 bg-violet-500/[0.06] p-3">
           <p className="mb-2 text-[12px] text-violet-300/80">
@@ -124,7 +124,7 @@ export function TaskCardFull({
         </section>
       ) : null}
 
-      {/* CTA 双 按钮 */}
+      {/* CTA 双按钮 */}
       {(item.cta_primary || item.cta_secondary) ? (
         <footer className="mt-4 flex gap-2">
           {item.cta_secondary ? (
@@ -151,7 +151,7 @@ export function TaskCardFull({
   );
 }
 
-// ---------- 紧凑 单行 (tracking / done 组 用) -----------------------------
+// ---------- 紧凑单行 (tracking / done 组用) -----------------------------
 
 export function TaskRowCompact({ item }: { item: MobileTaskItem }) {
   const s = KIND_STYLE[item.kind];

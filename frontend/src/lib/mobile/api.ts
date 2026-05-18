@@ -1,13 +1,14 @@
 /**
  * v27.0-mobile · 移动端 fetch helper.
  *
- * 极简 — 仅 wrap fetch 加 credentials. 不 复用 桌面 lib/api.ts 的 jget,
- * 因为 那边 含 全 局 toast 路径, 移动端 想 自己 控 错误 显示.
+ * 极简 — 仅 wrap fetch 加 credentials. 不复用桌面 lib/api.ts 的 jget,
+ * 因为那边含全局 toast 路径, 移动端想自己控错误显示.
  */
 
 import type {
   AIInsightFull,
   MobileMeetingDetail,
+  MobileMeetingsListOut,
   MobileTasksOut,
   WorkbenchOut,
 } from "./types";
@@ -25,6 +26,7 @@ async function jget<T>(path: string): Promise<T> {
 
 export const mApi = {
   getWorkbench: () => jget<WorkbenchOut>("/api/m/workbench"),
+  getMeetingsList: () => jget<MobileMeetingsListOut>("/api/m/meetings"),
   getMeetingDetail: (id: string) =>
     jget<MobileMeetingDetail>(`/api/m/meetings/${id}`),
   getTasks: () => jget<MobileTasksOut>("/api/m/tasks"),
