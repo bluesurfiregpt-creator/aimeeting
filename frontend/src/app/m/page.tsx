@@ -1,30 +1,33 @@
 "use client";
 
 /**
- * v27.0-mobile · /m · 今日 工作台.
+ * v27.0-mobile · /m · 今日 工作台 v2.
  *
- * 三 大段, 按 brief 严序:
- *   1. 现在 推进 — 进行中 会议 横向 carousel (含 阶段 进度 + 最新 AI 判断)
- *   2. 等 我 处理 — 待确认 / 待审 / 阻塞 list
- *   3. AI 智囊 · 今日 产出 — 完整 卡 list
- *
- * 数据 一次 拉全 — /api/m/workbench 聚合 endpoint, 减 round-trip.
- *
- * 加载 状态: skeleton — 不 显 spinner (spinner 阻断 感, brief 反 后台 感).
- * 空 状态: 各 段 内部 处理 (carousel 自带, pending 显 "全部 处理完" 庆贺态).
+ * 改 自 v1 (用户 第一版 vibe = b 桌面 后台 缩小). 重做 结构:
+ *   - Hero 占 ~45% 屏 — 你 现 在 在 推 啥 (主 锚)
+ *   - 下方 紧凑 mini list — 一行 一条 摘要 跳 二级, 不 抢 hero
+ *   - AI 智囊 按 议题 聚合 — 立 "多视角 辩论" 感, 不 是 RSS feed
+ *   - Mobile tokens — body 15px, padding 16px, touch target 48-56px
  */
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import MeetingCarousel from "@/components/mobile/MeetingCarousel";
-import PendingItemCard from "@/components/mobile/PendingItemCard";
-import { AIInsightCard } from "@/components/mobile/AIInsightCard";
+import HeroOngoingCard from "@/components/mobile/HeroOngoingCard";
+import HeroEmptyCard from "@/components/mobile/HeroEmptyCard";
+import {
+  PendingMiniRow,
+  InsightTopicGroupRow,
+  groupInsightsByTopic,
+} from "@/components/mobile/MiniListRows";
 import { mApi } from "@/lib/mobile/api";
 import type { WorkbenchOut } from "@/lib/mobile/types";
 
-// 简单 skeleton — 占位 box, 不 spinner
-function SkeletonRow({ h = "h-20" }: { h?: string }) {
-  return <div className={`${h} animate-pulse rounded-lg bg-ink-900`} />;
+function SkeletonHero() {
+  return <div className="h-64 animate-pulse rounded-2xl bg-ink-900" />;
+}
+
+function SkeletonRow() {
+  return <div className="h-14 animate-pulse rounded-xl bg-ink-900" />;
 }
 
 function SectionHeader({
@@ -37,15 +40,18 @@ function SectionHeader({
   href?: string;
 }) {
   return (
-    <header className="mb-2 flex items-center justify-between">
-      <div className="flex items-center gap-1.5">
-        <h2 className="text-sm font-medium text-zinc-200">{title}</h2>
+    <header className="flex items-baseline justify-between px-1">
+      <div className="flex items-baseline gap-2">
+        <h2 className="text-[15px] font-medium text-zinc-200">{title}</h2>
         {countLabel ? (
-          <span className="text-[11px] text-zinc-500">· {countLabel}</span>
+          <span className="text-[13px] text-zinc-500">· {countLabel}</span>
         ) : null}
       </div>
       {href ? (
-        <Link href={href} className="text-[11px] text-zinc-500 hover:text-zinc-300">
+        <Link
+          href={href}
+          className="text-[13px] text-accent-400 active:text-accent-300"
+        >
           全部 →
         </Link>
       ) : null}
@@ -81,48 +87,40 @@ export default function MobileHomePage() {
 
   if (loading) {
     return (
-      <div className="space-y-5 p-4">
-        <section>
-          <SectionHeader title="现在 推进" />
-          <SkeletonRow h="h-36" />
-        </section>
-        <section>
-          <SectionHeader title="等 我 处理" />
-          <div className="space-y-2">
-            <SkeletonRow />
-            <SkeletonRow />
-          </div>
-        </section>
-        <section>
-          <SectionHeader title="AI 智囊 · 今日 产出" />
-          <div className="space-y-2">
-            <SkeletonRow h="h-24" />
-            <SkeletonRow h="h-24" />
-          </div>
-        </section>
+      <div className="space-y-6 p-4">
+        <SkeletonHero />
+        <div className="space-y-2">
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+        </div>
+        <div className="space-y-2">
+          <SkeletonRow />
+          <SkeletonRow />
+        </div>
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="space-y-3 p-4 text-center">
-        <p className="text-sm text-zinc-400">未 能 加载</p>
-        <p className="text-xs text-zinc-600">{error}</p>
+      <div className="space-y-3 p-6 text-center">
+        <p className="text-[15px] text-zinc-300">未 能 加 载</p>
+        <p className="text-[13px] text-zinc-600">{error}</p>
         {error?.includes("401") ? (
           <Link
             href="/login"
-            className="inline-block rounded-lg bg-accent-500 px-4 py-2 text-xs font-medium text-white"
+            className="inline-flex h-12 items-center justify-center rounded-xl bg-accent-500 px-6 text-[15px] font-medium text-white"
           >
-            去 登录
+            去 登 录
           </Link>
         ) : (
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="rounded-lg border border-ink-700 px-4 py-2 text-xs text-zinc-300"
+            className="inline-flex h-12 items-center justify-center rounded-xl border border-ink-700 px-6 text-[15px] text-zinc-200"
           >
-            重试
+            重 试
           </button>
         )}
       </div>
@@ -130,56 +128,60 @@ export default function MobileHomePage() {
   }
 
   const { ongoing_meetings, pending, todays_insights } = data;
+  const insightTopics = groupInsightsByTopic(todays_insights);
 
   return (
-    <div className="space-y-5 p-4">
-      {/* === 1. 现在 推进 ====================================== */}
-      <section>
-        <SectionHeader
-          title="现在 推进"
-          countLabel={ongoing_meetings.length > 0 ? `${ongoing_meetings.length} 场` : undefined}
-          href={ongoing_meetings.length > 0 ? "/m/meetings" : undefined}
-        />
-        <MeetingCarousel meetings={ongoing_meetings} />
-      </section>
+    <div className="space-y-6 p-4 pb-8">
+      {/* ============ Hero (主 锚, 占 ~45% 屏) =================== */}
+      {ongoing_meetings.length > 0 ? (
+        <HeroOngoingCard meetings={ongoing_meetings} />
+      ) : (
+        <HeroEmptyCard />
+      )}
 
-      {/* === 2. 等 我 处理 ===================================== */}
-      <section>
+      {/* ============ 等 你 处理 (紧凑 mini list) ================ */}
+      <section className="space-y-2">
         <SectionHeader
-          title="等 我 处理"
+          title="等 你 处理"
           countLabel={pending.length > 0 ? `${pending.length} 件` : undefined}
         />
         {pending.length === 0 ? (
-          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.04] p-4 text-center text-xs text-emerald-300">
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] px-4 py-4 text-center text-[13px] text-emerald-300">
             ✓ 今日 待办 全 处理 完
           </div>
         ) : (
           <div className="space-y-2">
             {pending.map((p) => (
-              <PendingItemCard key={`${p.kind}-${p.id}`} item={p} />
+              <PendingMiniRow key={`${p.kind}-${p.id}`} item={p} />
             ))}
           </div>
         )}
       </section>
 
-      {/* === 3. AI 智囊 · 今日 产出 ============================ */}
-      <section>
+      {/* ============ AI 智囊 (按 议题 聚合) ===================== */}
+      <section className="space-y-2">
         <SectionHeader
-          title="AI 智囊 · 今日 产出"
-          countLabel={todays_insights.length > 0 ? `${todays_insights.length} 条` : undefined}
+          title="AI 智囊"
+          countLabel={
+            todays_insights.length > 0
+              ? `${insightTopics.length} 议题 · ${todays_insights.length} 条`
+              : undefined
+          }
           href={todays_insights.length > 0 ? "/m/insights" : undefined}
         />
-        {todays_insights.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-ink-700 bg-ink-900/40 p-4 text-center text-xs text-zinc-500">
-            今天 AI 还 没 给 新 判断
-            <p className="mt-1 text-[10px] text-zinc-600">
-              进 一场 会议 召 AI 加 视角, 立 刻 有 产出
+        {insightTopics.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/40 px-4 py-5 text-center">
+            <p className="text-[14px] text-zinc-400">
+              今天 AI 还 没 给 新 判断
+            </p>
+            <p className="mt-1 text-[12px] text-zinc-600">
+              进 一场 会议 召 AI 加 视角, 立 刻 有 产 出
             </p>
           </div>
         ) : (
           <div className="space-y-2">
-            {todays_insights.map((ins) => (
-              <AIInsightCard key={ins.id} insight={ins} />
+            {insightTopics.map((t) => (
+              <InsightTopicGroupRow key={t.key} topic={t} />
             ))}
           </div>
         )}

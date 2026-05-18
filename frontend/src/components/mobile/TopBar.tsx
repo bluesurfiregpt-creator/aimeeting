@@ -53,32 +53,32 @@ export default function TopBar() {
   return (
     <header
       data-testid="mobile-top-bar"
-      className="sticky top-0 z-30 flex h-12 items-center justify-between border-b border-ink-800 bg-ink-950/95 px-4 backdrop-blur"
+      className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-ink-800 bg-ink-950/95 px-4 backdrop-blur"
       style={{ paddingTop: "env(safe-area-inset-top, 0)" }}
     >
-      <div className="min-w-0 flex-1 text-sm">
+      <div className="min-w-0 flex-1 text-[15px]">
         <span className="text-zinc-500">{greeting()}, </span>
         <span className="font-medium text-zinc-100">{name || "..."}</span>
       </div>
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="flex shrink-0 items-center gap-4">
         <Link
           href="/m/notifications"
-          className="relative text-zinc-400 hover:text-zinc-200"
+          className="relative flex h-10 w-10 items-center justify-center text-zinc-400 active:text-zinc-200"
           title="通知"
         >
-          <span className="text-base">🔔</span>
+          <span className="text-lg">🔔</span>
           {unread > 0 ? (
-            <span className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">
+            <span className="absolute right-1 top-1 flex h-4 min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
               {unread > 99 ? "99+" : unread}
             </span>
           ) : null}
         </Link>
         <Link
           href="/m/me"
-          className="text-zinc-400 hover:text-zinc-200"
+          className="flex h-10 w-10 items-center justify-center text-zinc-400 active:text-zinc-200"
           title="我"
         >
-          <span className="text-base">⚙</span>
+          <span className="text-lg">⚙</span>
         </Link>
       </div>
     </header>

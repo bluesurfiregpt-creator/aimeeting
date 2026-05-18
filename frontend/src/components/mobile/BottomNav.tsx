@@ -65,14 +65,14 @@ export default function BottomNav() {
             <li key={item.href}>
               <Link
                 href={item.href}
-                className={`flex flex-col items-center gap-0.5 py-2.5 transition ${
-                  active ? "text-violet-300" : "text-zinc-500"
-                }`}
+                className={`flex h-14 flex-col items-center justify-center gap-1 transition ${
+                  active ? "text-accent-300" : "text-zinc-500"
+                } active:scale-95`}
               >
-                <span className={`text-lg leading-none ${active ? "" : "opacity-60"}`}>
+                <span className={`text-xl leading-none ${active ? "" : "opacity-70"}`}>
                   {item.icon}
                 </span>
-                <span className="text-[10px] font-medium">{item.label}</span>
+                <span className="text-[11px] font-medium">{item.label}</span>
               </Link>
             </li>
           );
