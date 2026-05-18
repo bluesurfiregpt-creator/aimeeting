@@ -841,22 +841,27 @@ async def get_agents_workboard(
             for r in m_rows
         ]
 
-        # ---- 任务汇总 (assignee_agent_id = a.id) ---------------------------
-        from ..models import MeetingActionItem
+        # ---- 任务汇总 (Task.assignee_agent_id = a.id) ----------------------
+        # 注意: 主责 AI 字段 在 Task 表 (v26.0+), 不是 MeetingActionItem.
+        from ..models import Task as TaskModel
         task_rows = (
             await session.execute(
-                select(MeetingActionItem.status, MeetingActionItem.due_at)
+                select(TaskModel.status, TaskModel.due_at)
                 .where(
-                    MeetingActionItem.workspace_id == ws_id,
-                    MeetingActionItem.assignee_agent_id == a.id,
+                    TaskModel.workspace_id == ws_id,
+                    TaskModel.assignee_agent_id == a.id,
                 )
             )
         ).all()
-        open_n = sum(1 for r in task_rows if r[0] == "open")
-        done_n = sum(1 for r in task_rows if r[0] == "done")
+        # Task 8-state: open|dispatched|accepted|in_progress|submitted|done|archived|cancelled
+        # 进行中 = 除 done/archived/cancelled 之外的 active 状态.
+        OPEN_STATES = {"open", "dispatched", "accepted", "in_progress", "submitted"}
+        DONE_STATES = {"done", "archived"}
+        open_n = sum(1 for r in task_rows if r[0] in OPEN_STATES)
+        done_n = sum(1 for r in task_rows if r[0] in DONE_STATES)
         overdue_n = sum(
             1 for r in task_rows
-            if r[0] == "open" and r[1] is not None and r[1] < now
+            if r[0] in OPEN_STATES and r[1] is not None and r[1] < now
         )
         total = open_n + done_n  # cancelled 不计
 
