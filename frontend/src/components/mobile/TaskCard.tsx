@@ -60,10 +60,12 @@ const KIND_STYLE: Record<MobileTaskKind, KindStyle> = {
 
 export function TaskCardFull({
   item,
+  busy = false,
   onPrimary,
   onSecondary,
 }: {
   item: MobileTaskItem;
+  busy?: boolean;
   onPrimary?: () => void;
   onSecondary?: () => void;
 }) {
@@ -130,19 +132,21 @@ export function TaskCardFull({
           {item.cta_secondary ? (
             <button
               type="button"
+              disabled={busy}
               onClick={onSecondary}
-              className="flex h-12 flex-1 items-center justify-center rounded-xl border border-zinc-700 px-4 text-[15px] text-zinc-200 active:scale-[0.98] active:bg-ink-800 transition"
+              className="flex h-12 flex-1 items-center justify-center rounded-xl border border-zinc-700 px-4 text-[15px] text-zinc-200 active:scale-[0.98] active:bg-ink-800 transition disabled:opacity-50"
             >
-              {item.cta_secondary}
+              {busy ? "…" : item.cta_secondary}
             </button>
           ) : null}
           {item.cta_primary ? (
             <button
               type="button"
+              disabled={busy}
               onClick={onPrimary}
-              className="flex h-12 flex-1 items-center justify-center rounded-xl bg-accent-500 px-4 text-[15px] font-medium text-white shadow-lg shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 transition"
+              className="flex h-12 flex-1 items-center justify-center rounded-xl bg-accent-500 px-4 text-[15px] font-medium text-white shadow-lg shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 transition disabled:opacity-50"
             >
-              {item.cta_primary}
+              {busy ? "处理中…" : item.cta_primary}
             </button>
           ) : null}
         </footer>

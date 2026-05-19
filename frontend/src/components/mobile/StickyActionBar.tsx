@@ -26,6 +26,8 @@ type Props = {
   isAgendaComplete: boolean;
   currentTopicTitle: string | null;
   hasRiskInsight: boolean;
+  /** 推进议程 API 调用中 — 主按钮 disabled + 显 loading */
+  advancing?: boolean;
   onAdvance?: () => void;
   onSummonAi?: () => void;
   onEndMeeting?: () => void;
@@ -36,6 +38,7 @@ export default function StickyActionBar({
   isAgendaComplete,
   currentTopicTitle,
   hasRiskInsight,
+  advancing = false,
   onAdvance,
   onSummonAi,
   onEndMeeting,
@@ -64,7 +67,9 @@ export default function StickyActionBar({
           </p>
         </div>
         {canControl ? (
-          <Primary onClick={onAdvance}>推进议程</Primary>
+          <Primary onClick={onAdvance} busy={advancing}>
+            {advancing ? "推进中…" : "推进议程"}
+          </Primary>
         ) : (
           <Primary onClick={onSummonAi}>召 AI</Primary>
         )}
@@ -77,8 +82,12 @@ export default function StickyActionBar({
     <Bar>
       {canControl ? (
         <>
-          <Secondary onClick={onSummonAi}>💬 召 AI</Secondary>
-          <Primary onClick={onAdvance}>推进议程 →</Primary>
+          <Secondary onClick={onSummonAi} disabled={advancing}>
+            💬 召 AI
+          </Secondary>
+          <Primary onClick={onAdvance} busy={advancing}>
+            {advancing ? "推进中…" : "推进议程 →"}
+          </Primary>
         </>
       ) : (
         <Primary onClick={onSummonAi}>💬 召 AI 加视角</Primary>
@@ -114,15 +123,18 @@ function Bar({
 function Primary({
   children,
   onClick,
+  busy = false,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
+  busy?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex h-12 min-w-[7em] flex-1 items-center justify-center rounded-xl bg-accent-500 px-4 text-[15px] font-medium text-white shadow-lg shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 transition"
+      disabled={busy}
+      className="flex h-12 min-w-[7em] flex-1 items-center justify-center rounded-xl bg-accent-500 px-4 text-[15px] font-medium text-white shadow-lg shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 transition disabled:opacity-60"
     >
       {children}
     </button>
@@ -132,15 +144,18 @@ function Primary({
 function Secondary({
   children,
   onClick,
+  disabled = false,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex h-12 items-center justify-center rounded-xl border border-zinc-700 px-4 text-[15px] text-zinc-200 active:scale-[0.98] active:bg-ink-800 transition"
+      disabled={disabled}
+      className="flex h-12 items-center justify-center rounded-xl border border-zinc-700 px-4 text-[15px] text-zinc-200 active:scale-[0.98] active:bg-ink-800 transition disabled:opacity-50"
     >
       {children}
     </button>

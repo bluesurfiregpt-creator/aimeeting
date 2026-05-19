@@ -677,8 +677,8 @@ async def get_mobile_tasks(
             if age_days < 2:
                 group = "pending"
                 kind = "confirm"
-                cta_p = "确认 派发"
-                cta_s = "改 一下"
+                cta_p = "确认"
+                cta_s = "驳回"
             else:
                 group = "tracking"
                 kind = "tracking"

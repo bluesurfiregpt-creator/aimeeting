@@ -10,13 +10,14 @@
  *   - 字号 / 间距 升级
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/mobile/PageHeader";
 import SegmentControl from "@/components/mobile/SegmentControl";
+import Toast from "@/components/mobile/Toast";
 import { TaskCardFull, TaskRowCompact } from "@/components/mobile/TaskCard";
 import { mApi } from "@/lib/mobile/api";
-import type { MobileTasksOut } from "@/lib/mobile/types";
+import type { MobileTaskItem, MobileTasksOut } from "@/lib/mobile/types";
 
 type Tab = "pending" | "tracking" | "done";
 
@@ -25,6 +26,22 @@ export default function MobileTasksPage() {
   const [data, setData] = useState<MobileTasksOut | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // 单条 row 正在调 API 中 — 禁双击, 显 loading
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
+
+  const reload = useCallback(() => {
+    return mApi
+      .getTasks()
+      .then((d) => {
+        setData(d);
+        setError(null);
+      })
+      .catch((e) => setError(e.message || "load failed"));
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -46,6 +63,47 @@ export default function MobileTasksPage() {
       alive = false;
     };
   }, []);
+
+  /** 共用 CTA handler: 调 API → refetch → toast. */
+  const runCta = useCallback(
+    async (
+      item: MobileTaskItem,
+      action: "primary" | "secondary",
+      okText: string,
+    ) => {
+      const rowKey = `${item.kind}-${item.id}`;
+      if (busyId) return;
+      setBusyId(rowKey);
+      try {
+        if (item.kind === "confirm") {
+          if (!item.source_meeting_id) {
+            throw new Error("missing source_meeting_id");
+          }
+          await mApi.patchActionItem(
+            item.source_meeting_id,
+            item.id,
+            action === "primary" ? "done" : "cancelled",
+          );
+        } else if (item.kind === "approve_draft") {
+          if (action === "primary") {
+            await mApi.approveMemoryDraft(item.id);
+          } else {
+            await mApi.rejectMemoryDraft(item.id);
+          }
+        } else {
+          throw new Error(`unsupported kind: ${item.kind}`);
+        }
+        await reload();
+        setToast({ kind: "success", text: okText });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setToast({ kind: "error", text: `操作失败: ${msg}` });
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [busyId, reload],
+  );
 
   const groups = useMemo(() => {
     if (!data) return { pending: [], tracking: [], done: [] };
@@ -115,14 +173,23 @@ export default function MobileTasksPage() {
         </div>
       ) : tab === "pending" ? (
         <div className="space-y-3 px-4 pb-6">
-          {current.map((it) => (
-            <TaskCardFull
-              key={`${it.kind}-${it.id}`}
-              item={it}
-              onPrimary={() => alert(`Phase 2: ${it.cta_primary} — 接真 API`)}
-              onSecondary={() => alert(`Phase 2: ${it.cta_secondary} — 接真 API`)}
-            />
-          ))}
+          {current.map((it) => {
+            const rowKey = `${it.kind}-${it.id}`;
+            const isBusy = busyId === rowKey;
+            return (
+              <TaskCardFull
+                key={rowKey}
+                item={it}
+                busy={isBusy}
+                onPrimary={() =>
+                  runCta(it, "primary", `已${it.cta_primary || "操作"}`)
+                }
+                onSecondary={() =>
+                  runCta(it, "secondary", `已${it.cta_secondary || "操作"}`)
+                }
+              />
+            );
+          })}
         </div>
       ) : (
         <div className="space-y-2 px-4 pb-6">
@@ -131,6 +198,9 @@ export default function MobileTasksPage() {
           ))}
         </div>
       )}
+      {toast ? (
+        <Toast kind={toast.kind} text={toast.text} onClose={() => setToast(null)} />
+      ) : null}
     </div>
   );
 }

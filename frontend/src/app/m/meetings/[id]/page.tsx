@@ -14,11 +14,12 @@
  * + advance + summon-ai 实操作 API.
  */
 
-import { useEffect, useState, use } from "react";
+import { useCallback, useEffect, useState, use } from "react";
 import Link from "next/link";
 import StageChipsRow from "@/components/mobile/StageChipsRow";
 import CurrentTopicCard from "@/components/mobile/CurrentTopicCard";
 import StickyActionBar from "@/components/mobile/StickyActionBar";
+import Toast from "@/components/mobile/Toast";
 import { mApi } from "@/lib/mobile/api";
 import type { MobileMeetingDetail } from "@/lib/mobile/types";
 
@@ -35,6 +36,36 @@ export default function MobileMeetingDetailPage({
   const [data, setData] = useState<MobileMeetingDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [advancing, setAdvancing] = useState(false);
+  const [toast, setToast] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
+
+  const reload = useCallback(async () => {
+    try {
+      const d = await mApi.getMeetingDetail(id);
+      setData(d);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [id]);
+
+  const handleAdvance = useCallback(async () => {
+    if (advancing) return;
+    setAdvancing(true);
+    try {
+      await mApi.advanceAgenda(id);
+      await reload();
+      setToast({ kind: "success", text: "议程已推进" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ kind: "error", text: `推进失败: ${msg}` });
+    } finally {
+      setAdvancing(false);
+    }
+  }, [advancing, id, reload]);
 
   useEffect(() => {
     let alive = true;
@@ -195,10 +226,14 @@ export default function MobileMeetingDetailPage({
         isAgendaComplete={data.is_agenda_complete}
         currentTopicTitle={data.current_topic_title}
         hasRiskInsight={hasRisk}
-        onAdvance={() => alert("Phase 2: 推进议程 — 调 /api/meetings/{id}/agenda-advance")}
-        onSummonAi={() => alert("Phase 2: 召 AI — 走 /api/m/summon-perspective")}
-        onEndMeeting={() => alert("Phase 2: 结束会议 — 调 finalize")}
+        advancing={advancing}
+        onAdvance={handleAdvance}
+        onSummonAi={() => alert("Phase 4.2: 召 AI — 走 agent 选择 sheet (TODO)")}
+        onEndMeeting={() => alert("Phase 4.2: 结束会议 — 调 finalize (TODO)")}
       />
+      {toast ? (
+        <Toast kind={toast.kind} text={toast.text} onClose={() => setToast(null)} />
+      ) : null}
     </div>
   );
 }
