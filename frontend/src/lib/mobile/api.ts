@@ -9,6 +9,8 @@ import type {
   AgentDetailOut,
   AgentsWorkboardOut,
   AIInsightFull,
+  CreateMeetingIn,
+  CreateMeetingOut,
   MemoryOut,
   MobileMeetingDetail,
   MobileMeetingsListOut,
@@ -18,6 +20,8 @@ import type {
   TaskDetailComment,
   TaskDetailOut,
   WorkbenchOut,
+  WorkspaceAgentBrief,
+  WorkspaceMember,
 } from "./types";
 
 async function jget<T>(path: string): Promise<T> {
@@ -132,6 +136,22 @@ export const mApi = {
     ),
 
   // ===== P4.4: /m/insights 已入库 tab ======================================
+
+  // ===== P9: 新建会议 ======================================================
+
+  /** 工作区成员列表 (leader+ 可见). 给邀真人 picker 用. */
+  getWorkspaceMembers: () =>
+    jget<WorkspaceMember[]>("/api/team/members"),
+
+  /** 工作区 AI 列表. 给邀 AI picker 用. 仅 active. */
+  getWorkspaceAgents: () =>
+    jget<WorkspaceAgentBrief[]>("/api/agents?active_only=true"),
+
+  /** 创建会议. 复用桌面 POST /api/meetings, mode 接受 hybrid / auto / human. */
+  createMeeting: (payload: CreateMeetingIn) =>
+    jsend<CreateMeetingOut>("POST", "/api/meetings", payload),
+
+  // ===== 长期记忆库 (P4.4) ================================================
 
   /** 长期记忆库列表. 复用桌面 GET /api/memory. 可按 agent_id 筛, 默认 200 条上限. */
   getMemories: (params?: { agent_id?: string; limit?: number }) => {

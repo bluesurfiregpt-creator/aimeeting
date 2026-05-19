@@ -261,6 +261,49 @@ export type MobileTranscriptOut = {
   lines: TranscriptStreamLine[];
 };
 
+// ---------- P9: 新建会议 / 邀人邀 AI -------------------------------------
+
+/** GET /api/team/members 返回 */
+export type WorkspaceMember = {
+  user_id: string;
+  name: string;
+  email: string | null;
+  role: string;
+  department: string | null;
+};
+
+/** GET /api/agents 返回的 mini brief — mobile 用 */
+export type WorkspaceAgentBrief = {
+  id: string;
+  name: string;
+  nickname: string | null;
+  domain: string | null;
+  color: string | null;
+  role: string;          // "expert" | "moderator"
+  is_active: boolean;
+};
+
+/** POST /api/meetings 请求 body */
+export type CreateMeetingIn = {
+  title: string;
+  attendee_user_ids: string[];
+  attendee_agent_ids: string[];
+  agenda: Array<{
+    title: string;
+    time_budget_min?: number | null;
+    note?: string | null;
+  }>;
+  mode: "hybrid" | "auto" | "human";
+};
+
+/** POST /api/meetings 响应 */
+export type CreateMeetingOut = {
+  id: string;
+  title: string;
+  status: string;
+  mode: string;
+};
+
 // ---------- 长期记忆库 (Phase 4.4 — /m/insights 已入库 tab) ------------
 
 export type MemoryAgentBrief = {

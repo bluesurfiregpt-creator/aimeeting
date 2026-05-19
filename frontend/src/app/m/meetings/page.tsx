@@ -190,6 +190,18 @@ export default function MobileMeetingsPage() {
         />
       </PageHeader>
 
+      {/* P9: 新建会议入口 — sticky 在列表上方, 始终能点 */}
+      <div className="px-4 pt-2">
+        <Link
+          href="/m/meetings/new"
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-accent-500/30 bg-accent-500/[0.08] text-[15px] font-medium text-accent-300 active:scale-[0.99] active:bg-accent-500/[0.15]"
+          data-testid="mobile-new-meeting-link"
+        >
+          <span className="text-[18px]">+</span>
+          <span>新建会议</span>
+        </Link>
+      </div>
+
       {loading ? (
         <div className="space-y-3 px-4 pb-6">
           {[1, 2, 3].map((i) => (

@@ -28,10 +28,16 @@ export default function HeroEmptyCard() {
 
       <div className="mt-5 flex gap-2">
         <Link
-          href="/m/meetings"
+          href="/m/meetings/new"
           className="flex h-12 flex-1 items-center justify-center rounded-xl bg-accent-500 px-4 text-[15px] font-medium text-white shadow-lg shadow-accent-500/20 active:scale-[0.98] transition"
         >
-          看全部会议 →
+          + 新建一场
+        </Link>
+        <Link
+          href="/m/meetings"
+          className="flex h-12 flex-1 items-center justify-center rounded-xl border border-zinc-700 px-4 text-[15px] text-zinc-200 active:scale-[0.98] active:bg-ink-800 transition"
+        >
+          看全部会议
         </Link>
       </div>
     </article>
