@@ -645,4 +645,19 @@ async def init_db() -> None:
             )
         )
 
+    # v27.0-mobile P8: 加索引 (idempotent CREATE INDEX IF NOT EXISTS)
+    # MeetingAttendee.meeting_id / agent_id 之前只有 (meeting_id, user_id)
+    # unique constraint, 对 group by agent_id 等查询 缺索引 → 全表扫.
+    # mobile /api/m/agents/workboard 实测 3.4s, 这是根因之一.
+    async with engine.begin() as conn:
+        for sql in [
+            "CREATE INDEX IF NOT EXISTS ix_meeting_attendee_agent_id ON meeting_attendee (agent_id) WHERE agent_id IS NOT NULL",
+            "CREATE INDEX IF NOT EXISTS ix_meeting_attendee_meeting_id ON meeting_attendee (meeting_id)",
+            "CREATE INDEX IF NOT EXISTS ix_meeting_attendee_user_id ON meeting_attendee (user_id) WHERE user_id IS NOT NULL",
+        ]:
+            try:
+                await conn.execute(text(sql))
+            except Exception:
+                logger.exception("create index failed: %s", sql)
+
     logger.info("DB schema ensured")
