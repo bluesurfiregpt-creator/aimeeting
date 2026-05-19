@@ -1,0 +1,8 @@
+<!--
+  pages/webview/webview.wxml
+  全屏 web-view 组件, src 由 onLoad 动态计算 (含 query 参数 path).
+  错误态 / loading 由 H5 自身处理 (mobile m-prefix 页面已经有 spinner + 错误占位).
+-->
+<view class="root">
+  <web-view src="{{src}}" bindmessage="onMessage" binderror="onError"></web-view>
+</view>

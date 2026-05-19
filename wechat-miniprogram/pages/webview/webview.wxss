@@ -1,0 +1,6 @@
+.root {
+  width: 100vw;
+  height: 100vh;
+  background: #0a0a0c;
+}
+/* web-view 默认占满 — 这里不做额外样式 */

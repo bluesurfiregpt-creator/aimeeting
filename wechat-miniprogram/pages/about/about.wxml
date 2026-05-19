@@ -1,0 +1,25 @@
+<view class="container">
+  <view class="logo">Aimeeting</view>
+  <view class="subtitle">AI 协作的会议工作台</view>
+
+  <view class="section">
+    <view class="row">
+      <text class="label">版本</text>
+      <text class="value">{{version}}</text>
+    </view>
+    <view class="row">
+      <text class="label">环境</text>
+      <text class="value">{{envVersion}}</text>
+    </view>
+  </view>
+
+  <view class="section">
+    <navigator url="/pages/webview/webview" open-type="redirectTo" class="cta">
+      返回工作台 →
+    </navigator>
+  </view>
+
+  <view class="footer">
+    <text>遇到问题, 请联系管理员</text>
+  </view>
+</view>

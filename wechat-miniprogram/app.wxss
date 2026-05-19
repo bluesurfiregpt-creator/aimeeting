@@ -1,0 +1,6 @@
+/* app.wxss — 全局样式 (mvp 仅设深色背景) */
+page {
+  background-color: #0a0a0c;
+  color: #fafafa;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+}

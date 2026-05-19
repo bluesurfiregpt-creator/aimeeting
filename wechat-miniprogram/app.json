@@ -1,0 +1,17 @@
+{
+  "pages": [
+    "pages/webview/webview",
+    "pages/about/about"
+  ],
+  "window": {
+    "backgroundColor": "#0a0a0c",
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#0a0a0c",
+    "navigationBarTitleText": "Aimeeting",
+    "navigationBarTextStyle": "white",
+    "enablePullDownRefresh": false
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

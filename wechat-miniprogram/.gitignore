@@ -1,0 +1,7 @@
+# 微信开发者工具本地配置 (含本机路径, 不能提交)
+project.private.config.json
+
+# 本地 build / 编辑器缓存
+.DS_Store
+node_modules/
+*.log
