@@ -7,6 +7,7 @@
  * - <TaskRowCompact />  紧凑单行 — tracking / done 组用. 仅状态 + title + age
  */
 
+import Link from "next/link";
 import { AIInsightChip, AgentLabel, TypeChip } from "./AIInsightCard";
 import type { MobileTaskItem, MobileTaskKind } from "@/lib/mobile/types";
 
@@ -95,6 +96,17 @@ export function TaskCardFull({
         ) : null}
       </header>
 
+      {/* P4.3: action 类挂"查看详情"链接 (draft 无详情页) */}
+      {item.source_kind === "action" ? (
+        <Link
+          href={`/m/tasks/${item.id}`}
+          className="mt-2 inline-block text-[13px] text-accent-400 active:text-accent-300"
+          data-testid="mobile-task-detail-link"
+        >
+          查看任务详情 →
+        </Link>
+      ) : null}
+
       {/* title */}
       <p className="mt-2.5 text-[16px] font-medium leading-snug text-zinc-50">
         {item.title}
@@ -159,11 +171,10 @@ export function TaskCardFull({
 
 export function TaskRowCompact({ item }: { item: MobileTaskItem }) {
   const s = KIND_STYLE[item.kind];
-  return (
-    <div
-      className="flex min-h-[56px] items-center gap-3 rounded-xl bg-ink-900/40 px-4 py-3"
-      data-testid={`mobile-task-row-${item.kind}`}
-    >
+  const clickable = item.source_kind === "action";
+
+  const inner = (
+    <>
       <span
         className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[14px] ${s.chipBg} ${s.chipText}`}
       >
@@ -184,6 +195,30 @@ export function TaskRowCompact({ item }: { item: MobileTaskItem }) {
           {item.age_days}天前
         </span>
       ) : null}
+      {clickable ? (
+        <span className="shrink-0 text-[16px] text-zinc-500">›</span>
+      ) : null}
+    </>
+  );
+
+  if (clickable) {
+    return (
+      <Link
+        href={`/m/tasks/${item.id}`}
+        className="flex min-h-[56px] items-center gap-3 rounded-xl bg-ink-900/40 px-4 py-3 transition active:scale-[0.99] active:bg-ink-900"
+        data-testid={`mobile-task-row-${item.kind}`}
+      >
+        {inner}
+      </Link>
+    );
+  }
+
+  return (
+    <div
+      className="flex min-h-[56px] items-center gap-3 rounded-xl bg-ink-900/40 px-4 py-3"
+      data-testid={`mobile-task-row-${item.kind}`}
+    >
+      {inner}
     </div>
   );
 }

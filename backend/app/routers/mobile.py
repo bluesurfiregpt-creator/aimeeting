@@ -740,6 +740,9 @@ async def summon_agent_in_meeting(
 class MobileTaskItem(BaseModel):
     kind: str            # confirm | approve_draft | tracking | done
     id: str              # action_item.id OR memory_draft.id
+    # P4.3: 数据源类型 — kind="done" 时两种实体共用 kind, 这个字段消歧.
+    # action 类可跳 /m/tasks/<id> 详情; draft 类无详情页.
+    source_kind: str = "action"  # "action" | "draft"
     title: str
     group: str           # pending | tracking | done
     source_meeting_id: Optional[uuid.UUID] = None
@@ -825,6 +828,7 @@ async def get_mobile_tasks(
         items.append(MobileTaskItem(
             kind=kind,
             id=str(ai.id),
+            source_kind="action",
             title=ai.content[:80],
             group=group,
             source_meeting_id=m_id,
@@ -865,6 +869,7 @@ async def get_mobile_tasks(
         items.append(MobileTaskItem(
             kind=kind,
             id=str(d.id),
+            source_kind="draft",
             title=d.proposed_content[:80],
             group=group,
             source_meeting_id=m_id,
@@ -1107,6 +1112,9 @@ class AgentDetailMeetingItem(BaseModel):
 
 class AgentDetailTaskItem(BaseModel):
     task_id: uuid.UUID
+    # P4.3: 反查的 ActionItem id, 前端跳详情页用 /m/tasks/<action_item_id>.
+    # 若 Task 没有镜像 ActionItem (legacy 老数据) 为 None, 前端不可点.
+    action_item_id: Optional[uuid.UUID] = None
     title: str           # task.title or content 前 40 字
     status: str          # open|dispatched|accepted|in_progress|submitted|done|archived|cancelled
     due_at: Optional[datetime] = None
@@ -1216,6 +1224,21 @@ async def get_agent_detail(
         )
     ).all()
 
+    # P4.3: 一次性反查 Task → ActionItem (ActionItem.task_id), 拿 action_item_id
+    # 让前端能跳 /m/tasks/<action_item_id> 详情页.
+    task_id_to_action_id: dict[uuid.UUID, uuid.UUID] = {}
+    if task_rows:
+        from ..models import MeetingActionItem
+        t_ids = [r[0] for r in task_rows]
+        ai_rows = (
+            await session.execute(
+                select(MeetingActionItem.id, MeetingActionItem.task_id).where(
+                    MeetingActionItem.task_id.in_(t_ids)
+                )
+            )
+        ).all()
+        task_id_to_action_id = {tid: aid for aid, tid in ai_rows}
+
     # 提取 source_meeting_id 集合, 一次性 lookup titles
     OPEN_STATES = {"open", "dispatched", "accepted", "in_progress", "submitted"}
     source_meeting_ids: set[uuid.UUID] = set()
@@ -1257,6 +1280,7 @@ async def get_agent_detail(
         )
         tasks.append(AgentDetailTaskItem(
             task_id=task_id,
+            action_item_id=task_id_to_action_id.get(task_id),
             title=display_title,
             status=status,
             due_at=due_at,
@@ -1343,4 +1367,274 @@ async def get_agent_detail(
         meetings=meetings,
         tasks=tasks,
         insights=insights,
+    )
+
+
+# ============================================================================
+# /api/m/tasks/{action_item_id} — 单任务详情聚合 (Phase 4.3)
+# ============================================================================
+#
+# 工作站 /m/tasks 列表 + 工卡详情页任务 tab 的点击目标. 详情页只 "查看 + 评论",
+# 不再做 "确认 / 驳回" CTA — 那些动作 list 上做.
+#
+# 聚合返回:
+#   1. 任务 meta (title / content / status / due_at / assignee / source_meeting)
+#   2. AI 智囊依据 (该任务源议题的 insights)
+#   3. 实录依据 (evidence_quote + evidence_anchor_line_ids 解析出的 transcript 行)
+#   4. 评论 (MeetingActionItemComment 时间线)
+
+class TaskDetailEvidenceLine(BaseModel):
+    line_id: int                    # MeetingTranscript.id
+    text: str
+    speaker_name: Optional[str] = None
+    at_minute: int = 0              # 距会议开始多少分钟
+
+
+class TaskDetailComment(BaseModel):
+    id: uuid.UUID
+    author_user_id: Optional[uuid.UUID] = None
+    author_name: str                # hydrated, 删除用户时显 "(已删除用户)"
+    content: str
+    created_at: datetime
+    can_delete: bool = False        # 当前 user 是否能删 (作者本人)
+
+
+class TaskDetailOut(BaseModel):
+    # ---- 基本字段 ----
+    action_item_id: uuid.UUID
+    task_id: Optional[uuid.UUID] = None  # 1:1 mirror Task.id
+    title: str                            # content 前 80 字 (legacy ActionItem 无独立 title)
+    content: str                          # 全文
+    # Task 状态优先 (8-state), 没 Task 时 fallback ActionItem 3-state
+    status: str
+    due_at: Optional[datetime] = None
+    is_overdue: bool = False
+    created_at: datetime
+
+    # ---- 归属 ----
+    assignee_user_id: Optional[uuid.UUID] = None
+    assignee_user_name: Optional[str] = None
+    assignee_agent_id: Optional[uuid.UUID] = None
+    assignee_agent_name: Optional[str] = None
+    assignee_agent_nickname: Optional[str] = None
+    assignee_name_hint: Optional[str] = None  # 解析不上 user 时的原文本
+
+    # ---- 来源 ----
+    source_meeting_id: Optional[uuid.UUID] = None
+    source_meeting_title: Optional[str] = None
+    source_type: str = "summary"
+
+    # ---- 依据 ----
+    evidence_quote: Optional[str] = None        # AI 抽出待办时附的支撑句
+    evidence_lines: list[TaskDetailEvidenceLine] = []  # 实录行原文 (解析 anchor_ids)
+
+    # ---- AI 智囊 (源会议同议题的 insights, 上限 5) ----
+    insights: list[AIInsightFull] = []
+
+    # ---- 评论 ----
+    comments: list[TaskDetailComment] = []
+
+
+@router.get("/tasks/{action_item_id}", response_model=TaskDetailOut)
+async def get_mobile_task_detail(
+    action_item_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """任务详情 — 工卡点开后看的展开页. 一次聚合, 减 round-trip."""
+    from ..models import MeetingActionItem, MeetingActionItemComment, MeetingTranscript, Task as TaskModel
+    ws_id = auth.workspace.id
+    now = datetime.now(timezone.utc)
+
+    # 1. 拉 ActionItem + workspace 校验
+    ai = (
+        await session.execute(
+            select(MeetingActionItem).where(
+                MeetingActionItem.id == action_item_id,
+                MeetingActionItem.workspace_id == ws_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not ai:
+        raise HTTPException(404, "task not found")
+
+    # 2. 拉 Task (1:1 镜像; 没有时 fallback 用 ActionItem 状态)
+    task: Optional[TaskModel] = None
+    if ai.task_id:
+        task = (
+            await session.execute(
+                select(TaskModel).where(TaskModel.id == ai.task_id)
+            )
+        ).scalar_one_or_none()
+
+    OPEN_STATES = {"open", "dispatched", "accepted", "in_progress", "submitted"}
+    final_status = task.status if task else ai.status
+    is_overdue = (
+        final_status in OPEN_STATES
+        and ai.due_at is not None
+        and ai.due_at < now
+    )
+
+    # 3. 拉源会议 title
+    src_meeting_title: Optional[str] = None
+    if ai.meeting_id:
+        src_meeting_title = (
+            await session.execute(
+                select(Meeting.title).where(Meeting.id == ai.meeting_id)
+            )
+        ).scalar()
+
+    # 4. 归属 user / agent 名字
+    assignee_user_name: Optional[str] = None
+    if ai.assignee_user_id:
+        from ..models import User as UserModel
+        assignee_user_name = (
+            await session.execute(
+                select(UserModel.name).where(UserModel.id == ai.assignee_user_id)
+            )
+        ).scalar()
+    assignee_agent_id: Optional[uuid.UUID] = None
+    assignee_agent_name: Optional[str] = None
+    assignee_agent_nickname: Optional[str] = None
+    if task and task.assignee_agent_id:
+        ag_row = (
+            await session.execute(
+                select(Agent.id, Agent.name, Agent.nickname).where(
+                    Agent.id == task.assignee_agent_id
+                )
+            )
+        ).first()
+        if ag_row:
+            assignee_agent_id = ag_row[0]
+            assignee_agent_name = ag_row[1]
+            assignee_agent_nickname = ag_row[2]
+
+    # 5. 实录依据 — anchor_line_ids 批量查 transcript + 过滤幻觉 ids
+    evidence_lines: list[TaskDetailEvidenceLine] = []
+    if ai.evidence_anchor_line_ids and ai.meeting_id:
+        anchor_ids = [i for i in ai.evidence_anchor_line_ids if isinstance(i, int)]
+        if anchor_ids:
+            line_rows = (
+                await session.execute(
+                    select(MeetingTranscript).where(
+                        MeetingTranscript.id.in_(anchor_ids),
+                        MeetingTranscript.meeting_id == ai.meeting_id,
+                    )
+                    .order_by(MeetingTranscript.id)
+                )
+            ).scalars().all()
+            # 解析 speaker_user_id → User.name
+            spk_ids = [l.speaker_user_id for l in line_rows if l.speaker_user_id]
+            spk_name_map: dict[uuid.UUID, str] = {}
+            if spk_ids:
+                from ..models import User as UserModel
+                spk_rows = (
+                    await session.execute(
+                        select(UserModel.id, UserModel.name).where(
+                            UserModel.id.in_(spk_ids)
+                        )
+                    )
+                ).all()
+                spk_name_map = {uid: name for uid, name in spk_rows}
+            # 拿源会议 started_at 算 at_minute
+            mt_started = (
+                await session.execute(
+                    select(Meeting.started_at).where(Meeting.id == ai.meeting_id)
+                )
+            ).scalar()
+            for l in line_rows:
+                at_min = 0
+                if mt_started and l.start_ms is not None:
+                    at_min = max(0, int(l.start_ms / 60000))
+                spk_name: Optional[str] = None
+                if l.speaker_user_id and l.speaker_user_id in spk_name_map:
+                    spk_name = spk_name_map[l.speaker_user_id]
+                elif l.speaker_label and l.speaker_label != "UNKNOWN":
+                    spk_name = l.speaker_label
+                evidence_lines.append(TaskDetailEvidenceLine(
+                    line_id=l.id, text=l.text,
+                    speaker_name=spk_name, at_minute=at_min,
+                ))
+
+    # 6. AI 智囊 — 同会议 insights (上限 5; 不绑 topic_idx 因为 ActionItem 没存 topic 关联)
+    insights: list[AIInsightFull] = []
+    if ai.meeting_id:
+        ins_rows = (
+            await session.execute(
+                select(AIInsight, Agent.name, Agent.nickname, Meeting.title)
+                .join(Agent, Agent.id == AIInsight.agent_id)
+                .join(Meeting, Meeting.id == AIInsight.meeting_id)
+                .where(AIInsight.meeting_id == ai.meeting_id)
+                .order_by(desc(AIInsight.created_at))
+                .limit(5)
+            )
+        ).all()
+        for ins, a_name, a_nick, m_title in ins_rows:
+            insights.append(AIInsightFull(
+                id=ins.id, agent_id=ins.agent_id, agent_name=a_name,
+                agent_nickname=a_nick, type=ins.type, content=ins.content,
+                evidence=ins.evidence, meeting_id=ins.meeting_id,
+                meeting_title=m_title, topic_idx=ins.topic_idx,
+                source_message_id=ins.source_message_id, created_at=ins.created_at,
+            ))
+
+    # 7. 评论 — 时间正序 (老 → 新, 让用户从上往下读时间线)
+    comment_rows = (
+        await session.execute(
+            select(MeetingActionItemComment).where(
+                MeetingActionItemComment.action_item_id == action_item_id
+            )
+            .order_by(MeetingActionItemComment.created_at)
+        )
+    ).scalars().all()
+    # 解析 author user names 一次性
+    author_ids = list({c.author_user_id for c in comment_rows if c.author_user_id})
+    author_name_map: dict[uuid.UUID, str] = {}
+    if author_ids:
+        from ..models import User as UserModel
+        ar = (
+            await session.execute(
+                select(UserModel.id, UserModel.name).where(UserModel.id.in_(author_ids))
+            )
+        ).all()
+        author_name_map = {uid: name for uid, name in ar}
+    comments: list[TaskDetailComment] = []
+    me_id = auth.user.id
+    for c in comment_rows:
+        author_name = (
+            author_name_map.get(c.author_user_id, "(已删除用户)")
+            if c.author_user_id
+            else "(已删除用户)"
+        )
+        comments.append(TaskDetailComment(
+            id=c.id,
+            author_user_id=c.author_user_id,
+            author_name=author_name,
+            content=c.content,
+            created_at=c.created_at,
+            can_delete=(c.author_user_id == me_id),
+        ))
+
+    return TaskDetailOut(
+        action_item_id=ai.id,
+        task_id=ai.task_id,
+        title=ai.content[:80],
+        content=ai.content,
+        status=final_status,
+        due_at=ai.due_at,
+        is_overdue=is_overdue,
+        created_at=ai.created_at,
+        assignee_user_id=ai.assignee_user_id,
+        assignee_user_name=assignee_user_name,
+        assignee_agent_id=assignee_agent_id,
+        assignee_agent_name=assignee_agent_name,
+        assignee_agent_nickname=assignee_agent_nickname,
+        assignee_name_hint=ai.assignee_name_hint,
+        source_meeting_id=ai.meeting_id,
+        source_meeting_title=src_meeting_title,
+        source_type=ai.source_type or "summary",
+        evidence_quote=ai.evidence_quote,
+        evidence_lines=evidence_lines,
+        insights=insights,
+        comments=comments,
     )

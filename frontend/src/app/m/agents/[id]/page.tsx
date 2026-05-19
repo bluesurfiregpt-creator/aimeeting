@@ -308,45 +308,64 @@ function TaskGroup({
         <span className="text-[13px] text-zinc-500">· {items.length}</span>
       </h3>
       <ul className="mt-2 space-y-2">
-        {items.map((t) => (
-          <li
-            key={t.task_id}
-            className={`rounded-xl bg-ink-900 p-4 ${
-              muted ? "opacity-60" : ""
-            } ${highlight && t.is_overdue ? "border border-rose-500/40" : ""}`}
-            data-testid="agent-detail-task-row"
-          >
-            <header className="flex items-baseline gap-2">
-              <StatusChipTask status={t.status} />
-              {t.is_overdue ? (
-                <span className="rounded bg-rose-500/15 px-2 py-0.5 text-[13px] font-medium text-rose-300">
-                  超期
-                </span>
-              ) : null}
-              {t.due_at ? (
-                <span
-                  className={`text-[13px] tabular-nums ${
-                    t.is_overdue ? "text-rose-300" : "text-zinc-500"
-                  }`}
-                >
-                  截止 {meetingDate(t.due_at)}
-                </span>
-              ) : null}
-            </header>
-            <p
-              className={`mt-2 text-[15px] leading-snug ${
-                muted ? "text-zinc-400 line-through" : "text-zinc-100"
-              }`}
-            >
-              {t.title}
-            </p>
-            {t.source_meeting_title ? (
-              <p className="mt-1.5 truncate text-[13px] text-zinc-500">
-                来自 {t.source_meeting_title}
+        {items.map((t) => {
+          const inner = (
+            <>
+              <header className="flex items-baseline gap-2">
+                <StatusChipTask status={t.status} />
+                {t.is_overdue ? (
+                  <span className="rounded bg-rose-500/15 px-2 py-0.5 text-[13px] font-medium text-rose-300">
+                    超期
+                  </span>
+                ) : null}
+                {t.due_at ? (
+                  <span
+                    className={`text-[13px] tabular-nums ${
+                      t.is_overdue ? "text-rose-300" : "text-zinc-500"
+                    }`}
+                  >
+                    截止 {meetingDate(t.due_at)}
+                  </span>
+                ) : null}
+                {t.action_item_id ? (
+                  <span className="ml-auto shrink-0 text-[16px] text-zinc-500">›</span>
+                ) : null}
+              </header>
+              <p
+                className={`mt-2 text-[15px] leading-snug ${
+                  muted ? "text-zinc-400 line-through" : "text-zinc-100"
+                }`}
+              >
+                {t.title}
               </p>
-            ) : null}
-          </li>
-        ))}
+              {t.source_meeting_title ? (
+                <p className="mt-1.5 truncate text-[13px] text-zinc-500">
+                  来自 {t.source_meeting_title}
+                </p>
+              ) : null}
+            </>
+          );
+          const cls = `block rounded-xl bg-ink-900 p-4 ${
+            muted ? "opacity-60" : ""
+          } ${highlight && t.is_overdue ? "border border-rose-500/40" : ""}`;
+          return (
+            <li key={t.task_id}>
+              {t.action_item_id ? (
+                <Link
+                  href={`/m/tasks/${t.action_item_id}`}
+                  className={`${cls} transition active:scale-[0.99]`}
+                  data-testid="agent-detail-task-row"
+                >
+                  {inner}
+                </Link>
+              ) : (
+                <div className={cls} data-testid="agent-detail-task-row">
+                  {inner}
+                </div>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

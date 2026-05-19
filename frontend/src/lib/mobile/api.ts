@@ -13,6 +13,8 @@ import type {
   MobileMeetingsListOut,
   MobileTasksOut,
   SummonAgentOut,
+  TaskDetailComment,
+  TaskDetailOut,
   WorkbenchOut,
 } from "./types";
 
@@ -101,6 +103,27 @@ export const mApi = {
   /** P4.2: 结束会议. status ongoing → finished, 后端跑纪要/抽待办 background. */
   finalizeMeeting: (meetingId: string) =>
     jsend<unknown>("POST", `/api/meetings/${meetingId}/finalize`),
+
+  // ===== P4.3 任务详情页 ===================================================
+
+  /** 任务详情聚合 — meta + AI 智囊 + 实录依据 + 评论. id = MeetingActionItem.id. */
+  getTaskDetail: (actionItemId: string) =>
+    jget<TaskDetailOut>(`/api/m/tasks/${actionItemId}`),
+
+  /** 发评论. 复用桌面 endpoint POST /api/meetings/{mid}/actions/{aid}/comments. */
+  postTaskComment: (meetingId: string, actionItemId: string, content: string) =>
+    jsend<TaskDetailComment>(
+      "POST",
+      `/api/meetings/${meetingId}/actions/${actionItemId}/comments`,
+      { content },
+    ),
+
+  /** 删评论 (作者本人). DELETE /api/meetings/{mid}/actions/{aid}/comments/{cid}. */
+  deleteTaskComment: (meetingId: string, actionItemId: string, commentId: string) =>
+    jsend<unknown>(
+      "DELETE",
+      `/api/meetings/${meetingId}/actions/${actionItemId}/comments/${commentId}`,
+    ),
   getInsights: (params?: { by_agent?: string; by_meeting?: string; limit?: number }) => {
     const q = new URLSearchParams();
     if (params?.by_agent) q.set("by_agent", params.by_agent);

@@ -137,6 +137,8 @@ export type AgentDetailMeetingItem = {
 
 export type AgentDetailTaskItem = {
   task_id: string;
+  /** P4.3 反查的 ActionItem id, 前端跳 /m/tasks/<action_item_id> 用. null 时不可点. */
+  action_item_id: string | null;
   title: string;
   status: string; // open|dispatched|accepted|in_progress|submitted|done|archived|cancelled
   due_at: string | null;
@@ -166,9 +168,13 @@ export type AgentDetailOut = {
 export type MobileTaskKind = "confirm" | "approve_draft" | "tracking" | "done";
 export type MobileTaskGroup = "pending" | "tracking" | "done";
 
+export type MobileTaskSourceKind = "action" | "draft";
+
 export type MobileTaskItem = {
   kind: MobileTaskKind;
   id: string;
+  /** P4.3: action 类可跳 /m/tasks/<id> 详情; draft 类无详情页. */
+  source_kind: MobileTaskSourceKind;
   title: string;
   group: MobileTaskGroup;
   source_meeting_id: string | null;
@@ -223,4 +229,52 @@ export type SummonAgentOut = {
   accepted: boolean;
   agent_id: string;
   agent_name: string;
+};
+
+// ---------- 任务详情页 /m/tasks/[id] (Phase 4.3) -----------------------
+
+export type TaskDetailEvidenceLine = {
+  line_id: number;
+  text: string;
+  speaker_name: string | null;
+  at_minute: number;
+};
+
+export type TaskDetailComment = {
+  id: string;
+  author_user_id: string | null;
+  author_name: string;
+  content: string;
+  created_at: string;
+  can_delete: boolean;
+};
+
+export type TaskDetailOut = {
+  // 基本
+  action_item_id: string;
+  task_id: string | null;
+  title: string;
+  content: string;
+  status: string;
+  due_at: string | null;
+  is_overdue: boolean;
+  created_at: string;
+  // 归属
+  assignee_user_id: string | null;
+  assignee_user_name: string | null;
+  assignee_agent_id: string | null;
+  assignee_agent_name: string | null;
+  assignee_agent_nickname: string | null;
+  assignee_name_hint: string | null;
+  // 来源
+  source_meeting_id: string | null;
+  source_meeting_title: string | null;
+  source_type: string;
+  // 依据
+  evidence_quote: string | null;
+  evidence_lines: TaskDetailEvidenceLine[];
+  // AI 智囊
+  insights: AIInsightFull[];
+  // 评论
+  comments: TaskDetailComment[];
 };
