@@ -96,12 +96,20 @@ async def get_workbench(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    """首页 一次性 拉 全部 数据 — 进行中 会议 + 等我处理 + 今日 智囊产出."""
+    """首页 一次性 拉 全部 数据 — 进行中 会议 + 等我处理 + 今日 智囊产出.
+
+    P8 性能优化 (v27.0-mobile P8): 14 queries → 6 queries.
+    旧版每场 ongoing/每条 action item 都嵌套 query insight (N+1), 5+5 场 = 10 子 query.
+    新版批量 IN 拉所有相关 insight 一次, Python 侧分组.
+    """
     ws_id = auth.workspace.id
+    me_id = auth.user.id
     now = datetime.now(timezone.utc)
     today_start = now - timedelta(hours=24)
 
-    # 1. 进行中 会议 (ongoing) — 最多 5 场
+    # ===== 1. 进行中会议 + 等我处理 + 今日智囊 — 各拉一次 =====================
+
+    # 1.a ongoing meetings
     ongoing_rows = (
         await session.execute(
             select(Meeting)
@@ -111,114 +119,38 @@ async def get_workbench(
         )
     ).scalars().all()
 
-    ongoing: list[WorkbenchOngoingMeeting] = []
-    for m in ongoing_rows:
-        started_min = int((now - m.started_at).total_seconds() / 60) if m.started_at else 0
-        agenda_total = len(m.agenda or [])
-        # 拉 这 场 当前 议程 项 下 最新 一 条 AI 智囊
-        latest_insight: Optional[AIInsightBrief] = None
-        cur_idx = m.current_agenda_idx
-        insight_q = (
-            select(AIInsight, Agent.name, Agent.nickname)
-            .join(Agent, Agent.id == AIInsight.agent_id)
-            .where(AIInsight.meeting_id == m.id)
-            .order_by(desc(AIInsight.created_at))
-            .limit(1)
-        )
-        if cur_idx is not None:
-            insight_q = (
-                select(AIInsight, Agent.name, Agent.nickname)
-                .join(Agent, Agent.id == AIInsight.agent_id)
-                .where(AIInsight.meeting_id == m.id, AIInsight.topic_idx == cur_idx)
-                .order_by(desc(AIInsight.created_at))
-                .limit(1)
-            )
-        ins_row = (await session.execute(insight_q)).first()
-        if ins_row:
-            ins, a_name, a_nick = ins_row
-            latest_insight = AIInsightBrief(
-                id=ins.id, agent_id=ins.agent_id, agent_name=a_name,
-                agent_nickname=a_nick, type=ins.type, content=ins.content,
-            )
-        ongoing.append(WorkbenchOngoingMeeting(
-            meeting_id=m.id, title=m.title or "(未命名)",
-            started_minutes_ago=started_min,
-            current_agenda_idx=cur_idx, total_agenda_items=agenda_total,
-            latest_insight=latest_insight,
-        ))
-
-    # 2. 等我处理 — 当前 用户 待 处理 的 三 类:
-    #    (a) 我 assignee 的 open action items
-    #    (b) 我 primary_user 的 pending memory drafts
-    #    (c) 我 assignee 的 "blocked" action items (复用 a, 标 kind 不同)
-    pending: list[WorkbenchPendingTask] = []
-
-    # (a) action items
+    # 1.b 我 assignee 的 open action items
     action_rows = (
         await session.execute(
             select(MeetingActionItem, Meeting.title)
             .join(Meeting, Meeting.id == MeetingActionItem.meeting_id)
             .where(
                 MeetingActionItem.workspace_id == ws_id,
-                MeetingActionItem.assignee_user_id == auth.user.id,
+                MeetingActionItem.assignee_user_id == me_id,
                 MeetingActionItem.status == "open",
             )
             .order_by(desc(MeetingActionItem.created_at))
             .limit(5)
         )
     ).all()
-    for ai, m_title in action_rows:
-        # 拉 该 议程 项 关联 的 AI 智囊 (最多 3 条)
-        insights: list[AIInsightBrief] = []
-        ins_rows = (
-            await session.execute(
-                select(AIInsight, Agent.name, Agent.nickname)
-                .join(Agent, Agent.id == AIInsight.agent_id)
-                .where(AIInsight.meeting_id == ai.meeting_id)
-                .order_by(desc(AIInsight.created_at))
-                .limit(3)
-            )
-        ).all()
-        for ins, a_name, a_nick in ins_rows:
-            insights.append(AIInsightBrief(
-                id=ins.id, agent_id=ins.agent_id, agent_name=a_name,
-                agent_nickname=a_nick, type=ins.type, content=ins.content,
-            ))
-        pending.append(WorkbenchPendingTask(
-            kind="confirm",
-            id=str(ai.id),
-            title=ai.content[:80],
-            source_meeting_title=m_title,
-            insights=insights,
-            cta_label="确认 派发",
-        ))
 
-    # (b) pending memory drafts (primary_user = me)
+    # 1.c 我 primary_user 的 pending memory drafts
     draft_rows = (
         await session.execute(
             select(MemoryDraft, Meeting.title)
             .outerjoin(Meeting, Meeting.id == MemoryDraft.source_meeting_id)
             .where(
                 MemoryDraft.workspace_id == ws_id,
-                MemoryDraft.primary_user_id == auth.user.id,
+                MemoryDraft.primary_user_id == me_id,
                 MemoryDraft.status == "pending",
             )
             .order_by(desc(MemoryDraft.created_at))
             .limit(5)
         )
     ).all()
-    for d, m_title in draft_rows:
-        pending.append(WorkbenchPendingTask(
-            kind="approve_draft",
-            id=str(d.id),
-            title=d.proposed_content[:80],
-            source_meeting_title=m_title,
-            insights=[],
-            cta_label="开始 审",
-        ))
 
-    # 3. 今日 智囊 产出 — 过去 24h, 跟 我 相关 的 (在 我 参 的 会 中) — MVP 简化: workspace 全部
-    insight_rows = (
+    # 1.d 今日全局 insights (过去 24h)
+    todays_insight_rows = (
         await session.execute(
             select(AIInsight, Agent.name, Agent.nickname, Meeting.title)
             .join(Agent, Agent.id == AIInsight.agent_id)
@@ -231,6 +163,94 @@ async def get_workbench(
             .limit(10)
         )
     ).all()
+
+    # ===== 2. 批量拉 ongoing + action 涉及的 meeting 的 insights ============
+    #
+    # 老代码 5 个 ongoing × 1 insight query + 5 个 action × 1 insight query = 10 子 query.
+    # 新做法: 收集所有相关 meeting_id, 一次 IN 查, Python 侧按 meeting_id 分组.
+
+    relevant_meeting_ids: set[uuid.UUID] = set()
+    for m in ongoing_rows:
+        relevant_meeting_ids.add(m.id)
+    for ai_item, _ in action_rows:
+        if ai_item.meeting_id:
+            relevant_meeting_ids.add(ai_item.meeting_id)
+
+    insights_by_meeting: dict[uuid.UUID, list[tuple]] = {}
+    if relevant_meeting_ids:
+        ins_rows = (
+            await session.execute(
+                select(AIInsight, Agent.name, Agent.nickname)
+                .join(Agent, Agent.id == AIInsight.agent_id)
+                .where(AIInsight.meeting_id.in_(relevant_meeting_ids))
+                .order_by(desc(AIInsight.created_at))
+                .limit(200)  # 5 会 × ~30 insight buffer 够
+            )
+        ).all()
+        for ins, a_name, a_nick in ins_rows:
+            insights_by_meeting.setdefault(ins.meeting_id, []).append(
+                (ins, a_name, a_nick)
+            )
+
+    # ===== 3. 组装 ongoing meetings 输出 ====================================
+    ongoing: list[WorkbenchOngoingMeeting] = []
+    for m in ongoing_rows:
+        started_min = int((now - m.started_at).total_seconds() / 60) if m.started_at else 0
+        agenda_total = len(m.agenda or [])
+        cur_idx = m.current_agenda_idx
+
+        # Python 侧筛: 取该会议 (current topic 匹配) 的 latest insight.
+        # 已按 created_at DESC 排, 找第一条 topic_idx 匹配的即可.
+        latest_insight: Optional[AIInsightBrief] = None
+        for ins, a_name, a_nick in insights_by_meeting.get(m.id, []):
+            if cur_idx is not None and ins.topic_idx != cur_idx:
+                continue
+            latest_insight = AIInsightBrief(
+                id=ins.id, agent_id=ins.agent_id, agent_name=a_name,
+                agent_nickname=a_nick, type=ins.type, content=ins.content,
+            )
+            break
+
+        ongoing.append(WorkbenchOngoingMeeting(
+            meeting_id=m.id, title=m.title or "(未命名)",
+            started_minutes_ago=started_min,
+            current_agenda_idx=cur_idx, total_agenda_items=agenda_total,
+            latest_insight=latest_insight,
+        ))
+
+    # ===== 4. 组装 pending (action items + drafts) ==========================
+    pending: list[WorkbenchPendingTask] = []
+
+    for ai_item, m_title in action_rows:
+        # 每条 action 关联的 insights — 从 in-memory map 取 top 3.
+        candidate = insights_by_meeting.get(ai_item.meeting_id, [])
+        insights = [
+            AIInsightBrief(
+                id=ins.id, agent_id=ins.agent_id, agent_name=a_name,
+                agent_nickname=a_nick, type=ins.type, content=ins.content,
+            )
+            for ins, a_name, a_nick in candidate[:3]
+        ]
+        pending.append(WorkbenchPendingTask(
+            kind="confirm",
+            id=str(ai_item.id),
+            title=ai_item.content[:80],
+            source_meeting_title=m_title,
+            insights=insights,
+            cta_label="确认 派发",
+        ))
+
+    for d, m_title in draft_rows:
+        pending.append(WorkbenchPendingTask(
+            kind="approve_draft",
+            id=str(d.id),
+            title=d.proposed_content[:80],
+            source_meeting_title=m_title,
+            insights=[],
+            cta_label="开始 审",
+        ))
+
+    # ===== 5. 今日 insights 输出 ============================================
     todays_insights = [
         AIInsightFull(
             id=ins.id, agent_id=ins.agent_id, agent_name=a_name,
@@ -239,7 +259,7 @@ async def get_workbench(
             meeting_title=m_title, topic_idx=ins.topic_idx,
             source_message_id=ins.source_message_id, created_at=ins.created_at,
         )
-        for ins, a_name, a_nick, m_title in insight_rows
+        for ins, a_name, a_nick, m_title in todays_insight_rows
     ]
 
     return WorkbenchOut(
@@ -306,8 +326,66 @@ async def list_mobile_meetings(
         )
     ).scalars().all()
 
-    items: list[MobileMeetingListRow] = []
+    # P8 性能优化: 旧版每场会议 4 次子 query (users/agents/insights/actions count),
+    # N 场会议 = 4N+1 queries. 用户实测 7 场 = 29 queries → 2.1s.
+    # 新版: 4 次 GROUP BY 拿 meeting_id → count 字典, Python 侧 lookup.
+    # = 5 queries 不管多少场会议.
     from ..models import MeetingActionItem, MeetingAttendee
+    meeting_ids = [m.id for m in rows]
+
+    users_count_map: dict[uuid.UUID, int] = {}
+    agents_count_map: dict[uuid.UUID, int] = {}
+    insights_count_map: dict[uuid.UUID, int] = {}
+    actions_count_map: dict[uuid.UUID, int] = {}
+
+    if meeting_ids:
+        # 真人参会数 group by meeting
+        u_rows = (
+            await session.execute(
+                select(MeetingAttendee.meeting_id, func.count(MeetingAttendee.id))
+                .where(
+                    MeetingAttendee.meeting_id.in_(meeting_ids),
+                    MeetingAttendee.user_id.isnot(None),
+                )
+                .group_by(MeetingAttendee.meeting_id)
+            )
+        ).all()
+        users_count_map = {mid: int(c) for mid, c in u_rows}
+
+        # AI 参会数 group by meeting
+        a_rows = (
+            await session.execute(
+                select(MeetingAttendee.meeting_id, func.count(MeetingAttendee.id))
+                .where(
+                    MeetingAttendee.meeting_id.in_(meeting_ids),
+                    MeetingAttendee.agent_id.isnot(None),
+                )
+                .group_by(MeetingAttendee.meeting_id)
+            )
+        ).all()
+        agents_count_map = {mid: int(c) for mid, c in a_rows}
+
+        # insights count
+        ins_rows_cnt = (
+            await session.execute(
+                select(AIInsight.meeting_id, func.count(AIInsight.id))
+                .where(AIInsight.meeting_id.in_(meeting_ids))
+                .group_by(AIInsight.meeting_id)
+            )
+        ).all()
+        insights_count_map = {mid: int(c) for mid, c in ins_rows_cnt}
+
+        # actions count
+        act_rows_cnt = (
+            await session.execute(
+                select(MeetingActionItem.meeting_id, func.count(MeetingActionItem.id))
+                .where(MeetingActionItem.meeting_id.in_(meeting_ids))
+                .group_by(MeetingActionItem.meeting_id)
+            )
+        ).all()
+        actions_count_map = {mid: int(c) for mid, c in act_rows_cnt}
+
+    items: list[MobileMeetingListRow] = []
     for m in rows:
         # 时长 计算 — 实际
         minutes_total = None
@@ -329,35 +407,10 @@ async def list_mobile_meetings(
             if has_budget:
                 planned_minutes = budget_sum
 
-        # 参会人数 (真人 / AI)
-        users_n = (
-            await session.execute(
-                select(func.count(MeetingAttendee.id)).where(
-                    MeetingAttendee.meeting_id == m.id,
-                    MeetingAttendee.user_id.isnot(None),
-                )
-            )
-        ).scalar() or 0
-        agents_n = (
-            await session.execute(
-                select(func.count(MeetingAttendee.id)).where(
-                    MeetingAttendee.meeting_id == m.id,
-                    MeetingAttendee.agent_id.isnot(None),
-                )
-            )
-        ).scalar() or 0
-
-        # 计数 — insights + actions
-        insights_n = (
-            await session.execute(
-                select(func.count(AIInsight.id)).where(AIInsight.meeting_id == m.id)
-            )
-        ).scalar() or 0
-        actions_n = (
-            await session.execute(
-                select(func.count(MeetingActionItem.id)).where(MeetingActionItem.meeting_id == m.id)
-            )
-        ).scalar() or 0
+        users_n = users_count_map.get(m.id, 0)
+        agents_n = agents_count_map.get(m.id, 0)
+        insights_n = insights_count_map.get(m.id, 0)
+        actions_n = actions_count_map.get(m.id, 0)
 
         items.append(MobileMeetingListRow(
             meeting_id=m.id,
@@ -784,25 +837,39 @@ async def get_mobile_tasks(
             .order_by(desc(MeetingActionItem.created_at))
         )
     ).all()
-    for ai, m_title, m_id in action_rows:
-        age_days = max(0, int((now - ai.created_at).total_seconds() / 86400))
-        # 关联 AI 智囊 — 该 议题 前 3 条
-        insights: list[AIInsightBrief] = []
+
+    # P8 性能优化: 旧版每条 action 1 次 insight query (N+1 → 2.7s).
+    # 新版: 批量 IN 一次拿所有相关 meeting 的 insights, Python 侧分组取 top 3.
+    action_meeting_ids: set[uuid.UUID] = set()
+    for ai, _m_title, m_id in action_rows:
         if m_id:
-            ins_rows = (
-                await session.execute(
-                    select(AIInsight, Agent.name, Agent.nickname)
-                    .join(Agent, Agent.id == AIInsight.agent_id)
-                    .where(AIInsight.meeting_id == m_id)
-                    .order_by(desc(AIInsight.created_at))
-                    .limit(3)
-                )
-            ).all()
-            for ins, a_name, a_nick in ins_rows:
-                insights.append(AIInsightBrief(
+            action_meeting_ids.add(m_id)
+
+    ins_by_meeting: dict[uuid.UUID, list[AIInsightBrief]] = {}
+    if action_meeting_ids:
+        all_ins = (
+            await session.execute(
+                select(AIInsight, Agent.name, Agent.nickname)
+                .join(Agent, Agent.id == AIInsight.agent_id)
+                .where(AIInsight.meeting_id.in_(action_meeting_ids))
+                .order_by(desc(AIInsight.created_at))
+                .limit(500)  # N actions × 3 insights = ample buffer
+            )
+        ).all()
+        for ins, a_name, a_nick in all_ins:
+            ins_by_meeting.setdefault(ins.meeting_id, []).append(
+                AIInsightBrief(
                     id=ins.id, agent_id=ins.agent_id, agent_name=a_name,
                     agent_nickname=a_nick, type=ins.type, content=ins.content,
-                ))
+                )
+            )
+
+    for ai, m_title, m_id in action_rows:
+        age_days = max(0, int((now - ai.created_at).total_seconds() / 86400))
+        # 关联 AI 智囊 — top 3 from in-memory map
+        insights: list[AIInsightBrief] = []
+        if m_id and m_id in ins_by_meeting:
+            insights = ins_by_meeting[m_id][:3]
 
         if ai.status == "done":
             group = "done"
@@ -959,75 +1026,107 @@ async def get_agents_workboard(
         )
     ).scalars().all()
 
-    cards: list[AgentWorkCardOut] = []
-    for a in agents:
-        # ---- 最近 3 场参加的会议 (从 MeetingAttendee + AIInsight 双源) ------
-        # 优先 MeetingAttendee.agent_id (正式邀请), fallback AIInsight.meeting_id
-        from ..models import MeetingAttendee
-        meeting_q = (
-            select(Meeting.id, Meeting.title, Meeting.started_at)
-            .join(MeetingAttendee, MeetingAttendee.meeting_id == Meeting.id)
-            .where(
-                MeetingAttendee.agent_id == a.id,
-                Meeting.workspace_id == ws_id,
-            )
-            .order_by(desc(Meeting.started_at))
-            .limit(3)
-        )
-        m_rows = (await session.execute(meeting_q)).all()
-        recent_meetings = [
-            AgentRecentMeetingBrief(
-                meeting_id=r[0],
-                title=r[1] or "(未命名)",
-                started_at=r[2],
-            )
-            for r in m_rows
-        ]
+    # P8 性能优化: 旧版 N agents × 4 subqueries (meetings + tasks + last_meeting + last_insight)
+    # = 4N + 1 queries. 31 agents 实测 = 125 queries → 3.4s.
+    # 新版: 5 个批量 query (全部 IN + GROUP BY), Python 侧分组.
+    from ..models import MeetingAttendee, Task as TaskModel
 
-        # ---- 任务汇总 (Task.assignee_agent_id = a.id) ----------------------
-        # 注意: 主责 AI 字段 在 Task 表 (v26.0+), 不是 MeetingActionItem.
-        from ..models import Task as TaskModel
+    agent_ids = [a.id for a in agents]
+    OPEN_STATES = {"open", "dispatched", "accepted", "in_progress", "submitted"}
+    DONE_STATES = {"done", "archived"}
+
+    # 预填空 maps
+    meetings_by_agent: dict[uuid.UUID, list[AgentRecentMeetingBrief]] = {
+        aid: [] for aid in agent_ids
+    }
+    tasks_by_agent: dict[uuid.UUID, tuple[int, int, int]] = {
+        aid: (0, 0, 0) for aid in agent_ids
+    }  # (open, done, overdue)
+    last_meeting_by_agent: dict[uuid.UUID, datetime] = {}
+    last_insight_by_agent: dict[uuid.UUID, datetime] = {}
+
+    if agent_ids:
+        # Q1: 批量拉所有 agent 参加的会议 (一次 IN), Python 侧按 agent 分组 取 top 3.
+        # 加 LIMIT 大数 避免单 agent 拉无数; 31 agents × top 3 = 93, 给 500 buffer.
+        m_rows = (
+            await session.execute(
+                select(
+                    MeetingAttendee.agent_id,
+                    Meeting.id, Meeting.title, Meeting.started_at,
+                )
+                .join(MeetingAttendee, MeetingAttendee.meeting_id == Meeting.id)
+                .where(
+                    MeetingAttendee.agent_id.in_(agent_ids),
+                    Meeting.workspace_id == ws_id,
+                )
+                .order_by(desc(Meeting.started_at))
+                .limit(500)
+            )
+        ).all()
+        for aid, mid, title, started_at in m_rows:
+            cur = meetings_by_agent.setdefault(aid, [])
+            if len(cur) < 3:  # 每 agent 取 top 3 (已按 started_at DESC)
+                cur.append(AgentRecentMeetingBrief(
+                    meeting_id=mid,
+                    title=title or "(未命名)",
+                    started_at=started_at,
+                ))
+
+        # Q2: 批量拿所有 agent 的 task 状态 + due_at — Python 侧统计 open/done/overdue.
         task_rows = (
             await session.execute(
-                select(TaskModel.status, TaskModel.due_at)
+                select(TaskModel.assignee_agent_id, TaskModel.status, TaskModel.due_at)
                 .where(
                     TaskModel.workspace_id == ws_id,
-                    TaskModel.assignee_agent_id == a.id,
+                    TaskModel.assignee_agent_id.in_(agent_ids),
                 )
             )
         ).all()
-        # Task 8-state: open|dispatched|accepted|in_progress|submitted|done|archived|cancelled
-        # 进行中 = 除 done/archived/cancelled 之外的 active 状态.
-        OPEN_STATES = {"open", "dispatched", "accepted", "in_progress", "submitted"}
-        DONE_STATES = {"done", "archived"}
-        open_n = sum(1 for r in task_rows if r[0] in OPEN_STATES)
-        done_n = sum(1 for r in task_rows if r[0] in DONE_STATES)
-        overdue_n = sum(
-            1 for r in task_rows
-            if r[0] in OPEN_STATES and r[1] is not None and r[1] < now
-        )
-        total = open_n + done_n  # cancelled 不计
+        # Python 侧 group
+        for aid, status, due_at in task_rows:
+            o, d, ov = tasks_by_agent.get(aid, (0, 0, 0))
+            if status in OPEN_STATES:
+                o += 1
+                if due_at is not None and due_at < now:
+                    ov += 1
+            elif status in DONE_STATES:
+                d += 1
+            tasks_by_agent[aid] = (o, d, ov)
 
-        # ---- last_active (取 MeetingAttendee 或 insight 最近的) ------------
-        last_meeting_t = (
+        # Q3: last_active 之 meeting source — group max
+        lm_rows = (
             await session.execute(
-                select(func.max(Meeting.started_at))
-                .join(MeetingAttendee, MeetingAttendee.meeting_id == Meeting.id)
-                .where(MeetingAttendee.agent_id == a.id)
+                select(MeetingAttendee.agent_id, func.max(Meeting.started_at))
+                .join(Meeting, Meeting.id == MeetingAttendee.meeting_id)
+                .where(MeetingAttendee.agent_id.in_(agent_ids))
+                .group_by(MeetingAttendee.agent_id)
             )
-        ).scalar()
-        last_insight_t = (
+        ).all()
+        last_meeting_by_agent = {aid: t for aid, t in lm_rows if t is not None}
+
+        # Q4: last_active 之 insight source — group max
+        li_rows = (
             await session.execute(
-                select(func.max(AIInsight.created_at)).where(AIInsight.agent_id == a.id)
+                select(AIInsight.agent_id, func.max(AIInsight.created_at))
+                .where(AIInsight.agent_id.in_(agent_ids))
+                .group_by(AIInsight.agent_id)
             )
-        ).scalar()
+        ).all()
+        last_insight_by_agent = {aid: t for aid, t in li_rows if t is not None}
+
+    cards: list[AgentWorkCardOut] = []
+    for a in agents:
+        open_n, done_n, overdue_n = tasks_by_agent.get(a.id, (0, 0, 0))
+        total = open_n + done_n
+        lm = last_meeting_by_agent.get(a.id)
+        li = last_insight_by_agent.get(a.id)
         last_active: Optional[datetime] = None
-        if last_meeting_t and last_insight_t:
-            last_active = max(last_meeting_t, last_insight_t)
-        elif last_meeting_t:
-            last_active = last_meeting_t
-        elif last_insight_t:
-            last_active = last_insight_t
+        if lm and li:
+            last_active = max(lm, li)
+        elif lm:
+            last_active = lm
+        elif li:
+            last_active = li
 
         cards.append(AgentWorkCardOut(
             agent_id=a.id,
@@ -1036,7 +1135,7 @@ async def get_agents_workboard(
             domain=a.domain,
             color=a.color,
             role=a.role,
-            recent_meetings=recent_meetings,
+            recent_meetings=meetings_by_agent.get(a.id, []),
             tasks=AgentTasksSummary(
                 total=total,
                 open_count=open_n,

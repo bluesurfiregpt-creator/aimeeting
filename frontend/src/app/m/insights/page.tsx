@@ -17,7 +17,7 @@
  * 三 tab 数据各自 lazy load (切到才拉, 避免一进页就发 3 个请求).
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/mobile/PageHeader";
 import SegmentControl from "@/components/mobile/SegmentControl";
@@ -65,50 +65,84 @@ export default function MobileInsightsPage() {
     text: string;
   } | null>(null);
 
-  // 切到对应 tab 时 lazy load (只拉一次)
+  // 切到对应 tab 时 lazy load (只拉一次).
+  //
+  // P7 bug 修: 之前把 insightsLoading 等放进 effect deps, 导致
+  // setLoading(true) 触发 effect re-run → cleanup 把旧 alive=false →
+  // fetch resolve 时不更新 state → 永远显 SkeletonList.
+  //
+  // 重构: deps 只放 [tab], 用 ref 跟踪每个 tab 的"已 fetch 过"标记
+  // (避免重复拉), cancel state 用 ref 而不是 closure 变量, 这样不会
+  // 因为 deps 变化而 cleanup 失效.
+  const fetchedRef = useRef<{ ai: boolean; review: boolean; library: boolean }>({
+    ai: false,
+    review: false,
+    library: false,
+  });
   useEffect(() => {
-    let alive = true;
-    if (tab === "ai" && insights === null && !insightsLoading) {
-      setInsightsLoading(true);
-      mApi
-        .getInsights({ limit: 50 })
-        .then((d) => {
-          if (alive) {
+    let cancelled = false;
+    async function load() {
+      if (tab === "ai") {
+        if (fetchedRef.current.ai) return;
+        fetchedRef.current.ai = true;
+        setInsightsLoading(true);
+        try {
+          const d = await mApi.getInsights({ limit: 50 });
+          if (!cancelled) {
             setInsights(d);
             setInsightsErr(null);
           }
-        })
-        .catch((e) => alive && setInsightsErr(e.message))
-        .finally(() => alive && setInsightsLoading(false));
-    } else if (tab === "review" && tasks === null && !tasksLoading) {
-      setTasksLoading(true);
-      mApi
-        .getTasks()
-        .then((d) => {
-          if (alive) {
+        } catch (e) {
+          if (!cancelled) {
+            setInsightsErr(e instanceof Error ? e.message : String(e));
+            fetchedRef.current.ai = false; // 失败让用户重试时能再拉
+          }
+        } finally {
+          if (!cancelled) setInsightsLoading(false);
+        }
+      } else if (tab === "review") {
+        if (fetchedRef.current.review) return;
+        fetchedRef.current.review = true;
+        setTasksLoading(true);
+        try {
+          const d = await mApi.getTasks();
+          if (!cancelled) {
             setTasks(d);
             setTasksErr(null);
           }
-        })
-        .catch((e) => alive && setTasksErr(e.message))
-        .finally(() => alive && setTasksLoading(false));
-    } else if (tab === "library" && memories === null && !memoriesLoading) {
-      setMemoriesLoading(true);
-      mApi
-        .getMemories({ limit: 100 })
-        .then((d) => {
-          if (alive) {
+        } catch (e) {
+          if (!cancelled) {
+            setTasksErr(e instanceof Error ? e.message : String(e));
+            fetchedRef.current.review = false;
+          }
+        } finally {
+          if (!cancelled) setTasksLoading(false);
+        }
+      } else if (tab === "library") {
+        if (fetchedRef.current.library) return;
+        fetchedRef.current.library = true;
+        setMemoriesLoading(true);
+        try {
+          const d = await mApi.getMemories({ limit: 100 });
+          if (!cancelled) {
             setMemories(d);
             setMemoriesErr(null);
           }
-        })
-        .catch((e) => alive && setMemoriesErr(e.message))
-        .finally(() => alive && setMemoriesLoading(false));
+        } catch (e) {
+          if (!cancelled) {
+            setMemoriesErr(e instanceof Error ? e.message : String(e));
+            fetchedRef.current.library = false;
+          }
+        } finally {
+          if (!cancelled) setMemoriesLoading(false);
+        }
+      }
     }
+    void load();
     return () => {
-      alive = false;
+      cancelled = true;
     };
-  }, [tab, insights, tasks, memories, insightsLoading, tasksLoading, memoriesLoading]);
+  }, [tab]);
 
   // 议题聚合 (Tab 1)
   const insightTopics = useMemo(() => {
@@ -140,8 +174,9 @@ export default function MobileInsightsPage() {
         // refetch tasks AND memories (新通过的会进 long-term memory, Tab 3 也得跟新)
         const fresh = await mApi.getTasks();
         setTasks(fresh);
-        // 让 Tab 3 下次切过去重新拉
+        // 让 Tab 3 下次切过去重新拉 (清缓存 + 清 fetchedRef 标记)
         setMemories(null);
+        fetchedRef.current.library = false;
         setToast({ kind: "success", text: "已通过, 已入库" });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
