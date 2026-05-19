@@ -235,7 +235,10 @@ function MeetingDetailInner({ id }: { id: string }) {
   return (
     <div className="flex min-h-full flex-col">
       {/* ===== 会议 head — 返 + title + 状态 ===================== */}
-      <div className="border-b border-ink-800 bg-ink-950/80 px-4 py-3 backdrop-blur">
+      <div
+        className="border-b border-ink-800 bg-ink-950/80 px-4 pb-3 backdrop-blur"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
+      >
         <div className="flex items-center gap-3">
           <Link
             href="/m"

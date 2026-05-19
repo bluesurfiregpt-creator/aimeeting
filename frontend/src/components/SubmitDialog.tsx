@@ -205,7 +205,7 @@ export default function SubmitDialog({
               value={evidenceText}
               onChange={(e) => setEvidenceText(e.target.value)}
               maxLength={5500}
-              placeholder="https://aimeeting.zhzjpt.cn/knowledge/...&#10;https://oss.../照片.jpg"
+              placeholder="https://aimeeting.zhzjpt.cn/knowledge/...&#10;https://aimeeting.zhzjpt.cn/uploads/照片.jpg"
               data-testid="submit-evidence"
               className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm font-mono text-white placeholder:text-zinc-600 focus:border-accent-500 focus:outline-none"
             />

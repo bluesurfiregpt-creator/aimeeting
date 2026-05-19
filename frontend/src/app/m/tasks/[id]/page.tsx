@@ -218,7 +218,10 @@ export default function MobileTaskDetailPage({
   return (
     <div className="flex min-h-full flex-col">
       {/* ===== TopBar ============================================ */}
-      <div className="sticky top-0 z-30 border-b border-ink-800 bg-ink-950/85 px-4 py-3 backdrop-blur">
+      <div
+        className="sticky top-0 z-30 border-b border-ink-800 bg-ink-950/85 px-4 pb-3 backdrop-blur"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
+      >
         <div className="flex items-center gap-3">
           <Link
             href="/m/tasks"
