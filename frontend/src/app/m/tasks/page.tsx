@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/mobile/PageHeader";
 import SegmentControl from "@/components/mobile/SegmentControl";
+import RejectFeedbackSheet from "@/components/mobile/RejectFeedbackSheet";
 import Toast from "@/components/mobile/Toast";
 import { TaskCardFull, TaskRowCompact } from "@/components/mobile/TaskCard";
 import { mApi } from "@/lib/mobile/api";
@@ -28,6 +29,8 @@ export default function MobileTasksPage() {
   const [loading, setLoading] = useState(true);
   // 单条 row 正在调 API 中 — 禁双击, 显 loading
   const [busyId, setBusyId] = useState<string | null>(null);
+  // P4.5: draft 驳回时弹 sheet (action item 不弹, 直接 cancel)
+  const [rejectSheetItem, setRejectSheetItem] = useState<MobileTaskItem | null>(null);
   const [toast, setToast] = useState<{
     kind: "success" | "error";
     text: string;
@@ -64,13 +67,20 @@ export default function MobileTasksPage() {
     };
   }, []);
 
-  /** 共用 CTA handler: 调 API → refetch → toast. */
+  /** 共用 CTA handler: 调 API → refetch → toast.
+   *  P4.5: draft 类的 secondary "驳回" 不直接走, 改弹 sheet 让用户写 feedback.
+   */
   const runCta = useCallback(
     async (
       item: MobileTaskItem,
       action: "primary" | "secondary",
       okText: string,
     ) => {
+      // P4.5: draft + 驳回 → 弹 sheet 让用户决定 discard vs feedback.
+      if (item.kind === "approve_draft" && action === "secondary") {
+        setRejectSheetItem(item);
+        return;
+      }
       const rowKey = `${item.kind}-${item.id}`;
       if (busyId) return;
       setBusyId(rowKey);
@@ -88,6 +98,7 @@ export default function MobileTasksPage() {
           if (action === "primary") {
             await mApi.approveMemoryDraft(item.id);
           } else {
+            // unreachable — secondary intercepted above
             await mApi.rejectMemoryDraft(item.id);
           }
         } else {
@@ -103,6 +114,31 @@ export default function MobileTasksPage() {
       }
     },
     [busyId, reload],
+  );
+
+  /** P4.5: sheet 提交回调. feedback 空 → kind=discard, 非空 → kind=feedback. */
+  const handleRejectSubmit = useCallback(
+    async (feedback: string) => {
+      if (!rejectSheetItem) return;
+      const item = rejectSheetItem;
+      const rowKey = `${item.kind}-${item.id}`;
+      setBusyId(rowKey);
+      try {
+        await mApi.rejectMemoryDraft(item.id, feedback || undefined);
+        setRejectSheetItem(null);
+        await reload();
+        setToast({
+          kind: "success",
+          text: feedback ? "已驳回并反馈" : "已驳回",
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setToast({ kind: "error", text: `驳回失败: ${msg}` });
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [rejectSheetItem, reload],
   );
 
   const groups = useMemo(() => {
@@ -198,6 +234,14 @@ export default function MobileTasksPage() {
           ))}
         </div>
       )}
+      <RejectFeedbackSheet
+        open={rejectSheetItem !== null}
+        draftTitle={rejectSheetItem?.title || ""}
+        busy={busyId === `${rejectSheetItem?.kind}-${rejectSheetItem?.id}`}
+        onClose={() => setRejectSheetItem(null)}
+        onSubmit={handleRejectSubmit}
+      />
+
       {toast ? (
         <Toast kind={toast.kind} text={toast.text} onClose={() => setToast(null)} />
       ) : null}
