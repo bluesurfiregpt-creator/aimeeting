@@ -96,20 +96,20 @@ export default function MobileMeetingDetailPage({
             <span className="text-xl leading-none">←</span>
           </Link>
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-[16px] font-medium text-zinc-100">
+            <h1 className="truncate text-[18px] font-semibold text-zinc-50">
               {data.title}
             </h1>
-            <p className="text-[12px] text-zinc-500">
+            <p className="mt-0.5 text-[13px] text-zinc-400">
               {data.status === "ongoing" ? (
                 <>
                   <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400 align-middle animate-pulse" />
                   <span className="ml-1.5 text-emerald-300">进行中</span>
-                  <span className="ml-2 text-zinc-500">· 已 {data.started_minutes_ago} min</span>
+                  <span className="ml-2 text-zinc-400">· 已 {data.started_minutes_ago} min</span>
                 </>
               ) : (
                 <span>{data.status}</span>
               )}
-              <span className="ml-2 text-zinc-600">· {data.transcript_total} 句实录</span>
+              <span className="ml-2 text-zinc-500">· {data.transcript_total} 句实录</span>
             </p>
           </div>
         </div>
@@ -146,28 +146,28 @@ export default function MobileMeetingDetailPage({
 
         {data.other_topics_count > 1 ? (
           <details className="rounded-xl border border-ink-800 bg-ink-900/40">
-            <summary className="cursor-pointer list-none px-4 py-3 text-[13px] text-zinc-400">
+            <summary className="cursor-pointer list-none px-4 py-3 text-[14px] font-medium text-zinc-300">
               ▾ 其他议题 ({data.other_topics_count - 1})
             </summary>
-            <ul className="space-y-1 px-4 pb-3 text-[13px]">
+            <ul className="space-y-1.5 px-4 pb-3 text-[14px]">
               {data.agenda_items
                 .filter((it) => it.idx !== data.current_agenda_idx)
                 .map((it) => (
-                  <li key={it.idx} className="flex items-center gap-2 py-1">
-                    <span className="text-[11px] text-zinc-600">
+                  <li key={it.idx} className="flex items-center gap-2 py-1.5">
+                    <span className="text-[13px] text-zinc-500">
                       {it.status === "done" ? "✓" : "○"}
                     </span>
                     <span
                       className={
                         it.status === "done"
-                          ? "text-zinc-500 line-through"
-                          : "text-zinc-400"
+                          ? "text-zinc-400 line-through"
+                          : "text-zinc-200"
                       }
                     >
                       {it.title}
                     </span>
                     {it.time_budget_min ? (
-                      <span className="text-[11px] text-zinc-600">
+                      <span className="text-[13px] text-zinc-500 tabular-nums">
                         · {it.time_budget_min}m
                       </span>
                     ) : null}
@@ -179,10 +179,10 @@ export default function MobileMeetingDetailPage({
 
         {data.transcript_total > 0 ? (
           <details className="rounded-xl border border-ink-800 bg-ink-900/40">
-            <summary className="cursor-pointer list-none px-4 py-3 text-[13px] text-zinc-400">
+            <summary className="cursor-pointer list-none px-4 py-3 text-[14px] font-medium text-zinc-300">
               ▾ 实时转录 ({data.transcript_total} 句)
             </summary>
-            <p className="px-4 pb-3 text-[12px] text-zinc-600">
+            <p className="px-4 pb-3 text-[13px] text-zinc-500">
               Phase 2 — 完整转录视图 (含高亮 / 跳转 / 编辑 speaker)
             </p>
           </details>

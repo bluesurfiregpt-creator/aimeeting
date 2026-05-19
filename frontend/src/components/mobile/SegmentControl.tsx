@@ -49,16 +49,16 @@ export default function SegmentControl<T extends string>({
             aria-selected={active}
             type="button"
             onClick={() => onChange(item.value)}
-            className={`flex h-9 flex-1 items-center justify-center gap-1 rounded-lg text-[14px] transition active:scale-[0.97] ${
+            className={`flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg text-[15px] transition active:scale-[0.97] ${
               active
                 ? "bg-zinc-700 font-medium text-zinc-50 shadow-sm"
-                : "text-zinc-400 active:text-zinc-200"
+                : "text-zinc-300 active:text-zinc-100"
             }`}
           >
             <span>{item.label}</span>
             {typeof item.count === "number" && item.count > 0 ? (
               <span
-                className={`text-[12px] ${
+                className={`text-[13px] tabular-nums ${
                   active ? "text-zinc-300" : "text-zinc-500"
                 }`}
               >

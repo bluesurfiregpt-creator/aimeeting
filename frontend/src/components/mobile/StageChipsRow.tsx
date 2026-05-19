@@ -56,22 +56,22 @@ export default function StageChipsRow({
           <div
             key={item.idx}
             ref={active ? activeRef : null}
-            className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] transition ${
+            className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-2 text-[14px] transition ${
               active
                 ? "border-accent-500/60 bg-accent-500/10 text-accent-200"
                 : done
-                ? "border-zinc-700 text-zinc-500 line-through"
-                : "border-zinc-800 text-zinc-600"
+                ? "border-zinc-700 text-zinc-400 line-through"
+                : "border-zinc-800 text-zinc-500"
             }`}
           >
-            <span className="text-[11px]">
+            <span className="text-[13px]">
               {done ? "✓" : active ? "●" : "○"}
             </span>
             <span className="max-w-[10em] truncate font-medium">
               {item.title}
             </span>
             {(active || done) && item.elapsed_min !== null ? (
-              <span className={`text-[11px] ${active ? "text-accent-400" : "text-zinc-600"}`}>
+              <span className={`text-[13px] tabular-nums ${active ? "text-accent-400" : "text-zinc-500"}`}>
                 {item.elapsed_min}m
               </span>
             ) : null}
@@ -79,7 +79,7 @@ export default function StageChipsRow({
         );
       })}
       {isComplete ? (
-        <div className="flex shrink-0 items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[13px] text-emerald-300">
+        <div className="flex shrink-0 items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-[14px] font-medium text-emerald-300">
           议程全完成
         </div>
       ) : null}

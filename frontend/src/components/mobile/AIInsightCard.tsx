@@ -75,9 +75,9 @@ export function AgentLabel({
   const display = nickname?.trim() || name;
   // 有 nickname 时 「nickname · name」, 无时仅 name
   return (
-    <span className={`inline-flex items-center gap-1 text-xs ${className}`}>
-      <span className="text-zinc-500">◆</span>
-      <span className="font-medium text-zinc-200">{display}</span>
+    <span className={`inline-flex items-center gap-1 text-[13px] ${className}`}>
+      <span className="text-zinc-400">◆</span>
+      <span className="font-medium text-zinc-100">{display}</span>
       {nickname?.trim() && nickname.trim() !== name && (
         <span className="text-zinc-500">· {name}</span>
       )}
@@ -89,7 +89,7 @@ export function AgentLabel({
 export function TypeChip({ type }: { type: AIInsightType | string }) {
   const c = colorFor(type);
   return (
-    <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${c.chipBg} ${c.chipText}`}>
+    <span className={`shrink-0 rounded px-2 py-0.5 text-[13px] font-medium ${c.chipBg} ${c.chipText}`}>
       {type}
     </span>
   );
@@ -100,13 +100,13 @@ export function TypeChip({ type }: { type: AIInsightType | string }) {
 export function AIInsightChip({ insight }: { insight: AIInsightBrief }) {
   const c = colorFor(insight.type);
   return (
-    <div className={`flex items-start gap-2 border-l-2 ${c.border} pl-2 py-0.5`}>
+    <div className={`flex items-start gap-2 border-l-2 ${c.border} pl-3 py-1`}>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <AgentLabel nickname={insight.agent_nickname} name={insight.agent_name} />
           <TypeChip type={insight.type} />
         </div>
-        <p className="mt-0.5 text-xs text-zinc-300 leading-snug line-clamp-2">
+        <p className="mt-1 text-[14px] text-zinc-200 leading-snug line-clamp-2">
           {insight.content}
         </p>
       </div>
@@ -125,7 +125,7 @@ export function AIInsightCard({ insight }: { insight: AIInsightFull }) {
   });
   return (
     <article
-      className={`rounded-lg border ${c.border} bg-ink-900 p-3`}
+      className={`rounded-xl border ${c.border} bg-ink-900 p-4`}
       data-testid="ai-insight-card"
     >
       <header className="flex items-center justify-between gap-2">
@@ -133,18 +133,18 @@ export function AIInsightCard({ insight }: { insight: AIInsightFull }) {
           <AgentLabel nickname={insight.agent_nickname} name={insight.agent_name} />
           <TypeChip type={insight.type} />
         </div>
-        <span className="shrink-0 text-[10px] text-zinc-600">{timeStr}</span>
+        <span className="shrink-0 text-[13px] text-zinc-500 tabular-nums">{timeStr}</span>
       </header>
-      <p className="mt-1.5 text-sm text-zinc-100 leading-relaxed">{insight.content}</p>
+      <p className="mt-2 text-[15px] text-zinc-50 leading-relaxed">{insight.content}</p>
       {insight.evidence ? (
-        <p className="mt-1.5 text-[11px] text-zinc-500 leading-relaxed">
-          <span className="text-zinc-600">▸</span> {insight.evidence}
+        <p className="mt-2 text-[13px] text-zinc-400 leading-relaxed">
+          <span className="text-zinc-500">▸</span> {insight.evidence}
         </p>
       ) : null}
       {insight.meeting_title ? (
-        <footer className="mt-2 flex items-center gap-1 text-[10px] text-zinc-600">
+        <footer className="mt-3 flex items-center gap-1 text-[13px] text-zinc-500">
           <span>来自</span>
-          <span className="text-zinc-500">{insight.meeting_title}</span>
+          <span className="text-zinc-400">{insight.meeting_title}</span>
         </footer>
       ) : null}
     </article>

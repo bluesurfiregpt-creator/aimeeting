@@ -61,18 +61,18 @@ export function PendingMiniRow({ item }: { item: WorkbenchPendingTask }) {
       data-testid={`mobile-pending-row-${item.kind}`}
     >
       <span
-        className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium ${s.chipBg} ${s.chipText}`}
+        className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[13px] font-medium ${s.chipBg} ${s.chipText}`}
       >
         <span>{s.icon}</span>
         <span>{s.label}</span>
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] text-zinc-100">{item.title}</p>
+        <p className="truncate text-[16px] text-zinc-50">{item.title}</p>
         {aiHint ? (
-          <p className="mt-0.5 truncate text-[12px] text-zinc-500">{aiHint}</p>
+          <p className="mt-1 truncate text-[13px] text-zinc-400">{aiHint}</p>
         ) : null}
       </div>
-      <span className="shrink-0 text-zinc-600">›</span>
+      <span className="shrink-0 text-[18px] text-zinc-500">›</span>
     </Link>
   );
 }
@@ -140,13 +140,13 @@ export function InsightTopicGroupRow({ topic }: { topic: Topic }) {
         💡
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] text-zinc-100">{titleLine}</p>
-        <p className="mt-0.5 truncate text-[12px] text-zinc-500">{subtitle}</p>
+        <p className="truncate text-[16px] text-zinc-50">{titleLine}</p>
+        <p className="mt-1 truncate text-[13px] text-zinc-400">{subtitle}</p>
       </div>
-      <span className="shrink-0 rounded-md bg-violet-500/15 px-2 py-0.5 text-[12px] font-medium text-violet-300">
+      <span className="shrink-0 rounded-md bg-violet-500/15 px-2 py-1 text-[13px] font-medium text-violet-300 tabular-nums">
         {n}
       </span>
-      <span className="shrink-0 text-zinc-600">›</span>
+      <span className="shrink-0 text-[18px] text-zinc-500">›</span>
     </Link>
   );
 }

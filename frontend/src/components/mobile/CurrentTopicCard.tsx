@@ -39,17 +39,17 @@ export default function CurrentTopicCard({
     >
       {/* ===== Header ============================================ */}
       <header>
-        <p className="text-[13px] text-zinc-500">当前议题</p>
-        <h2 className="mt-1 text-[18px] font-medium leading-snug text-zinc-50">
+        <p className="text-[14px] font-medium text-zinc-400">当前议题</p>
+        <h2 className="mt-1 text-[20px] font-semibold leading-snug text-zinc-50">
           {topicTitle}
         </h2>
         {elapsedMin !== null ? (
-          <p className="mt-1 text-[13px] text-zinc-500">
-            已议 <span className="text-zinc-300">{elapsedMin}</span> min
+          <p className="mt-2 text-[14px] text-zinc-400">
+            已议 <span className="font-medium text-zinc-100 tabular-nums">{elapsedMin}</span> min
             {recentLines.length > 0 ? (
               <>
                 {" · "}
-                <span className="text-zinc-300">
+                <span className="font-medium text-zinc-100 tabular-nums">
                   {new Set(recentLines.map((l) => l.speaker_name)).size}
                 </span>{" "}
                 人表态
@@ -62,14 +62,14 @@ export default function CurrentTopicCard({
       {/* ===== AI 智囊块 (突出紫色 box) ======================= */}
       <section className="mt-4 rounded-xl border border-violet-500/30 bg-gradient-to-br from-violet-500/[0.08] to-violet-500/[0.02] p-4">
         <header className="mb-3 flex items-center justify-between">
-          <h3 className="text-[14px] font-medium text-violet-200">
+          <h3 className="text-[15px] font-medium text-violet-200">
             💡 AI 智囊 · {insights.length} 条
           </h3>
         </header>
         {insights.length === 0 ? (
-          <p className="text-[13px] text-zinc-500">
+          <p className="text-[14px] text-zinc-400">
             AI 还没给这议题判断.
-            <span className="ml-1 text-zinc-600">召一个加视角 →</span>
+            <span className="ml-1 text-zinc-500">召一个加视角 →</span>
           </p>
         ) : (
           <ul className="space-y-3">
@@ -79,16 +79,16 @@ export default function CurrentTopicCard({
                   <AgentLabel
                     nickname={ins.agent_nickname}
                     name={ins.agent_name}
-                    className="text-[13px]"
+                    className="text-[14px]"
                   />
                   <TypeChip type={ins.type} />
                 </div>
-                <p className="mt-1 text-[15px] leading-snug text-zinc-100">
+                <p className="mt-1.5 text-[16px] leading-snug text-zinc-50">
                   {ins.content}
                 </p>
                 {ins.evidence ? (
-                  <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
-                    <span className="text-zinc-600">▸</span> {ins.evidence}
+                  <p className="mt-1.5 text-[13px] leading-relaxed text-zinc-400">
+                    <span className="text-zinc-500">▸</span> {ins.evidence}
                   </p>
                 ) : null}
               </li>
@@ -100,18 +100,18 @@ export default function CurrentTopicCard({
       {/* ===== 真人表态 list (极简, 视觉弱化) ================ */}
       {recentLines.length > 0 ? (
         <section className="mt-4">
-          <h3 className="mb-2 text-[13px] text-zinc-500">真人表态</h3>
-          <ul className="space-y-2">
+          <h3 className="mb-2 text-[14px] font-medium text-zinc-400">真人表态</h3>
+          <ul className="space-y-2.5">
             {recentLines.map((line, i) => (
               <li
                 key={i}
-                className="flex items-baseline gap-2 text-[14px] leading-snug"
+                className="flex items-baseline gap-2 text-[15px] leading-snug"
               >
-                <span className="shrink-0 text-zinc-600">·</span>
-                <span className="shrink-0 text-zinc-400">
+                <span className="shrink-0 text-zinc-500">·</span>
+                <span className="shrink-0 font-medium text-zinc-300">
                   {line.speaker_name}
                 </span>
-                <span className="min-w-0 text-zinc-300">{line.text}</span>
+                <span className="min-w-0 text-zinc-200">{line.text}</span>
               </li>
             ))}
           </ul>

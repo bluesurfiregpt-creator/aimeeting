@@ -48,7 +48,7 @@ function MiniProgress({ cur, total }: { cur: number | null; total: number }) {
           />
         );
       })}
-      {total > 6 ? <span className="text-[11px] text-zinc-600">+{total - 6}</span> : null}
+      {total > 6 ? <span className="text-[13px] text-zinc-500">+{total - 6}</span> : null}
     </div>
   );
 }
@@ -100,7 +100,7 @@ function MeetingRow({ m }: { m: MobileMeetingListRow }) {
     >
       <header className="flex items-center gap-2">
         <span
-          className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium ${s.chipBg} ${s.chipText}`}
+          className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[13px] font-medium ${s.chipBg} ${s.chipText}`}
         >
           {isOngoing ? (
             <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -109,19 +109,19 @@ function MeetingRow({ m }: { m: MobileMeetingListRow }) {
         </span>
         {timeText ? (
           <span
-            className={`truncate text-[13px] ${
-              timeOver ? "text-amber-300/90" : "text-zinc-500"
+            className={`truncate text-[14px] ${
+              timeOver ? "text-amber-300/90" : "text-zinc-400"
             }`}
           >
             · {timeText}
           </span>
         ) : null}
       </header>
-      <p className="mt-2.5 text-[16px] font-medium leading-snug text-zinc-50 line-clamp-2">
+      <p className="mt-2.5 text-[17px] font-semibold leading-snug text-zinc-50 line-clamp-2">
         {m.title}
       </p>
 
-      <footer className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-zinc-500">
+      <footer className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[14px] text-zinc-400">
         {m.agenda_total > 0 ? (
           <span className="flex items-center gap-1.5">
             <MiniProgress cur={m.current_agenda_idx} total={m.agenda_total} />

@@ -58,8 +58,8 @@ export default function StickyActionBar({
     return (
       <Bar tone="warn">
         <div className="flex-1 px-1">
-          <p className="text-[12px] text-amber-200/90">⚠ 当前议题有风险</p>
-          <p className="truncate text-[11px] text-zinc-500">
+          <p className="text-[14px] font-medium text-amber-200">⚠ 当前议题有风险</p>
+          <p className="truncate text-[13px] text-zinc-400">
             {currentTopicTitle}
           </p>
         </div>
@@ -140,7 +140,7 @@ function Secondary({
     <button
       type="button"
       onClick={onClick}
-      className="flex h-12 items-center justify-center rounded-xl border border-zinc-700 px-4 text-[14px] text-zinc-300 active:scale-[0.98] active:bg-ink-800 transition"
+      className="flex h-12 items-center justify-center rounded-xl border border-zinc-700 px-4 text-[15px] text-zinc-200 active:scale-[0.98] active:bg-ink-800 transition"
     >
       {children}
     </button>
@@ -149,7 +149,7 @@ function Secondary({
 
 function Hint({ children }: { children: React.ReactNode }) {
   return (
-    <p className="flex-1 px-2 text-center text-[13px] text-zinc-500">
+    <p className="flex-1 px-2 text-center text-[14px] text-zinc-400">
       {children}
     </p>
   );

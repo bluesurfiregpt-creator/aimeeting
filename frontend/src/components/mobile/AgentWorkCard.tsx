@@ -1,13 +1,17 @@
 "use client";
 
 /**
- * v27.0-mobile · v2 AI 专家工卡 — 用户校准.
+ * v27.0-mobile · v3 AI 专家工卡 — 按 design-tokens.md 重做.
  *
- * 不再展示「最近 AI 智囊产出」, 改展示
- *   1. 最近参加的几次会议 (小卡片列表)
- *   2. 归属任务汇总 (进行中 / 已完成 / 超期)
+ * 旧版用 grid-cols-2 两张子卡, 字号被挤到 11/12px, 手机看不清.
+ * 新版纵向堆叠, 直接全宽展示, 每条 ≥ 14px.
  *
- * 点工卡 → /m/agents/[id] 展开两部分详细列表 (Phase 3).
+ * 结构:
+ *   Header: name (17px medium) + domain (14px) | 时间戳 (13px)
+ *   行 1: 📅 最近会议 (label 14px) | 数字 (caption 13px)
+ *         · MM/DD 会议标题 (15px x 最多 3 条)
+ *   行 2: 📋 任务 (label 14px) + 横向数字: 3 进行中 · 1 已完成 · 1 超期
+ *         (大数字 17px semibold + label 14px)
  */
 
 import type { AgentWorkCard } from "@/lib/mobile/types";
@@ -60,6 +64,7 @@ export default function AgentWorkCard({
   const isActive = agent.last_active !== null;
   const tasks = agent.tasks;
   const hasTasks = tasks.total > 0;
+  const meetings = agent.recent_meetings;
 
   return (
     <button
@@ -73,105 +78,107 @@ export default function AgentWorkCard({
         <div className={`w-1 ${colorBar(agent.color)}`} />
 
         <div className="min-w-0 flex-1 p-4">
-          {/* Header */}
-          <div className="flex items-baseline justify-between gap-2">
+          {/* === Header === */}
+          <div className="flex items-baseline justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="truncate text-[17px] font-medium text-zinc-50">
+              <h3 className="truncate text-[17px] font-semibold leading-tight text-zinc-50">
                 {display}
               </h3>
               {agent.domain ? (
-                <p className="mt-0.5 truncate text-[13px] text-zinc-500">
+                <p className="mt-1 truncate text-[14px] text-zinc-400">
                   {agent.domain}
                   {hasNickname ? (
-                    <span className="text-zinc-700"> · {agent.name}</span>
+                    <span className="text-zinc-500"> · {agent.name}</span>
                   ) : null}
                 </p>
               ) : null}
             </div>
             {isActive ? (
-              <span className="shrink-0 text-[11px] text-zinc-600">
+              <span className="shrink-0 text-[13px] text-zinc-500">
                 {timeAgo(agent.last_active)}
               </span>
             ) : (
-              <span className="shrink-0 rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-500">
+              <span className="shrink-0 rounded-full bg-zinc-800 px-2.5 py-1 text-[13px] text-zinc-400">
                 未激活
               </span>
             )}
           </div>
 
-          {/* 两个小卡 — 最近会议 + 任务汇总 */}
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {/* ---- 最近会议 小卡 ------------------------------------------- */}
-            <div className="rounded-xl bg-ink-800 p-2.5">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] text-zinc-500">最近会议</span>
-                {agent.recent_meetings.length > 0 ? (
-                  <span className="text-[11px] text-zinc-600">
-                    {agent.recent_meetings.length} 场
-                  </span>
-                ) : null}
-              </div>
-              {agent.recent_meetings.length === 0 ? (
-                <p className="mt-1.5 text-[12px] text-zinc-600">未参会</p>
-              ) : (
-                <ul className="mt-1.5 space-y-1">
-                  {agent.recent_meetings.slice(0, 3).map((m) => (
-                    <li
-                      key={m.meeting_id}
-                      className="flex items-baseline gap-1.5"
-                    >
-                      {m.started_at ? (
-                        <span className="shrink-0 text-[11px] text-zinc-600 tabular-nums">
-                          {meetingShortDate(m.started_at)}
-                        </span>
-                      ) : null}
-                      <span className="min-w-0 flex-1 truncate text-[12px] text-zinc-300">
-                        {m.title}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+          {/* === 最近会议 === */}
+          <section className="mt-4">
+            <div className="flex items-baseline justify-between">
+              <h4 className="text-[14px] font-medium text-zinc-300">
+                📅 最近会议
+              </h4>
+              {meetings.length > 0 ? (
+                <span className="text-[13px] text-zinc-500">
+                  {meetings.length} 场
+                </span>
+              ) : null}
             </div>
+            {meetings.length === 0 ? (
+              <p className="mt-2 text-[14px] text-zinc-500">未参会</p>
+            ) : (
+              <ul className="mt-2 space-y-1.5">
+                {meetings.slice(0, 3).map((m) => (
+                  <li key={m.meeting_id} className="flex items-baseline gap-2">
+                    {m.started_at ? (
+                      <span className="shrink-0 text-[14px] text-zinc-500 tabular-nums">
+                        {meetingShortDate(m.started_at)}
+                      </span>
+                    ) : null}
+                    <span className="min-w-0 flex-1 truncate text-[15px] text-zinc-200">
+                      {m.title}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
 
-            {/* ---- 任务汇总 小卡 ------------------------------------------- */}
-            <div className="rounded-xl bg-ink-800 p-2.5">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] text-zinc-500">任务</span>
-                {hasTasks ? (
-                  <span className="text-[11px] text-zinc-600">
-                    共 {tasks.total}
-                  </span>
+          {/* === 任务 === */}
+          <section className="mt-4 border-t border-zinc-800 pt-3">
+            <div className="flex items-baseline justify-between">
+              <h4 className="text-[14px] font-medium text-zinc-300">
+                📋 任务
+              </h4>
+              {hasTasks ? (
+                <span className="text-[13px] text-zinc-500">
+                  共 {tasks.total}
+                </span>
+              ) : null}
+            </div>
+            {!hasTasks ? (
+              <p className="mt-2 text-[14px] text-zinc-500">未分配</p>
+            ) : (
+              <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+                {tasks.open_count > 0 ? (
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[17px] font-semibold text-zinc-100 tabular-nums">
+                      {tasks.open_count}
+                    </span>
+                    <span className="text-[14px] text-zinc-400">进行中</span>
+                  </div>
+                ) : null}
+                {tasks.done_count > 0 ? (
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[17px] font-semibold text-emerald-300 tabular-nums">
+                      {tasks.done_count}
+                    </span>
+                    <span className="text-[14px] text-zinc-400">已完成</span>
+                  </div>
+                ) : null}
+                {tasks.overdue_count > 0 ? (
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[17px] font-semibold text-rose-300 tabular-nums">
+                      {tasks.overdue_count}
+                    </span>
+                    <span className="text-[14px] text-rose-300/80">超期</span>
+                  </div>
                 ) : null}
               </div>
-              {!hasTasks ? (
-                <p className="mt-1.5 text-[12px] text-zinc-600">未分配</p>
-              ) : (
-                <div className="mt-1.5 space-y-1">
-                  {tasks.open_count > 0 ? (
-                    <p className="text-[12px] text-zinc-300">
-                      <span className="tabular-nums">{tasks.open_count}</span>
-                      <span className="ml-1 text-zinc-500">进行中</span>
-                    </p>
-                  ) : null}
-                  {tasks.done_count > 0 ? (
-                    <p className="text-[12px] text-zinc-300">
-                      <span className="tabular-nums">{tasks.done_count}</span>
-                      <span className="ml-1 text-zinc-500">已完成</span>
-                    </p>
-                  ) : null}
-                  {tasks.overdue_count > 0 ? (
-                    <p className="text-[12px] text-rose-300">
-                      <span className="tabular-nums">
-                        {tasks.overdue_count}
-                      </span>
-                      <span className="ml-1 text-rose-400/80">超期</span>
-                    </p>
-                  ) : null}
-                </div>
-              )}
-            </div>
-          </div>
+            )}
+          </section>
         </div>
       </div>
     </button>

@@ -22,13 +22,13 @@ import type { WorkbenchOngoingMeeting } from "@/lib/mobile/types";
 function StageProgress({ currentIdx, total }: { currentIdx: number | null; total: number }) {
   // total 来自 agenda 项数 (不一定是 5 — brief 是概念 5 阶段, 实际议程项数可不同)
   if (total === 0) {
-    return <span className="text-[10px] text-zinc-600">未设议程</span>;
+    return <span className="text-[13px] text-zinc-500">未设议程</span>;
   }
   const cur = currentIdx ?? 0;
   const isComplete = cur >= total;
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-[10px] text-zinc-500">阶段</span>
+    <div className="flex items-center gap-2">
+      <span className="text-[13px] text-zinc-400">阶段</span>
       <div className="flex items-center gap-0.5">
         {Array.from({ length: total }).map((_, i) => {
           const done = i < cur;
@@ -47,7 +47,7 @@ function StageProgress({ currentIdx, total }: { currentIdx: number | null; total
           );
         })}
       </div>
-      <span className="text-[10px] text-zinc-500">
+      <span className="text-[13px] text-zinc-400 tabular-nums">
         {isComplete ? `${total}/${total} 完成` : `${cur + 1}/${total}`}
       </span>
     </div>
@@ -58,13 +58,13 @@ function MeetingCard({ m }: { m: WorkbenchOngoingMeeting }) {
   return (
     <Link
       href={`/m/meetings/${m.meeting_id}`}
-      className="flex w-[85%] shrink-0 snap-center flex-col gap-2 rounded-xl border border-accent-500/40 bg-gradient-to-br from-accent-500/8 to-ink-900 p-3 transition active:scale-[0.98]"
+      className="flex w-[85%] shrink-0 snap-center flex-col gap-2.5 rounded-2xl border border-accent-500/40 bg-gradient-to-br from-accent-500/8 to-ink-900 p-4 transition active:scale-[0.98]"
       data-testid="mobile-meeting-card"
     >
       <header className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-medium text-zinc-100">{m.title}</h3>
-          <p className="mt-0.5 text-[10px] text-zinc-500">
+          <h3 className="truncate text-[16px] font-semibold text-zinc-50">{m.title}</h3>
+          <p className="mt-1 text-[13px] text-zinc-400">
             <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400 align-middle animate-pulse" />
             <span className="ml-1.5">进行中 · 已 {m.started_minutes_ago} 分钟</span>
           </p>
@@ -78,11 +78,11 @@ function MeetingCard({ m }: { m: WorkbenchOngoingMeeting }) {
           <AIInsightChip insight={m.latest_insight} />
         </div>
       ) : (
-        <p className="text-[10px] text-zinc-600">还没 AI 判断产出</p>
+        <p className="text-[13px] text-zinc-500">还没 AI 判断产出</p>
       )}
 
       <div className="mt-auto text-right">
-        <span className="text-[11px] text-accent-300">立即进入 →</span>
+        <span className="text-[14px] font-medium text-accent-300">立即进入 →</span>
       </div>
     </Link>
   );
@@ -118,9 +118,9 @@ export default function MeetingCarousel({
 
   if (meetings.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-ink-700 bg-ink-900/40 p-4 text-center text-xs text-zinc-500">
+      <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/40 p-5 text-center text-[14px] text-zinc-400">
         现在没进行中的会议
-        <Link href="/m/meetings" className="mt-1 block text-[11px] text-accent-400">
+        <Link href="/m/meetings" className="mt-2 block text-[14px] font-medium text-accent-400">
           → 看全部会议
         </Link>
       </div>

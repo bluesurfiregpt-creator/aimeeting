@@ -53,26 +53,26 @@ export default function PendingItemCard({ item }: { item: WorkbenchPendingTask }
   return (
     <Link
       href={s.href(item.id)}
-      className="block rounded-lg border border-ink-700 bg-ink-900 p-3 transition active:scale-[0.99]"
+      className="block rounded-xl border border-ink-700 bg-ink-900 p-4 transition active:scale-[0.99]"
       data-testid={`mobile-pending-card-${item.kind}`}
     >
       <header className="flex items-center gap-2">
-        <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${s.chipBg} ${s.chipText}`}>
+        <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[13px] font-medium ${s.chipBg} ${s.chipText}`}>
           <span>{s.icon}</span>
           <span>{s.label}</span>
         </span>
         {item.source_meeting_title ? (
-          <span className="truncate text-[10px] text-zinc-500">
+          <span className="truncate text-[13px] text-zinc-400">
             · {item.source_meeting_title}
           </span>
         ) : null}
       </header>
 
-      <p className="mt-1.5 text-sm text-zinc-100 leading-snug">{item.title}</p>
+      <p className="mt-2 text-[16px] font-medium text-zinc-50 leading-snug">{item.title}</p>
 
       {item.insights.length > 0 ? (
-        <div className="mt-2 space-y-1.5 rounded border border-violet-500/20 bg-violet-500/[0.04] p-2">
-          <p className="text-[10px] text-violet-300/80">
+        <div className="mt-3 space-y-2 rounded-xl border border-violet-500/20 bg-violet-500/[0.04] p-3">
+          <p className="text-[13px] font-medium text-violet-300">
             💡 AI 智囊 · {item.insights.length} 条
           </p>
           {item.insights.map((ins) => (
@@ -81,8 +81,8 @@ export default function PendingItemCard({ item }: { item: WorkbenchPendingTask }
         </div>
       ) : null}
 
-      <footer className="mt-2 text-right">
-        <span className="text-[11px] text-accent-300">{item.cta_label} →</span>
+      <footer className="mt-3 text-right">
+        <span className="text-[14px] font-medium text-accent-300">{item.cta_label} →</span>
       </footer>
     </Link>
   );

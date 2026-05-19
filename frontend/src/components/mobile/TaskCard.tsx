@@ -76,46 +76,46 @@ export function TaskCardFull({
       {/* header — 状态 chip + 来源 */}
       <header className="flex items-center gap-2">
         <span
-          className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium ${s.chipBg} ${s.chipText}`}
+          className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[13px] font-medium ${s.chipBg} ${s.chipText}`}
         >
           <span>{s.icon}</span>
           <span>{s.label}</span>
         </span>
         {item.source_meeting_title ? (
-          <span className="truncate text-[12px] text-zinc-500">
+          <span className="truncate text-[13px] text-zinc-400">
             · {item.source_meeting_title}
           </span>
         ) : null}
         {item.age_days !== null && item.age_days > 0 ? (
-          <span className="ml-auto shrink-0 text-[11px] text-zinc-600">
+          <span className="ml-auto shrink-0 text-[13px] text-zinc-500">
             {item.age_days}天前
           </span>
         ) : null}
       </header>
 
       {/* title */}
-      <p className="mt-2.5 text-[15px] leading-snug text-zinc-100">
+      <p className="mt-2.5 text-[16px] font-medium leading-snug text-zinc-50">
         {item.title}
       </p>
 
       {/* AI 智囊紧凑 box (仅 action item 有) */}
       {item.insights.length > 0 ? (
         <section className="mt-3 rounded-xl border border-violet-500/25 bg-violet-500/[0.06] p-3">
-          <p className="mb-2 text-[12px] text-violet-300/80">
+          <p className="mb-2 text-[13px] font-medium text-violet-300">
             💡 AI 智囊 · {item.insights.length} 条
           </p>
-          <ul className="space-y-2">
+          <ul className="space-y-2.5">
             {item.insights.map((ins) => (
               <li key={ins.id} className="flex flex-col gap-1">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <AgentLabel
                     nickname={ins.agent_nickname}
                     name={ins.agent_name}
-                    className="text-[12px]"
+                    className="text-[13px]"
                   />
                   <TypeChip type={ins.type} />
                 </div>
-                <p className="text-[13px] leading-snug text-zinc-300 line-clamp-2">
+                <p className="text-[14px] leading-snug text-zinc-200 line-clamp-2">
                   {ins.content}
                 </p>
               </li>
@@ -131,7 +131,7 @@ export function TaskCardFull({
             <button
               type="button"
               onClick={onSecondary}
-              className="flex h-11 flex-1 items-center justify-center rounded-xl border border-zinc-700 px-4 text-[14px] text-zinc-300 active:scale-[0.98] active:bg-ink-800 transition"
+              className="flex h-12 flex-1 items-center justify-center rounded-xl border border-zinc-700 px-4 text-[15px] text-zinc-200 active:scale-[0.98] active:bg-ink-800 transition"
             >
               {item.cta_secondary}
             </button>
@@ -140,7 +140,7 @@ export function TaskCardFull({
             <button
               type="button"
               onClick={onPrimary}
-              className="flex h-11 flex-1 items-center justify-center rounded-xl bg-accent-500 px-4 text-[14px] font-medium text-white shadow-lg shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 transition"
+              className="flex h-12 flex-1 items-center justify-center rounded-xl bg-accent-500 px-4 text-[15px] font-medium text-white shadow-lg shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 transition"
             >
               {item.cta_primary}
             </button>
@@ -157,26 +157,26 @@ export function TaskRowCompact({ item }: { item: MobileTaskItem }) {
   const s = KIND_STYLE[item.kind];
   return (
     <div
-      className="flex min-h-[48px] items-center gap-3 rounded-xl bg-ink-900/40 px-3 py-2.5"
+      className="flex min-h-[56px] items-center gap-3 rounded-xl bg-ink-900/40 px-4 py-3"
       data-testid={`mobile-task-row-${item.kind}`}
     >
       <span
-        className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] ${s.chipBg} ${s.chipText}`}
+        className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[14px] ${s.chipBg} ${s.chipText}`}
       >
         {s.icon}
       </span>
       <div className="min-w-0 flex-1">
-        <p className={`truncate text-[14px] ${item.kind === "done" ? "text-zinc-500" : "text-zinc-300"}`}>
+        <p className={`truncate text-[15px] ${item.kind === "done" ? "text-zinc-400" : "text-zinc-100"}`}>
           {item.title}
         </p>
         {item.source_meeting_title ? (
-          <p className="truncate text-[11px] text-zinc-600">
+          <p className="mt-0.5 truncate text-[13px] text-zinc-500">
             {item.source_meeting_title}
           </p>
         ) : null}
       </div>
       {item.age_days !== null && item.age_days > 0 ? (
-        <span className="shrink-0 text-[11px] text-zinc-600">
+        <span className="shrink-0 text-[13px] text-zinc-500">
           {item.age_days}天前
         </span>
       ) : null}

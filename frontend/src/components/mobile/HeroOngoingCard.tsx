@@ -69,20 +69,20 @@ function HeroSingle({ m }: { m: WorkbenchOngoingMeeting }) {
       data-testid="mobile-hero-ongoing"
     >
       {/* 顶部小标 */}
-      <p className="text-[13px] text-zinc-400">你正在推进</p>
+      <p className="text-[14px] font-medium text-zinc-300">你正在推进</p>
 
       {/* 主标题 */}
-      <h1 className="mt-2 text-[22px] font-medium leading-tight text-zinc-50">
+      <h1 className="mt-2 text-[22px] font-semibold leading-tight text-zinc-50">
         {m.title}
       </h1>
 
       {/* 状态行 */}
-      <div className="mt-2 flex items-center gap-2 text-[13px] text-zinc-400">
+      <div className="mt-2 flex items-center gap-2 text-[14px] text-zinc-300">
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
           <span className="text-emerald-300">进行中</span>
         </span>
-        <span className="text-zinc-600">·</span>
+        <span className="text-zinc-500">·</span>
         <span>{m.started_minutes_ago} min</span>
       </div>
 
@@ -96,20 +96,22 @@ function HeroSingle({ m }: { m: WorkbenchOngoingMeeting }) {
       {/* AI 关键判断 callout */}
       {insight && tone ? (
         <div className={`mt-4 rounded-xl border-l-[3px] ${tone.border} ${tone.bg} px-4 py-3`}>
-          <div className="flex items-center gap-2">
-            <span className="text-[13px] text-zinc-300">◆</span>
-            <span className="text-[13px] font-medium text-zinc-100">{agentDisplay}</span>
-            <span className="text-[11px] text-zinc-500">· {insight.agent_name === agentDisplay ? "" : insight.agent_name}</span>
-            <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${tone.bg} ${tone.text}`}>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-[14px] text-zinc-300">◆</span>
+            <span className="text-[14px] font-medium text-zinc-100">{agentDisplay}</span>
+            {insight.agent_name !== agentDisplay ? (
+              <span className="text-[13px] text-zinc-500">· {insight.agent_name}</span>
+            ) : null}
+            <span className={`rounded px-2 py-0.5 text-[13px] font-medium ${tone.bg} ${tone.text}`}>
               {insight.type}
             </span>
           </div>
-          <p className="mt-1.5 text-[15px] leading-snug text-zinc-100">
+          <p className="mt-2 text-[15px] leading-snug text-zinc-100">
             {insight.content}
           </p>
         </div>
       ) : (
-        <div className="mt-4 rounded-xl border border-dashed border-zinc-700/60 px-4 py-3 text-[13px] text-zinc-500">
+        <div className="mt-4 rounded-xl border border-dashed border-zinc-700/60 px-4 py-3 text-[14px] text-zinc-400">
           这场会 AI 还没给关键判断
         </div>
       )}
