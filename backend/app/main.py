@@ -119,7 +119,34 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Server-Timing", "X-Backend-Time"],
 )
+
+
+# v27.0-mobile P15: 加 timing middleware 写 Server-Timing 响应头.
+# 让 curl + 浏览器 devtools 能直接看 backend 处理时间, 不用 ssh 进 log.
+import time as _time
+import logging as _logging
+
+_perf_logger = _logging.getLogger("aimeeting.perf")
+
+@app.middleware("http")
+async def perf_timing_middleware(request, call_next):
+    start = _time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (_time.perf_counter() - start) * 1000
+    # 写头, 客户端可见
+    response.headers["X-Backend-Time"] = f"{elapsed_ms:.1f}"
+    response.headers["Server-Timing"] = f"app;dur={elapsed_ms:.1f}"
+    # 慢 request log 警告 (>500ms 写 warning)
+    if elapsed_ms > 500:
+        _perf_logger.warning(
+            "slow request: %s %s took %.0fms",
+            request.method,
+            request.url.path,
+            elapsed_ms,
+        )
+    return response
 
 app.include_router(auth_router.router)
 app.include_router(users_router.router)
