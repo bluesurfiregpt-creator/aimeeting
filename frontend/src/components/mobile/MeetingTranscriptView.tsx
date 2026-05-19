@@ -290,26 +290,21 @@ export default function MeetingTranscriptView({
 
   return (
     <div className="px-4 pt-3 pb-4" onScroll={onScroll}>
-      {/* meta 行 */}
-      <div className="mb-3 flex items-baseline justify-between gap-2">
-        <p className="flex items-center gap-1.5 text-[13px] text-zinc-400">
+      {/* 微缩 meta 行: WS 状态点 + 计数 (无刷新按钮 — WS 实时, 不需要)
+          仅在有内容时显示, 不占主屏黄金位 */}
+      {meta && lines.length > 0 ? (
+        <div className="mb-2 flex items-center gap-1.5 text-[12px] text-zinc-500">
           <ConnDot state={conn} />
-          共 <span className="font-medium text-zinc-200 tabular-nums">{meta?.total_user_lines ?? 0}</span> 句真人 ·{" "}
-          <span className="font-medium text-zinc-200 tabular-nums">{meta?.total_agent_lines ?? 0}</span> 条 AI
-        </p>
-        <button
-          type="button"
-          onClick={() => load(true)}
-          disabled={refreshing}
-          className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-700 px-3 text-[13px] font-medium text-zinc-200 active:scale-[0.97] active:bg-ink-800 disabled:opacity-60"
-        >
-          {refreshing ? "刷新中…" : "↻ 刷新"}
-        </button>
-      </div>
+          <span className="tabular-nums">
+            {meta.total_user_lines} 句真人 · {meta.total_agent_lines} 条 AI
+          </span>
+          {refreshing ? <span>· 刷新中…</span> : null}
+        </div>
+      ) : null}
 
       {/* 主列表 */}
       {lines.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-[14px] text-zinc-500">
+        <p className="mt-8 text-center text-[14px] text-zinc-500">
           这场会议还没有任何发言
         </p>
       ) : (

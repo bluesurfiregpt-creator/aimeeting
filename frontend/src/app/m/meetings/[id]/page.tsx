@@ -18,7 +18,6 @@ import { useCallback, useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import StageChipsRow from "@/components/mobile/StageChipsRow";
-import CurrentTopicCard from "@/components/mobile/CurrentTopicCard";
 import StickyActionBar from "@/components/mobile/StickyActionBar";
 import SummonAgentSheet from "@/components/mobile/SummonAgentSheet";
 import ConfirmDialog from "@/components/mobile/ConfirmDialog";
@@ -64,8 +63,6 @@ function MeetingDetailInner({ id }: { id: string }) {
   const [summoning, setSummoning] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
   const [ending, setEnding] = useState(false);
-  // P5A: 转录折叠区展开状态 — 展开才 lazy 加载完整转录
-  const [transcriptOpen, setTranscriptOpen] = useState(false);
   // P5B: 议程事件 banner (off_topic / time_warning / stuck), 同时一个 slot
   const [banner, setBanner] = useState<BannerData | null>(null);
   const [toast, setToast] = useState<{
@@ -297,23 +294,15 @@ function MeetingDetailInner({ id }: { id: string }) {
         <AgendaEventBanner data={banner} onDismiss={() => setBanner(null)} />
       ) : null}
 
-      {/* ===== 主区域 — 当前议题 + 折叠其他 ================== */}
-      <main className="flex-1 space-y-4 p-4 pb-4">
-        {/* P9 fallback: scheduled 状态 — 显著放 "开始会议" 按钮.
-            正常情况下 创建会议时 自动调过 start, status 已 ongoing.
-            但如果 start 调用失败, 这里兜底 让用户手动点. */}
-        {data.status === "scheduled" ? (
+      {/* ===== scheduled 状态: 仅显 "开始会议" 兜底卡 ============== */}
+      {data.status === "scheduled" ? (
+        <main className="flex-1 p-4">
           <div className="rounded-2xl border border-accent-500/40 bg-accent-500/[0.08] p-5 text-center">
             <p className="text-[16px] font-medium text-accent-200">
               会议还没开始
             </p>
             <p className="mt-2 text-[14px] text-zinc-400 leading-relaxed">
               点下方按钮把会议状态切到「进行中」, AI 召唤 / 议程推进 等功能就能用了.
-              <br />
-              {/* 录音说明: mobile 端目前不录音, 桌面端开始录音 mobile 看实时转录 */}
-              <span className="text-[13px] text-zinc-500">
-                注: 手机端目前不录音, 录音功能在桌面端
-              </span>
             </p>
             <button
               type="button"
@@ -325,93 +314,57 @@ function MeetingDetailInner({ id }: { id: string }) {
               {starting ? "开始中…" : "开始会议"}
             </button>
           </div>
-        ) : data.is_agenda_complete ? (
-          <>
-            <MeetingRecorderControl
-              meetingOngoing={data.status === "ongoing"}
-            />
-            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-5 text-center">
-              <p className="text-[15px] text-emerald-200">议程已全部完成</p>
-              <p className="mt-1 text-[13px] text-zinc-500">
-                可以结束会议, 进入沉淀复盘
-              </p>
+        </main>
+      ) : (
+        /* ===== ongoing / finished: IM 风格主区域 =============== */
+        <>
+          {/* 当前议题 thin sticky bar — 比 CurrentTopicCard 轻很多, 不挡屏 */}
+          {data.current_topic_title ? (
+            <div
+              className="border-b border-ink-800 bg-ink-950/85 px-4 py-2 text-[13px] backdrop-blur"
+              data-testid="mobile-current-topic-strip"
+            >
+              <span className="text-zinc-400">议题 </span>
+              <span className="font-medium text-zinc-100">
+                {data.current_agenda_idx !== null
+                  ? `${data.current_agenda_idx + 1}/${data.agenda_items.length}`
+                  : ""}
+              </span>
+              <span className="text-zinc-500"> · </span>
+              <span className="text-zinc-100">{data.current_topic_title}</span>
+              {data.current_topic_elapsed_min !== null ? (
+                <span className="ml-2 text-zinc-500 tabular-nums">
+                  已议 {data.current_topic_elapsed_min}m
+                </span>
+              ) : null}
             </div>
-          </>
-        ) : data.current_topic_title ? (
-          <>
-            {/* P12: 录音控制 — ongoing 时显, 占主区域顶部黄金位 */}
-            <MeetingRecorderControl
-              meetingOngoing={data.status === "ongoing"}
-            />
-            <CurrentTopicCard
-              topicTitle={data.current_topic_title}
-              elapsedMin={data.current_topic_elapsed_min}
-              insights={data.current_topic_insights}
-              recentLines={data.current_topic_recent_lines}
-            />
-          </>
-        ) : (
-          <>
-            {/* ongoing 但 current_topic 没设 — agenda 没编辑 也算 ongoing, 用户能录音 */}
-            <MeetingRecorderControl
-              meetingOngoing={data.status === "ongoing"}
-            />
-            <div className="rounded-2xl border border-dashed border-zinc-800 p-5 text-center text-[14px] text-zinc-500">
+          ) : data.is_agenda_complete ? (
+            <div className="border-b border-emerald-500/30 bg-emerald-500/[0.08] px-4 py-2 text-center text-[13px] text-emerald-200">
+              ✓ 议程已全部完成 — 点底部 "结束会议" 进入沉淀
+            </div>
+          ) : (
+            <div className="border-b border-ink-800 bg-ink-950/60 px-4 py-2 text-[13px] text-zinc-500">
               议程还没开始 — 点 "推进议程" 进入第一项
             </div>
-          </>
-        )}
+          )}
 
-        {data.other_topics_count > 1 ? (
-          <details className="rounded-xl border border-ink-800 bg-ink-900/40">
-            <summary className="cursor-pointer list-none px-4 py-3 text-[14px] font-medium text-zinc-300">
-              ▾ 其他议题 ({data.other_topics_count - 1})
-            </summary>
-            <ul className="space-y-1.5 px-4 pb-3 text-[14px]">
-              {data.agenda_items
-                .filter((it) => it.idx !== data.current_agenda_idx)
-                .map((it) => (
-                  <li key={it.idx} className="flex items-center gap-2 py-1.5">
-                    <span className="text-[13px] text-zinc-500">
-                      {it.status === "done" ? "✓" : "○"}
-                    </span>
-                    <span
-                      className={
-                        it.status === "done"
-                          ? "text-zinc-400 line-through"
-                          : "text-zinc-200"
-                      }
-                    >
-                      {it.title}
-                    </span>
-                    {it.time_budget_min ? (
-                      <span className="text-[13px] text-zinc-500 tabular-nums">
-                        · {it.time_budget_min}m
-                      </span>
-                    ) : null}
-                  </li>
-                ))}
-            </ul>
-          </details>
-        ) : null}
+          {/* IM 主区域: transcript 一直占满, 自动滚 */}
+          <main className="flex-1 overflow-y-auto" data-testid="mobile-im-flow">
+            <MeetingTranscriptView meetingId={id} />
+          </main>
 
-        {data.transcript_total > 0 ? (
-          <details
-            className="rounded-xl border border-ink-800 bg-ink-900/40"
-            open={transcriptOpen}
-            onToggle={(e) =>
-              setTranscriptOpen((e.target as HTMLDetailsElement).open)
-            }
-          >
-            <summary className="cursor-pointer list-none px-4 py-3 text-[14px] font-medium text-zinc-300">
-              {transcriptOpen ? "▴" : "▾"} 完整转录 ({data.transcript_total} 句)
-            </summary>
-            {transcriptOpen ? <MeetingTranscriptView meetingId={id} /> : null}
-          </details>
-        ) : null}
-      </main>
+          {/* sticky 录音控制 (ongoing 时显) */}
+          {data.status === "ongoing" ? (
+            <div className="border-t border-ink-800 bg-ink-950/95 px-4 py-2 backdrop-blur">
+              <MeetingRecorderControl
+                meetingOngoing={data.status === "ongoing"}
+              />
+            </div>
+          ) : null}
+        </>
+      )}
 
-      {/* ===== Sticky 底部 next action =========================== */}
+      {/* ===== Sticky 底部 next action (召 AI / 推议程 / 结束会议) === */}
       <StickyActionBar
         canControl={data.can_control}
         isAgendaComplete={data.is_agenda_complete}

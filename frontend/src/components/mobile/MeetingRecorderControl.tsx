@@ -118,42 +118,32 @@ export default function MeetingRecorderControl({
     return null;
   }
 
-  // ===== Render =====
+  // ===== Render — 紧凑一行式 (sticky bar 装得下) =====
+  // 文案精简到最少, 一行内说清, 大按钮在右侧.
   if (state === "idle") {
     return (
-      <div className="rounded-2xl border border-ink-800 bg-ink-900 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[15px] font-medium text-zinc-100">
-              🎙 开始说话, AI 自动转文字
-            </p>
-            <p className="mt-1 text-[13px] text-zinc-400 leading-snug">
-              点开始录音, 你说的话会实时转录 + 进议程, AI 自动检测决策点
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleStart}
-            disabled={conn !== "connected"}
-            className="shrink-0 inline-flex h-12 items-center justify-center gap-1 rounded-xl bg-accent-500 px-5 text-[15px] font-medium text-white shadow-lg shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 disabled:opacity-50"
-            data-testid="mobile-recorder-start"
-          >
-            {conn !== "connected" ? "连接中…" : "开始录音"}
-          </button>
-        </div>
+      <div className="flex items-center gap-3" data-testid="mobile-recorder-idle">
+        <span className="text-[18px]">🎙</span>
+        <p className="min-w-0 flex-1 truncate text-[14px] text-zinc-300">
+          点右侧开始 — 你说话 AI 自动转文字
+        </p>
+        <button
+          type="button"
+          onClick={handleStart}
+          disabled={conn !== "connected"}
+          className="shrink-0 inline-flex h-10 items-center justify-center rounded-lg bg-accent-500 px-4 text-[14px] font-medium text-white shadow-md shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 disabled:opacity-50"
+          data-testid="mobile-recorder-start"
+        >
+          {conn !== "connected" ? "连接中…" : "开始录音"}
+        </button>
       </div>
     );
   }
 
   if (state === "requesting") {
     return (
-      <div className="rounded-2xl border border-accent-500/30 bg-accent-500/[0.06] p-4 text-center">
-        <p className="text-[15px] font-medium text-accent-200">
-          ⏳ 请求麦克风权限…
-        </p>
-        <p className="mt-1 text-[13px] text-zinc-400">
-          请在浏览器弹框中点 "允许"
-        </p>
+      <div className="flex items-center gap-3 text-[14px] text-accent-200">
+        <span>⏳ 请允许麦克风…</span>
       </div>
     );
   }
@@ -161,65 +151,47 @@ export default function MeetingRecorderControl({
   if (state === "live") {
     return (
       <div
-        className="rounded-2xl border border-rose-500/40 bg-rose-500/[0.08] p-4"
+        className="flex items-center gap-3"
         data-testid="mobile-recorder-live"
       >
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="relative inline-flex h-3 w-3 shrink-0">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
-              <span className="relative inline-flex h-3 w-3 rounded-full bg-rose-500" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-[15px] font-medium text-rose-100">
-                正在录音
-              </p>
-              <p className="mt-0.5 text-[13px] text-rose-200/80 tabular-nums">
-                {fmtElapsed(elapsed)} · 转录区可看实时文字
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={handleStop}
-            className="shrink-0 inline-flex h-12 items-center justify-center rounded-xl border border-rose-500/40 bg-ink-950/60 px-5 text-[15px] font-medium text-rose-200 active:scale-[0.98] active:bg-rose-500/[0.15]"
-            data-testid="mobile-recorder-stop"
-          >
-            停止
-          </button>
-        </div>
+        <span className="relative inline-flex h-3 w-3 shrink-0">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
+          <span className="relative inline-flex h-3 w-3 rounded-full bg-rose-500" />
+        </span>
+        <p className="min-w-0 flex-1 text-[14px] text-rose-100">
+          <span className="font-medium">正在录音</span>
+          <span className="ml-2 tabular-nums text-rose-200/80">
+            {fmtElapsed(elapsed)}
+          </span>
+        </p>
+        <button
+          type="button"
+          onClick={handleStop}
+          className="shrink-0 inline-flex h-10 items-center justify-center rounded-lg border border-rose-500/40 bg-ink-950/60 px-4 text-[14px] font-medium text-rose-200 active:scale-[0.98] active:bg-rose-500/[0.15]"
+          data-testid="mobile-recorder-stop"
+        >
+          停止
+        </button>
       </div>
     );
   }
 
-  // error
+  // error — 紧凑双行 (错误信息可能较长)
   return (
-    <div className="rounded-2xl border border-amber-500/40 bg-amber-500/[0.06] p-4">
-      <p className="text-[15px] font-medium text-amber-200">
-        ⚠ 麦克风启动失败
-      </p>
-      <p className="mt-2 text-[13px] leading-relaxed text-zinc-300">
-        {errorMsg}
-      </p>
-      <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            setState("idle");
-            setErrorMsg("");
-          }}
-          className="flex h-10 flex-1 items-center justify-center rounded-lg border border-zinc-700 px-3 text-[14px] text-zinc-200 active:scale-[0.98]"
-        >
-          知道了
-        </button>
+    <div data-testid="mobile-recorder-error">
+      <div className="flex items-baseline gap-2">
+        <span className="shrink-0 text-[14px] font-medium text-amber-200">
+          ⚠ 麦克风启动失败
+        </span>
         <button
           type="button"
           onClick={handleStart}
-          className="flex h-10 flex-1 items-center justify-center rounded-lg bg-amber-500 px-3 text-[14px] font-medium text-white active:scale-[0.98]"
+          className="ml-auto shrink-0 text-[13px] font-medium text-amber-300 active:text-amber-200"
         >
-          重试
+          重试 →
         </button>
       </div>
+      <p className="mt-1 line-clamp-2 text-[12px] text-zinc-400">{errorMsg}</p>
     </div>
   );
 }
