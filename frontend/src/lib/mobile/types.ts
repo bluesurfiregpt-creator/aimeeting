@@ -231,6 +231,36 @@ export type SummonAgentOut = {
   agent_name: string;
 };
 
+// ---------- 会议完整转录流 (Phase 5A) -----------------------------------
+
+export type TranscriptStreamLine = {
+  kind: "user" | "agent";
+  id: number;
+  text: string;
+  at_minute: number;
+  created_at: string;
+  // user
+  speaker_name: string | null;
+  speaker_status: string | null;
+  // agent
+  agent_id: string | null;
+  agent_name: string | null;
+  agent_nickname: string | null;
+  agent_color: string | null;
+  trigger: string | null;
+  citations_count: number;
+};
+
+export type MobileTranscriptOut = {
+  meeting_id: string;
+  title: string;
+  status: string;
+  started_at: string | null;
+  total_user_lines: number;
+  total_agent_lines: number;
+  lines: TranscriptStreamLine[];
+};
+
 // ---------- 长期记忆库 (Phase 4.4 — /m/insights 已入库 tab) ------------
 
 export type MemoryAgentBrief = {

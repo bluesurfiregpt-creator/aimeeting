@@ -1638,3 +1638,166 @@ async def get_mobile_task_detail(
         insights=insights,
         comments=comments,
     )
+
+
+# ============================================================================
+# /api/m/meetings/{id}/transcript — 会议完整转录流 (Phase 5A)
+# ============================================================================
+#
+# 合并 MeetingTranscript (真人 ASR) + MeetingAgentMessage (AI 发言) 按时间正序.
+# 一次请求拿全, 比客户端分别拉 + merge 省 round-trip + 解析 speaker / agent
+# 都在服务器一次性 join 完.
+#
+# 不分页 (mvp). 大会议 (>500 句) 后续加 cursor.
+# 不接 WebSocket — 那是 P5B 的活. 用户手动下拉刷新.
+
+class TranscriptStreamLine(BaseModel):
+    kind: str               # "user" | "agent"
+    id: int                 # transcript.id 或 agent_message.id
+    text: str
+    at_minute: int          # 距 meeting.started_at 多少分钟 (0 = 开会瞬间)
+    created_at: datetime    # ISO 时间戳, 客户端可格式化
+    # user 类字段
+    speaker_name: Optional[str] = None       # 解析后真人名字 (UNKNOWN/未识别时 None)
+    speaker_status: Optional[str] = None     # auto_recognized | manually_corrected | UNKNOWN
+    # agent 类字段
+    agent_id: Optional[uuid.UUID] = None
+    agent_name: Optional[str] = None
+    agent_nickname: Optional[str] = None
+    agent_color: Optional[str] = None
+    trigger: Optional[str] = None            # manual | auto_orchestrator | keyword | at_mention
+    citations_count: int = 0                 # 简化, 不返完整 citations (前端 mvp 不展开)
+
+
+class MobileTranscriptOut(BaseModel):
+    meeting_id: uuid.UUID
+    title: str
+    status: str
+    started_at: Optional[datetime] = None
+    total_user_lines: int = 0
+    total_agent_lines: int = 0
+    lines: list[TranscriptStreamLine] = []   # 按 created_at 正序 (老→新)
+
+
+@router.get("/meetings/{meeting_id}/transcript", response_model=MobileTranscriptOut)
+async def get_mobile_transcript(
+    meeting_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """会议完整转录 — 真人 + AI 合并按时间正序."""
+    from ..models import MeetingTranscript, User as UserModel
+
+    ws_id = auth.workspace.id
+
+    # 1. 拉 meeting + 校验
+    m = (
+        await session.execute(
+            select(Meeting).where(
+                Meeting.id == meeting_id, Meeting.workspace_id == ws_id
+            )
+        )
+    ).scalar_one_or_none()
+    if not m:
+        raise HTTPException(404, "meeting not found")
+
+    started_at = m.started_at
+
+    def at_min(t: datetime) -> int:
+        if not started_at or not t:
+            return 0
+        return max(0, int((t - started_at).total_seconds() / 60))
+
+    # 2. 拉 transcript (按 created_at 排, fallback start_ms)
+    tr_rows = (
+        await session.execute(
+            select(MeetingTranscript)
+            .where(MeetingTranscript.meeting_id == meeting_id)
+            .order_by(MeetingTranscript.created_at)
+        )
+    ).scalars().all()
+
+    # 3. 拉 agent messages
+    ag_rows = (
+        await session.execute(
+            select(MeetingAgentMessage)
+            .where(MeetingAgentMessage.meeting_id == meeting_id)
+            .order_by(MeetingAgentMessage.created_at)
+        )
+    ).scalars().all()
+
+    # 4. 一次性解析 speaker 名字 + agent 名字
+    spk_ids = {t.speaker_user_id for t in tr_rows if t.speaker_user_id}
+    spk_name_map: dict[uuid.UUID, str] = {}
+    if spk_ids:
+        rows = (
+            await session.execute(
+                select(UserModel.id, UserModel.name).where(UserModel.id.in_(spk_ids))
+            )
+        ).all()
+        spk_name_map = {uid: name for uid, name in rows}
+
+    ag_ids = {a.agent_id for a in ag_rows}
+    ag_info_map: dict[uuid.UUID, tuple[str, Optional[str], Optional[str]]] = {}
+    if ag_ids:
+        rows = (
+            await session.execute(
+                select(Agent.id, Agent.name, Agent.nickname, Agent.color)
+                .where(Agent.id.in_(ag_ids))
+            )
+        ).all()
+        ag_info_map = {
+            aid: (name, nickname, color) for aid, name, nickname, color in rows
+        }
+
+    # 5. 构建 lines
+    lines: list[TranscriptStreamLine] = []
+    for t in tr_rows:
+        speaker_name: Optional[str] = None
+        if t.speaker_user_id and t.speaker_user_id in spk_name_map:
+            speaker_name = spk_name_map[t.speaker_user_id]
+        elif t.speaker_label and t.speaker_label != "UNKNOWN":
+            speaker_name = t.speaker_label
+        lines.append(TranscriptStreamLine(
+            kind="user",
+            id=t.id,
+            text=t.text or "",
+            at_minute=at_min(t.created_at),
+            created_at=t.created_at,
+            speaker_name=speaker_name,
+            speaker_status=t.speaker_status,
+        ))
+    for a in ag_rows:
+        info = ag_info_map.get(a.agent_id)
+        if not info:
+            # agent 被删了 — 老数据兜底, 显示 "(已下线 AI)"
+            ag_name, ag_nick, ag_color = "(已下线 AI)", None, None
+        else:
+            ag_name, ag_nick, ag_color = info
+        cite_n = len(a.citations) if isinstance(a.citations, list) else 0
+        lines.append(TranscriptStreamLine(
+            kind="agent",
+            id=a.id,
+            text=a.text or "",
+            at_minute=at_min(a.created_at),
+            created_at=a.created_at,
+            agent_id=a.agent_id,
+            agent_name=ag_name,
+            agent_nickname=ag_nick,
+            agent_color=ag_color,
+            trigger=a.trigger,
+            citations_count=cite_n,
+        ))
+
+    # 6. 合并排序: 按 created_at 正序
+    lines.sort(key=lambda l: l.created_at)
+
+    return MobileTranscriptOut(
+        meeting_id=m.id,
+        title=m.title or "(未命名)",
+        status=m.status,
+        started_at=started_at,
+        total_user_lines=len(tr_rows),
+        total_agent_lines=len(ag_rows),
+        lines=lines,
+    )

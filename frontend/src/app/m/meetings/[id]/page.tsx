@@ -22,6 +22,7 @@ import CurrentTopicCard from "@/components/mobile/CurrentTopicCard";
 import StickyActionBar from "@/components/mobile/StickyActionBar";
 import SummonAgentSheet from "@/components/mobile/SummonAgentSheet";
 import ConfirmDialog from "@/components/mobile/ConfirmDialog";
+import MeetingTranscriptView from "@/components/mobile/MeetingTranscriptView";
 import Toast from "@/components/mobile/Toast";
 import { mApi } from "@/lib/mobile/api";
 import type { MobileMeetingDetail } from "@/lib/mobile/types";
@@ -46,6 +47,8 @@ export default function MobileMeetingDetailPage({
   const [summoning, setSummoning] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
   const [ending, setEnding] = useState(false);
+  // P5A: 转录折叠区展开状态 — 展开才 lazy 加载完整转录
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [toast, setToast] = useState<{
     kind: "success" | "error";
     text: string;
@@ -264,13 +267,17 @@ export default function MobileMeetingDetailPage({
         ) : null}
 
         {data.transcript_total > 0 ? (
-          <details className="rounded-xl border border-ink-800 bg-ink-900/40">
+          <details
+            className="rounded-xl border border-ink-800 bg-ink-900/40"
+            open={transcriptOpen}
+            onToggle={(e) =>
+              setTranscriptOpen((e.target as HTMLDetailsElement).open)
+            }
+          >
             <summary className="cursor-pointer list-none px-4 py-3 text-[14px] font-medium text-zinc-300">
-              ▾ 实时转录 ({data.transcript_total} 句)
+              {transcriptOpen ? "▴" : "▾"} 完整转录 ({data.transcript_total} 句)
             </summary>
-            <p className="px-4 pb-3 text-[13px] text-zinc-500">
-              Phase 2 — 完整转录视图 (含高亮 / 跳转 / 编辑 speaker)
-            </p>
+            {transcriptOpen ? <MeetingTranscriptView meetingId={id} /> : null}
           </details>
         ) : null}
       </main>

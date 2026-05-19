@@ -13,6 +13,7 @@ import type {
   MobileMeetingDetail,
   MobileMeetingsListOut,
   MobileTasksOut,
+  MobileTranscriptOut,
   SummonAgentOut,
   TaskDetailComment,
   TaskDetailOut,
@@ -70,6 +71,10 @@ export const mApi = {
   getTasks: () => jget<MobileTasksOut>("/api/m/tasks"),
   getAgentsWorkboard: () => jget<AgentsWorkboardOut>("/api/m/agents/workboard"),
   getAgentDetail: (id: string) => jget<AgentDetailOut>(`/api/m/agents/${id}`),
+
+  /** P5A: 会议完整转录流 (真人 + AI 合并按时间正序). */
+  getMeetingTranscript: (id: string) =>
+    jget<MobileTranscriptOut>(`/api/m/meetings/${id}/transcript`),
 
   // ===== Mobile CTA action endpoints (Phase 4) =============================
   // 复用桌面端 API, 不在 mobile prefix 下加包装 — 减少 surface area.
