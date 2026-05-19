@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useCachedFetch } from "@/lib/mobile/swrCache";
+import { mutateCache, peekCache, useCachedFetch } from "@/lib/mobile/swrCache";
 import AgentWorkCard from "@/components/mobile/AgentWorkCard";
 import HeroOngoingCard from "@/components/mobile/HeroOngoingCard";
 import HeroEmptyCard from "@/components/mobile/HeroEmptyCard";
@@ -75,6 +75,25 @@ export default function MobileHomePage() {
   );
   // 兼容旧 loading flag — 仅首次 (无 cache) 时 loading
   const loading = !data && isRefreshing;
+
+  // P15 prefetch: 进 /m 时后台并行预拉其他 tab 的数据写进 cache.
+  // 用户切到 /m/meetings / /m/tasks / 等时, cache 已有 = 立刻显, 不等网络.
+  // 已有 cache 时 skip 避免重复拉.
+  useEffect(() => {
+    const tasks: Array<[string, () => Promise<unknown>]> = [
+      ["m:meetings", () => mApi.getMeetingsList()],
+      ["m:tasks", () => mApi.getTasks()],
+      ["m:agents/workboard", () => mApi.getAgentsWorkboard()],
+    ];
+    for (const [key, fn] of tasks) {
+      if (peekCache(key) !== undefined) continue;
+      void fn()
+        .then((d) => mutateCache(key, d))
+        .catch(() => {
+          // 静默 — prefetch 失败不打扰用户
+        });
+    }
+  }, []);
 
   const insightTopics = useMemo(() => {
     if (!data) return [];
