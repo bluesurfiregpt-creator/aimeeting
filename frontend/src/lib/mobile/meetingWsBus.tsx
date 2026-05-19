@@ -35,6 +35,10 @@ type Ctx = {
   conn: WsConnState;
   /** 订阅 — 返回 unsubscribe. 在 useEffect 里调. */
   subscribe: (h: Handler) => () => void;
+  /** P12 录音: 发 audio binary frame (Int16 PCM ArrayBuffer) 给后端 ASR */
+  send: (frame: ArrayBuffer) => void;
+  /** 发 JSON action (例如 {action:"stop"}, {action:"invoke_agent"}) */
+  sendJson: (payload: unknown) => void;
 };
 
 const MeetingWsContext = createContext<Ctx | null>(null);
@@ -55,6 +59,16 @@ export function MeetingWsProvider({
     return () => {
       subscribersRef.current.delete(h);
     };
+  }, []);
+
+  // P12 录音: 发 audio binary 给后端 ASR. sock 没连上时静默丢 (sttSocket 内部
+  // 有 reconnect, 录音中短暂丢几帧可接受). sendJson 走 sttSocket 的 buffer,
+  // 重连后自动 flush.
+  const send = useCallback((frame: ArrayBuffer) => {
+    sockRef.current?.send(frame);
+  }, []);
+  const sendJson = useCallback((payload: unknown) => {
+    sockRef.current?.sendJson(payload);
   }, []);
 
   useEffect(() => {
@@ -92,10 +106,19 @@ export function MeetingWsProvider({
   }, [meetingId]);
 
   return (
-    <MeetingWsContext.Provider value={{ conn, subscribe }}>
+    <MeetingWsContext.Provider value={{ conn, subscribe, send, sendJson }}>
       {children}
     </MeetingWsContext.Provider>
   );
+}
+
+/** 拿 WS send/sendJson — 录音组件用 */
+export function useMeetingWsSend() {
+  const ctx = useContext(MeetingWsContext);
+  return {
+    send: ctx?.send ?? (() => {}),
+    sendJson: ctx?.sendJson ?? (() => {}),
+  };
 }
 
 /** 订阅 WS 事件. handler 改变时会重新订阅 — 用 useCallback 包稳定. */

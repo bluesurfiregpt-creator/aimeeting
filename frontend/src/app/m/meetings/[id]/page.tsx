@@ -23,6 +23,7 @@ import StickyActionBar from "@/components/mobile/StickyActionBar";
 import SummonAgentSheet from "@/components/mobile/SummonAgentSheet";
 import ConfirmDialog from "@/components/mobile/ConfirmDialog";
 import MeetingTranscriptView from "@/components/mobile/MeetingTranscriptView";
+import MeetingRecorderControl from "@/components/mobile/MeetingRecorderControl";
 import AgendaEventBanner, {
   type BannerData,
 } from "@/components/mobile/AgendaEventBanner";
@@ -325,23 +326,40 @@ function MeetingDetailInner({ id }: { id: string }) {
             </button>
           </div>
         ) : data.is_agenda_complete ? (
-          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-5 text-center">
-            <p className="text-[15px] text-emerald-200">议程已全部完成</p>
-            <p className="mt-1 text-[13px] text-zinc-500">
-              可以结束会议, 进入沉淀复盘
-            </p>
-          </div>
+          <>
+            <MeetingRecorderControl
+              meetingOngoing={data.status === "ongoing"}
+            />
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-5 text-center">
+              <p className="text-[15px] text-emerald-200">议程已全部完成</p>
+              <p className="mt-1 text-[13px] text-zinc-500">
+                可以结束会议, 进入沉淀复盘
+              </p>
+            </div>
+          </>
         ) : data.current_topic_title ? (
-          <CurrentTopicCard
-            topicTitle={data.current_topic_title}
-            elapsedMin={data.current_topic_elapsed_min}
-            insights={data.current_topic_insights}
-            recentLines={data.current_topic_recent_lines}
-          />
+          <>
+            {/* P12: 录音控制 — ongoing 时显, 占主区域顶部黄金位 */}
+            <MeetingRecorderControl
+              meetingOngoing={data.status === "ongoing"}
+            />
+            <CurrentTopicCard
+              topicTitle={data.current_topic_title}
+              elapsedMin={data.current_topic_elapsed_min}
+              insights={data.current_topic_insights}
+              recentLines={data.current_topic_recent_lines}
+            />
+          </>
         ) : (
-          <div className="rounded-2xl border border-dashed border-zinc-800 p-5 text-center text-[14px] text-zinc-500">
-            议程还没开始 (议程项已走完入口, 或当前 idx 尚未设置)
-          </div>
+          <>
+            {/* ongoing 但 current_topic 没设 — agenda 没编辑 也算 ongoing, 用户能录音 */}
+            <MeetingRecorderControl
+              meetingOngoing={data.status === "ongoing"}
+            />
+            <div className="rounded-2xl border border-dashed border-zinc-800 p-5 text-center text-[14px] text-zinc-500">
+              议程还没开始 — 点 "推进议程" 进入第一项
+            </div>
+          </>
         )}
 
         {data.other_topics_count > 1 ? (
