@@ -231,6 +231,31 @@ export type SummonAgentOut = {
   agent_name: string;
 };
 
+// ---------- 长期记忆库 (Phase 4.4 — /m/insights 已入库 tab) ------------
+
+export type MemoryAgentBrief = {
+  id: string;
+  name: string;
+  is_primary: boolean;
+};
+
+export type MemoryOut = {
+  id: string;
+  scope: string;           // 'user' | 'project' | 'org'
+  scope_ref: string | null;
+  content: string;
+  importance: number;
+  source_type: string | null;
+  source_id: string | null;
+  agents: MemoryAgentBrief[];
+  source_meeting_id: string | null;
+  source_action_item_id: string | null;
+  source_line_ids: number[] | null;
+  curated_by_user_id: string | null;
+  curated_at: string | null;
+  created_at: string;
+};
+
 // ---------- 任务详情页 /m/tasks/[id] (Phase 4.3) -----------------------
 
 export type TaskDetailEvidenceLine = {

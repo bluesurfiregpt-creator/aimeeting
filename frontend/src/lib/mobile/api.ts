@@ -9,6 +9,7 @@ import type {
   AgentDetailOut,
   AgentsWorkboardOut,
   AIInsightFull,
+  MemoryOut,
   MobileMeetingDetail,
   MobileMeetingsListOut,
   MobileTasksOut,
@@ -124,6 +125,17 @@ export const mApi = {
       "DELETE",
       `/api/meetings/${meetingId}/actions/${actionItemId}/comments/${commentId}`,
     ),
+
+  // ===== P4.4: /m/insights 已入库 tab ======================================
+
+  /** 长期记忆库列表. 复用桌面 GET /api/memory. 可按 agent_id 筛, 默认 200 条上限. */
+  getMemories: (params?: { agent_id?: string; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.agent_id) q.set("agent_id", params.agent_id);
+    if (params?.limit) q.set("limit", String(params.limit));
+    const qs = q.toString();
+    return jget<MemoryOut[]>(`/api/memory${qs ? `?${qs}` : ""}`);
+  },
   getInsights: (params?: { by_agent?: string; by_meeting?: string; limit?: number }) => {
     const q = new URLSearchParams();
     if (params?.by_agent) q.set("by_agent", params.by_agent);
