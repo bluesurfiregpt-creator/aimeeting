@@ -23,8 +23,15 @@ import StickyActionBar from "@/components/mobile/StickyActionBar";
 import SummonAgentSheet from "@/components/mobile/SummonAgentSheet";
 import ConfirmDialog from "@/components/mobile/ConfirmDialog";
 import MeetingTranscriptView from "@/components/mobile/MeetingTranscriptView";
+import AgendaEventBanner, {
+  type BannerData,
+} from "@/components/mobile/AgendaEventBanner";
 import Toast from "@/components/mobile/Toast";
 import { mApi } from "@/lib/mobile/api";
+import {
+  MeetingWsProvider,
+  useMeetingWsEvent,
+} from "@/lib/mobile/meetingWsBus";
 import type { MobileMeetingDetail } from "@/lib/mobile/types";
 
 function isRiskInsight(insights: { type: string }[]): boolean {
@@ -36,8 +43,16 @@ export default function MobileMeetingDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const router = useRouter();
   const { id } = use(params);
+  return (
+    <MeetingWsProvider meetingId={id}>
+      <MeetingDetailInner id={id} />
+    </MeetingWsProvider>
+  );
+}
+
+function MeetingDetailInner({ id }: { id: string }) {
+  const router = useRouter();
   const [data, setData] = useState<MobileMeetingDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,6 +64,8 @@ export default function MobileMeetingDetailPage({
   const [ending, setEnding] = useState(false);
   // P5A: 转录折叠区展开状态 — 展开才 lazy 加载完整转录
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  // P5B: 议程事件 banner (off_topic / time_warning / stuck), 同时一个 slot
+  const [banner, setBanner] = useState<BannerData | null>(null);
   const [toast, setToast] = useState<{
     kind: "success" | "error";
     text: string;
@@ -79,7 +96,10 @@ export default function MobileMeetingDetailPage({
     }
   }, [advancing, id, reload]);
 
-  /** 召 AI: 弹 sheet 选 agent → submit → 调 API → reload → toast */
+  /** 召 AI: 弹 sheet 选 agent → submit → 调 API → toast.
+   *  P5B: 不再 setTimeout reload — WS 自动推 agent_message_chunk 实时 streaming
+   *  显示在转录区. 用户展开转录折叠即可看 AI 打字.
+   */
   const handleSummonSubmit = useCallback(
     async (agentId: string, query: string) => {
       if (summoning) return;
@@ -89,12 +109,8 @@ export default function MobileMeetingDetailPage({
         setSummonOpen(false);
         setToast({
           kind: "success",
-          text: `已请 ${res.agent_name} 发言, 几秒后刷新看回复`,
+          text: `已请 ${res.agent_name} 发言, 转录区可看实时打字`,
         });
-        // 后端 fire-and-forget, 几秒后 AI 回复进 DB. 延迟 reload 拿新内容.
-        setTimeout(() => {
-          reload();
-        }, 4000);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         setToast({ kind: "error", text: `召 AI 失败: ${msg}` });
@@ -102,7 +118,7 @@ export default function MobileMeetingDetailPage({
         setSummoning(false);
       }
     },
-    [summoning, id, reload],
+    [summoning, id],
   );
 
   /** 结束会议: 弹 confirm → 确认 → 调 finalize → 回 /m + toast */
@@ -124,6 +140,50 @@ export default function MobileMeetingDetailPage({
       setEnding(false);
     }
   }, [ending, id, router]);
+
+  // P5B: WS 订阅 — agenda 事件 banner + agenda_advanced 静默 reload
+  const handleWsEvent = useCallback(
+    (e: import("@/lib/sttSocket").SttEvent) => {
+      switch (e.type) {
+        case "agenda_advanced":
+          // 议程被推进 (可能是别人推的) — 静默 reload
+          void reload();
+          if (e.is_complete) {
+            setToast({ kind: "success", text: "议程已全部走完" });
+          }
+          break;
+        case "agenda_off_topic":
+          setBanner({
+            kind: "off_topic",
+            title: "议题似乎跑偏了",
+            body:
+              e.off_topic_summary ||
+              `当前议题: ${e.current_agenda_item || "(未指定)"}`,
+            severity: e.off_topic_severity,
+          });
+          break;
+        case "agenda_time_warning":
+          setBanner({
+            kind: "time_warning",
+            title: `时间快用完 (已 ${e.elapsed_min} 分钟)`,
+            body: e.time_warning_text,
+          });
+          break;
+        case "agenda_stuck":
+          setBanner({
+            kind: "stuck",
+            title: "议题卡住了",
+            body: e.stuck_summary,
+          });
+          break;
+        default:
+          // 其他事件 (transcript_persisted / agent_message_*) 由 TranscriptView 处理
+          break;
+      }
+    },
+    [reload],
+  );
+  useMeetingWsEvent(handleWsEvent);
 
   useEffect(() => {
     let alive = true;
@@ -210,6 +270,11 @@ export default function MobileMeetingDetailPage({
         currentIdx={data.current_agenda_idx}
         isComplete={data.is_agenda_complete}
       />
+
+      {/* ===== P5B: WS 议程事件 banner ========================== */}
+      {banner ? (
+        <AgendaEventBanner data={banner} onDismiss={() => setBanner(null)} />
+      ) : null}
 
       {/* ===== 主区域 — 当前议题 + 折叠其他 ================== */}
       <main className="flex-1 space-y-4 p-4 pb-4">

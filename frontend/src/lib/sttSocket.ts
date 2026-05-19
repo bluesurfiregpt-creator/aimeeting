@@ -20,6 +20,11 @@ export type TranscriptPersistedEvent = {
   line_id: number;
   start_ms: number | null;
   end_ms: number | null;
+  // v27.0-mobile P5B: 加 text + speaker_name + speaker_status, 让 viewer (mobile)
+  // 不靠 interim 上下文也能直接 append 实时行. 桌面端旧逻辑忽略这些字段.
+  text?: string;
+  speaker_name?: string | null;
+  speaker_status?: string | null;
 };
 
 export type AgentMessageStartEvent = {

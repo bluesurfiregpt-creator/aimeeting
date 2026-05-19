@@ -229,10 +229,15 @@ async def ws_stt(ws: WebSocket):
                 await db.commit()
 
     async def push_agent_event(payload: dict) -> None:
+        # v27.0-mobile P5B: 从 ws.send_text 升级为 broadcast 让 viewer (mobile)
+        # 也能收到 AI 发言流 + 议程监控事件 (off_topic / time_warning / stuck 等).
+        # 老的 recorder 仍在 client 列表里, 行为不变.
+        if meeting_uuid is None:
+            return
         try:
-            await ws.send_text(json.dumps(payload, ensure_ascii=False))
+            await session_state.broadcast(meeting_uuid, payload)
         except Exception:
-            logger.exception("ws agent event send failed")
+            logger.exception("ws agent event broadcast failed")
 
     async def emit(
         text: str,
@@ -284,20 +289,39 @@ async def ws_stt(ws: WebSocket):
             # Tell the frontend which DB row this finalized sentence ended up
             # at, so the meeting page can attach the correction UI to it
             # without having to wait for /result polling at meeting end.
-            if line_id is not None:
+            #
+            # v27.0-mobile P5B: 改成 broadcast (从 ws.send_text 升级), 让 mobile
+            # 等只读 viewer 也能实时拿到; 同时 payload 加 text + speaker_name —
+            # mobile 没 interim 上下文, 必须 server 直接给全.
+            if line_id is not None and meeting_uuid is not None:
+                # 解析 speaker_name — 若 speaker_user_id 已绑直接查; 否则 label fallback.
+                speaker_name: str | None = None
+                if speaker_user_id is not None:
+                    try:
+                        async with SessionLocal() as db:
+                            from .models import User as _UserModel
+                            speaker_name = (
+                                await db.execute(
+                                    select(_UserModel.name).where(_UserModel.id == speaker_user_id)
+                                )
+                            ).scalar()
+                    except Exception:
+                        logger.exception("resolve speaker_name failed")
                 try:
-                    await ws.send_text(
-                        json.dumps(
-                            {
-                                "type": "transcript_persisted",
-                                "line_id": line_id,
-                                "start_ms": int(start_ts) if start_ts is not None else None,
-                                "end_ms": int(end_ts) if end_ts is not None else None,
-                            }
-                        )
+                    await session_state.broadcast(
+                        meeting_uuid,
+                        {
+                            "type": "transcript_persisted",
+                            "line_id": line_id,
+                            "start_ms": int(start_ts) if start_ts is not None else None,
+                            "end_ms": int(end_ts) if end_ts is not None else None,
+                            "text": text,
+                            "speaker_name": speaker_name,
+                            "speaker_status": speaker_status,
+                        },
                     )
                 except Exception:
-                    logger.exception("ws transcript_persisted send failed")
+                    logger.exception("ws transcript_persisted broadcast failed")
             # Fire-and-forget agent invocation. Errors inside are already
             # logged + relayed as a chunk message; we don't want to block
             # the next ASR sentence on Dify latency.
