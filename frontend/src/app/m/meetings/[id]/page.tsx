@@ -248,7 +248,10 @@ function MeetingDetailInner({ id }: { id: string }) {
   const hasRisk = isRiskInsight(data.current_topic_insights);
 
   return (
-    <div className="flex min-h-full flex-col">
+    /* P13 fix: fixed inset-0 接管整个 viewport, 不嵌 layout 的 main scroll.
+       避免 scrollIntoView 滚错层级把底部 sticky 推走.
+       覆盖 BottomNav (用户在会议室内不需要切别的 tab, 沉浸式). */
+    <div className="fixed inset-0 z-30 flex flex-col bg-ink-950 text-zinc-100">
       {/* ===== 会议 head — 返 + title + 状态 ===================== */}
       <div
         className="border-b border-ink-800 bg-ink-950/80 px-4 pb-3 backdrop-blur"

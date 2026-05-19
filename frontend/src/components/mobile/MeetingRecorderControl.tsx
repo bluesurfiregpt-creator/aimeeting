@@ -1,26 +1,20 @@
 "use client";
 
 /**
- * v27.0-mobile P12 · 手机端录音控制 — 让 mobile 真能开会, 不只 viewer.
+ * v27.0-mobile P14 · 自动录音 + 闭麦切换.
  *
- * 复用桌面端 startAudioCapture (16kHz mono Int16 PCM), 复用 mobile 已有的
- * MeetingWsProvider (WS to /ws/stt). audio binary 通过 WS 发, 后端 FunASR
- * ASR → transcript_persisted 事件广播回所有客户端 (含 mobile 自己),
- * P5B 的 MeetingTranscriptView 实时显.
+ * 用户反馈: "不需要开始录音按钮, 只要开始会议 / 结束会议 / 闭麦"
+ * → 进 ongoing 会议自动获取麦克风 + 持续录音
+ * → 暴露的控制只有: 闭麦 (pause) / 开麦 (resume) / 重试 (error 时)
  *
- * 状态:
- *   idle      — 没录音. 显 "🎙 开始录音" 蓝色按钮
- *   requesting — 拿麦克风权限中. 显 loading
- *   live      — 录音中. 显红色脉动 ● + 计时 + "停止" 按钮
- *   error     — 麦克风拒绝/不可用. 显错误 + 重试 / 知道了
+ * 状态机 (自动驱动):
+ *   - meetingOngoing=false → 不渲 (隐藏)
+ *   - 默认 micOn: 进 ongoing 时 useEffect 自动 startAudioCapture
+ *   - 用户点 [闭麦]: cap.stop() 释放 mic, 显 "🔇 已闭麦"
+ *   - 用户点 [开麦]: 重新 startAudioCapture
+ *   - 麦克风错误 (权限拒绝等): 显 "麦克风失败 [重试]"
  *
- * 录音逻辑:
- *   - start: startAudioCapture(sink) → 拿到 PCM ArrayBuffer 帧 → sendBinary 到 WS
- *   - stop: capture.stop() 释放 mic + AudioContext + sendJson({action:"stop"}) 通知后端
- *
- * 安全:
- *   - getUserMedia 需要 HTTPS (生产已是)
- *   - 麦权限被拒绝时 显友好提示, 不阻塞用户 用其他功能 (召 AI / 推议程)
+ * audio sink: 每帧 PCM ArrayBuffer 发到 WS — 跟 P12 一样
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -31,7 +25,7 @@ import {
 } from "@/lib/audioCapture";
 import { useMeetingWsConn, useMeetingWsSend } from "@/lib/mobile/meetingWsBus";
 
-type RecState = "idle" | "requesting" | "live" | "error";
+type MicState = "micOn" | "micOff" | "error" | "starting";
 
 function fmtElapsed(secs: number): string {
   const m = Math.floor(secs / 60);
@@ -42,31 +36,30 @@ function fmtElapsed(secs: number): string {
 export default function MeetingRecorderControl({
   meetingOngoing,
 }: {
-  /** 仅 ongoing 会议才显完整 UI; scheduled / finished 隐藏 */
   meetingOngoing: boolean;
 }) {
-  const [state, setState] = useState<RecState>("idle");
+  const [state, setState] = useState<MicState>("starting");
   const [errorMsg, setErrorMsg] = useState<string>("");
-  const [elapsed, setElapsed] = useState(0);  // 录音已多少秒
+  const [elapsed, setElapsed] = useState(0);
   const captureRef = useRef<AudioCaptureHandle | null>(null);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const { send, sendJson } = useMeetingWsSend();
+  const { send } = useMeetingWsSend();
   const conn = useMeetingWsConn();
+  // 防止 useEffect strict mode double-mount 导致重复 startAudioCapture
+  const startingRef = useRef(false);
 
-  // 启动录音
-  const handleStart = useCallback(async () => {
-    if (state === "live" || state === "requesting") return;
-    setState("requesting");
+  const startCapture = useCallback(async () => {
+    if (captureRef.current || startingRef.current) return;
+    startingRef.current = true;
+    setState("starting");
     setErrorMsg("");
     try {
       const cap = await startAudioCapture((frame: ArrayBuffer) => {
-        // 每帧 PCM (4096 samples × Int16 = 8192 bytes) 走 ws binary
         send(frame);
       });
       captureRef.current = cap;
-      setState("live");
+      setState("micOn");
       setElapsed(0);
-      // 计时器
       if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
       elapsedTimerRef.current = setInterval(() => {
         setElapsed((s) => s + 1);
@@ -80,11 +73,12 @@ export default function MeetingRecorderControl({
           : String(e);
       setErrorMsg(msg);
       setState("error");
+    } finally {
+      startingRef.current = false;
     }
-  }, [state, send]);
+  }, [send]);
 
-  // 停止录音 (不结束会议, 只是 mic stop, 让用户能再次 start)
-  const handleStop = useCallback(async () => {
+  const stopCapture = useCallback(async () => {
     const cap = captureRef.current;
     captureRef.current = null;
     if (elapsedTimerRef.current) {
@@ -95,64 +89,64 @@ export default function MeetingRecorderControl({
       try {
         await cap.stop();
       } catch {
-        // 释放失败也继续 UI 回到 idle
+        // 忽略
       }
     }
-    // 不发 {action:"stop"} — 那会让后端 break ws loop, 影响其他订阅者收事件
-    // mobile recorder 停 只代表"暂停麦克风", 不代表会议结束.
-    // 真要结束会议走 sticky bar 的 "结束会议" 按钮 (P4.2 finalize endpoint).
-    setState("idle");
-    setElapsed(0);
   }, []);
+
+  // mount 时 (meetingOngoing && conn=connected) 自动开始录音
+  useEffect(() => {
+    if (!meetingOngoing) {
+      return;
+    }
+    if (conn !== "connected") {
+      // ws 还没连上, 等连接好再启动
+      return;
+    }
+    // strict-mode safe: startCapture 自己 guard
+    void startCapture();
+  }, [meetingOngoing, conn, startCapture]);
 
   // unmount 时释放 mic
   useEffect(() => {
     return () => {
-      void captureRef.current?.stop().catch(() => {});
-      captureRef.current = null;
-      if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+      void stopCapture();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (!meetingOngoing) {
-    return null;
-  }
+  // 闭麦 / 开麦 toggle
+  const handleToggleMute = useCallback(async () => {
+    if (state === "micOn") {
+      await stopCapture();
+      setState("micOff");
+    } else if (state === "micOff") {
+      void startCapture();
+    } else if (state === "error") {
+      void startCapture();
+    }
+  }, [state, startCapture, stopCapture]);
 
-  // ===== Render — 紧凑一行式 (sticky bar 装得下) =====
-  // 文案精简到最少, 一行内说清, 大按钮在右侧.
-  if (state === "idle") {
+  if (!meetingOngoing) return null;
+
+  // ===== Render — 一行紧凑 =====
+  if (state === "starting") {
     return (
-      <div className="flex items-center gap-3" data-testid="mobile-recorder-idle">
-        <span className="text-[18px]">🎙</span>
-        <p className="min-w-0 flex-1 truncate text-[14px] text-zinc-300">
-          点右侧开始 — 你说话 AI 自动转文字
-        </p>
-        <button
-          type="button"
-          onClick={handleStart}
-          disabled={conn !== "connected"}
-          className="shrink-0 inline-flex h-10 items-center justify-center rounded-lg bg-accent-500 px-4 text-[14px] font-medium text-white shadow-md shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 disabled:opacity-50"
-          data-testid="mobile-recorder-start"
-        >
-          {conn !== "connected" ? "连接中…" : "开始录音"}
-        </button>
+      <div
+        className="flex items-center gap-3 text-[14px] text-zinc-400"
+        data-testid="mobile-recorder-starting"
+      >
+        <span>⏳</span>
+        <span>启动麦克风… (请允许浏览器权限)</span>
       </div>
     );
   }
 
-  if (state === "requesting") {
-    return (
-      <div className="flex items-center gap-3 text-[14px] text-accent-200">
-        <span>⏳ 请允许麦克风…</span>
-      </div>
-    );
-  }
-
-  if (state === "live") {
+  if (state === "micOn") {
     return (
       <div
         className="flex items-center gap-3"
-        data-testid="mobile-recorder-live"
+        data-testid="mobile-recorder-mic-on"
       >
         <span className="relative inline-flex h-3 w-3 shrink-0">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
@@ -166,26 +160,49 @@ export default function MeetingRecorderControl({
         </p>
         <button
           type="button"
-          onClick={handleStop}
-          className="shrink-0 inline-flex h-10 items-center justify-center rounded-lg border border-rose-500/40 bg-ink-950/60 px-4 text-[14px] font-medium text-rose-200 active:scale-[0.98] active:bg-rose-500/[0.15]"
-          data-testid="mobile-recorder-stop"
+          onClick={handleToggleMute}
+          className="shrink-0 inline-flex h-10 items-center justify-center gap-1 rounded-lg border border-rose-500/40 bg-ink-950/60 px-4 text-[14px] font-medium text-rose-200 active:scale-[0.98]"
+          data-testid="mobile-recorder-mute"
         >
-          停止
+          🔇 闭麦
         </button>
       </div>
     );
   }
 
-  // error — 紧凑双行 (错误信息可能较长)
+  if (state === "micOff") {
+    return (
+      <div
+        className="flex items-center gap-3"
+        data-testid="mobile-recorder-mic-off"
+      >
+        <span className="text-[16px] text-zinc-500">🔇</span>
+        <p className="min-w-0 flex-1 text-[14px] text-zinc-400">
+          <span className="font-medium">已闭麦</span>
+          <span className="ml-2 text-zinc-500">点右侧恢复</span>
+        </p>
+        <button
+          type="button"
+          onClick={handleToggleMute}
+          className="shrink-0 inline-flex h-10 items-center justify-center gap-1 rounded-lg bg-accent-500 px-4 text-[14px] font-medium text-white shadow-md active:scale-[0.98] active:bg-accent-600"
+          data-testid="mobile-recorder-unmute"
+        >
+          🎙 开麦
+        </button>
+      </div>
+    );
+  }
+
+  // error
   return (
     <div data-testid="mobile-recorder-error">
       <div className="flex items-baseline gap-2">
         <span className="shrink-0 text-[14px] font-medium text-amber-200">
-          ⚠ 麦克风启动失败
+          ⚠ 麦克风失败
         </span>
         <button
           type="button"
-          onClick={handleStart}
+          onClick={handleToggleMute}
           className="ml-auto shrink-0 text-[13px] font-medium text-amber-300 active:text-amber-200"
         >
           重试 →

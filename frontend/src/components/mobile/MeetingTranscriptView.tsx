@@ -244,24 +244,35 @@ export default function MeetingTranscriptView({
   // 订阅总线
   useMeetingWsEvent(handleEvent);
 
-  // 自动滚到底 (仅当用户已经在底)
+  // P14: 用 IntersectionObserver 跟踪底部 anchor 可见 → autoScroll on
+  // 之前用 onScroll 监听 listRef.parentElement, 但 page 改 fixed inset-0 后
+  // 滚动容器是 main 而不是 inner div, onScroll 不触发. 改 IO 跟容器无关.
+  const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const anchor = bottomAnchorRef.current;
+    if (!anchor) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          // 底部 anchor 在视野内 → 用户在底, 允许 auto scroll
+          autoScrollRef.current = entry.isIntersecting;
+        }
+      },
+      { threshold: 0.1 },
+    );
+    io.observe(anchor);
+    return () => io.disconnect();
+  }, []);
+
+  // 自动滚到底 (仅当用户已经在底, 即 bottomAnchor 可见)
   useEffect(() => {
     if (!autoScrollRef.current) return;
-    const el = listRef.current;
-    if (!el) return;
-    // delay 一帧让 DOM 更新
+    const anchor = bottomAnchorRef.current;
+    if (!anchor) return;
     requestAnimationFrame(() => {
-      el.scrollIntoView({ block: "end", behavior: "smooth" });
+      anchor.scrollIntoView({ block: "end", behavior: "smooth" });
     });
   }, [lines.length]);
-
-  // 监听用户滚动 — 若离底 > 80px 视为"上滑阅读历史", 暂停自动滚
-  const onScroll = useCallback(() => {
-    const el = listRef.current?.parentElement;
-    if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    autoScrollRef.current = distFromBottom < 80;
-  }, []);
 
   if (loading && lines.length === 0) {
     return (
@@ -289,7 +300,7 @@ export default function MeetingTranscriptView({
   }
 
   return (
-    <div className="px-4 pt-3 pb-4" onScroll={onScroll}>
+    <div className="px-4 pt-3 pb-4">
       {/* 微缩 meta 行: WS 状态点 + 计数 (无刷新按钮 — WS 实时, 不需要)
           仅在有内容时显示, 不占主屏黄金位 */}
       {meta && lines.length > 0 ? (
@@ -320,6 +331,9 @@ export default function MeetingTranscriptView({
           ))}
         </ol>
       )}
+
+      {/* 底部 anchor — IntersectionObserver 跟踪是否可见, 决定 autoScroll 开关 */}
+      <div ref={bottomAnchorRef} className="h-1" aria-hidden="true" />
     </div>
   );
 }
