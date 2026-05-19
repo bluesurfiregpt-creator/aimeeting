@@ -151,6 +151,13 @@ export const mApi = {
   createMeeting: (payload: CreateMeetingIn) =>
     jsend<CreateMeetingOut>("POST", "/api/meetings", payload),
 
+  /** v27.0-mobile P9: scheduled → ongoing. 桌面 ws auto-trigger, mobile 显式 */
+  startMeeting: (meetingId: string) =>
+    jsend<{ meeting_id: string; status: string; started_at: string | null }>(
+      "POST",
+      `/api/m/meetings/${meetingId}/start`,
+    ),
+
   // ===== 长期记忆库 (P4.4) ================================================
 
   /** 长期记忆库列表. 复用桌面 GET /api/memory. 可按 agent_id 筛, 默认 200 条上限. */

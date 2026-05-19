@@ -694,6 +694,54 @@ class SummonAgentOut(BaseModel):
     agent_name: str
 
 
+class StartMeetingOut(BaseModel):
+    meeting_id: uuid.UUID
+    status: str
+    started_at: Optional[datetime] = None
+
+
+@router.post("/meetings/{meeting_id}/start", response_model=StartMeetingOut)
+async def start_mobile_meeting(
+    meeting_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v27.0-mobile P9: 把会议从 scheduled → ongoing.
+
+    桌面端是 WS connect 时自动改, mobile 端需要 explicit endpoint
+    (避免依赖 WS 副作用, 创建后立即开始体验更顺).
+
+    校验:
+      - 会议在当前 workspace
+      - 当前 status=scheduled (ongoing 时 no-op 返当前状态)
+    """
+    m = (
+        await session.execute(
+            select(Meeting).where(
+                Meeting.id == meeting_id,
+                Meeting.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not m:
+        raise HTTPException(404, "meeting not found")
+    if m.status in ("finished", "processed", "cancelled"):
+        raise HTTPException(
+            400,
+            f"meeting status is {m.status}, can not start finished/processed meeting",
+        )
+    if m.status == "scheduled":
+        m.status = "ongoing"
+        m.started_at = datetime.now(timezone.utc)
+        await session.commit()
+        await session.refresh(m)
+    return StartMeetingOut(
+        meeting_id=m.id,
+        status=m.status,
+        started_at=m.started_at,
+    )
+
+
 @router.post("/meetings/{meeting_id}/summon", response_model=SummonAgentOut)
 async def summon_agent_in_meeting(
     meeting_id: uuid.UUID,

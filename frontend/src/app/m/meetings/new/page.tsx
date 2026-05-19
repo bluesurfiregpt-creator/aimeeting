@@ -166,6 +166,15 @@ export default function NewMeetingPage() {
         agenda: cleanedAgenda,
         mode,
       });
+
+      // P9 立即开始会议 (scheduled → ongoing). 用户体感 "创建即开始" 一气呵成.
+      // 若 start 失败 不阻塞 — 详情页有 fallback 按钮兜底.
+      try {
+        await mApi.startMeeting(out.id);
+      } catch {
+        // silent; detail page 仍可手动开始
+      }
+
       // 让会议列表下次切到时重拉
       invalidateCache("m:meetings");
       invalidateCache("m:workbench");

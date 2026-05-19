@@ -57,6 +57,7 @@ function MeetingDetailInner({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [advancing, setAdvancing] = useState(false);
+  const [starting, setStarting] = useState(false);
   // P4.2: 召 AI sheet + 结束会议 dialog
   const [summonOpen, setSummonOpen] = useState(false);
   const [summoning, setSummoning] = useState(false);
@@ -95,6 +96,22 @@ function MeetingDetailInner({ id }: { id: string }) {
       setAdvancing(false);
     }
   }, [advancing, id, reload]);
+
+  /** P9: scheduled → ongoing — 把还在预约的会议正式开始 */
+  const handleStart = useCallback(async () => {
+    if (starting) return;
+    setStarting(true);
+    try {
+      await mApi.startMeeting(id);
+      await reload();
+      setToast({ kind: "success", text: "会议已开始" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ kind: "error", text: `开始失败: ${msg}` });
+    } finally {
+      setStarting(false);
+    }
+  }, [starting, id, reload]);
 
   /** 召 AI: 弹 sheet 选 agent → submit → 调 API → toast.
    *  P5B: 不再 setTimeout reload — WS 自动推 agent_message_chunk 实时 streaming
@@ -281,7 +298,33 @@ function MeetingDetailInner({ id }: { id: string }) {
 
       {/* ===== 主区域 — 当前议题 + 折叠其他 ================== */}
       <main className="flex-1 space-y-4 p-4 pb-4">
-        {data.is_agenda_complete ? (
+        {/* P9 fallback: scheduled 状态 — 显著放 "开始会议" 按钮.
+            正常情况下 创建会议时 自动调过 start, status 已 ongoing.
+            但如果 start 调用失败, 这里兜底 让用户手动点. */}
+        {data.status === "scheduled" ? (
+          <div className="rounded-2xl border border-accent-500/40 bg-accent-500/[0.08] p-5 text-center">
+            <p className="text-[16px] font-medium text-accent-200">
+              会议还没开始
+            </p>
+            <p className="mt-2 text-[14px] text-zinc-400 leading-relaxed">
+              点下方按钮把会议状态切到「进行中」, AI 召唤 / 议程推进 等功能就能用了.
+              <br />
+              {/* 录音说明: mobile 端目前不录音, 桌面端开始录音 mobile 看实时转录 */}
+              <span className="text-[13px] text-zinc-500">
+                注: 手机端目前不录音, 录音功能在桌面端
+              </span>
+            </p>
+            <button
+              type="button"
+              onClick={handleStart}
+              disabled={starting}
+              className="mt-4 flex h-12 w-full items-center justify-center rounded-xl bg-accent-500 px-4 text-[15px] font-medium text-white shadow-lg shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 disabled:opacity-60"
+              data-testid="mobile-start-meeting"
+            >
+              {starting ? "开始中…" : "开始会议"}
+            </button>
+          </div>
+        ) : data.is_agenda_complete ? (
           <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-5 text-center">
             <p className="text-[15px] text-emerald-200">议程已全部完成</p>
             <p className="mt-1 text-[13px] text-zinc-500">
@@ -297,7 +340,7 @@ function MeetingDetailInner({ id }: { id: string }) {
           />
         ) : (
           <div className="rounded-2xl border border-dashed border-zinc-800 p-5 text-center text-[14px] text-zinc-500">
-            议程还没开始
+            议程还没开始 (议程项已走完入口, 或当前 idx 尚未设置)
           </div>
         )}
 
