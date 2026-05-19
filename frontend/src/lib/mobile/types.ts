@@ -124,6 +124,43 @@ export type AgentsWorkboardOut = {
   agents: AgentWorkCard[];
 };
 
+// ---------- 单专家详情页 (Phase 3) ---------------------------------------
+
+export type AgentDetailMeetingItem = {
+  meeting_id: string;
+  title: string;
+  status: string;
+  started_at: string | null;
+  ended_at: string | null;
+  insights_count: number;
+};
+
+export type AgentDetailTaskItem = {
+  task_id: string;
+  title: string;
+  status: string; // open|dispatched|accepted|in_progress|submitted|done|archived|cancelled
+  due_at: string | null;
+  is_overdue: boolean;
+  source_meeting_id: string | null;
+  source_meeting_title: string | null;
+  created_at: string;
+};
+
+export type AgentDetailOut = {
+  agent_id: string;
+  name: string;
+  nickname: string | null;
+  domain: string | null;
+  color: string | null;
+  role: string;
+  total_meetings: number;
+  total_insights: number;
+  last_active: string | null;
+  meetings: AgentDetailMeetingItem[];
+  tasks: AgentDetailTaskItem[];
+  insights: AIInsightFull[];
+};
+
 // ---------- 任务闭环视图 -----------------------------------------------
 
 export type MobileTaskKind = "confirm" | "approve_draft" | "tracking" | "done";

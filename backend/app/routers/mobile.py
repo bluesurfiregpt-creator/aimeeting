@@ -946,3 +946,263 @@ async def list_insights(
         )
         for ins, a_name, a_nick, m_title in rows
     ]
+
+
+# ============================================================================
+# /api/m/agents/{agent_id} — 单专家详情聚合 (Phase 3)
+# ============================================================================
+#
+# 工卡点击后的展开页. 三段:
+#   1. 顶部档案 (name / domain / 累计 / last_active)
+#   2. 会议 — 所有参加过的会议 (带 该专家在此会的 insight 计数)
+#   3. 任务 — 所有归属任务 (Task.assignee_agent_id), 按状态分组
+#   4. 智囊 — 该专家产出的 AIInsight (按时间倒序)
+
+class AgentDetailMeetingItem(BaseModel):
+    meeting_id: uuid.UUID
+    title: str
+    status: str
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    insights_count: int = 0  # 该专家在此会议产出的 insight 数
+
+
+class AgentDetailTaskItem(BaseModel):
+    task_id: uuid.UUID
+    title: str           # task.title or content 前 40 字
+    status: str          # open|dispatched|accepted|in_progress|submitted|done|archived|cancelled
+    due_at: Optional[datetime] = None
+    is_overdue: bool = False
+    source_meeting_id: Optional[uuid.UUID] = None
+    source_meeting_title: Optional[str] = None
+    created_at: datetime
+
+
+class AgentDetailOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    # 档案
+    agent_id: uuid.UUID
+    name: str
+    nickname: Optional[str] = None
+    domain: Optional[str] = None
+    color: Optional[str] = None
+    role: str
+    # 累计
+    total_meetings: int = 0
+    total_insights: int = 0
+    last_active: Optional[datetime] = None
+    # 三段
+    meetings: list[AgentDetailMeetingItem] = []
+    tasks: list[AgentDetailTaskItem] = []
+    insights: list[AIInsightFull] = []
+
+
+@router.get("/agents/{agent_id}", response_model=AgentDetailOut)
+async def get_agent_detail(
+    agent_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """单专家详情 — 工卡点开后看的展开页. 一次聚合返回三段."""
+    ws_id = auth.workspace.id
+    now = datetime.now(timezone.utc)
+
+    # 1. 找到 agent, 验 workspace 归属
+    a = (
+        await session.execute(
+            select(Agent).where(Agent.id == agent_id, Agent.workspace_id == ws_id)
+        )
+    ).scalar_one_or_none()
+    if a is None:
+        raise HTTPException(404, "agent not found in workspace")
+
+    # 2. 参与的会议 (从 MeetingAttendee join) + 每场该 agent 的 insight 计数
+    from ..models import MeetingAttendee, Task as TaskModel
+
+    meeting_rows = (
+        await session.execute(
+            select(Meeting.id, Meeting.title, Meeting.status,
+                   Meeting.started_at, Meeting.ended_at)
+            .join(MeetingAttendee, MeetingAttendee.meeting_id == Meeting.id)
+            .where(
+                MeetingAttendee.agent_id == agent_id,
+                Meeting.workspace_id == ws_id,
+            )
+            .order_by(desc(Meeting.started_at))
+            .limit(50)
+        )
+    ).all()
+
+    # 一次性查 该 agent 在所有这些会议的 insight 计数
+    meeting_ids = [r[0] for r in meeting_rows]
+    insights_per_meeting: dict[uuid.UUID, int] = {}
+    if meeting_ids:
+        cnt_rows = (
+            await session.execute(
+                select(AIInsight.meeting_id, func.count(AIInsight.id))
+                .where(
+                    AIInsight.agent_id == agent_id,
+                    AIInsight.meeting_id.in_(meeting_ids),
+                )
+                .group_by(AIInsight.meeting_id)
+            )
+        ).all()
+        insights_per_meeting = {mid: int(c) for mid, c in cnt_rows}
+
+    meetings = [
+        AgentDetailMeetingItem(
+            meeting_id=r[0],
+            title=r[1] or "(未命名)",
+            status=r[2],
+            started_at=r[3],
+            ended_at=r[4],
+            insights_count=insights_per_meeting.get(r[0], 0),
+        )
+        for r in meeting_rows
+    ]
+
+    # 3. 归属任务 (Task.assignee_agent_id = agent_id)
+    task_rows = (
+        await session.execute(
+            select(
+                TaskModel.id, TaskModel.title, TaskModel.content,
+                TaskModel.status, TaskModel.due_at, TaskModel.created_at,
+                TaskModel.source_ref,
+            )
+            .where(
+                TaskModel.workspace_id == ws_id,
+                TaskModel.assignee_agent_id == agent_id,
+            )
+            .order_by(desc(TaskModel.created_at))
+            .limit(100)
+        )
+    ).all()
+
+    # 提取 source_meeting_id 集合, 一次性 lookup titles
+    OPEN_STATES = {"open", "dispatched", "accepted", "in_progress", "submitted"}
+    source_meeting_ids: set[uuid.UUID] = set()
+    for r in task_rows:
+        sref = r[6]  # source_ref JSON
+        if isinstance(sref, dict):
+            mid = sref.get("meeting_id")
+            if mid:
+                try:
+                    source_meeting_ids.add(uuid.UUID(mid) if isinstance(mid, str) else mid)
+                except (ValueError, TypeError):
+                    pass
+    title_map: dict[uuid.UUID, str] = {}
+    if source_meeting_ids:
+        t_rows = (
+            await session.execute(
+                select(Meeting.id, Meeting.title).where(
+                    Meeting.id.in_(source_meeting_ids)
+                )
+            )
+        ).all()
+        title_map = {tid: t or "(未命名)" for tid, t in t_rows}
+
+    tasks: list[AgentDetailTaskItem] = []
+    for r in task_rows:
+        task_id, title, content, status, due_at, created_at, sref = r
+        sm_id: Optional[uuid.UUID] = None
+        if isinstance(sref, dict) and sref.get("meeting_id"):
+            try:
+                raw = sref["meeting_id"]
+                sm_id = uuid.UUID(raw) if isinstance(raw, str) else raw
+            except (ValueError, TypeError):
+                sm_id = None
+        display_title = title or (content[:40] if content else "(未命名任务)")
+        is_overdue = (
+            status in OPEN_STATES
+            and due_at is not None
+            and due_at < now
+        )
+        tasks.append(AgentDetailTaskItem(
+            task_id=task_id,
+            title=display_title,
+            status=status,
+            due_at=due_at,
+            is_overdue=is_overdue,
+            source_meeting_id=sm_id,
+            source_meeting_title=title_map.get(sm_id) if sm_id else None,
+            created_at=created_at,
+        ))
+
+    # 4. 智囊 — 该专家所有 AIInsight (限 50)
+    ins_rows = (
+        await session.execute(
+            select(AIInsight, Meeting.title)
+            .join(Meeting, Meeting.id == AIInsight.meeting_id)
+            .where(
+                AIInsight.workspace_id == ws_id,
+                AIInsight.agent_id == agent_id,
+            )
+            .order_by(desc(AIInsight.created_at))
+            .limit(50)
+        )
+    ).all()
+    insights = [
+        AIInsightFull(
+            id=ins.id, agent_id=ins.agent_id,
+            agent_name=a.name, agent_nickname=a.nickname,
+            type=ins.type, content=ins.content, evidence=ins.evidence,
+            meeting_id=ins.meeting_id, meeting_title=m_title,
+            topic_idx=ins.topic_idx,
+            source_message_id=ins.source_message_id,
+            created_at=ins.created_at,
+        )
+        for ins, m_title in ins_rows
+    ]
+
+    # 5. 累计统计 + last_active
+    total_meetings = (
+        await session.execute(
+            select(func.count(MeetingAttendee.id))
+            .where(MeetingAttendee.agent_id == agent_id)
+        )
+    ).scalar() or 0
+    total_insights = (
+        await session.execute(
+            select(func.count(AIInsight.id))
+            .where(
+                AIInsight.workspace_id == ws_id,
+                AIInsight.agent_id == agent_id,
+            )
+        )
+    ).scalar() or 0
+
+    last_meeting_t = (
+        await session.execute(
+            select(func.max(Meeting.started_at))
+            .join(MeetingAttendee, MeetingAttendee.meeting_id == Meeting.id)
+            .where(MeetingAttendee.agent_id == agent_id)
+        )
+    ).scalar()
+    last_insight_t = (
+        await session.execute(
+            select(func.max(AIInsight.created_at))
+            .where(AIInsight.agent_id == agent_id)
+        )
+    ).scalar()
+    last_active: Optional[datetime] = None
+    if last_meeting_t and last_insight_t:
+        last_active = max(last_meeting_t, last_insight_t)
+    elif last_meeting_t:
+        last_active = last_meeting_t
+    elif last_insight_t:
+        last_active = last_insight_t
+
+    return AgentDetailOut(
+        agent_id=a.id,
+        name=a.name,
+        nickname=a.nickname,
+        domain=a.domain,
+        color=a.color,
+        role=a.role,
+        total_meetings=int(total_meetings),
+        total_insights=int(total_insights),
+        last_active=last_active,
+        meetings=meetings,
+        tasks=tasks,
+        insights=insights,
+    )

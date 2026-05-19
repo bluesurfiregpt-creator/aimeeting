@@ -14,6 +14,7 @@
  *         (大数字 17px semibold + label 14px)
  */
 
+import Link from "next/link";
 import type { AgentWorkCard } from "@/lib/mobile/types";
 
 const COLOR_BAR: Record<string, string> = {
@@ -52,9 +53,12 @@ function meetingShortDate(iso: string | null): string {
 
 export default function AgentWorkCard({
   agent,
+  href,
   onClick,
 }: {
   agent: AgentWorkCard;
+  /** 给 href 渲染为 Link (推荐). 不给 href 则渲染 div, 配合外层 Link 用. */
+  href?: string;
   onClick?: () => void;
 }) {
   const display = agent.nickname?.trim() || agent.name;
@@ -66,13 +70,27 @@ export default function AgentWorkCard({
   const hasTasks = tasks.total > 0;
   const meetings = agent.recent_meetings;
 
+  const rootCls =
+    "block w-full overflow-hidden rounded-2xl bg-ink-900 text-left transition active:scale-[0.99]";
+
+  const Wrapper = ({ children }: { children: React.ReactNode }) =>
+    href ? (
+      <Link href={href} className={rootCls} data-testid="mobile-agent-workcard">
+        {children}
+      </Link>
+    ) : (
+      <div
+        onClick={onClick}
+        className={rootCls}
+        data-testid="mobile-agent-workcard"
+        role={onClick ? "button" : undefined}
+      >
+        {children}
+      </div>
+    );
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="block w-full overflow-hidden rounded-2xl bg-ink-900 text-left transition active:scale-[0.99]"
-      data-testid="mobile-agent-workcard"
-    >
+    <Wrapper>
       <div className="flex">
         {/* 左侧色块条 */}
         <div className={`w-1 ${colorBar(agent.color)}`} />
@@ -181,6 +199,6 @@ export default function AgentWorkCard({
           </section>
         </div>
       </div>
-    </button>
+    </Wrapper>
   );
 }

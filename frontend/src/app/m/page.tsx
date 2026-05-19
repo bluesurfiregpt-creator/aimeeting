@@ -282,11 +282,7 @@ function ExpertView() {
         <AgentWorkCard
           key={a.agent_id}
           agent={a}
-          onClick={() =>
-            alert(
-              `Phase 3: 跳 /m/agents/${a.agent_id} 单专家详情页 (会议 + 任务 + 智囊三 tab, 见 docs/v27.0-mobile-phase3-todo.md)`,
-            )
-          }
+          href={`/m/agents/${a.agent_id}`}
         />
       ))}
     </div>

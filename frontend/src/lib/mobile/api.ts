@@ -6,6 +6,7 @@
  */
 
 import type {
+  AgentDetailOut,
   AgentsWorkboardOut,
   AIInsightFull,
   MobileMeetingDetail,
@@ -32,6 +33,7 @@ export const mApi = {
     jget<MobileMeetingDetail>(`/api/m/meetings/${id}`),
   getTasks: () => jget<MobileTasksOut>("/api/m/tasks"),
   getAgentsWorkboard: () => jget<AgentsWorkboardOut>("/api/m/agents/workboard"),
+  getAgentDetail: (id: string) => jget<AgentDetailOut>(`/api/m/agents/${id}`),
   getInsights: (params?: { by_agent?: string; by_meeting?: string; limit?: number }) => {
     const q = new URLSearchParams();
     if (params?.by_agent) q.set("by_agent", params.by_agent);
