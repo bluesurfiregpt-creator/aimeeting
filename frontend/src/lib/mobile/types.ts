@@ -186,6 +186,15 @@ export type MobileTasksOut = {
   items: MobileTaskItem[];
 };
 
+export type AgentMini = {
+  agent_id: string;
+  name: string;
+  nickname: string | null;
+  domain: string | null;
+  color: string | null;
+  role: string;
+};
+
 export type MobileMeetingDetail = {
   meeting_id: string;
   title: string;
@@ -204,4 +213,14 @@ export type MobileMeetingDetail = {
 
   transcript_total: number;
   other_topics_count: number;
+
+  /** P4.2: 会议室已邀请的 AI 专家 (给召 AI sheet 用) */
+  attending_agents: AgentMini[];
+};
+
+/** Summon AI 响应. 真 AI 回复异步进库, 需 refetch. */
+export type SummonAgentOut = {
+  accepted: boolean;
+  agent_id: string;
+  agent_name: string;
 };

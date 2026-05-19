@@ -396,6 +396,16 @@ class MobileMeetingHumanLine(BaseModel):
     at_minute: int  # 距 会议 开始 多少 分钟
 
 
+class AgentMini(BaseModel):
+    """会议中已邀请的 AI 专家, 给召 AI sheet 用. 紧凑字段."""
+    agent_id: uuid.UUID
+    name: str
+    nickname: Optional[str] = None
+    domain: Optional[str] = None
+    color: Optional[str] = None
+    role: str
+
+
 class MobileMeetingDetailOut(BaseModel):
     meeting_id: uuid.UUID
     title: str
@@ -417,6 +427,9 @@ class MobileMeetingDetailOut(BaseModel):
     # 折 叠 计数
     transcript_total: int = 0
     other_topics_count: int = 0
+
+    # v27.0-mobile P4.2: 已邀请的 AI 专家 (给召 AI sheet 用)
+    attending_agents: list[AgentMini] = []
 
 
 @router.get("/meetings/{meeting_id}", response_model=MobileMeetingDetailOut)
@@ -554,7 +567,7 @@ async def get_mobile_meeting_detail(
             ))
 
     # transcript 总 数
-    from ..models import MeetingTranscript
+    from ..models import MeetingTranscript, MeetingAttendee
     transcript_total = (
         await session.execute(
             select(func.count(MeetingTranscript.id)).where(
@@ -562,6 +575,30 @@ async def get_mobile_meeting_detail(
             )
         )
     ).scalar() or 0
+
+    # v27.0-mobile P4.2: 拉已邀请的 AI 专家给召 AI sheet 用
+    agent_rows = (
+        await session.execute(
+            select(Agent)
+            .join(MeetingAttendee, MeetingAttendee.agent_id == Agent.id)
+            .where(
+                MeetingAttendee.meeting_id == m.id,
+                Agent.is_active.is_(True),
+            )
+            .order_by(Agent.name)
+        )
+    ).scalars().all()
+    attending_agents = [
+        AgentMini(
+            agent_id=a.id,
+            name=a.name,
+            nickname=a.nickname,
+            domain=a.domain,
+            color=a.color,
+            role=a.role,
+        )
+        for a in agent_rows
+    ]
 
     other_topics_count = max(0, len(agenda) - (1 if cur_idx is not None else 0))
 
@@ -580,6 +617,107 @@ async def get_mobile_meeting_detail(
         current_topic_recent_lines=current_topic_recent_lines,
         transcript_total=int(transcript_total),
         other_topics_count=other_topics_count,
+        attending_agents=attending_agents,
+    )
+
+
+# ============================================================================
+# /api/m/meetings/{id}/summon — 召 AI 发言 (Phase 4.2)
+# ============================================================================
+#
+# 桌面端走 WebSocket "action=invoke_agent". 移动端不走长连, 包一层 REST.
+# 后端 fire-and-forget 触发 invoke_agent_directly, 返 202 立即返回. AI 回复
+# 异步写入 MeetingAgentMessage, 前端等几秒后 refetch /api/m/meetings/{id} 就能
+# 看到 (回复也会进 current_topic_insights, 若 LLM 抽出 structured insight).
+
+class SummonAgentIn(BaseModel):
+    agent_id: uuid.UUID
+    query: Optional[str] = None  # 可选额外提示, 不给走默认 "请基于刚才讨论..."
+
+
+class SummonAgentOut(BaseModel):
+    accepted: bool = True
+    agent_id: uuid.UUID
+    agent_name: str
+
+
+@router.post("/meetings/{meeting_id}/summon", response_model=SummonAgentOut)
+async def summon_agent_in_meeting(
+    meeting_id: uuid.UUID,
+    payload: SummonAgentIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """召 AI 发言 — 包桌面 invoke_agent_directly. fire-and-forget 模式.
+
+    校验:
+      - 会议存在 + 属于当前 workspace + status=ongoing
+      - agent 存在 + 属于当前 workspace + is_active
+      - agent 已被邀请到此会议 (MeetingAttendee.agent_id 命中)
+    返回:
+      - 202 风格, accepted=true 表示已派发. AI 回复异步写入 DB.
+    """
+    import asyncio
+    from ..agent_router import invoke_agent_directly
+    from ..models import MeetingAttendee
+
+    ws_id = auth.workspace.id
+
+    # 1. 校验会议
+    m = (
+        await session.execute(
+            select(Meeting).where(
+                Meeting.id == meeting_id, Meeting.workspace_id == ws_id
+            )
+        )
+    ).scalar_one_or_none()
+    if not m:
+        raise HTTPException(404, "meeting not found")
+    if m.status != "ongoing":
+        raise HTTPException(400, f"meeting status is {m.status}, only ongoing can summon AI")
+
+    # 2. 校验 agent 存在 + 在 workspace
+    a = (
+        await session.execute(
+            select(Agent).where(
+                Agent.id == payload.agent_id,
+                Agent.workspace_id == ws_id,
+                Agent.is_active.is_(True),
+            )
+        )
+    ).scalar_one_or_none()
+    if not a:
+        raise HTTPException(404, "agent not found or inactive")
+
+    # 3. 校验已邀请 (避免随便召会议外的 agent)
+    invited = (
+        await session.execute(
+            select(MeetingAttendee.id).where(
+                MeetingAttendee.meeting_id == meeting_id,
+                MeetingAttendee.agent_id == payload.agent_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not invited:
+        raise HTTPException(400, "agent not invited to this meeting")
+
+    # 4. fire-and-forget. on_message 仅 log — 移动端通过 refetch 拿结果.
+    async def _noop(_evt: dict) -> None:
+        return None
+
+    asyncio.create_task(
+        invoke_agent_directly(
+            meeting_id=meeting_id,
+            agent_id=payload.agent_id,
+            on_message=_noop,
+            query=payload.query,
+        )
+    )
+
+    return SummonAgentOut(
+        accepted=True,
+        agent_id=a.id,
+        agent_name=a.name,
     )
 
 

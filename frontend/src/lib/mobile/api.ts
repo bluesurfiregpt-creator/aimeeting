@@ -12,6 +12,7 @@ import type {
   MobileMeetingDetail,
   MobileMeetingsListOut,
   MobileTasksOut,
+  SummonAgentOut,
   WorkbenchOut,
 } from "./types";
 
@@ -88,6 +89,18 @@ export const mApi = {
   /** 推进议程 — current_agenda_idx +1 (或标完成). */
   advanceAgenda: (meetingId: string) =>
     jsend<unknown>("POST", `/api/meetings/${meetingId}/agenda-advance`),
+
+  /** P4.2: 召 AI 专家发言. fire-and-forget — 回复几秒后异步进 DB, 需 refetch detail. */
+  summonAgent: (meetingId: string, agentId: string, query?: string) =>
+    jsend<SummonAgentOut>(
+      "POST",
+      `/api/m/meetings/${meetingId}/summon`,
+      query ? { agent_id: agentId, query } : { agent_id: agentId },
+    ),
+
+  /** P4.2: 结束会议. status ongoing → finished, 后端跑纪要/抽待办 background. */
+  finalizeMeeting: (meetingId: string) =>
+    jsend<unknown>("POST", `/api/meetings/${meetingId}/finalize`),
   getInsights: (params?: { by_agent?: string; by_meeting?: string; limit?: number }) => {
     const q = new URLSearchParams();
     if (params?.by_agent) q.set("by_agent", params.by_agent);

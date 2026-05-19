@@ -15,10 +15,13 @@
  */
 
 import { useCallback, useEffect, useState, use } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import StageChipsRow from "@/components/mobile/StageChipsRow";
 import CurrentTopicCard from "@/components/mobile/CurrentTopicCard";
 import StickyActionBar from "@/components/mobile/StickyActionBar";
+import SummonAgentSheet from "@/components/mobile/SummonAgentSheet";
+import ConfirmDialog from "@/components/mobile/ConfirmDialog";
 import Toast from "@/components/mobile/Toast";
 import { mApi } from "@/lib/mobile/api";
 import type { MobileMeetingDetail } from "@/lib/mobile/types";
@@ -32,11 +35,17 @@ export default function MobileMeetingDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const router = useRouter();
   const { id } = use(params);
   const [data, setData] = useState<MobileMeetingDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [advancing, setAdvancing] = useState(false);
+  // P4.2: 召 AI sheet + 结束会议 dialog
+  const [summonOpen, setSummonOpen] = useState(false);
+  const [summoning, setSummoning] = useState(false);
+  const [endOpen, setEndOpen] = useState(false);
+  const [ending, setEnding] = useState(false);
   const [toast, setToast] = useState<{
     kind: "success" | "error";
     text: string;
@@ -66,6 +75,52 @@ export default function MobileMeetingDetailPage({
       setAdvancing(false);
     }
   }, [advancing, id, reload]);
+
+  /** 召 AI: 弹 sheet 选 agent → submit → 调 API → reload → toast */
+  const handleSummonSubmit = useCallback(
+    async (agentId: string, query: string) => {
+      if (summoning) return;
+      setSummoning(true);
+      try {
+        const res = await mApi.summonAgent(id, agentId, query || undefined);
+        setSummonOpen(false);
+        setToast({
+          kind: "success",
+          text: `已请 ${res.agent_name} 发言, 几秒后刷新看回复`,
+        });
+        // 后端 fire-and-forget, 几秒后 AI 回复进 DB. 延迟 reload 拿新内容.
+        setTimeout(() => {
+          reload();
+        }, 4000);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setToast({ kind: "error", text: `召 AI 失败: ${msg}` });
+      } finally {
+        setSummoning(false);
+      }
+    },
+    [summoning, id, reload],
+  );
+
+  /** 结束会议: 弹 confirm → 确认 → 调 finalize → 回 /m + toast */
+  const handleEndConfirm = useCallback(async () => {
+    if (ending) return;
+    setEnding(true);
+    try {
+      await mApi.finalizeMeeting(id);
+      setEndOpen(false);
+      setToast({
+        kind: "success",
+        text: "会议已结束, AI 正在生成纪要 + 抽待办",
+      });
+      // 跳回首页 — 让用户看到 Hero 卡消失, 也避免在已 finished 页停留
+      setTimeout(() => router.push("/m"), 1200);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ kind: "error", text: `结束失败: ${msg}` });
+      setEnding(false);
+    }
+  }, [ending, id, router]);
 
   useEffect(() => {
     let alive = true;
@@ -228,9 +283,32 @@ export default function MobileMeetingDetailPage({
         hasRiskInsight={hasRisk}
         advancing={advancing}
         onAdvance={handleAdvance}
-        onSummonAi={() => alert("Phase 4.2: 召 AI — 走 agent 选择 sheet (TODO)")}
-        onEndMeeting={() => alert("Phase 4.2: 结束会议 — 调 finalize (TODO)")}
+        onSummonAi={() => setSummonOpen(true)}
+        onEndMeeting={() => setEndOpen(true)}
       />
+
+      {/* ===== P4.2 召 AI sheet =================================== */}
+      <SummonAgentSheet
+        open={summonOpen}
+        agents={data.attending_agents}
+        busy={summoning}
+        onClose={() => setSummonOpen(false)}
+        onSubmit={handleSummonSubmit}
+      />
+
+      {/* ===== P4.2 结束会议 confirm ============================= */}
+      <ConfirmDialog
+        open={endOpen}
+        title="结束这场会议?"
+        body="结束后 AI 会自动生成会议纪要 + 抽待办 + 提候选记忆. 这一步不可撤销."
+        confirmLabel="结束"
+        cancelLabel="再开一会"
+        danger
+        busy={ending}
+        onConfirm={handleEndConfirm}
+        onCancel={() => setEndOpen(false)}
+      />
+
       {toast ? (
         <Toast kind={toast.kind} text={toast.text} onClose={() => setToast(null)} />
       ) : null}
