@@ -208,7 +208,7 @@ export default function NewMeetingPage() {
         </h1>
       </div>
 
-      <main className="space-y-5 p-4 pb-24">
+      <main className="space-y-5 p-4 pb-6">
         {/* === 标题 === */}
         <section>
           <Label>会议标题</Label>
@@ -378,12 +378,13 @@ export default function NewMeetingPage() {
         ) : null}
       </main>
 
-      {/* === Sticky 底部提交 === */}
+      {/* === Sticky 底部提交 ===
+        BottomNav 占屏幕底 h-14 + safe-area, layout main 有 pb-20 留位.
+        所以 sticky bottom 必须 ≥ 80px 才能在 BottomNav 上方可见.
+        用 bottom-20 (5rem = 80px) 正好贴 BottomNav 上沿.
+      */}
       <div
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-ink-800 bg-ink-950/95 px-4 pt-3 backdrop-blur"
-        style={{
-          paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)",
-        }}
+        className="sticky bottom-20 z-30 -mx-4 border-t border-ink-800 bg-ink-950/95 px-4 py-3 backdrop-blur"
       >
         <button
           type="button"
