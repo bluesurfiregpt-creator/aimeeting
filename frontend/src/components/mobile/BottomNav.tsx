@@ -52,6 +52,10 @@ const ITEMS: NavItem[] = [
 
 export default function BottomNav() {
   const pathname = usePathname() || "/m";
+  // P14: 会议室 (/m/meetings/<id>) 沉浸式 — 不渲 BottomNav 避免挡住 CTA / 录音条
+  if (/^\/m\/meetings\/[^/]+$/.test(pathname)) {
+    return null;
+  }
   return (
     <nav
       data-testid="mobile-bottom-nav"

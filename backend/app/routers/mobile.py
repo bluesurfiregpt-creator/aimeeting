@@ -732,7 +732,19 @@ async def start_mobile_meeting(
         )
     if m.status == "scheduled":
         m.status = "ongoing"
-        m.started_at = datetime.now(timezone.utc)
+        now_ts = datetime.now(timezone.utc)
+        m.started_at = now_ts
+        # P14: 同时自动进议程第 1 项, 避免用户进会议室还要手动推进议程才能看到当前议题.
+        # 如果 agenda 不空 且 current_agenda_idx 仍未设, 设第 1 项 active.
+        if m.agenda and (m.current_agenda_idx is None):
+            m.current_agenda_idx = 0
+            m.agenda_progress = [{
+                "idx": 0,
+                "started_at": now_ts.isoformat(),
+                "ended_at": None,
+                "advanced_by_user_id": str(auth.user.id),
+                "status": "active",
+            }]
         await session.commit()
         await session.refresh(m)
     return StartMeetingOut(
