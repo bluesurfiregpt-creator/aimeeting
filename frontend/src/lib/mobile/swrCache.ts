@@ -130,15 +130,17 @@ export function useCachedFetch<T>(
       setData(cached);
       setError(null);
     }
-    // 2. 订阅 cache 变更 — 其他地方 mutateCache 时本 hook 自动更新
+    // 2. 订阅 cache 变更 — 其他地方 mutateCache / invalidateCache 时本 hook 跟新
     const unsub = subscribeKey(key, () => {
       const next = peekCache<T>(key);
       if (next !== undefined) {
+        // mutate: 直接 push 新数据
         setData(next);
         setError(null);
       } else {
-        // cache 被 invalidate — 进入 refresh 但不立刻清 data
-        // (让用户看 stale 直到 fresh 来)
+        // invalidate: cache 被清, **必须主动 trigger refetch** 才能拿新数据
+        // (否则 useEffect deps 没变, fetch 不会重发, UI 永久 stale)
+        setRefetchKey((rk) => rk + 1);
       }
     });
     // 3. 后台 fetch (即使 cache 命中也拉一次保新)

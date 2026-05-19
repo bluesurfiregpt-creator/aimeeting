@@ -23,6 +23,7 @@ import SummonAgentSheet from "@/components/mobile/SummonAgentSheet";
 import ConfirmDialog from "@/components/mobile/ConfirmDialog";
 import MeetingTranscriptView from "@/components/mobile/MeetingTranscriptView";
 import MeetingRecorderControl from "@/components/mobile/MeetingRecorderControl";
+import LeaveMeetingSheet from "@/components/mobile/LeaveMeetingSheet";
 import AgendaEventBanner, {
   type BannerData,
 } from "@/components/mobile/AgendaEventBanner";
@@ -63,6 +64,8 @@ function MeetingDetailInner({ id }: { id: string }) {
   const [summoning, setSummoning] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
   const [ending, setEnding] = useState(false);
+  // P14.2 退出会议室 sheet (ongoing 时点 ← 弹)
+  const [leaveOpen, setLeaveOpen] = useState(false);
   // P5B: 议程事件 banner (off_topic / time_warning / stuck), 同时一个 slot
   const [banner, setBanner] = useState<BannerData | null>(null);
   const [toast, setToast] = useState<{
@@ -258,13 +261,26 @@ function MeetingDetailInner({ id }: { id: string }) {
         style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
       >
         <div className="flex items-center gap-3">
-          <Link
-            href="/m"
-            className="flex h-10 w-10 items-center justify-center -ml-2 text-zinc-400 active:text-zinc-200"
-            aria-label="返回"
-          >
-            <span className="text-xl leading-none">←</span>
-          </Link>
+          {/* P14.2: ongoing 会议时 点 ← 不直接返, 弹 sheet 让用户选
+              "仅离开 / 结束会议 / 取消". finished/scheduled 直接返 */}
+          {data.status === "ongoing" ? (
+            <button
+              type="button"
+              onClick={() => setLeaveOpen(true)}
+              className="flex h-10 w-10 items-center justify-center -ml-2 text-zinc-400 active:text-zinc-200"
+              aria-label="退出会议室"
+            >
+              <span className="text-xl leading-none">←</span>
+            </button>
+          ) : (
+            <Link
+              href="/m"
+              className="flex h-10 w-10 items-center justify-center -ml-2 text-zinc-400 active:text-zinc-200"
+              aria-label="返回"
+            >
+              <span className="text-xl leading-none">←</span>
+            </Link>
+          )}
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-[18px] font-semibold text-zinc-50">
               {data.title}
@@ -399,6 +415,22 @@ function MeetingDetailInner({ id }: { id: string }) {
         busy={ending}
         onConfirm={handleEndConfirm}
         onCancel={() => setEndOpen(false)}
+      />
+
+      {/* ===== P14.2 退出会议室 sheet =========================== */}
+      <LeaveMeetingSheet
+        open={leaveOpen}
+        meetingTitle={data.title}
+        endingMeeting={ending}
+        onJustLeave={() => {
+          setLeaveOpen(false);
+          router.push("/m");
+        }}
+        onEndMeeting={() => {
+          // 复用 handleEndConfirm — 它 调 finalize + toast + router push /m
+          void handleEndConfirm();
+        }}
+        onCancel={() => setLeaveOpen(false)}
       />
 
       {toast ? (
