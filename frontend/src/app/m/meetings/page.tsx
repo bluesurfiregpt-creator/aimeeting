@@ -10,7 +10,8 @@
  *   - 字号 / 间距 升级
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useCachedFetch } from "@/lib/mobile/swrCache";
 import Link from "next/link";
 import PageHeader from "@/components/mobile/PageHeader";
 import SegmentControl from "@/components/mobile/SegmentControl";
@@ -155,30 +156,12 @@ function MeetingRow({ m }: { m: MobileMeetingListRow }) {
 
 export default function MobileMeetingsPage() {
   const [tab, setTab] = useState<Tab>("ongoing");
-  const [data, setData] = useState<MobileMeetingsListOut | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    mApi
-      .getMeetingsList()
-      .then((d) => {
-        if (alive) {
-          setData(d);
-          setError(null);
-        }
-      })
-      .catch((e) => {
-        if (alive) setError(e.message || "load failed");
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // P8 SWR cache: 切回 立即显 stale 数据 + 后台 refresh
+  const { data, error, isRefreshing } = useCachedFetch<MobileMeetingsListOut>(
+    "m:meetings",
+    () => mApi.getMeetingsList(),
+  );
+  const loading = !data && isRefreshing;
 
   const groups = useMemo(() => {
     if (!data) return { ongoing: [], upcoming: [], finished: [] };

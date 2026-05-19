@@ -14,6 +14,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useCachedFetch } from "@/lib/mobile/swrCache";
 import AgentWorkCard from "@/components/mobile/AgentWorkCard";
 import HeroOngoingCard from "@/components/mobile/HeroOngoingCard";
 import HeroEmptyCard from "@/components/mobile/HeroEmptyCard";
@@ -67,30 +68,13 @@ function SectionHeader({
 
 export default function MobileHomePage() {
   const [view, setView] = useState<View>("meeting");
-  const [data, setData] = useState<WorkbenchOut | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    mApi
-      .getWorkbench()
-      .then((d) => {
-        if (alive) {
-          setData(d);
-          setError(null);
-        }
-      })
-      .catch((e) => {
-        if (alive) setError(e.message || "load failed");
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // P8 SWR: 切回首页时立刻显 cached, 后台 refresh.
+  const { data, error, isRefreshing } = useCachedFetch<WorkbenchOut>(
+    "m:workbench",
+    () => mApi.getWorkbench(),
+  );
+  // 兼容旧 loading flag — 仅首次 (无 cache) 时 loading
+  const loading = !data && isRefreshing;
 
   const insightTopics = useMemo(() => {
     if (!data) return [];
@@ -219,30 +203,11 @@ function MeetingView({
 // ===== 专家视角 — 工卡墙 ================================================
 
 function ExpertView() {
-  const [data, setData] = useState<AgentsWorkboardOut | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    mApi
-      .getAgentsWorkboard()
-      .then((d) => {
-        if (alive) {
-          setData(d);
-          setError(null);
-        }
-      })
-      .catch((e) => {
-        if (alive) setError(e.message || "load failed");
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  const { data, error, isRefreshing } = useCachedFetch<AgentsWorkboardOut>(
+    "m:agents/workboard",
+    () => mApi.getAgentsWorkboard(),
+  );
+  const loading = !data && isRefreshing;
 
   if (loading) {
     return (

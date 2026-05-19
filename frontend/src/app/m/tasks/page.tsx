@@ -10,7 +10,7 @@
  *   - 字号 / 间距 升级
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/mobile/PageHeader";
 import SegmentControl from "@/components/mobile/SegmentControl";
@@ -18,16 +18,18 @@ import RejectFeedbackSheet from "@/components/mobile/RejectFeedbackSheet";
 import Toast from "@/components/mobile/Toast";
 import { TaskCardFull, TaskRowCompact } from "@/components/mobile/TaskCard";
 import { mApi } from "@/lib/mobile/api";
+import { mutateCache, useCachedFetch } from "@/lib/mobile/swrCache";
 import type { MobileTaskItem, MobileTasksOut } from "@/lib/mobile/types";
 
 type Tab = "pending" | "tracking" | "done";
 
 export default function MobileTasksPage() {
   const [tab, setTab] = useState<Tab>("pending");
-  const [data, setData] = useState<MobileTasksOut | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  // 单条 row 正在调 API 中 — 禁双击, 显 loading
+  // P8 SWR cache: 切回 立即显 cache, 后台 refresh
+  const { data, error, isRefreshing, refetch } =
+    useCachedFetch<MobileTasksOut>("m:tasks", () => mApi.getTasks());
+  const loading = !data && isRefreshing;
+  // 单条 row 正在调 API 中 — 禁双击
   const [busyId, setBusyId] = useState<string | null>(null);
   // P4.5: draft 驳回时弹 sheet (action item 不弹, 直接 cancel)
   const [rejectSheetItem, setRejectSheetItem] = useState<MobileTaskItem | null>(null);
@@ -36,36 +38,12 @@ export default function MobileTasksPage() {
     text: string;
   } | null>(null);
 
-  const reload = useCallback(() => {
-    return mApi
-      .getTasks()
-      .then((d) => {
-        setData(d);
-        setError(null);
-      })
-      .catch((e) => setError(e.message || "load failed"));
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    mApi
-      .getTasks()
-      .then((d) => {
-        if (alive) {
-          setData(d);
-          setError(null);
-        }
-      })
-      .catch((e) => {
-        if (alive) setError(e.message || "load failed");
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // 调 action API 后用 refetch 静默拉新; 即用即返
+  const reload = useCallback(async () => {
+    const fresh = await mApi.getTasks();
+    mutateCache("m:tasks", fresh);
+    refetch();
+  }, [refetch]);
 
   /** 共用 CTA handler: 调 API → refetch → toast.
    *  P4.5: draft 类的 secondary "驳回" 不直接走, 改弹 sheet 让用户写 feedback.
