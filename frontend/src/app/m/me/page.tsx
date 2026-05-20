@@ -111,7 +111,8 @@ export default function MobileMePage() {
   }
 
   return (
-    <div>
+    /* P18: flex column 让退出按钮 + 版本号 可以 mt-auto 推到底 */
+    <div className="flex min-h-full flex-col">
       {/* TopBar */}
       <div
         className="sticky top-0 z-30 flex items-center gap-3 border-b border-ink-800 bg-ink-950/85 px-4 pb-3 backdrop-blur"
@@ -129,7 +130,7 @@ export default function MobileMePage() {
         </h1>
       </div>
 
-      <main className="space-y-5 p-4 pb-6">
+      <main className="flex flex-1 flex-col space-y-5 p-4 pb-6">
         {/* 档案卡 */}
         {me ? (
           <section
@@ -175,11 +176,11 @@ export default function MobileMePage() {
           <Row label="环境" value="生产" />
         </section>
 
-        {/* 退出登录 */}
+        {/* 退出登录 — mt-auto 推到底, 内容少时也贴底 */}
         <button
           type="button"
           onClick={() => setLogoutOpen(true)}
-          className="flex h-12 w-full items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/[0.06] text-[15px] font-medium text-rose-300 active:scale-[0.98] active:bg-rose-500/[0.12]"
+          className="mt-auto flex h-12 w-full items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/[0.06] text-[15px] font-medium text-rose-300 active:scale-[0.98] active:bg-rose-500/[0.12]"
           data-testid="mobile-me-logout"
         >
           退出登录

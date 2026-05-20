@@ -388,12 +388,12 @@ export default function NewMeetingPage() {
       </main>
 
       {/* === Sticky 底部提交 ===
-        BottomNav 占屏幕底 h-14 + safe-area, layout main 有 pb-20 留位.
-        所以 sticky bottom 必须 ≥ 80px 才能在 BottomNav 上方可见.
-        用 bottom-20 (5rem = 80px) 正好贴 BottomNav 上沿.
+        P18: 二级页 (这页) BottomNav 隐, layout main 不留 pb-20.
+        sticky bottom-0 直接贴屏幕底. (之前 bottom-20 是迁就 BottomNav 的旧逻辑.)
       */}
       <div
-        className="sticky bottom-20 z-30 -mx-4 border-t border-ink-800 bg-ink-950/95 px-4 py-3 backdrop-blur"
+        className="sticky bottom-0 z-30 -mx-4 border-t border-ink-800 bg-ink-950/95 px-4 py-3 backdrop-blur"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)" }}
       >
         <button
           type="button"

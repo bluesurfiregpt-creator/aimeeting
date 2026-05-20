@@ -50,10 +50,18 @@ const ITEMS: NavItem[] = [
   },
 ];
 
+// P18 audit: 二三级页 (详情页 / 表单 / 我的 / 通知 / 总结 等) 全不渲
+// BottomNav — 避免挡按钮 / 减视觉干扰. 仅 4 个主 tab path 显.
+const TOP_LEVEL_PATHS = new Set([
+  "/m",
+  "/m/meetings",
+  "/m/tasks",
+  "/m/insights",
+]);
+
 export default function BottomNav() {
   const pathname = usePathname() || "/m";
-  // P14: 会议室 (/m/meetings/<id>) 沉浸式 — 不渲 BottomNav 避免挡住 CTA / 录音条
-  if (/^\/m\/meetings\/[^/]+$/.test(pathname)) {
+  if (!TOP_LEVEL_PATHS.has(pathname)) {
     return null;
   }
   return (

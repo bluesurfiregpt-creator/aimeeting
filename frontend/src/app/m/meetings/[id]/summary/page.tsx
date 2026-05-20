@@ -166,7 +166,8 @@ export default function MeetingSummaryPage({
   const decidedActions = (actions || []).filter((a) => a.status !== "open");
 
   return (
-    <div className="min-h-screen bg-ink-950">
+    /* P18: flex column 让底部按钮 mt-auto 推到底, 即使内容少不悬空 */
+    <div className="flex min-h-full flex-col bg-ink-950">
       {/* TopBar */}
       <div
         className="sticky top-0 z-30 flex items-center gap-3 border-b border-ink-800 bg-ink-950/85 px-4 pb-3 backdrop-blur"
@@ -184,7 +185,7 @@ export default function MeetingSummaryPage({
         </h1>
       </div>
 
-      <main className="space-y-5 p-4 pb-8">
+      <main className="flex flex-1 flex-col space-y-5 p-4 pb-8">
         {/* === 会议状态概览 === */}
         <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4">
           <p className="text-[16px] font-medium text-emerald-200">
@@ -301,8 +302,8 @@ export default function MeetingSummaryPage({
           </section>
         ) : null}
 
-        {/* === 底部导航 === */}
-        <section className="flex gap-2 pt-2">
+        {/* === 底部导航 — mt-auto 让按钮即使内容少也贴底 === */}
+        <section className="mt-auto flex gap-2 pt-4">
           <Link
             href={`/m/meetings/${id}`}
             className="flex h-12 flex-1 items-center justify-center rounded-xl border border-zinc-700 px-4 text-[14px] text-zinc-200 active:scale-[0.98] active:bg-ink-800"

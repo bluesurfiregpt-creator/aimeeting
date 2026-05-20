@@ -1,25 +1,12 @@
 /**
- * v27.0-mobile · 移动端子树 root layout.
+ * v27.0-mobile · 移动端子树 root layout (server component).
  *
- * 桌面 chrome (AppLogo / ManualLink / AuthHeader / VersionBadge) 已由 ChromeGate
- * 闸掉.
- *
- * v27.0-P2 改动: 删掉 TopBar (问候+图标 那种桌面残留),
- * 每个页面自己用 PageHeader 渲染顶部 (iOS 大标题风).
- *
- * 仅留:
- *   - 主内容区 (overflow-y-auto)
- *   - 底部 BottomNav (sticky)
- *
- * v27.0-mobile P6 (小程序预设):
- *   - viewport-fit=cover 让背景延伸进 iPhone 全面屏 notch / home indicator 区
- *   - 所有 top/bottom 触边的 fixed/sticky 元素已写 env(safe-area-inset-*)
- *     padding (PageHeader/BottomNav/StickyActionBar/Toast/各 sheet),
- *     viewport-fit=cover 让那些 env() 值才真生效
+ * 必须是 server component, 因为 Next.js 要求 viewport export 在 server 端.
+ * 真正的 layout 逻辑 (pathname 判断 / BottomNav) 在 MobileShell.client.tsx.
  */
 
 import type { Viewport } from "next";
-import BottomNav from "@/components/mobile/BottomNav";
+import MobileShell from "./MobileShell";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -35,10 +22,5 @@ export default function MobileLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <div className="flex min-h-screen flex-col bg-ink-950 text-zinc-100">
-      <main className="flex-1 overflow-y-auto pb-20">{children}</main>
-      <BottomNav />
-    </div>
-  );
+  return <MobileShell>{children}</MobileShell>;
 }
