@@ -8,8 +8,14 @@
  *
  * 二三级页 (详情 / 表单 / 我的 / 通知 / 总结 等) 不显 BottomNav, 也不留 pb.
  * 主 tab 4 个 path 才显 BottomNav + pb-20.
+ *
+ * v27.0-mobile P20.3: 在 mount/unmount 给 html 加/移 .mobile-viewport-locked
+ * class — 锁住 iOS WKWebView 弹性滚动, 防止 整页 被随意拖动. CSS 在 globals.css.
+ * 用 root div fixed inset-0 + overflow-hidden 替代 之前 flex min-h-screen,
+ * 让 滚动 仅在 内部 main 发生.
  */
 
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import BottomNav from "@/components/mobile/BottomNav";
 import PrivacyConsent from "@/components/mobile/PrivacyConsent";
@@ -35,9 +41,26 @@ export default function MobileShell({
   const pathname = usePathname() || "/m";
   const isTopLevel = TOP_LEVEL.has(pathname);
   const showPrivacy = !SKIP_PRIVACY_PATHS.has(pathname);
+
+  // P20.3: 锁 viewport — 给 html 加 class, 禁 iOS 弹性滚动. unmount 时 移除
+  // 让 用户 退到 桌面端 (/login 之类) 时 恢复 默认 滚动 行为.
+  useEffect(() => {
+    document.documentElement.classList.add("mobile-viewport-locked");
+    return () => {
+      document.documentElement.classList.remove("mobile-viewport-locked");
+    };
+  }, []);
+
   return (
-    <div className="flex min-h-screen flex-col bg-ink-950 text-zinc-100">
-      <main className={`flex-1 overflow-y-auto ${isTopLevel ? "pb-20" : ""}`}>
+    /* fixed inset-0 + overflow-hidden — 跟 html 的 fixed 一起 把 viewport 钉死.
+       内部 main flex-1 overflow-y-auto 才滚 — overscroll-behavior:contain 防
+       滚到 边时 反馈 弹到 父级 (双保险, html 已经 锁了 但 防御性 加一道). */
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-ink-950 text-zinc-100">
+      <main
+        className={`mobile-scroll-area flex-1 overflow-y-auto ${
+          isTopLevel ? "pb-20" : ""
+        }`}
+      >
         {children}
       </main>
       <BottomNav />

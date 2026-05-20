@@ -12,6 +12,34 @@ html, body {
   color: #e6e8ee;
 }
 
+/* v27.0-mobile P20.3: iOS WKWebView 弹性滚动 (rubber-banding) 防护.
+   症状: 真机 iOS 微信 webview 内, 整页 可上下 随意 拖动, 顶/底 露出 webview
+   之外的 暗色 / 微信 顶栏, 体验 不像 原生.
+   原因: iOS Safari/WKWebView 默认 允许 body 整体 弹性 滚动, 即使 overflow:hidden.
+   修复:
+     1. position: fixed + inset 0 + overflow:hidden 强钉 viewport
+     2. overscroll-behavior: none 阻断 弹性反馈
+     3. -webkit-overflow-scrolling 给 内部 scroll 容器 用 (iOS 流畅滚动)
+   仅在 /m 路径下 添加 .mobile-viewport-locked class 到 html, 不污染 桌面端. */
+html.mobile-viewport-locked,
+html.mobile-viewport-locked body {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  /* 防 iOS 双指 缩放 (mobile 我们 用 fixed layout, 缩放无意义) */
+  touch-action: pan-y;
+}
+
+/* /m 下 内部 scroll 容器 (例 MobileShell <main>) 用这 class 拿 iOS 平滑滚动
+   + contain 防 滚到边 时 反馈 弹到 父级 (虽然 父级 已经 锁了, 双保险). */
+.mobile-scroll-area {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* v26.10-Room Phase 4: 会议室动画 */
 
 /* 焦点 AI 卡片 — 正在发言时的呼吸边框 (用 border-color rgba 周期) */
