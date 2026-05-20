@@ -38,7 +38,7 @@
   },
   "compileType": "miniprogram",
   "libVersion": "3.5.0",
-  "appid": "__YOUR_APPID__",
+  "appid": "wx1ed17af888224311",
   "projectname": "aimeeting",
   "condition": {},
   "editorSetting": {

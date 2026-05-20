@@ -12,6 +12,7 @@
 
 import { usePathname } from "next/navigation";
 import BottomNav from "@/components/mobile/BottomNav";
+import PrivacyConsent from "@/components/mobile/PrivacyConsent";
 
 const TOP_LEVEL = new Set([
   "/m",
@@ -20,6 +21,12 @@ const TOP_LEVEL = new Set([
   "/m/insights",
 ]);
 
+// v27.0-mobile P20: 隐私协议 同意 弹窗 不应 在 这些 路径 挡道:
+//   - /m/privacy 自身 (用户来读全文, 不能 被弹窗 挡住)
+//   - /login 之类的 鉴权页 (路径上是 /login, 不在 /m 下, 实际 不会被 shell 包,
+//     此处仅 防御性 列举)
+const SKIP_PRIVACY_PATHS = new Set(["/m/privacy"]);
+
 export default function MobileShell({
   children,
 }: {
@@ -27,12 +34,14 @@ export default function MobileShell({
 }) {
   const pathname = usePathname() || "/m";
   const isTopLevel = TOP_LEVEL.has(pathname);
+  const showPrivacy = !SKIP_PRIVACY_PATHS.has(pathname);
   return (
     <div className="flex min-h-screen flex-col bg-ink-950 text-zinc-100">
       <main className={`flex-1 overflow-y-auto ${isTopLevel ? "pb-20" : ""}`}>
         {children}
       </main>
       <BottomNav />
+      {showPrivacy ? <PrivacyConsent /> : null}
     </div>
   );
 }
