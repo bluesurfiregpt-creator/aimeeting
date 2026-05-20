@@ -148,19 +148,17 @@ function MeetingDetailInner({ id }: { id: string }) {
     [summoning, id],
   );
 
-  /** 结束会议: 弹 confirm → 确认 → 调 finalize → 回 /m + toast */
+  /** 结束会议: 弹 confirm → 确认 → 调 finalize → 跳总结页 (不是首页) */
   const handleEndConfirm = useCallback(async () => {
     if (ending) return;
     setEnding(true);
     try {
       await mApi.finalizeMeeting(id);
       setEndOpen(false);
-      setToast({
-        kind: "success",
-        text: "会议已结束, AI 正在生成纪要 + 抽待办",
-      });
-      // 跳回首页 — 让用户看到 Hero 卡消失, 也避免在已 finished 页停留
-      setTimeout(() => router.push("/m"), 1200);
+      // P17: 跳总结页 /m/meetings/<id>/summary 看 AI 纪要 + 抽出的待办,
+      // 而不是直接回首页 (用户反馈: 回首页太迷茫, 不知道刚开完会的结果在哪).
+      // 总结页内有 "回工作台" 按钮让用户决定下一步.
+      router.push(`/m/meetings/${id}/summary`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ kind: "error", text: `结束失败: ${msg}` });

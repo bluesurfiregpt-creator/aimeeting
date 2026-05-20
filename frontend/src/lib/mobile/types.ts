@@ -261,6 +261,32 @@ export type MobileTranscriptOut = {
   lines: TranscriptStreamLine[];
 };
 
+// ---------- P17: 会议总结页 (结束后跳的页) -----------------------------
+
+/** GET /api/meetings/{id}/summary 返回 */
+export type MeetingSummaryOut = {
+  summary_md: string | null;
+  status: "pending" | "ready" | "skipped" | "failed" | string;
+  message?: string | null;
+};
+
+/** GET /api/meetings/{id}/actions 返回的简化版 (mobile 用) */
+export type MeetingActionItemBrief = {
+  id: string;
+  meeting_id: string;
+  content: string;
+  assignee_user_id: string | null;
+  assignee_name: string | null;
+  assignee_name_hint: string | null;
+  due_at: string | null;
+  status: string;
+  source_type: string;
+  evidence_quote: string | null;
+  assignee_agent_id: string | null;
+  assignee_agent_name: string | null;
+  assignee_agent_color: string | null;
+};
+
 // ---------- P9: 新建会议 / 邀人邀 AI -------------------------------------
 
 /** GET /api/team/members 返回 */

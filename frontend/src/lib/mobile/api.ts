@@ -11,6 +11,8 @@ import type {
   AIInsightFull,
   CreateMeetingIn,
   CreateMeetingOut,
+  MeetingActionItemBrief,
+  MeetingSummaryOut,
   MemoryOut,
   MobileMeetingDetail,
   MobileMeetingsListOut,
@@ -157,6 +159,16 @@ export const mApi = {
       "POST",
       `/api/m/meetings/${meetingId}/start`,
     ),
+
+  // ===== P17: 会议总结页 ===================================================
+
+  /** 会议纪要 — pending 状态需轮询直到 ready/skipped/failed */
+  getMeetingSummary: (meetingId: string) =>
+    jget<MeetingSummaryOut>(`/api/meetings/${meetingId}/summary`),
+
+  /** 会议抽出的 action items — 给总结页 + 用户审核用 */
+  getMeetingActions: (meetingId: string) =>
+    jget<MeetingActionItemBrief[]>(`/api/meetings/${meetingId}/actions`),
 
   // ===== 长期记忆库 (P4.4) ================================================
 
