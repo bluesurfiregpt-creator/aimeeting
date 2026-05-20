@@ -293,23 +293,12 @@ export default function NewMeetingPage() {
                     </button>
                   ) : null}
                 </div>
-                <div className="mt-2 flex items-center gap-2 pl-5">
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min="1"
-                    max="999"
-                    value={item.time_budget_min}
-                    onChange={(e) =>
-                      updateAgenda(item.id, {
-                        time_budget_min: e.target.value,
-                      })
-                    }
-                    placeholder="时长"
-                    className="h-9 w-16 rounded-lg border border-ink-800 bg-ink-950 px-2 text-[14px] text-zinc-100 placeholder:text-zinc-600 focus:border-accent-500/60 focus:outline-none"
-                  />
-                  <span className="text-[13px] text-zinc-500">分钟 (可选)</span>
-                </div>
+                <DurationPicker
+                  value={item.time_budget_min}
+                  onChange={(v) =>
+                    updateAgenda(item.id, { time_budget_min: v })
+                  }
+                />
               </li>
             ))}
           </ul>
@@ -516,5 +505,97 @@ function ChipGrid({
         );
       })}
     </ul>
+  );
+}
+
+// ===== Duration Picker =====================================================
+// 移动端时长选择: range slider 拖拽大致, chip 快选精准. 不用 native input
+// number 因为 mobile 上不友好 (要么没控件, 要么小箭头点不到).
+//
+// value 是 string (跟外层 form 一致, 空 string = 不设).
+// step=5 让拖拽自然落在 5 倍数 (议题时长一般 5/10/15/30/60 这种).
+
+const DURATION_PRESETS = [5, 15, 30, 60];
+const DURATION_MAX = 120;
+
+function DurationPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const numVal = parseInt(value, 10);
+  const v = Number.isFinite(numVal) && numVal > 0 ? numVal : 0;
+
+  return (
+    <div className="mt-3 pl-5">
+      {/* 当前值显示 */}
+      <div className="flex items-baseline gap-2">
+        <span className="text-[13px] font-medium text-zinc-300">
+          时长:
+        </span>
+        {v > 0 ? (
+          <span className="text-[15px] font-semibold text-accent-300 tabular-nums">
+            {v} 分钟
+          </span>
+        ) : (
+          <span className="text-[13px] text-zinc-500">不设 (可选)</span>
+        )}
+        {v > 0 ? (
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            className="ml-auto shrink-0 text-[12px] text-zinc-500 active:text-zinc-300"
+          >
+            清除
+          </button>
+        ) : null}
+      </div>
+
+      {/* range slider */}
+      <input
+        type="range"
+        min={0}
+        max={DURATION_MAX}
+        step={5}
+        value={v}
+        onChange={(e) => {
+          const n = parseInt(e.target.value, 10);
+          onChange(n > 0 ? String(n) : "");
+        }}
+        className="mt-2 w-full accent-accent-500"
+        aria-label="议题时长 分钟"
+      />
+      {/* 刻度提示 */}
+      <div className="mt-0.5 flex justify-between text-[10px] text-zinc-600 tabular-nums">
+        <span>0</span>
+        <span>30</span>
+        <span>60</span>
+        <span>90</span>
+        <span>{DURATION_MAX}</span>
+      </div>
+
+      {/* 快选 chip — 一点到位 */}
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {DURATION_PRESETS.map((p) => {
+          const active = v === p;
+          return (
+            <button
+              key={p}
+              type="button"
+              onClick={() => onChange(String(p))}
+              className={`inline-flex h-7 items-center rounded-full px-3 text-[12px] font-medium transition active:scale-[0.95] ${
+                active
+                  ? "bg-accent-500 text-white"
+                  : "bg-ink-800 text-zinc-300 active:bg-ink-700"
+              }`}
+            >
+              {p}m
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
