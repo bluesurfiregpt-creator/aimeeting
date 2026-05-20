@@ -14,7 +14,7 @@
  * + advance + summon-ai 实操作 API.
  */
 
-import { useCallback, useEffect, useState, use } from "react";
+import { useCallback, useEffect, useRef, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import StageChipsRow from "@/components/mobile/StageChipsRow";
@@ -27,11 +27,15 @@ import LeaveMeetingSheet from "@/components/mobile/LeaveMeetingSheet";
 import AgendaEventBanner, {
   type BannerData,
 } from "@/components/mobile/AgendaEventBanner";
+import SevereOffTopicModal, {
+  type SevereData,
+} from "@/components/mobile/SevereOffTopicModal";
 import Toast from "@/components/mobile/Toast";
 import { mApi } from "@/lib/mobile/api";
 import {
   MeetingWsProvider,
   useMeetingWsEvent,
+  useMeetingWsSend,
 } from "@/lib/mobile/meetingWsBus";
 import type { MobileMeetingDetail } from "@/lib/mobile/types";
 
@@ -66,8 +70,13 @@ function MeetingDetailInner({ id }: { id: string }) {
   const [ending, setEnding] = useState(false);
   // P14.2 退出会议室 sheet (ongoing 时点 ← 弹)
   const [leaveOpen, setLeaveOpen] = useState(false);
-  // P5B: 议程事件 banner (off_topic / time_warning / stuck), 同时一个 slot
+  // P5B → P16: 议程事件 banner (6 类), 单 slot 新覆盖旧
   const [banner, setBanner] = useState<BannerData | null>(null);
+  // P16: severe off_topic 全屏 modal 独立 slot
+  const [severeOffTopic, setSevereOffTopic] = useState<SevereData | null>(null);
+  // P16: 事件去重 — 10s 内同 kind 重复事件 skip
+  const lastEventTsRef = useRef<Map<string, number>>(new Map());
+  const DEDUP_WINDOW_MS = 10_000;
   const [toast, setToast] = useState<{
     kind: "success" | "error";
     text: string;
@@ -159,32 +168,86 @@ function MeetingDetailInner({ id }: { id: string }) {
     }
   }, [ending, id, router]);
 
-  // P5B: WS 订阅 — agenda 事件 banner + agenda_advanced 静默 reload
+  // P16 召唤主持人 — banner / modal CTA 共用. 直接走 WS sendJson invoke_agent
+  const { sendJson } = useMeetingWsSend();
+  const handleSummonAgent = useCallback(
+    (agentId: string, query?: string) => {
+      sendJson({
+        action: "invoke_agent",
+        agent_id: agentId,
+        query: query || undefined,
+      });
+      setToast({ kind: "success", text: "已召唤主持人, 转录区可看回复" });
+    },
+    [sendJson],
+  );
+
+  // P16 advance_suggested 一键推进 — 复用 handleAdvance
+  // (在文件下方定义, 这里 forward declaration via late binding)
+
+  // P5B → P16: WS 订阅. 6 类议程事件 + severe modal + dedup.
   const handleWsEvent = useCallback(
     (e: import("@/lib/sttSocket").SttEvent) => {
+      // 去重: 同 type 10s 内重复 skip
+      const dedupKey = e.type;
+      const lastTs = lastEventTsRef.current.get(dedupKey) ?? 0;
+      const now = Date.now();
+      const isDedupableType = [
+        "agenda_off_topic",
+        "agenda_time_warning",
+        "agenda_stuck",
+        "dissent_detected",
+        "agenda_decision_summary",
+        "agenda_advance_suggested",
+      ].includes(e.type);
+      if (isDedupableType && now - lastTs < DEDUP_WINDOW_MS) {
+        return;
+      }
+      if (isDedupableType) lastEventTsRef.current.set(dedupKey, now);
+
       switch (e.type) {
         case "agenda_advanced":
-          // 议程被推进 (可能是别人推的) — 静默 reload
           void reload();
           if (e.is_complete) {
             setToast({ kind: "success", text: "议程已全部走完" });
           }
           break;
         case "agenda_off_topic":
-          setBanner({
-            kind: "off_topic",
-            title: "议题似乎跑偏了",
-            body:
-              e.off_topic_summary ||
-              `当前议题: ${e.current_agenda_item || "(未指定)"}`,
-            severity: e.off_topic_severity,
-          });
+          // severity=severe 走全屏 modal, 否则普通 banner
+          if (e.off_topic_severity === "severe") {
+            setSevereOffTopic({
+              offTopicSummary: e.off_topic_summary,
+              currentAgendaItem: e.current_agenda_item,
+              suggestedAgendaItem: e.suggested_agenda_item,
+              moderatorAgentId: e.moderator_agent_id,
+              moderatorAgentName:
+                e.moderator_agent_nickname || e.moderator_agent_name,
+              invokeQuery: e.reason,
+              autoSummonAfterSec: e.auto_summon_after_s ?? 30,
+            });
+          } else {
+            setBanner({
+              kind: "off_topic",
+              title: "议题似乎跑偏了",
+              body:
+                e.off_topic_summary ||
+                `当前议题: ${e.current_agenda_item || "(未指定)"}`,
+              agentId: e.moderator_agent_id,
+              agentName: e.moderator_agent_nickname || e.moderator_agent_name,
+              invokeQuery: e.reason,
+              autoSummonSec: null,
+            });
+          }
           break;
         case "agenda_time_warning":
           setBanner({
             kind: "time_warning",
             title: `时间快用完 (已 ${e.elapsed_min} 分钟)`,
             body: e.time_warning_text,
+            agentId: e.moderator_agent_id,
+            agentName: e.moderator_agent_nickname || e.moderator_agent_name,
+            invokeQuery: e.reason,
+            autoSummonSec: null,
           });
           break;
         case "agenda_stuck":
@@ -192,6 +255,48 @@ function MeetingDetailInner({ id }: { id: string }) {
             kind: "stuck",
             title: "议题卡住了",
             body: e.stuck_summary,
+            agentId: e.moderator_agent_id,
+            agentName: e.moderator_agent_nickname || e.moderator_agent_name,
+            invokeQuery: e.reason,
+            autoSummonSec: e.auto_summon_after_s,
+          });
+          break;
+        case "dissent_detected":
+          // 用 suggested_agent (一般是某专家), 不是 moderator
+          setBanner({
+            kind: "dissent",
+            title: `${e.parties.join(" vs ")} 出现分歧`,
+            body: `${e.topic} — ${e.reason}`,
+            agentId: e.suggested_agent_id,
+            agentName:
+              e.suggested_agent_nickname || e.suggested_agent_name,
+            invokeQuery: e.reason,
+            autoSummonSec: null,
+          });
+          break;
+        case "agenda_decision_summary":
+          setBanner({
+            kind: "decision_summary",
+            title: "该收口决策了",
+            body: e.decision_brief,
+            agentId: e.moderator_agent_id,
+            agentName: e.moderator_agent_nickname || e.moderator_agent_name,
+            invokeQuery: e.decision_summary_query,
+            autoSummonSec: e.auto_summon_after_s,
+          });
+          break;
+        case "agenda_advance_suggested":
+          // 不召唤 agent, 是推进议程提示. canAdvance 由 page 状态判
+          setBanner({
+            kind: "advance_suggested",
+            title: "AI 建议推进议程",
+            body: e.advance_reason,
+            agentId: e.moderator_agent_id,
+            agentName: e.moderator_agent_nickname || e.moderator_agent_name,
+            invokeQuery: e.reason,
+            autoSummonSec: null,
+            advanceTargetIdx: e.next_agenda_idx,
+            canAdvance: data?.can_control ?? false,
           });
           break;
         default:
@@ -199,7 +304,7 @@ function MeetingDetailInner({ id }: { id: string }) {
           break;
       }
     },
-    [reload],
+    [reload, data?.can_control],
   );
   useMeetingWsEvent(handleWsEvent);
 
@@ -308,10 +413,22 @@ function MeetingDetailInner({ id }: { id: string }) {
         isComplete={data.is_agenda_complete}
       />
 
-      {/* ===== P5B: WS 议程事件 banner ========================== */}
+      {/* ===== P16: WS 议程事件 banner (6 类) ==================== */}
       {banner ? (
-        <AgendaEventBanner data={banner} onDismiss={() => setBanner(null)} />
+        <AgendaEventBanner
+          data={banner}
+          onDismiss={() => setBanner(null)}
+          onSummonAgent={handleSummonAgent}
+          onAdvanceAgenda={handleAdvance}
+        />
       ) : null}
+
+      {/* ===== P16: severe 跑题全屏 modal ======================= */}
+      <SevereOffTopicModal
+        data={severeOffTopic}
+        onSummon={handleSummonAgent}
+        onDismiss={() => setSevereOffTopic(null)}
+      />
 
       {/* ===== scheduled 状态: 仅显 "开始会议" 兜底卡 ============== */}
       {data.status === "scheduled" ? (
