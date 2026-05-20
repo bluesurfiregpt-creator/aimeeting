@@ -98,10 +98,13 @@ MODERATOR_SYSTEM = """你是一名严谨的政务会议主持人,代表会议的
 - 不要表达情绪
 """
 
-MODERATOR_INTRO_USER = """当前议程项:"{title}"
+MODERATOR_INTRO_USER = """会议名称:"{meeting_title}"
+{brief_block}当前议程项:"{title}"{note_block}
 
-请用 60-100 字简要陈述议题 + 提出 1-2 个引导问题让在场 AI 专家围绕讨论.
-不要给结论,你只是主持."""
+请用 60-100 字简要陈述议题(结合 会议 brief / 议程 note 提示的方向)+
+提出 1-2 个引导问题让在场 AI 专家围绕讨论.不要给结论,你只是主持.
+若 brief / note 已限定 范围 或 提供 已知信息(预算 / 时间窗 / 已有方案),
+请在 引导问题里 把它 反映出来(避免 AI 专家 跑偏 到 brief 外的话题)."""
 
 MODERATOR_WRAPUP_USER = """议程项:"{title}"
 
@@ -136,17 +139,21 @@ AGENT_REPLY_SYSTEM = """你是 {agent_name},专精 {domain}.
 - 不要重复别的专家已说的
 """
 
-AGENT_REPLY_USER = """当前议程项:"{title}"
+AGENT_REPLY_USER = """会议名称:"{meeting_title}"
+{brief_block}当前议程项:"{title}"{note_block}
 
 前面已发言(按时间顺序):
 {prev_messages}
 
-请基于你的知识库 + 经验,做以下其一(选一个最合适的):
+请基于你的知识库 + 经验 + 上方 会议 brief / 议程 note(如有),做以下其一
+(选一个最合适的):
   1) 【补充】前面没提到的视角(如:实操影响 / 历史经验 / 跨部门衔接)
   2) 【反驳】对某位专家观点提出不同看法 + 理由
   3) 【整合】把前面 2-3 个观点 拢成一个执行方案
 
-100-300 字.直接说观点,不要客套."""
+100-300 字.直接说观点,不要客套.
+若 brief / note 给了 已知约束(预算 / 时间窗 / 已有结论),请尊重它,
+不要假装这些约束不存在 — 你是为这个 brief 服务的."""
 
 CONSENSUS_SYSTEM = """你是政务会议秘书,从会议讨论中识别 共识 与 分歧.
 
@@ -395,6 +402,9 @@ async def _run_agenda_item(
     agenda_idx: int,
     agenda_title: str,
     provider,
+    meeting_title: str = "",
+    meeting_description: Optional[str] = None,
+    agenda_note: Optional[str] = None,
 ) -> dict:
     """
     跑一议程项.返回 stats {turn_count, token_estimate, elapsed_sec, has_dissent}.
@@ -402,16 +412,38 @@ async def _run_agenda_item(
     每议程项的产物:
       - meeting_agent_message: intro + N reply + wrap_up (全带 agenda_idx)
       - meeting_consensus: 1 行(含 consensus_md + dissents)
+
+    v27.0-mobile P19: meeting_description (会议 brief) 和 agenda_note (议程 note)
+    传到 moderator intro / agent reply prompt 里 — 让 AI 知道 "老板这个会想干嘛"
+    + "这个议程要往哪个方向讨论",避免 只看 title 抽象空转.
     """
     t_start = time.time()
     total_tokens = 0
     helper = _SpeakerHelper(by_agent={moderator.id: moderator.name, **{a.id: a.name for a in experts}})
 
+    # v27.0-mobile P19: 准备 prompt 注入块 — 没填 brief / note 时 块为空字符串,
+    # 模板里 不会 出现 多余 换行 (避免 LLM 被 "" 之类的空 quote 干扰).
+    brief_block = (
+        f"会议背景 / 诉求:\n{meeting_description.strip()}\n\n"
+        if meeting_description and meeting_description.strip()
+        else ""
+    )
+    note_block = (
+        f"\n议程方向提示:{agenda_note.strip()}"
+        if agenda_note and agenda_note.strip()
+        else ""
+    )
+
     # 1. moderator intro -----------------------------------------------------
     intro, tok, _ = await _call_llm(
         provider,
         system_prompt=MODERATOR_SYSTEM,
-        user_prompt=MODERATOR_INTRO_USER.format(title=agenda_title),
+        user_prompt=MODERATOR_INTRO_USER.format(
+            meeting_title=meeting_title or "未命名会议",
+            brief_block=brief_block,
+            title=agenda_title,
+            note_block=note_block,
+        ),
         temperature=0.2,
     )
     total_tokens += tok
@@ -461,7 +493,11 @@ async def _run_agenda_item(
             persona=(next_agent.persona or "(无 persona)")[:800],
         )
         user_prompt = AGENT_REPLY_USER.format(
-            title=agenda_title, prev_messages=prev_formatted
+            meeting_title=meeting_title or "未命名会议",
+            brief_block=brief_block,
+            title=agenda_title,
+            note_block=note_block,
+            prev_messages=prev_formatted,
         )
 
         try:
@@ -809,11 +845,17 @@ async def _run_auto_meeting(meeting_id: uuid.UUID) -> None:
                 break
 
             title = (item.get("title") if isinstance(item, dict) else str(item)) or f"议程 {idx + 1}"
+            # v27.0-mobile P19: 议程 note (item.note) 是 用户在创建会议时 给本议程 加的方向提示
+            # (例如 "重点关注 预算 / 时间窗"),传到 prompt 里 让 AI 围着方向 讨论.
+            note = item.get("note") if isinstance(item, dict) else None
             logger.info("orchestrator meeting=%s 议程 %d/%d: %s (elapsed %.1fs)",
                        meeting_id, idx + 1, len(agenda), title, elapsed)
             try:
                 stats = await _run_agenda_item(
                     meeting_id, moderator, experts, idx, title, provider,
+                    meeting_title=m.title or "",
+                    meeting_description=m.description,
+                    agenda_note=note,
                 )
                 total_dissents += stats["dissent_count"]
                 completed_agenda_count += 1

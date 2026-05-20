@@ -11,6 +11,8 @@ import type {
   AIInsightFull,
   CreateMeetingIn,
   CreateMeetingOut,
+  DecomposeAgendaIn,
+  DecomposeAgendaOut,
   MeetingActionItemBrief,
   MeetingSummaryOut,
   MemoryOut,
@@ -152,6 +154,11 @@ export const mApi = {
   /** 创建会议. 复用桌面 POST /api/meetings, mode 接受 hybrid / auto / human. */
   createMeeting: (payload: CreateMeetingIn) =>
     jsend<CreateMeetingOut>("POST", "/api/meetings", payload),
+
+  /** v27.0-mobile P19-A.2: LLM 拆 brief → 议程项 (2-6 个).
+   *  不持久化 — 调用方拿到 items 后 用户可编辑, 然后 createMeeting. */
+  decomposeAgenda: (payload: DecomposeAgendaIn) =>
+    jsend<DecomposeAgendaOut>("POST", "/api/meetings/decompose-agenda", payload),
 
   /** v27.0-mobile P9: scheduled → ongoing. 桌面 ws auto-trigger, mobile 显式 */
   startMeeting: (meetingId: string) =>

@@ -320,6 +320,8 @@ export type CreateMeetingIn = {
     note?: string | null;
   }>;
   mode: "hybrid" | "auto" | "human";
+  /** v27.0-mobile P19: 会议 brief — auto 模式 强烈建议 填. */
+  description?: string | null;
 };
 
 /** POST /api/meetings 响应 */
@@ -328,6 +330,27 @@ export type CreateMeetingOut = {
   title: string;
   status: string;
   mode: string;
+};
+
+// ---------- P19-A.2: AI 拆议程 -------------------------------------------
+
+/** POST /api/meetings/decompose-agenda 请求 */
+export type DecomposeAgendaIn = {
+  brief: string;
+  title?: string | null;
+  target_count?: number;
+};
+
+/** 一行拆出来的 议程项 */
+export type DecomposedAgendaItem = {
+  title: string;
+  note: string | null;
+  time_budget_min: number | null;
+};
+
+/** POST /api/meetings/decompose-agenda 响应 */
+export type DecomposeAgendaOut = {
+  items: DecomposedAgendaItem[];
 };
 
 // ---------- 长期记忆库 (Phase 4.4 — /m/insights 已入库 tab) ------------

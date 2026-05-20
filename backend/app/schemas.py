@@ -43,6 +43,9 @@ class MeetingCreate(BaseModel):
     # v26.3: 会议模式 — human / hybrid (默认) / auto
     # mode='auto' 时要求:agenda ≥ 2 项,attendee_agent_ids ≥ 3 个 expert
     mode: str = "hybrid"
+    # v27.0-mobile P19: 会议 brief — 用户的诉求 / 背景 / 目标 / 期望产出.
+    # auto 模式时强烈建议填 (LLM moderator 用这段引导讨论, 否则只看 title 容易抽象)
+    description: Optional[str] = None
 
 
 class MeetingOut(BaseModel):
@@ -61,6 +64,8 @@ class MeetingOut(BaseModel):
     # v26.14-P5.2: 会议 创建人 — 前端 据此 决定 议程 推进 按钮 是否 可见
     # (跟 backend ABAC 一致: leader+ OR 创建人 可 推进).
     created_by_user_id: Optional[uuid.UUID] = None
+    # v27.0-mobile P19: 会议 brief — 前端 详情页 显示给参会者(让 大家 知道 老板 召这个会 想干嘛).
+    description: Optional[str] = None
 
 
 class TranscriptLine(BaseModel):

@@ -33,6 +33,10 @@ type AgendaItem = {
   id: string; // 客户端临时 id, 用于 React key
   title: string;
   time_budget_min: string; // 输入框值, 不是 number — 解析时转
+  // v27.0-mobile P19: 议程方向提示 — 给 AI moderator / experts 看 (用户不写也能开会).
+  note: string;
+  // P19-A.1: 是否展开 note 输入框 (默认折叠避免页面爆炸).
+  noteOpen: boolean;
 };
 
 type Mode = "hybrid" | "auto";
@@ -41,8 +45,10 @@ export default function NewMeetingPage() {
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [mode, setMode] = useState<Mode>("hybrid");
+  // v27.0-mobile P19: 会议 brief — auto 模式 强烈建议 填; 也是 AI 拆议程 的 输入.
+  const [description, setDescription] = useState("");
   const [agenda, setAgenda] = useState<AgendaItem[]>([
-    { id: crypto.randomUUID(), title: "", time_budget_min: "" },
+    { id: crypto.randomUUID(), title: "", time_budget_min: "", note: "", noteOpen: false },
   ]);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
@@ -51,6 +57,10 @@ export default function NewMeetingPage() {
   const [agents, setAgents] = useState<WorkspaceAgentBrief[] | null>(null);
   const [membersErr, setMembersErr] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  // v27.0-mobile P19-A.2: AI 拆议程 状态
+  const [decomposing, setDecomposing] = useState(false);
+  // 拆议程时 现有 agenda 有内容 — 弹 confirm 让用户决定是否覆盖
+  const [decomposeConfirmOpen, setDecomposeConfirmOpen] = useState(false);
   const [toast, setToast] = useState<{
     kind: "success" | "error";
     text: string;
@@ -97,12 +107,72 @@ export default function NewMeetingPage() {
   const addAgenda = () =>
     setAgenda((a) => [
       ...a,
-      { id: crypto.randomUUID(), title: "", time_budget_min: "" },
+      {
+        id: crypto.randomUUID(),
+        title: "",
+        time_budget_min: "",
+        note: "",
+        noteOpen: false,
+      },
     ]);
   const removeAgenda = (id: string) =>
     setAgenda((a) => (a.length > 1 ? a.filter((x) => x.id !== id) : a));
   const updateAgenda = (id: string, patch: Partial<AgendaItem>) =>
     setAgenda((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+
+  // v27.0-mobile P19-A.2: 让 AI 帮我拆议程.
+  // 当前 agenda 有非空标题 → 弹 confirm; 都是空 → 直接覆盖.
+  const hasAgendaContent = useMemo(
+    () => agenda.some((it) => it.title.trim().length > 0),
+    [agenda],
+  );
+
+  const doDecompose = useCallback(async () => {
+    const brief = description.trim();
+    if (brief.length < 10) {
+      setToast({ kind: "error", text: "请先把 brief 写够 10 字" });
+      return;
+    }
+    if (decomposing) return;
+    setDecomposing(true);
+    setDecomposeConfirmOpen(false);
+    try {
+      const out = await mApi.decomposeAgenda({
+        brief,
+        title: title.trim() || undefined,
+        target_count: 3,
+      });
+      // 替换现有 agenda — 用 LLM 给的 items
+      const nextAgenda: AgendaItem[] = out.items.map((it) => ({
+        id: crypto.randomUUID(),
+        title: it.title,
+        time_budget_min: it.time_budget_min ? String(it.time_budget_min) : "",
+        note: it.note || "",
+        // 拆出来的 议程 默认 把 note 展开 — 用户能看见 AI 写了啥
+        noteOpen: Boolean(it.note),
+      }));
+      setAgenda(nextAgenda.length > 0 ? nextAgenda : agenda);
+      setToast({
+        kind: "success",
+        text: `AI 已拆出 ${nextAgenda.length} 个议程项,你可继续编辑`,
+      });
+    } catch (e) {
+      setToast({
+        kind: "error",
+        text: `AI 拆议程失败: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      setDecomposing(false);
+    }
+  }, [description, decomposing, title, agenda]);
+
+  const onDecomposeClick = () => {
+    if (hasAgendaContent) {
+      setDecomposeConfirmOpen(true);
+    } else {
+      void doDecompose();
+    }
+  };
 
   // === 选 toggles ===
   const toggleUser = (uid: string) =>
@@ -135,13 +205,17 @@ export default function NewMeetingPage() {
       if (selectedAgentIds.size < 3) {
         errors.push("全 AI 自主模式至少需要邀请 3 个 AI 专家");
       }
+      // v27.0-mobile P19: auto 模式 brief 强烈建议填 (LLM moderator 否则只看 title 抽象)
+      if (description.trim().length < 10) {
+        errors.push("全 AI 自主模式建议先写一段诉求 (≥10 字) — AI 才知道讨论什么");
+      }
     } else {
       if (selectedUserIds.size + selectedAgentIds.size === 0) {
         errors.push("至少邀请 1 个真人或 AI 专家");
       }
     }
     return { errors, ok: errors.length === 0 };
-  }, [title, agenda, mode, selectedAgentIds, selectedUserIds]);
+  }, [title, agenda, mode, selectedAgentIds, selectedUserIds, description]);
 
   // === 提交 ===
   const handleSubmit = useCallback(async () => {
@@ -152,10 +226,13 @@ export default function NewMeetingPage() {
         .filter((it) => it.title.trim().length > 0)
         .map((it) => {
           const budget = parseInt(it.time_budget_min, 10);
+          const note = it.note.trim();
           return {
             title: it.title.trim(),
             time_budget_min:
               Number.isFinite(budget) && budget > 0 ? budget : null,
+            // v27.0-mobile P19: 议程方向提示 — 空就不发,后端 schema 接受 None
+            note: note.length > 0 ? note : null,
           };
         });
 
@@ -165,6 +242,8 @@ export default function NewMeetingPage() {
         attendee_agent_ids: Array.from(selectedAgentIds),
         agenda: cleanedAgenda,
         mode,
+        // v27.0-mobile P19: 会议 brief — 空就不发
+        description: description.trim() || null,
       });
 
       // P9 立即开始会议 (scheduled → ongoing). 用户体感 "创建即开始" 一气呵成.
@@ -196,6 +275,7 @@ export default function NewMeetingPage() {
     selectedAgentIds,
     mode,
     router,
+    description,
   ]);
 
   return (
@@ -250,6 +330,65 @@ export default function NewMeetingPage() {
           </div>
         </section>
 
+        {/* === v27.0-mobile P19: 会议 brief / 诉求 ===
+            auto 模式 必填,hybrid / human 选填 (但填了 AI 召出来时也能用).
+            UI:
+              - auto 模式: 整块 高亮 (border-accent),提示"必填,否则 AI 抓瞎"
+              - 其他模式: 灰色 中性 提示
+              - 字数 counter (10-2000 字 — 后端 schema 同步)
+        */}
+        <section>
+          <div className="flex items-baseline justify-between">
+            <Label>
+              会议 brief / 诉求{" "}
+              {mode === "auto" ? (
+                <span className="text-[12px] font-medium text-accent-400">
+                  · 全 AI 模式 必填
+                </span>
+              ) : (
+                <span className="text-[12px] text-zinc-500">· 选填</span>
+              )}
+            </Label>
+            <span className="text-[11px] tabular-nums text-zinc-500">
+              {description.length}/2000
+            </span>
+          </div>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value.slice(0, 2000))}
+            placeholder={
+              mode === "auto"
+                ? "写清楚:背景 / 想解决什么问题 / 期望产出 / 已知约束.\n例:Q1 物业投诉同比 +35%,主要集中 在 安保 / 卫生.\n想 拆原因 + 拟 整改 方案,Q2 落地,预算 ≤ 50w."
+                : "可选 — 写一段背景给 AI 看. 不写也能开,只是 AI 召出来时 没 context."
+            }
+            rows={5}
+            className={`mt-2 w-full resize-y rounded-xl border bg-ink-900 p-3 text-[15px] leading-relaxed text-zinc-100 placeholder:text-zinc-600 focus:outline-none ${
+              mode === "auto"
+                ? "border-accent-500/40 focus:border-accent-500/70"
+                : "border-ink-800 focus:border-accent-500/60"
+            }`}
+          />
+          {/* AI 拆议程 入口 — 只在 brief 够长时显 */}
+          {description.trim().length >= 10 ? (
+            <button
+              type="button"
+              onClick={onDecomposeClick}
+              disabled={decomposing}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-violet-500/15 px-3 py-1.5 text-[13px] font-medium text-violet-300 active:scale-[0.97] active:bg-violet-500/25 disabled:opacity-50"
+              data-testid="ai-decompose-agenda-btn"
+            >
+              {decomposing ? (
+                <>
+                  <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-violet-300/40 border-t-violet-300" />
+                  AI 拆议程中…
+                </>
+              ) : (
+                <>✨ 让 AI 拆议程</>
+              )}
+            </button>
+          ) : null}
+        </section>
+
         {/* === 议程 === */}
         <section>
           <div className="flex items-center justify-between">
@@ -299,6 +438,51 @@ export default function NewMeetingPage() {
                     updateAgenda(item.id, { time_budget_min: v })
                   }
                 />
+
+                {/* v27.0-mobile P19: 议程方向提示 (note) — 折叠默认隐藏.
+                    点 "+ 方向提示" 展开 textarea. */}
+                <div className="mt-2 pl-5">
+                  {item.noteOpen ? (
+                    <div className="space-y-1">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-[12px] font-medium text-zinc-400">
+                          方向提示 (给 AI 看)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateAgenda(item.id, {
+                              noteOpen: false,
+                              note: "",
+                            })
+                          }
+                          className="text-[11px] text-zinc-500 active:text-zinc-300"
+                        >
+                          收起
+                        </button>
+                      </div>
+                      <textarea
+                        value={item.note}
+                        onChange={(e) =>
+                          updateAgenda(item.id, {
+                            note: e.target.value.slice(0, 200),
+                          })
+                        }
+                        placeholder="例: 重点考虑 Q3 时间窗 + 预算 ≤ 30w"
+                        rows={2}
+                        className="w-full resize-y rounded-lg border border-ink-800 bg-ink-950 p-2 text-[13px] leading-snug text-zinc-100 placeholder:text-zinc-600 focus:border-accent-500/60 focus:outline-none"
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => updateAgenda(item.id, { noteOpen: true })}
+                      className="text-[12px] text-zinc-500 active:text-accent-400"
+                    >
+                      + 方向提示 (可选)
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -396,6 +580,44 @@ export default function NewMeetingPage() {
 
       {toast ? (
         <Toast kind={toast.kind} text={toast.text} onClose={() => setToast(null)} />
+      ) : null}
+
+      {/* v27.0-mobile P19-A.2: AI 拆议程 — 现有议程有内容 时的 confirm 覆盖.
+          fixed inset-0 z-50,bg-black/60 backdrop blur. */}
+      {decomposeConfirmOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setDecomposeConfirmOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-ink-900 p-5"
+            onClick={(e) => e.stopPropagation()}
+            style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)" }}
+          >
+            <p className="text-[16px] font-semibold text-zinc-50">
+              覆盖现有议程?
+            </p>
+            <p className="mt-2 text-[14px] leading-relaxed text-zinc-400">
+              你已填了一些议程项. 让 AI 拆议程会替换它们 — 已有内容会丢失.
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDecomposeConfirmOpen(false)}
+                className="flex h-11 flex-1 items-center justify-center rounded-xl bg-ink-800 text-[15px] font-medium text-zinc-200 active:scale-[0.98]"
+              >
+                再想想
+              </button>
+              <button
+                type="button"
+                onClick={() => void doDecompose()}
+                className="flex h-11 flex-1 items-center justify-center rounded-xl bg-violet-500 text-[15px] font-medium text-white active:scale-[0.98]"
+              >
+                覆盖
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

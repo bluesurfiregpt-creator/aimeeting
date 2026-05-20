@@ -91,6 +91,8 @@ def _to_meeting_out(
             "auto_state": m.auto_state,
             # v26.14-P5.2: 创建人 — 前端 据此 显/隐 议程 推进 按钮
             "created_by_user_id": m.created_by_user_id,
+            # v27.0-mobile P19: 会议 brief — 详情页 + 总结页 可 展示
+            "description": m.description,
         }
     )
 
@@ -132,6 +134,9 @@ async def create_meeting(
             if payload.agenda
             else None
         ),
+        # v27.0-mobile P19: 会议 brief — auto 模式 LLM moderator 用它+议程 note 引导讨论;
+        # hybrid/human 模式仅作记录(可选).
+        description=(payload.description.strip() if payload.description else None),
         # v26.11-fix2: 记录 召集人 — 邀请 AI / 改 议程 走 ABAC 时 要 它.
         created_by_user_id=auth.user.id,
     )
@@ -197,6 +202,161 @@ async def create_meeting(
         },
     )
     return _to_meeting_out(m, list(payload.attendee_user_ids), bound_agent_ids)
+
+
+# ============================================================================
+# v27.0-mobile P19-A.2 · POST /api/meetings/decompose-agenda
+# 用户给 brief (背景 / 诉求),LLM 拆成 2-6 个议程项 (title + note).
+# 不持久化 — 返回给 前端 让用户编辑后再 create_meeting.
+# ============================================================================
+
+class DecomposeAgendaIn(BaseModel):
+    """前端输入 — brief 必填,可选会议标题给 LLM 多点 context."""
+    brief: str  # 用户的诉求 / 背景 / 目标 (10-2000 字).
+    title: Optional[str] = None  # 会议名 (可选).
+    target_count: int = 3  # 建议拆的议程项 数 (2-6).
+
+
+class DecomposedAgendaItem(BaseModel):
+    title: str
+    note: Optional[str] = None
+    time_budget_min: Optional[int] = None
+
+
+class DecomposeAgendaOut(BaseModel):
+    items: list[DecomposedAgendaItem]
+
+
+_AGENDA_DECOMPOSE_SYS = """你是 政务会议 议程拆解助手.
+
+给定一段 用户 brief (老板 召集这个会 想干嘛 / 想得到什么),你要拆成
+2-6 个 议程项,让 AI 专家团 按议程逐项讨论.
+
+严格按 JSON 数组 格式输出,不要 markdown 围栏,不要解释:
+
+[
+  {
+    "title": "议程项标题 (≤ 20 字,聚焦一个 子问题)",
+    "note": "议程方向提示 (30-80 字,告诉 AI 这个议程要往什么方向讨论,
+            可包含 已知约束 / 历史背景 / 期望产出形式)",
+    "time_budget_min": 10
+  },
+  ...
+]
+
+约束:
+- 议程项数:2-6 个,默认 3 个(除非 brief 复杂度明显要 5+ 或简单到只值 2 个)
+- 议程项之间必须 mutually exclusive — 不重复 不重叠
+- 议程项排序 = 讨论顺序 (前置 / 基础 议题在前)
+- title 必须是 名词性短语 (例: "预算与资源约束"),不要 "讨论 / 分析" 开头
+- note 必须 引用 brief 里的具体信息 (例: brief 里 提到 "Q3 上线",note 就提 "考虑 Q3 时间窗")
+- time_budget_min 默认 10,简单议题给 5,复杂议题给 15-20
+- 总时长建议 ≤ 60 分钟(各议程 time_budget_min 之和)
+
+⚠️ 关键 — 避免抽象:
+- 不允许 "现状分析" / "未来展望" / "总结建议" 这种 万能 议程 (任何会议都能套)
+- 每个 议程项 必须 跟 brief 里的 具体 内容 强绑定 — 看了 议程 就 知道 是 这个 brief 来的"""
+
+
+def _parse_agenda_decompose(text: str) -> list[DecomposedAgendaItem]:
+    """从 LLM 输出 抽 JSON 数组 → DecomposedAgendaItem 列表."""
+    import json as _json
+    t = text.strip()
+    if t.startswith("```"):
+        m = re.search(r"```(?:json)?\s*\n([\s\S]*?)\n```", t)
+        if m:
+            t = m.group(1).strip()
+    start = t.find("[")
+    end = t.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        raise HTTPException(500, f"LLM 输出不含 JSON 数组: {t[:200]}")
+    try:
+        rows = _json.loads(t[start: end + 1])
+    except _json.JSONDecodeError as e:
+        raise HTTPException(500, f"LLM JSON 解析失败: {e} / preview: {t[start:end+1][:300]}")
+    if not isinstance(rows, list):
+        raise HTTPException(500, "LLM 输出 不是 JSON 数组")
+    out: list[DecomposedAgendaItem] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        title = (r.get("title") or "").strip()
+        if not title:
+            continue
+        note = (r.get("note") or "").strip() or None
+        tb = r.get("time_budget_min")
+        try:
+            tb_int = int(tb) if tb is not None else None
+        except (TypeError, ValueError):
+            tb_int = None
+        # 兜底 — title 最长 30 字 (DB 没限,但 UI 显示要克制)
+        out.append(DecomposedAgendaItem(
+            title=title[:30],
+            note=(note[:200] if note else None),
+            time_budget_min=tb_int,
+        ))
+    if not out:
+        raise HTTPException(500, "LLM 拆出 0 个议程项")
+    return out
+
+
+@router.post("/decompose-agenda", response_model=DecomposeAgendaOut)
+async def decompose_agenda(
+    payload: DecomposeAgendaIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v27.0-mobile P19-A.2: LLM 拆 brief → 议程项."""
+    from ..llm_direct import LlmError, get_active_provider, stream_chat
+
+    brief = (payload.brief or "").strip()
+    if len(brief) < 10:
+        raise HTTPException(400, "brief 太短 — 请提供 ≥10 字 的背景描述")
+    if len(brief) > 4000:
+        raise HTTPException(400, "brief 太长 — 请压到 ≤4000 字")
+
+    target_count = max(2, min(6, payload.target_count or 3))
+
+    user_prompt_parts = [
+        f"用户 brief:\n{brief}",
+        f"建议拆成 {target_count} 个议程项 (你可酌情 ±1,但 必须 在 2-6 范围).",
+    ]
+    if payload.title:
+        user_prompt_parts.insert(0, f"会议名:{payload.title.strip()[:80]}")
+    user_prompt = "\n\n".join(user_prompt_parts)
+
+    provider = await get_active_provider(session)
+    if provider is None:
+        raise HTTPException(
+            503,
+            "没有 active 的 LLM provider — 请先在 系统配置 / LLM 模型 设置",
+        )
+
+    parts: list[str] = []
+    try:
+        async for chunk in stream_chat(
+            provider=provider,
+            system_prompt=_AGENDA_DECOMPOSE_SYS,
+            user_prompt=user_prompt,
+            temperature=0.3,
+        ):
+            if chunk:
+                parts.append(chunk)
+    except LlmError as e:
+        raise HTTPException(502, f"LLM 调用失败: {e}")
+
+    items = _parse_agenda_decompose("".join(parts))
+
+    await audit_log(
+        session, auth, "decompose_agenda",
+        target_type="meeting_draft", target_id=None,
+        payload={
+            "brief_len": len(brief),
+            "item_count": len(items),
+            "target_count": target_count,
+        },
+    )
+    return DecomposeAgendaOut(items=items)
 
 
 @router.get("", response_model=list[MeetingOut])

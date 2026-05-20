@@ -315,6 +315,11 @@ class Meeting(Base):
     recording_oss_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     pyannote_job_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     summary_md: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # v27.0-mobile P19: 会议 brief — 用户写一段诉求 / 背景 / 目标 / 期望产出.
+    # 对 mode=auto 尤其重要 — LLM moderator 拿这段当 context 引导 AI 讨论,
+    # 否则只看 agenda title 一句话, 容易跑偏 / 抽象.
+    # hybrid 模式也允许填 (背景介绍给真人 + AI 共用).
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # M3.0: agenda is a list of {title: str, time_budget_min?: int, note?: str}.
     # When present, agenda_monitor LLM-watches transcript drift + time pacing
     # and pushes "off topic" / "time warning" banners via the moderator agent.
