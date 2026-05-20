@@ -18,9 +18,10 @@
  * status="scheduled". 用户进会议室后还得手动开始 (桌面端流程).
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import AttachmentsSection from "@/components/mobile/AttachmentsSection";
 import Toast from "@/components/mobile/Toast";
 import { mApi } from "@/lib/mobile/api";
 import { invalidateCache } from "@/lib/mobile/swrCache";
@@ -47,6 +48,14 @@ export default function NewMeetingPage() {
   const [mode, setMode] = useState<Mode>("hybrid");
   // v27.0-mobile P19: 会议 brief — auto 模式 强烈建议 填; 也是 AI 拆议程 的 输入.
   const [description, setDescription] = useState("");
+  // v27.0-mobile P19-B: 创建前 上传 attachments 用的 stable uuid.
+  // useRef + lazy init — 整个页面 session 共用 一个 id, 切换 mode / 改 brief
+  // 都不会让它变. 创建会议成功后 后端 会把 这个 draft 下 attachments 关联到新会议.
+  const draftIdRef = useRef<string>("");
+  if (draftIdRef.current === "") {
+    draftIdRef.current = crypto.randomUUID();
+  }
+  const [attachmentCount, setAttachmentCount] = useState(0);
   const [agenda, setAgenda] = useState<AgendaItem[]>([
     { id: crypto.randomUUID(), title: "", time_budget_min: "", note: "", noteOpen: false },
   ]);
@@ -141,6 +150,8 @@ export default function NewMeetingPage() {
         brief,
         title: title.trim() || undefined,
         target_count: 3,
+        // v27.0-mobile P19-B: 让 LLM 拆议程 同时 读 已上传附件 内容
+        client_draft_id: attachmentCount > 0 ? draftIdRef.current : undefined,
       });
       // 替换现有 agenda — 用 LLM 给的 items
       const nextAgenda: AgendaItem[] = out.items.map((it) => ({
@@ -164,7 +175,7 @@ export default function NewMeetingPage() {
     } finally {
       setDecomposing(false);
     }
-  }, [description, decomposing, title, agenda]);
+  }, [description, decomposing, title, agenda, attachmentCount]);
 
   const onDecomposeClick = () => {
     if (hasAgendaContent) {
@@ -244,6 +255,9 @@ export default function NewMeetingPage() {
         mode,
         // v27.0-mobile P19: 会议 brief — 空就不发
         description: description.trim() || null,
+        // v27.0-mobile P19-B: 把 已上传附件 一起 hop 到 新会议. 后端 update 这个
+        // draft 下所有 attachment SET meeting_id=<新>. 没附件 也安全 (rowcount=0).
+        client_draft_id: attachmentCount > 0 ? draftIdRef.current : null,
       });
 
       // P9 立即开始会议 (scheduled → ongoing). 用户体感 "创建即开始" 一气呵成.
@@ -276,6 +290,7 @@ export default function NewMeetingPage() {
     mode,
     router,
     description,
+    attachmentCount,
   ]);
 
   return (
@@ -383,11 +398,22 @@ export default function NewMeetingPage() {
                   AI 拆议程中…
                 </>
               ) : (
-                <>✨ 让 AI 拆议程</>
+                <>
+                  ✨ 让 AI 拆议程
+                  {attachmentCount > 0
+                    ? ` (用上 ${attachmentCount} 份资料)`
+                    : ""}
+                </>
               )}
             </button>
           ) : null}
         </section>
+
+        {/* === v27.0-mobile P19-B: 参考资料 === */}
+        <AttachmentsSection
+          draftId={draftIdRef.current}
+          onAttachmentsChange={setAttachmentCount}
+        />
 
         {/* === 议程 === */}
         <section>

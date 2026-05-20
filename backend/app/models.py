@@ -397,6 +397,90 @@ class MeetingAttendee(Base):
     meeting: Mapped[Meeting] = relationship(back_populates="attendees")
 
 
+class MeetingAttachment(Base):
+    """v27.0-mobile P19-B · 会议参考资料.
+
+    用户在 新建会议 时 上传 (或 进会议中追加) 的 文档 / 图片 / 表格.
+    给 LLM moderator + experts 当 上下文 (拼 prompt 前 用 extract_summary).
+
+    生命周期:
+      1. 用户 端 上传 → row 落库, meeting_id NULL, client_draft_id = 前端 uuid.
+      2. 创建 会议 时 调 attach API → meeting_id 填上, client_draft_id 清除.
+      3. extract worker (sync 抽 < 2MB, async 抽 大) → extract_status 由 pending → ready/failed.
+      4. summary worker → 用 LLM 把 extract_text 抽成 ≤ 2000 字 summary, 存 extract_summary.
+      5. 抽完才 拼 prompt — 否则 跳过, agenda decompose / orchestrator 不阻塞.
+
+    支持源:
+      - H5 标准 multipart 上传 (普通浏览器 / 系统文件 picker)
+      - 小程序 wx.uploadFile (聊天记录里的文件; 走 同 endpoint)
+
+    跨端 同步:
+      - 前端 持有 client_draft_id 作 session-scope 暂存桶.
+      - 小程序 picker 上传完 navigateBack → H5 visibility-change 时 主动 GET draft 下所有 attachments.
+
+    存储:
+      - 当前 用 本地 disk (path = STORAGE_ROOT/attachments/<workspace_id>/<attachment_id>/<safe_filename>).
+      - storage_key 仅记 相对路径, 后端读时拼 STORAGE_ROOT.
+      - 后续可换 OSS / S3 (改 read/write helper 即可, 表结构不变).
+
+    安全:
+      - workspace_id 强校验 (不允许跨租户读).
+      - uploader_user_id 用于 ABAC: 仅上传人 或 leader+ 能删未挂会议的 attachment.
+      - 文件大小 ≤ 50MB (上传 endpoint 拒).
+    """
+    __tablename__ = "meeting_attachment"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # meeting_id 暂时可 NULL — 用户 创建 会议 前 就 上传; 创建 时 用 attach 接口 关联.
+    meeting_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("meeting.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    # 前端 创建会议 draft id (uuid). 创建 完成 后 清空 (转为 meeting_id 关联).
+    # GET /api/meetings/attachments?draft_id=<uuid> 用这列 index 找.
+    client_draft_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+
+    uploader_user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # 文件元数据
+    filename: Mapped[str] = mapped_column(String(512))
+    mime: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    # 扩展名 小写 (例: "pdf", "docx"). 决定 用哪个 extractor.
+    extension: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+
+    # 存储路径 — 相对 STORAGE_ROOT, 例:
+    #   "attachments/<workspace_id>/<attachment_id>/Q1投诉数据.pdf"
+    storage_key: Mapped[str] = mapped_column(String(1024))
+
+    # 抽取 状态:
+    #   pending      — 刚上传, 还没开始抽 (上传 endpoint 同步 → 不会停在这, 立即 转 ready/extracting)
+    #   extracting   — 异步 worker 跑中
+    #   ready        — 抽取 + summary 都完成 (extract_text + extract_summary 至少一个 非空)
+    #   failed       — 抽取或 summary 失败 (last_error 含 原因)
+    #   skipped      — 不支持的文件类型 (图片 暂时无 OCR / 不识别的二进制)
+    extract_status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    extract_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # LLM 给 prompt 用的短 summary (≤ 2000 字). 抽完 text 后 再 用 LLM call 出.
+    # 没生成时 NULL — orchestrator fallback 用 filename + "(未抽取)" 占位.
+    extract_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_error: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class MeetingTranscript(Base):
     """One ASR sentence (字句级时间戳)."""
     __tablename__ = "meeting_transcript"

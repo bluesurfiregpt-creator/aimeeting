@@ -1,0 +1,48 @@
+<!-- pages/picker/picker.wxml — v27.0-mobile P19-B 微信聊天记录文件选择器 -->
+<view class="container">
+  <view class="hero">
+    <view class="hero-emoji">💬</view>
+    <view class="hero-title">从微信聊天记录选文件</view>
+    <view class="hero-body">
+      选好后会上传到本场会议. AI 拆议程 + 自主讨论 时会读这些资料.
+    </view>
+  </view>
+
+  <view wx:if="{{errorText}}" class="error">{{errorText}}</view>
+
+  <!-- 选文件按钮 -->
+  <button
+    class="btn-primary"
+    bindtap="onChooseFiles"
+    disabled="{{uploading || !!errorText}}"
+  >
+    <text wx:if="{{uploading}}">上传中…</text>
+    <text wx:else>+ 选聊天记录里的文件</text>
+  </button>
+
+  <!-- 已上传列表 -->
+  <view wx:if="{{uploaded.length > 0}}" class="list">
+    <view class="list-title">本次已上传 ({{uploaded.length}}):</view>
+    <view
+      wx:for="{{uploaded}}"
+      wx:key="index"
+      class="item"
+    >
+      <view class="item-name">{{item.name}}</view>
+      <view class="item-meta">{{item.status}}</view>
+    </view>
+  </view>
+
+  <!-- 完成 / 返回按钮 -->
+  <button
+    wx:if="{{uploaded.length > 0 && !uploading}}"
+    class="btn-done"
+    bindtap="onDone"
+  >
+    完成 — 回会议页
+  </button>
+
+  <view class="hint">
+    支持 PDF / Word / Excel / 文本 / 图片. 单文件 ≤ 50MB.
+  </view>
+</view>

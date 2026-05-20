@@ -99,11 +99,11 @@ MODERATOR_SYSTEM = """你是一名严谨的政务会议主持人,代表会议的
 """
 
 MODERATOR_INTRO_USER = """会议名称:"{meeting_title}"
-{brief_block}当前议程项:"{title}"{note_block}
+{brief_block}{attachments_block}当前议程项:"{title}"{note_block}
 
-请用 60-100 字简要陈述议题(结合 会议 brief / 议程 note 提示的方向)+
+请用 60-100 字简要陈述议题(结合 会议 brief / 议程 note / 参考资料 提示的方向)+
 提出 1-2 个引导问题让在场 AI 专家围绕讨论.不要给结论,你只是主持.
-若 brief / note 已限定 范围 或 提供 已知信息(预算 / 时间窗 / 已有方案),
+若 brief / note / 参考资料 已限定 范围 或 提供 已知信息(预算 / 时间窗 / 已有方案 / 数据),
 请在 引导问题里 把它 反映出来(避免 AI 专家 跑偏 到 brief 外的话题)."""
 
 MODERATOR_WRAPUP_USER = """议程项:"{title}"
@@ -140,20 +140,21 @@ AGENT_REPLY_SYSTEM = """你是 {agent_name},专精 {domain}.
 """
 
 AGENT_REPLY_USER = """会议名称:"{meeting_title}"
-{brief_block}当前议程项:"{title}"{note_block}
+{brief_block}{attachments_block}当前议程项:"{title}"{note_block}
 
 前面已发言(按时间顺序):
 {prev_messages}
 
-请基于你的知识库 + 经验 + 上方 会议 brief / 议程 note(如有),做以下其一
-(选一个最合适的):
+请基于你的知识库 + 经验 + 上方 会议 brief / 议程 note / 参考资料(如有),
+做以下其一(选一个最合适的):
   1) 【补充】前面没提到的视角(如:实操影响 / 历史经验 / 跨部门衔接)
   2) 【反驳】对某位专家观点提出不同看法 + 理由
   3) 【整合】把前面 2-3 个观点 拢成一个执行方案
 
 100-300 字.直接说观点,不要客套.
-若 brief / note 给了 已知约束(预算 / 时间窗 / 已有结论),请尊重它,
-不要假装这些约束不存在 — 你是为这个 brief 服务的."""
+若 brief / note / 参考资料 给了 已知约束 或 数据(预算 / 时间窗 / 已有结论 / 投诉量),
+请引用它(可用 [资料 N] 角标 指 某个 附件), 不要假装这些约束/数据 不存在 —
+你是为这个 brief + 这些资料 服务的."""
 
 CONSENSUS_SYSTEM = """你是政务会议秘书,从会议讨论中识别 共识 与 分歧.
 
@@ -405,6 +406,7 @@ async def _run_agenda_item(
     meeting_title: str = "",
     meeting_description: Optional[str] = None,
     agenda_note: Optional[str] = None,
+    attachments_block: str = "",
 ) -> dict:
     """
     跑一议程项.返回 stats {turn_count, token_estimate, elapsed_sec, has_dissent}.
@@ -416,6 +418,9 @@ async def _run_agenda_item(
     v27.0-mobile P19: meeting_description (会议 brief) 和 agenda_note (议程 note)
     传到 moderator intro / agent reply prompt 里 — 让 AI 知道 "老板这个会想干嘛"
     + "这个议程要往哪个方向讨论",避免 只看 title 抽象空转.
+
+    v27.0-mobile P19-B: attachments_block 是 上游 调用方 (主循环) 一次性 加载好
+    的 全部 附件 summary 拼成的 一段 (caller 缓存, 避免 每议程项 都重拉 DB).
     """
     t_start = time.time()
     total_tokens = 0
@@ -433,6 +438,11 @@ async def _run_agenda_item(
         if agenda_note and agenda_note.strip()
         else ""
     )
+    # v27.0-mobile P19-B: 参考资料块. attachments_block 由 caller 准备 (已经
+    # 拼好 "用户提供的参考资料:\n附件 1: ..." 这种格式), 若空 则 整段 不出现.
+    attachments_block_fmt = (
+        f"{attachments_block}\n\n" if attachments_block else ""
+    )
 
     # 1. moderator intro -----------------------------------------------------
     intro, tok, _ = await _call_llm(
@@ -441,6 +451,7 @@ async def _run_agenda_item(
         user_prompt=MODERATOR_INTRO_USER.format(
             meeting_title=meeting_title or "未命名会议",
             brief_block=brief_block,
+            attachments_block=attachments_block_fmt,
             title=agenda_title,
             note_block=note_block,
         ),
@@ -495,6 +506,7 @@ async def _run_agenda_item(
         user_prompt = AGENT_REPLY_USER.format(
             meeting_title=meeting_title or "未命名会议",
             brief_block=brief_block,
+            attachments_block=attachments_block_fmt,
             title=agenda_title,
             note_block=note_block,
             prev_messages=prev_formatted,
@@ -821,6 +833,22 @@ async def _run_auto_meeting(meeting_id: uuid.UUID) -> None:
         if current_phase == "idle":
             await _update_phase(meeting_id, AUTO_ACTION_START)
 
+        # v27.0-mobile P19-B: 一次性 拉 这场会议 的 全部 attachments → 拼成 prompt block.
+        # 跨议程项 共用 (避免 每议程都查 DB).
+        try:
+            from .routers.meeting_attachments import load_attachment_context_for_prompt
+            async with SessionLocal() as db:
+                attachments_block = await load_attachment_context_for_prompt(
+                    db,
+                    meeting_id=meeting_id,
+                    workspace_id=m.workspace_id,
+                    max_summary_chars=6000,
+                )
+        except Exception:
+            logger.exception("load attachments for orchestrator failed meeting=%s",
+                            meeting_id)
+            attachments_block = ""
+
         total_dissents = 0
         timed_out = False         # v26.3-08:整场超时(Q6=B 软 COMPLETE)
         completed_agenda_count = 0
@@ -856,6 +884,7 @@ async def _run_auto_meeting(meeting_id: uuid.UUID) -> None:
                     meeting_title=m.title or "",
                     meeting_description=m.description,
                     agenda_note=note,
+                    attachments_block=attachments_block,
                 )
                 total_dissents += stats["dissent_count"]
                 completed_agenda_count += 1

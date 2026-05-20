@@ -19,11 +19,16 @@ wechat-miniprogram/
 │   │   ├── webview.wxml
 │   │   ├── webview.wxss
 │   │   └── webview.json
-│   └── about/                     关于页 — 版本号 + 客服
-│       ├── about.js
-│       ├── about.wxml
-│       ├── about.wxss
-│       └── about.json
+│   ├── about/                     关于页 — 版本号 + 客服
+│   │   ├── about.js
+│   │   ├── about.wxml
+│   │   ├── about.wxss
+│   │   └── about.json
+│   └── picker/                    v27.0-mobile P19-B 微信聊天记录文件选择器
+│       ├── picker.js              wx.chooseMessageFile + wx.uploadFile
+│       ├── picker.wxml
+│       ├── picker.wxss
+│       └── picker.json
 └── .gitignore                     忽略本地配置
 ```
 
@@ -154,6 +159,17 @@ A: 检查:
 2. 文件在 `https://aimeeting.zhzjpt.cn/MP_verify_XXXXXXXX.txt` 能 curl 到 200
 3. content-type 是 `text/plain` (Next.js 默认就是)
 4. 文件内容跟微信后台下载的一致 (一行随机字符)
+
+### Q: P19-B picker 页 wx.uploadFile 失败 ("不在以下 request 合法域名列表中")?
+A: 同 业务域名, **uploadFile 合法域名** 是 另一个 独立 列表. 去:
+mp.weixin.qq.com → **开发 → 开发管理 → 开发设置 → 服务器域名**, 在
+"uploadFile 合法域名" 加 `https://aimeeting.zhzjpt.cn`. 跟业务域名 一样
+每月 50 次 修改 上限.
+
+### Q: 微信聊天记录的文件 在 picker 页 选不出来?
+A: `wx.chooseMessageFile` 仅能选 当前 用户 在 微信 聊天 里 收到 或 发出
+的文件 (≤ 7 天内有效). 群文件 / 收藏夹 / 文件传输助手 都算. 微信号
+没收过任何文件时, 弹窗会显空. 让用户先 把 文件 发到 自己 (or 文件传输助手).
 
 ### Q: 审核会被卡吗?
 A: 常见卡点:

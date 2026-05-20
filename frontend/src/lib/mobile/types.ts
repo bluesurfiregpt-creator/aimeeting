@@ -322,6 +322,9 @@ export type CreateMeetingIn = {
   mode: "hybrid" | "auto" | "human";
   /** v27.0-mobile P19: 会议 brief — auto 模式 强烈建议 填. */
   description?: string | null;
+  /** v27.0-mobile P19-B: 前端 创建会议 前 上传 attachments 用 的 client_draft_id.
+   *  创建成功后 后端 把 draft 下 attachments 关联到 新会议. */
+  client_draft_id?: string | null;
 };
 
 /** POST /api/meetings 响应 */
@@ -339,6 +342,8 @@ export type DecomposeAgendaIn = {
   brief: string;
   title?: string | null;
   target_count?: number;
+  /** v27.0-mobile P19-B: 让 LLM 拆议程 时 用上 已上传附件 — 传 draft_id 后端自取. */
+  client_draft_id?: string | null;
 };
 
 /** 一行拆出来的 议程项 */
@@ -351,6 +356,29 @@ export type DecomposedAgendaItem = {
 /** POST /api/meetings/decompose-agenda 响应 */
 export type DecomposeAgendaOut = {
   items: DecomposedAgendaItem[];
+};
+
+// ---------- P19-B: 会议参考资料 ------------------------------------------
+
+/** 单个 attachment, 从后端 GET / POST 拿到 */
+export type MeetingAttachmentOut = {
+  id: string;
+  workspace_id: string;
+  meeting_id: string | null;
+  client_draft_id: string | null;
+  uploader_user_id: string | null;
+  filename: string;
+  mime: string | null;
+  extension: string | null;
+  size_bytes: number;
+  /** pending | extracting | ready | failed | skipped */
+  extract_status: string;
+  extract_summary: string | null;
+  last_error: string | null;
+};
+
+export type MeetingAttachmentListOut = {
+  items: MeetingAttachmentOut[];
 };
 
 // ---------- 长期记忆库 (Phase 4.4 — /m/insights 已入库 tab) ------------

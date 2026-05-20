@@ -1,7 +1,8 @@
 {
   "pages": [
     "pages/webview/webview",
-    "pages/about/about"
+    "pages/about/about",
+    "pages/picker/picker"
   ],
   "window": {
     "backgroundColor": "#0a0a0c",

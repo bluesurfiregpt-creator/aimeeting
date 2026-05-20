@@ -46,6 +46,10 @@ class MeetingCreate(BaseModel):
     # v27.0-mobile P19: 会议 brief — 用户的诉求 / 背景 / 目标 / 期望产出.
     # auto 模式时强烈建议填 (LLM moderator 用这段引导讨论, 否则只看 title 容易抽象)
     description: Optional[str] = None
+    # v27.0-mobile P19-B: 会议参考资料 — 前端 在 创建前 已经 通过 /api/meetings/attachments
+    # 上传, 拿到 一个 client_draft_id; 创建会议 时 把 这个 id 传上来, 后端 用它
+    # 把 draft 下 所有 attachment UPDATE meeting_id=<new>. 创建后 client_draft_id 清空.
+    client_draft_id: Optional[str] = None
 
 
 class MeetingOut(BaseModel):

@@ -13,6 +13,8 @@ import type {
   CreateMeetingOut,
   DecomposeAgendaIn,
   DecomposeAgendaOut,
+  MeetingAttachmentListOut,
+  MeetingAttachmentOut,
   MeetingActionItemBrief,
   MeetingSummaryOut,
   MemoryOut,
@@ -159,6 +161,57 @@ export const mApi = {
    *  不持久化 — 调用方拿到 items 后 用户可编辑, 然后 createMeeting. */
   decomposeAgenda: (payload: DecomposeAgendaIn) =>
     jsend<DecomposeAgendaOut>("POST", "/api/meetings/decompose-agenda", payload),
+
+  // ===== P19-B: 会议参考资料 ==============================================
+
+  /** 上传 attachment. 用 FormData 兼容 H5 multipart + 小程序 wx.uploadFile.
+   *  入参 必须 含 file + (client_draft_id 或 meeting_id 二选一). */
+  uploadMeetingAttachment: async (
+    file: File,
+    opts: { client_draft_id?: string; meeting_id?: string },
+  ): Promise<MeetingAttachmentOut> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (opts.client_draft_id) fd.append("client_draft_id", opts.client_draft_id);
+    if (opts.meeting_id) fd.append("meeting_id", opts.meeting_id);
+    const r = await fetch("/api/meetings/attachments", {
+      method: "POST",
+      credentials: "include",
+      body: fd,
+      // NOTE: 不要 set content-type — 浏览器 自己 加 boundary
+    });
+    if (!r.ok) {
+      let msg = `POST /api/meetings/attachments → ${r.status}`;
+      try {
+        const j = await r.json();
+        const detail = (j as { detail?: string }).detail;
+        if (detail) msg = `${r.status}: ${detail}`;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(msg);
+    }
+    return (await r.json()) as MeetingAttachmentOut;
+  },
+
+  /** 列 draft 下的 attachments. visibility-change 时主动 拉一次, 跟 小程序 picker 上传的同步. */
+  listDraftAttachments: (draftId: string) =>
+    jget<MeetingAttachmentListOut>(
+      `/api/meetings/attachments?draft_id=${encodeURIComponent(draftId)}`,
+    ),
+
+  /** 列已挂会议的 attachments. */
+  listMeetingAttachments: (meetingId: string) =>
+    jget<MeetingAttachmentListOut>(
+      `/api/meetings/${encodeURIComponent(meetingId)}/attachments`,
+    ),
+
+  /** 删 attachment. 仅 上传人 或 leader+ 可删. */
+  deleteMeetingAttachment: (attachmentId: string) =>
+    jsend<{ ok: boolean }>(
+      "DELETE",
+      `/api/meetings/attachments/${encodeURIComponent(attachmentId)}`,
+    ),
 
   /** v27.0-mobile P9: scheduled → ongoing. 桌面 ws auto-trigger, mobile 显式 */
   startMeeting: (meetingId: string) =>

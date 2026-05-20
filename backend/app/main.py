@@ -44,6 +44,7 @@ from .routers import memory_drafts as memory_drafts_router  # v26.5-Lineage
 from .routers import mobile as mobile_router  # v27.0-mobile
 from .routers import reports as reports_router
 from .routers import meetings as meetings_router
+from .routers import meeting_attachments as meeting_attachments_router  # v27.0-mobile P19-B
 from .routers import memory as memory_router
 from .routers import model_providers as model_providers_router
 from .routers import super as super_router  # v26.4 Platform Admin
@@ -152,6 +153,7 @@ app.include_router(auth_router.router)
 app.include_router(users_router.router)
 app.include_router(voiceprints_router.router)
 app.include_router(meetings_router.router)
+app.include_router(meeting_attachments_router.router)  # v27.0-mobile P19-B 会议参考资料
 app.include_router(agents_router.router)
 app.include_router(model_providers_router.router)
 app.include_router(memory_router.router)

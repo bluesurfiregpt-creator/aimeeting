@@ -188,6 +188,23 @@ async def create_meeting(
                 400, f"auto 模式 至少邀请 3 个 active expert agent (现 {expert_count})"
             )
 
+    # v27.0-mobile P19-B: 把 创建前 上传到 client_draft_id 的 attachments
+    # hop 到 这场新会议 (UPDATE meeting_id). 失败 不阻塞会议创建.
+    attached_count = 0
+    if payload.client_draft_id:
+        try:
+            from .meeting_attachments import attach_drafts_to_meeting
+            attached_count = await attach_drafts_to_meeting(
+                session,
+                draft_id=payload.client_draft_id,
+                meeting_id=m.id,
+                workspace_id=auth.workspace.id,
+                uploader_user_id=auth.user.id,
+            )
+        except Exception:
+            logger.exception("attach_drafts_to_meeting failed meeting=%s draft=%s",
+                            m.id, payload.client_draft_id)
+
     await session.commit()
     await session.refresh(m)
     await audit_log(
@@ -199,6 +216,8 @@ async def create_meeting(
             "attendee_count": len(payload.attendee_user_ids),
             "agent_count": len(bound_agent_ids),
             "agenda_count": len(payload.agenda or []),
+            # v27.0-mobile P19-B: 创建后 hop 进来的 附件数 (audit 用)
+            "attached_count": attached_count,
         },
     )
     return _to_meeting_out(m, list(payload.attendee_user_ids), bound_agent_ids)
@@ -215,6 +234,9 @@ class DecomposeAgendaIn(BaseModel):
     brief: str  # 用户的诉求 / 背景 / 目标 (10-2000 字).
     title: Optional[str] = None  # 会议名 (可选).
     target_count: int = 3  # 建议拆的议程项 数 (2-6).
+    # v27.0-mobile P19-B: 前端 把 已上传附件的 draft_id 传上来 — 后端拼附件 summary
+    # 一起 喂 LLM, 让 拆 议程 时 真的 考虑 文件内容 (而不只是 brief 一段文字).
+    client_draft_id: Optional[str] = None
 
 
 class DecomposedAgendaItem(BaseModel):
@@ -323,6 +345,24 @@ async def decompose_agenda(
     ]
     if payload.title:
         user_prompt_parts.insert(0, f"会议名:{payload.title.strip()[:80]}")
+
+    # v27.0-mobile P19-B: 拼 附件 summaries — 让 LLM 拆议程 时 参考 文件内容
+    if payload.client_draft_id:
+        from .meeting_attachments import load_attachment_context_for_prompt
+        try:
+            att_block = await load_attachment_context_for_prompt(
+                session,
+                draft_id=payload.client_draft_id,
+                workspace_id=auth.workspace.id,
+                uploader_user_id=auth.user.id,
+                max_summary_chars=4000,
+            )
+            if att_block:
+                user_prompt_parts.append(att_block)
+        except Exception:
+            logger.exception("load attachment context failed draft=%s",
+                            payload.client_draft_id)
+
     user_prompt = "\n\n".join(user_prompt_parts)
 
     provider = await get_active_provider(session)
