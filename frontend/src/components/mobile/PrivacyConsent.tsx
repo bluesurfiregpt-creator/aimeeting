@@ -79,7 +79,7 @@ export default function PrivacyConsent() {
         }}
       >
         <h2 id="privacy-title" className="text-[18px] font-semibold text-zinc-50">
-          欢迎使用 Aimeeting 智囊会议
+          欢迎使用 智囊团
         </h2>
         <p className="mt-2 text-[14px] leading-relaxed text-zinc-300">
           在使用本产品前, 请仔细阅读{" "}

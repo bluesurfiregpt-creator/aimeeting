@@ -40,8 +40,8 @@ export default function PrivacyPolicyPage() {
 
         <Section title="一、引言">
           <p>
-            欢迎使用 <strong>Aimeeting 智囊会议</strong>(以下称"本产品"
-            或"本服务"). 本指引用于说明 我们在 你 使用本产品 过程中
+            欢迎使用 <strong>智囊团</strong>(由 Aimeeting 团队 出品,
+            以下称"本产品" 或"本服务"). 本指引用于说明 我们在 你 使用本产品 过程中
             收集 / 使用 / 存储 / 共享 / 保护 你个人信息 的方式. 请你 仔细阅读
             并 知悉.
           </p>
@@ -245,7 +245,7 @@ export default function PrivacyPolicyPage() {
         </Section>
 
         <div className="mt-8 rounded-2xl border border-zinc-800 bg-ink-900 p-4 text-[13px] text-zinc-400">
-          本指引 解释权 归 Aimeeting 智囊会议 团队. 若 中文 与 任何 其他 语种
+          本指引 解释权 归 智囊团 (Aimeeting) 团队 所有. 若 中文 与 任何 其他 语种
           版本 存在 歧义, 以 中文 版本 为准.
         </div>
       </main>

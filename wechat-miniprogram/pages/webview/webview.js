@@ -50,7 +50,7 @@ Page({
   onShareAppMessage() {
     const path = this.data.src.replace(app.globalData.h5Base, "");
     return {
-      title: "Aimeeting",
+      title: "智囊团 — AI 协作会议工作台",
       // path 是小程序内路径, 启动后自动跳回当前 webview + 同 path
       path: `/pages/webview/webview?path=${encodeURIComponent(path)}`,
     };
