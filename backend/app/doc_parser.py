@@ -26,6 +26,8 @@ SUPPORTED_EXTENSIONS = {
     ".docx": "docx",
     ".xlsx": "xlsx",
     ".xls": "xlsx",
+    # v27.0-mobile P19-B.2: PPTX 抽 — slide 标题 + 内容 文本 框 (无图)
+    ".pptx": "pptx",
     ".txt": "text",
     ".md": "text",
     ".markdown": "text",
@@ -78,6 +80,8 @@ def extract_text(filename: str, content: bytes) -> str:
         return _extract_docx(content)
     if kind == "xlsx":
         return _extract_xlsx(content)
+    if kind == "pptx":
+        return _extract_pptx(content)
     if kind == "text":
         return _decode_text(content)
     raise ValueError(f"unhandled kind: {kind}")
@@ -221,3 +225,37 @@ def _extract_xlsx(content: bytes) -> str:
                 parts.append("\t".join(cells))
         parts.append("")
     return "\n".join(parts)
+
+
+def _extract_pptx(content: bytes) -> str:
+    """v27.0-mobile P19-B.2: 抽 .pptx 文字内容 (slide 标题 + 文本框 + notes).
+
+    每 slide 用 "### slide N" header 分隔; 同 slide 内 标题 / 正文 各占 一行.
+    备注 (presenter notes) 也 抽 — 政务 PPT 经常 把 解读 写 notes 里.
+    """
+    try:
+        from pptx import Presentation
+    except ImportError:
+        raise ValueError("python-pptx 未安装 — 添加到 requirements.txt 后重启")
+
+    prs = Presentation(io.BytesIO(content))
+    parts: list[str] = []
+    for i, slide in enumerate(prs.slides, start=1):
+        parts.append(f"### slide {i}")
+        for shape in slide.shapes:
+            if not getattr(shape, "has_text_frame", False):
+                continue
+            tf = getattr(shape, "text_frame", None)
+            if tf is None:
+                continue
+            for para in tf.paragraphs:
+                line = "".join(run.text for run in para.runs).strip()
+                if line:
+                    parts.append(line)
+        # presenter notes
+        if slide.has_notes_slide and slide.notes_slide:
+            notes_tf = slide.notes_slide.notes_text_frame
+            if notes_tf and notes_tf.text and notes_tf.text.strip():
+                parts.append(f"[备注] {notes_tf.text.strip()}")
+        parts.append("")
+    return "\n".join(parts).strip()

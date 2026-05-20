@@ -31,6 +31,9 @@ type Props = {
   meetingId?: string;
   /** 父组件 可监听 attachments 数变化 (例: 拆议程时 知道 用了 几份 附件) */
   onAttachmentsChange?: (count: number) => void;
+  /** v27.0-mobile P19.1 / Phase B.3: 只读 模式 — 隐 + 添加文件 / 微信 picker / 删除 按钮.
+   *  用于 finished/processed 会议详情 + 总结页 (用户只看 不改). 0 附件时 整个 section 不显. */
+  readOnly?: boolean;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -50,7 +53,8 @@ const STATUS_TONE: Record<string, string> = {
 };
 
 const ACCEPT_ATTR =
-  ".pdf,.docx,.xlsx,.xls,.txt,.md,.csv,.log,.json,.yaml,.yml," +
+  ".pdf,.docx,.xlsx,.xls,.pptx," +
+  ".txt,.md,.csv,.log,.json,.yaml,.yml," +
   ".jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp,.gif";
 
 // 单文件 50MB 上限 (跟后端 一致)
@@ -74,6 +78,7 @@ export default function AttachmentsSection({
   draftId,
   meetingId,
   onAttachmentsChange,
+  readOnly = false,
 }: Props) {
   const [attachments, setAttachments] = useState<MeetingAttachmentOut[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -202,6 +207,11 @@ export default function AttachmentsSection({
     });
   }, [draftId, meetingId]);
 
+  // v27.0-mobile P19.1: readOnly 模式 + 0 附件 → 整个 section 不显 (减视觉噪声).
+  if (readOnly && attachments.length === 0) {
+    return null;
+  }
+
   return (
     <section data-testid="attachments-section">
       <div className="flex items-baseline justify-between">
@@ -215,7 +225,9 @@ export default function AttachmentsSection({
             <span className="text-[12px] text-zinc-500">· 选填</span>
           )}
         </h2>
-        <span className="text-[11px] text-zinc-500">≤ 50MB / 份</span>
+        {readOnly ? null : (
+          <span className="text-[11px] text-zinc-500">≤ 50MB / 份</span>
+        )}
       </div>
 
       {/* 文件列表 */}
@@ -253,66 +265,73 @@ export default function AttachmentsSection({
                     </p>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void handleDelete(att.id, att.filename)}
-                  className="shrink-0 px-2 text-[18px] text-zinc-500 active:text-rose-400"
-                  aria-label={`删除 ${att.filename}`}
-                >
-                  ×
-                </button>
+                {readOnly ? null : (
+                  <button
+                    type="button"
+                    onClick={() => void handleDelete(att.id, att.filename)}
+                    className="shrink-0 px-2 text-[18px] text-zinc-500 active:text-rose-400"
+                    aria-label={`删除 ${att.filename}`}
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             </li>
           ))}
         </ul>
       ) : null}
 
-      {/* 操作按钮 */}
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          disabled={uploading}
-          className="inline-flex items-center gap-1.5 rounded-full bg-ink-800 px-4 py-2 text-[13px] font-medium text-zinc-200 active:scale-[0.97] active:bg-ink-700 disabled:opacity-50"
-        >
-          {uploading ? (
-            <>
-              <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-zinc-400/40 border-t-zinc-300" />
-              上传中…
-            </>
-          ) : (
-            <>+ 添加文件</>
-          )}
-        </button>
+      {/* 操作按钮 — readOnly 时 整段隐 */}
+      {readOnly ? null : (
+        <>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              disabled={uploading}
+              className="inline-flex items-center gap-1.5 rounded-full bg-ink-800 px-4 py-2 text-[13px] font-medium text-zinc-200 active:scale-[0.97] active:bg-ink-700 disabled:opacity-50"
+            >
+              {uploading ? (
+                <>
+                  <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-zinc-400/40 border-t-zinc-300" />
+                  上传中…
+                </>
+              ) : (
+                <>+ 添加文件</>
+              )}
+            </button>
 
-        {inMp ? (
-          <button
-            type="button"
-            onClick={handlePickFromWechat}
-            className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-4 py-2 text-[13px] font-medium text-emerald-300 active:scale-[0.97] active:bg-emerald-500/25"
-            data-testid="attachments-wechat-picker"
-          >
-            💬 从 微信聊天记录 选
-          </button>
-        ) : null}
-      </div>
+            {inMp ? (
+              <button
+                type="button"
+                onClick={handlePickFromWechat}
+                className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-4 py-2 text-[13px] font-medium text-emerald-300 active:scale-[0.97] active:bg-emerald-500/25"
+                data-testid="attachments-wechat-picker"
+              >
+                💬 从 微信聊天记录 选
+              </button>
+            ) : null}
+          </div>
 
-      <input
-        ref={inputRef}
-        type="file"
-        accept={ACCEPT_ATTR}
-        multiple
-        className="hidden"
-        onChange={(e) => void handleFiles(e.target.files)}
-      />
+          <input
+            ref={inputRef}
+            type="file"
+            accept={ACCEPT_ATTR}
+            multiple
+            className="hidden"
+            onChange={(e) => void handleFiles(e.target.files)}
+          />
 
-      {/* 提示文案 */}
-      <p className="mt-2 text-[12px] leading-snug text-zinc-500">
-        支持 PDF / Word / Excel / 文本 / 图片. AI 拆议程 + 自主讨论 会读取这些内容.
-        {inMp
-          ? null
-          : " 小程序里 可 用 「💬 从 微信聊天记录 选」 添加 聊天里发过的文件."}
-      </p>
+          {/* 提示文案 */}
+          <p className="mt-2 text-[12px] leading-snug text-zinc-500">
+            支持 PDF / Word / Excel / PPT / 文本 / 图片 (图片走 OCR). AI 拆议程 +
+            自主讨论 会读取这些内容.
+            {inMp
+              ? null
+              : " 小程序里 可 用 「💬 从 微信聊天记录 选」 添加 聊天里发过的文件."}
+          </p>
+        </>
+      )}
 
       {error ? (
         <p className="mt-2 text-[12px] text-rose-400">{error}</p>

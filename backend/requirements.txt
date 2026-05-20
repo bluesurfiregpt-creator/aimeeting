@@ -25,3 +25,5 @@ sentry-sdk[fastapi]==2.18.0
 pypdfium2==4.30.0
 # v25-2 OCR: Pillow(PNG bytes 输出 — pypdfium2.to_pil 依赖它)
 Pillow==11.0.0
+# v27.0-mobile P19-B.2: PPTX 抽文本 (会议附件 支持 .pptx)
+python-pptx==1.0.2

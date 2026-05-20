@@ -39,7 +39,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..audit import audit_log
 from ..auth import AuthContext, get_current_auth, is_leader_or_admin
 from ..db import get_session
-from ..doc_parser import SUPPORTED_EXTENSIONS, extract_text, kind_from_filename
+from ..doc_parser import (
+    SUPPORTED_EXTENSIONS,
+    extract_text,
+    extract_text_async,
+    kind_from_filename,
+)
 from ..models import Meeting, MeetingAttachment
 from ..oss_client import OSSClient
 
@@ -52,9 +57,11 @@ router = APIRouter(prefix="/api/meetings", tags=["meeting-attachments"])
 MAX_BYTES = 50 * 1024 * 1024  # 50MB 单文件上限
 SYNC_EXTRACT_THRESHOLD = 2 * 1024 * 1024  # < 2MB 同步抽
 
-# 允许的 扩展名 (复用 doc_parser; 但 图片 走 async OCR 太重 — 第一刀 不做 OCR 仅记录)
+# 允许的 扩展名 (跟 doc_parser SUPPORTED_EXTENSIONS 一致).
+# 文本类 同步 抽; 图片 走 async OCR (Qwen-VL); PPTX 同步 抽 (v27.0-mobile P19-B.2 加).
 TEXT_EXTRACTABLE_EXTS = {
     ".pdf", ".docx", ".xlsx", ".xls",
+    ".pptx",
     ".txt", ".md", ".markdown", ".text",
     ".csv", ".log", ".json", ".yaml", ".yml",
 }
@@ -180,18 +187,21 @@ async def _extract_and_save(attachment_id: uuid.UUID, raw: bytes) -> None:
 
         try:
             kind = kind_from_filename(att.filename)
-            if kind == "image":
-                # 第一刀 不做 OCR. 占位 summary 就行 (后续 Phase B.2 接 OCR).
-                att.extract_status = "skipped"
-                att.extract_summary = f"[图片附件 {att.filename}] 内容暂未识别 (OCR 未启用)"
-            elif kind is None:
+            if kind is None:
                 att.extract_status = "skipped"
                 att.extract_summary = f"[未支持的文件类型 {att.filename}] 内容暂未识别"
             else:
-                text = extract_text(att.filename, raw)
-                att.extract_text = text
-                att.extract_summary = await _maybe_summarize(att, text)
-                att.extract_status = "ready"
+                # v27.0-mobile P19-B.2: 图片走 async OCR (Qwen-VL),
+                # 其他 类型 同步 抽. extract_text_async 内部 自动 分发.
+                text = await extract_text_async(att.filename, raw)
+                if not text or not text.strip():
+                    # OCR 抽空 / 纯装饰图 — 占位 不算 failed
+                    att.extract_status = "skipped"
+                    att.extract_summary = f"[{att.filename}] 未识别到 文字内容"
+                else:
+                    att.extract_text = text
+                    att.extract_summary = await _maybe_summarize(att, text)
+                    att.extract_status = "ready"
         except Exception as e:
             logger.exception("extract worker failed att=%s", attachment_id)
             att.extract_status = "failed"
@@ -290,14 +300,16 @@ async def upload_attachment(
         logger.exception("OSS upload failed for att=%s", att.id)
         raise HTTPException(502, f"OSS 上传失败: {e}")
 
-    # 抽取 — 小文件 同步, 大文件 异步
-    if len(raw) <= SYNC_EXTRACT_THRESHOLD:
+    # 抽取 — 文本类小文件 同步; 图片 + 大文件 异步.
+    # 图片 走 OCR (Qwen-VL) — 总要网络 IO ~2-5 秒, 同步会拖 上传 response 太久,
+    # 干脆 一律 async 让前端 立即 拿到 'extracting' 状态.
+    kind = kind_from_filename(filename)
+    if kind == "image":
+        att.extract_status = "extracting"
+        asyncio.create_task(_extract_and_save(att.id, raw))
+    elif len(raw) <= SYNC_EXTRACT_THRESHOLD:
         try:
-            kind = kind_from_filename(filename)
-            if kind == "image":
-                att.extract_status = "skipped"
-                att.extract_summary = f"[图片附件 {filename}] 内容暂未识别 (OCR 未启用)"
-            elif kind is None:
+            if kind is None:
                 att.extract_status = "skipped"
                 att.extract_summary = f"[未支持的文件类型 {filename}] 内容暂未识别"
             else:

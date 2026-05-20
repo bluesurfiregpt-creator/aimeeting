@@ -23,6 +23,8 @@ const ALLOWED_EXT = [
   "docx",
   "xlsx",
   "xls",
+  // v27.0-mobile P19-B.2: PPTX 抽 (python-pptx 后端 支持)
+  "pptx",
   "txt",
   "md",
   "csv",
