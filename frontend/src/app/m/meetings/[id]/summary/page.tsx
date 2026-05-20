@@ -166,8 +166,10 @@ export default function MeetingSummaryPage({
   const decidedActions = (actions || []).filter((a) => a.status !== "open");
 
   return (
-    /* P18: flex column 让底部按钮 mt-auto 推到底, 即使内容少不悬空 */
-    <div className="flex min-h-full flex-col bg-ink-950">
+    /* P18: min-h-screen + flex column → mt-auto 把底部按钮推到 viewport 底.
+       不能用 min-h-full — % 需要 parent 有显式高度, layout main 是 flex-1
+       撑剩高度但 % 算不准, 底部不贴底. 100vh 直接对齐 viewport. */
+    <div className="flex min-h-screen flex-col bg-ink-950">
       {/* TopBar */}
       <div
         className="sticky top-0 z-30 flex items-center gap-3 border-b border-ink-800 bg-ink-950/85 px-4 pb-3 backdrop-blur"

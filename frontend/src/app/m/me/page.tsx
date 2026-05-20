@@ -111,8 +111,9 @@ export default function MobileMePage() {
   }
 
   return (
-    /* P18: flex column 让退出按钮 + 版本号 可以 mt-auto 推到底 */
-    <div className="flex min-h-full flex-col">
+    /* P18: min-h-screen + flex col → mt-auto 把退出按钮推到屏幕底.
+       min-h-full 在 layout main (flex-1) 里算 0%; 100vh 才稳. */
+    <div className="flex min-h-screen flex-col">
       {/* TopBar */}
       <div
         className="sticky top-0 z-30 flex items-center gap-3 border-b border-ink-800 bg-ink-950/85 px-4 pb-3 backdrop-blur"
