@@ -204,7 +204,7 @@ function MeetingView({
           <div className="rounded-xl border border-dashed border-zinc-800 px-4 py-6 text-center">
             <p className="text-[15px] text-zinc-300">今天 AI 还没给新判断</p>
             <p className="mt-1.5 text-[13px] text-zinc-600">
-              进一场会议召 AI 加视角, 立刻有产出
+              进一场会议召唤专家加视角, 立刻有产出
             </p>
           </div>
         ) : (

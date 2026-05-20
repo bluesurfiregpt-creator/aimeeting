@@ -140,7 +140,7 @@ function MeetingDetailInner({ id }: { id: string }) {
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        setToast({ kind: "error", text: `召 AI 失败: ${msg}` });
+        setToast({ kind: "error", text: `召唤专家失败: ${msg}` });
       } finally {
         setSummoning(false);
       }
@@ -186,6 +186,14 @@ function MeetingDetailInner({ id }: { id: string }) {
   // P5B → P16: WS 订阅. 6 类议程事件 + severe modal + dedup.
   const handleWsEvent = useCallback(
     (e: import("@/lib/sttSocket").SttEvent) => {
+      // P18 守卫: 非 ongoing 会议忽略议程类事件 (finished 还会收到延迟事件,
+      // 但 user 已经不在 actively 推进, 不该弹 banner / 召唤按钮).
+      // transcript_persisted / agent_message_* 仍允许 (查看历史也合理).
+      const isAgendaEvt = e.type.startsWith("agenda_") || e.type === "dissent_detected";
+      if (isAgendaEvt && data?.status !== "ongoing") {
+        return;
+      }
+
       // 去重: 同 type 10s 内重复 skip
       const dedupKey = e.type;
       const lastTs = lastEventTsRef.current.get(dedupKey) ?? 0;
@@ -482,6 +490,25 @@ function MeetingDetailInner({ id }: { id: string }) {
             </div>
           )}
 
+          {/* P18: finished/processed 加 "看总结" 入口 + 只读提示 */}
+          {data.status === "finished" || data.status === "processed" ? (
+            <div className="mx-4 mt-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4">
+              <p className="text-[15px] font-medium text-emerald-200">
+                ✓ 会议已结束
+              </p>
+              <p className="mt-1 text-[13px] text-zinc-400 leading-snug">
+                以下是会议过程数据 (转录 / 议程). 想看 AI 纪要 + 抽出的待办, 进总结页.
+              </p>
+              <Link
+                href={`/m/meetings/${id}/summary`}
+                className="mt-3 flex h-11 w-full items-center justify-center rounded-xl bg-emerald-500 px-4 text-[14px] font-medium text-white active:scale-[0.98]"
+                data-testid="mobile-view-summary-link"
+              >
+                看会议总结 →
+              </Link>
+            </div>
+          ) : null}
+
           {/* IM 主区域: transcript 一直占满, 自动滚 */}
           <main className="flex-1 overflow-y-auto" data-testid="mobile-im-flow">
             <MeetingTranscriptView meetingId={id} />
@@ -498,17 +525,22 @@ function MeetingDetailInner({ id }: { id: string }) {
         </>
       )}
 
-      {/* ===== Sticky 底部 next action (召 AI / 推议程 / 结束会议) === */}
-      <StickyActionBar
-        canControl={data.can_control}
-        isAgendaComplete={data.is_agenda_complete}
-        currentTopicTitle={data.current_topic_title}
-        hasRiskInsight={hasRisk}
-        advancing={advancing}
-        onAdvance={handleAdvance}
-        onSummonAi={() => setSummonOpen(true)}
-        onEndMeeting={() => setEndOpen(true)}
-      />
+      {/* ===== Sticky 底部 next action ===========================
+        P18 修: 仅 ongoing 状态显. finished / processed / scheduled 都不显 —
+        召唤专家 / 推进议程 / 结束会议 都是过程中才有的操作.
+        finished 会议: 主区域有"看总结"入口替代. */}
+      {data.status === "ongoing" ? (
+        <StickyActionBar
+          canControl={data.can_control}
+          isAgendaComplete={data.is_agenda_complete}
+          currentTopicTitle={data.current_topic_title}
+          hasRiskInsight={hasRisk}
+          advancing={advancing}
+          onAdvance={handleAdvance}
+          onSummonAi={() => setSummonOpen(true)}
+          onEndMeeting={() => setEndOpen(true)}
+        />
+      ) : null}
 
       {/* ===== P4.2 召 AI sheet =================================== */}
       <SummonAgentSheet

@@ -82,7 +82,7 @@ export default function SummonAgentSheet({
         <div className="flex flex-col items-center pt-3 pb-2">
           <div className="h-1 w-10 rounded-full bg-zinc-700" />
           <h2 className="mt-3 text-[17px] font-semibold text-zinc-50">
-            请 AI 专家发言
+            召唤专家发言
           </h2>
           <p className="mt-1 text-[13px] text-zinc-400">
             选一位, 立刻基于刚才的讨论给出意见
@@ -177,8 +177,8 @@ export default function SummonAgentSheet({
             {busy
               ? "派发中…"
               : selected
-              ? `派 ${selected.nickname?.trim() || selected.name} 发言`
-              : "选一位 AI"}
+              ? `召唤 ${selected.nickname?.trim() || selected.name}`
+              : "选一位专家"}
           </button>
         </div>
       </div>

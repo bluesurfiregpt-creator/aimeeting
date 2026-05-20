@@ -71,7 +71,7 @@ export default function StickyActionBar({
             {advancing ? "推进中…" : "推进议程"}
           </Primary>
         ) : (
-          <Primary onClick={onSummonAi}>召 AI</Primary>
+          <Primary onClick={onSummonAi}>召唤专家</Primary>
         )}
       </Bar>
     );
@@ -83,14 +83,14 @@ export default function StickyActionBar({
       {canControl ? (
         <>
           <Secondary onClick={onSummonAi} disabled={advancing}>
-            💬 召 AI
+            💬 召唤专家
           </Secondary>
           <Primary onClick={onAdvance} busy={advancing}>
             {advancing ? "推进中…" : "推进议程 →"}
           </Primary>
         </>
       ) : (
-        <Primary onClick={onSummonAi}>💬 召 AI 加视角</Primary>
+        <Primary onClick={onSummonAi}>💬 召唤专家加视角</Primary>
       )}
     </Bar>
   );

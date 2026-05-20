@@ -306,7 +306,7 @@ function AITab({
       <EmptyState
         emoji="💡"
         title="还没 AI 产出"
-        body="进一场会议召 AI 加视角, 立刻有产出"
+        body="进一场会议召唤专家加视角, 立刻有产出"
       />
     );
   }
