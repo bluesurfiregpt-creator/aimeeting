@@ -217,7 +217,7 @@ export default function NewMeetingPage() {
         </h1>
       </div>
 
-      <main className="space-y-5 p-4 pb-6">
+      <main className="space-y-5 p-4 pb-28">
         {/* === 标题 === */}
         <section>
           <Label>会议标题</Label>
@@ -387,12 +387,12 @@ export default function NewMeetingPage() {
         ) : null}
       </main>
 
-      {/* === Sticky 底部提交 ===
-        P18: 二级页 (这页) BottomNav 隐, layout main 不留 pb-20.
-        sticky bottom-0 直接贴屏幕底. (之前 bottom-20 是迁就 BottomNav 的旧逻辑.)
-      */}
+      {/* === Fixed 底部提交 ===
+        P18.3: 改 sticky → fixed. sticky 在嵌套 flex / 多 scroll container
+        里行为飘忽, 用户报按钮"会随页面拖拽异动". fixed 直接钉 viewport 底,
+        永远不动. main 加 pb-28 给 fixed 按钮留位 (button h-12 + padding ~ 100px). */}
       <div
-        className="sticky bottom-0 z-30 -mx-4 border-t border-ink-800 bg-ink-950/95 px-4 py-3 backdrop-blur"
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-ink-800 bg-ink-950/95 px-4 py-3 backdrop-blur"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)" }}
       >
         <button
