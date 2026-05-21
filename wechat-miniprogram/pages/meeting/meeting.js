@@ -66,7 +66,8 @@ Page({
     }
     this.setData({ meetingId });
 
-    // 开发模式: query 带 t=, 写 storage
+    // 第 6 刀: query 带 t= / exp= 是 H5 端 NativeMeetingEntry 桥接过来的;
+    // 直接写 storage. 开发期手动 powaste 也走这条 (粘贴框依然作 fallback).
     if (options.t) {
       try {
         const exp =
@@ -79,6 +80,7 @@ Page({
     }
 
     if (!getToken()) {
+      // 没 token + 没 query → 显引导提示 + 开发模式 fallback 输入框
       this.setData({ loading: false, needToken: true });
       return;
     }

@@ -7,13 +7,19 @@
     <view class="state-text">加载中…</view>
   </view>
 
-  <!-- 开发模式 token 输入 -->
+  <!-- 没 token 时引导 + 开发模式 fallback -->
   <view wx:elif="{{needToken}}" class="state-block">
-    <view class="state-emoji">🔑</view>
-    <view class="state-title">需要 token</view>
+    <view class="state-emoji">📱</view>
+    <view class="state-title">请从会议详情页进入</view>
     <view class="state-body">
-      开发模式. 在 H5 端登录后, 在浏览器 console 调 `await fetch('/api/auth/token', {method:'POST',...})` 拿 token 粘贴到这里.
+      正确进入方式: 回小程序首页 → 点击会议 → 进入 H5 详情页 →
+      点紫色 "试用原生会议室 进入 →" 按钮.
+      原生页通过 这条路径 拿登录态, 不能直接打开.
     </view>
+    <button class="btn-primary" bindtap="onBack">回会议页</button>
+
+    <!-- 开发模式 fallback — 仅给开发者用, 真机用户用上面的按钮 -->
+    <view class="dev-fallback-divider">— 或开发模式 —</view>
     <textarea
       class="dev-input"
       placeholder="粘贴 token (eyJhb...)"
@@ -23,11 +29,11 @@
     />
     <input
       class="dev-input-line"
-      placeholder="(可选) expires_at ISO, 不填默认 30 天"
+      placeholder="(可选) expires_at ISO"
       value="{{devTokenExpInput}}"
       bindinput="onDevTokenExpInput"
     />
-    <button class="btn-primary" bindtap="onDevTokenConfirm">确认</button>
+    <button class="btn-secondary" bindtap="onDevTokenConfirm">用 token 登录</button>
     <view wx:if="{{error}}" class="state-error">{{error}}</view>
   </view>
 

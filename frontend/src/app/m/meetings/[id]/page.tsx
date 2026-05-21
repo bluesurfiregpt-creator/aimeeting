@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import AttachmentsSection from "@/components/mobile/AttachmentsSection";
+import NativeMeetingEntry from "@/components/mobile/NativeMeetingEntry";
 import StageChipsRow from "@/components/mobile/StageChipsRow";
 import StickyActionBar from "@/components/mobile/StickyActionBar";
 import SummonAgentSheet from "@/components/mobile/SummonAgentSheet";
@@ -490,6 +491,10 @@ function MeetingDetailInner({ id }: { id: string }) {
               议程还没开始 — 点 "推进议程" 进入第一项
             </div>
           )}
+
+          {/* v27.0-mobile P21 N-1 第 6 刀: ongoing 会议在小程序 webview 内显
+              "试用原生会议室" 入口. 普通浏览器看不到 (自身组件检测 miniprogram 环境). */}
+          {data.status === "ongoing" ? <NativeMeetingEntry meetingId={id} /> : null}
 
           {/* v27.0-mobile P19.1 / Phase B.3: 会议参考资料 — 在 transcript 之上 显.
               ongoing: 可 加新文件 / 删除; finished/processed: readOnly (0 附件时 整段不显). */}

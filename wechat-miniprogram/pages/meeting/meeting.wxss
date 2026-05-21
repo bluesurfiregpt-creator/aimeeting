@@ -59,6 +59,13 @@ page {
   font-size: 26rpx;
 }
 
+.dev-fallback-divider {
+  margin: 48rpx 0 24rpx;
+  text-align: center;
+  font-size: 22rpx;
+  color: #52525b;
+}
+
 .dev-input {
   width: 100%;
   min-height: 160rpx;

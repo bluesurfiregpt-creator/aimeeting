@@ -510,6 +510,48 @@ async def issue_native_token(
     )
 
 
+@router.post("/exchange-token", response_model=TokenIssueOut)
+async def exchange_cookie_for_token(
+    auth: AuthContext = Depends(get_current_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    """v27.0-mobile P21 原生 C-1 / N-1 第 6 刀: 用 cookie 换 token.
+
+    场景: 用户在 H5 webview (小程序内) 已经 cookie 登录, 想跳到小程序原生页,
+    但原生页不能读 webview cookie. 此 endpoint 接受 cookie 鉴权 (不验密码),
+    签发一个 30 天 token, H5 端拿到后通过 wx.miniProgram.navigateTo 把 token
+    放 query 传给原生页, 原生页 onLoad 写 storage.
+
+    跟 /api/auth/token (邮密换) + /api/auth/token/refresh (Bearer 延期) 的区别:
+      - /token         需邮密, 给原生客户端首次登录用
+      - /token/refresh 需 Bearer, 给已有 token 客户端续期用
+      - /exchange-token 需 cookie, 给 H5 → 原生 桥接 用 (本 endpoint)
+
+    实际三个 endpoint 共用 issue_token, 只是触发条件不同.
+    """
+    membership = (
+        await session.execute(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.user_id == auth.user.id,
+                WorkspaceMembership.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    new_token = issue_token(
+        auth.user.id, auth.workspace.id, ttl_days=NATIVE_TOKEN_TTL_DAYS
+    )
+    expires_at = datetime.now(timezone.utc) + timedelta(days=NATIVE_TOKEN_TTL_DAYS)
+    return TokenIssueOut(
+        token=new_token,
+        token_type="Bearer",
+        expires_at=expires_at,
+        user_id=auth.user.id,
+        workspace_id=auth.workspace.id,
+        role=membership.role if membership else "member",
+    )
+
+
 @router.post("/token/refresh", response_model=TokenIssueOut)
 async def refresh_native_token(
     auth: AuthContext = Depends(get_current_auth),
