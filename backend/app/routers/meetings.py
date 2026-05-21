@@ -735,7 +735,8 @@ async def finalize_meeting(
     auth: AuthContext = Depends(get_current_auth),
 ):
     m = await _load_owned_meeting(meeting_id, session, auth)
-    if m.status != "finished":
+    was_already_finished = m.status == "finished"
+    if not was_already_finished:
         await session.execute(
             update(Meeting)
             .where(Meeting.id == m.id)
@@ -746,6 +747,14 @@ async def finalize_meeting(
 
     # kick off identify in background
     bg.add_task(run_identify, m.id)
+
+    # v27.0-mobile P21 Phase 2: 会议从 ongoing → finished 时 抽 ai_insight + 筛
+    # worth_remembering. 仅首次 finalize 跑, 重复 finalize (was_already_finished)
+    # 不重跑 — 旧 insight 用 source_message_id 幂等保护, 再跑也不会重复插, 但
+    # 浪费 LLM 调用. 重新抽的需求走 reset_meeting 路径.
+    if not was_already_finished:
+        from ..insight_extractor import run_insight_pipeline
+        bg.add_task(run_insight_pipeline, m.id)
     rows = (
         await session.execute(
             select(MeetingAttendee).where(MeetingAttendee.meeting_id == m.id)

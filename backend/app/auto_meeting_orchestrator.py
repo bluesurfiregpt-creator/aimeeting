@@ -937,6 +937,19 @@ async def _run_auto_meeting(meeting_id: uuid.UUID) -> None:
         except Exception:
             logger.exception("orchestrator action_extractor 失败 meeting=%s", meeting_id)
 
+        # v27.0-mobile P21 Phase 2: auto 模式会议结束也跑 insight pipeline
+        # (抽快照 + 筛 worth_remembering). 跟 finalize_meeting endpoint 路径
+        # 共用同一个 pipeline.
+        try:
+            from .insight_extractor import run_insight_pipeline
+            stats = await run_insight_pipeline(meeting_id)
+            logger.info(
+                "orchestrator meeting=%s insight pipeline: extracted=%d selected=%d",
+                meeting_id, stats["extracted"], stats["selected"],
+            )
+        except Exception:
+            logger.exception("orchestrator insight pipeline 失败 meeting=%s", meeting_id)
+
         logger.info("orchestrator DONE meeting=%s (%d dissents 待裁决,summary %d 字)",
                    meeting_id, total_dissents, len(summary_md))
     except Exception as e:
