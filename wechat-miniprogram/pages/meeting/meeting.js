@@ -13,6 +13,7 @@
 const { getToken, setToken } = require('../../utils/auth');
 const api = require('../../utils/api');
 const { createMeetingWs } = require('../../utils/ws');
+const { createRecorder, openMicSetting } = require('../../utils/recorder');
 
 const AUTO_SCROLL_THRESHOLD_PX = 80; // 距底部 < 80px 时认为"贴底", 继续自动滚
 
@@ -33,6 +34,13 @@ Page({
     transcriptScrollIntoView: '',// 目标元素 id, 触发自动滚
     transcriptStuckAtBottom: true, // 用户没主动上滑 = 继续自动滚
     pendingNewCount: 0,          // 用户上滑后, 累计的"新转录"数 (显在 ↓ 按钮上)
+
+    // 第 3 刀新增 — 录音
+    micState: 'idle',           // idle / starting / recording / paused / stopping / error
+    micError: '',
+    micElapsedSec: 0,           // 已录秒数 (录音中每秒 +1)
+    micElapsedStr: '00:00',     // mm:ss 格式 (供 wxml 直接渲染)
+    framesSent: 0,              // 已发 PCM 帧数 (debug 用)
   },
 
   // ============================================================
@@ -80,6 +88,14 @@ Page({
   },
 
   onUnload() {
+    if (this._recorder) {
+      this._recorder.dispose();
+      this._recorder = null;
+    }
+    if (this._micTimer) {
+      clearInterval(this._micTimer);
+      this._micTimer = null;
+    }
     if (this._ws) {
       this._ws.close();
       this._ws = null;
@@ -316,6 +332,164 @@ Page({
         this.setData({ wsState: state });
       },
     });
+  },
+
+  // ============================================================
+  // 录音 (第 3 刀)
+  // ============================================================
+
+  /** 主按钮 — 根据当前 micState 切换 启动/停止 */
+  onMicMain() {
+    const s = this.data.micState;
+    if (s === 'recording' || s === 'paused') {
+      this._stopRecording();
+    } else if (s === 'idle' || s === 'error') {
+      this._startRecording();
+    }
+    // starting / stopping 中: 忽略, 防 double click
+  },
+
+  /** 次按钮 — 暂停 / 恢复 (闭麦 / 解麦) */
+  onMicToggleMute() {
+    const s = this.data.micState;
+    if (s === 'recording') {
+      this._recorder.pause();
+    } else if (s === 'paused') {
+      this._recorder.resume();
+    }
+  },
+
+  async _startRecording() {
+    // 守卫: 会议必须 ongoing 才能录音
+    if (!this.data.detail || this.data.detail.status !== 'ongoing') {
+      wx.showToast({
+        title: this.data.detail
+          ? '仅 进行中 会议可录音'
+          : '会议未加载',
+        icon: 'none',
+      });
+      return;
+    }
+    // 守卫: WS 必须就绪 (否则 PCM 缓存有上限, 不如等)
+    if (!this._ws) {
+      wx.showToast({ title: 'WS 未连接', icon: 'none' });
+      return;
+    }
+    if (!this._ws.isReady()) {
+      wx.showToast({ title: 'WS 连接中, 稍等几秒', icon: 'none' });
+      return;
+    }
+
+    this.setData({ micError: '' });
+
+    // 创建 (如果首次) — recorder manager 是单例不能重建, 但 wrapper 可以
+    if (!this._recorder) {
+      this._recorder = createRecorder({
+        sampleRate: 16000,
+        frameSize: 2, // 2 KB / 帧 ≈ 62.5 ms
+        encodeBitRate: 48000,
+        onFrame: (buf) => {
+          if (this._ws) {
+            const ok = this._ws.sendPCM(buf);
+            if (ok) {
+              this.data.framesSent += 1;
+              // 不每帧都 setData (太重); 每 50 帧 ≈ 每 3 秒 更新一次 UI
+              if (this.data.framesSent % 50 === 0) {
+                this.setData({ framesSent: this.data.framesSent });
+              }
+            }
+          }
+        },
+        onError: (err) => {
+          console.error('[recorder] error', err);
+          const text = this._micErrorText(err);
+          this.setData({ micError: text });
+          this._stopMicTimer();
+          // 用户拒过权限 — 引导 openSetting
+          if (err && err.message === 'mic-permission-denied-need-setting') {
+            wx.showModal({
+              title: '需要麦克风权限',
+              content: '小程序设置里手动开"录音"权限后回来重试',
+              confirmText: '去设置',
+              success: ({ confirm }) => {
+                if (confirm) {
+                  openMicSetting();
+                }
+              },
+            });
+          }
+        },
+        onStateChange: (s) => {
+          this.setData({ micState: s });
+          if (s === 'recording') {
+            this._startMicTimer();
+          } else if (s !== 'paused') {
+            // 'paused' 时秒数继续算暂停状态 (不归零, 仅停 tick)
+            // 其他状态 (idle/stopping/error) 归零 + 停 tick
+            this._stopMicTimer();
+            if (s === 'idle' || s === 'error') {
+              this.setData({
+                micElapsedSec: 0,
+                micElapsedStr: '00:00',
+                framesSent: 0,
+              });
+            }
+          }
+        },
+      });
+    }
+
+    this.setData({ micState: 'starting', micError: '' });
+    try {
+      await this._recorder.start();
+    } catch (e) {
+      // onError 已处理 + setData; 此处 catch 仅为防 throw 冒到上层
+      console.warn('start recording rejected:', e && e.message);
+    }
+  },
+
+  _stopRecording() {
+    if (this._recorder) {
+      this._recorder.stop();
+    }
+  },
+
+  _startMicTimer() {
+    if (this._micTimer) return;
+    this._micTimer = setInterval(() => {
+      if (this.data.micState === 'recording') {
+        const next = this.data.micElapsedSec + 1;
+        this.setData({
+          micElapsedSec: next,
+          micElapsedStr: this._formatElapsed(next),
+        });
+      }
+    }, 1000);
+  },
+
+  _stopMicTimer() {
+    if (this._micTimer) {
+      clearInterval(this._micTimer);
+      this._micTimer = null;
+    }
+  },
+
+  _micErrorText(err) {
+    if (!err) return '录音错误';
+    if (err.message === 'mic-permission-denied') return '麦克风未授权';
+    if (err.message === 'mic-permission-denied-need-setting') {
+      return '麦克风被拒过, 需手动到设置开启';
+    }
+    return err.errMsg || err.message || '录音错误';
+  },
+
+  /** 把 micElapsedSec 转 "mm:ss" 形式. 用于 wxml 显示. */
+  // (wxml 用 wxs 或在 _startMicTimer 里写 setData formatted string)
+  // 这里走第二种: 每秒更新 micElapsedSec 时再算个 micElapsedStr
+  _formatElapsed(sec) {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return (m < 10 ? '0' + m : m) + ':' + (s < 10 ? '0' + s : s);
   },
 
   // ============================================================

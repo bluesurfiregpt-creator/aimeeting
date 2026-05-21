@@ -167,4 +167,52 @@
       <button class="btn-secondary" bindtap="onRefresh">↻ 刷新</button>
     </view>
   </view>
+
+  <!-- 录音控制条 (第 3 刀) — 仅 ongoing 会议显, 固定底部 -->
+  <view
+    wx:if="{{detail && detail.status === 'ongoing'}}"
+    class="mic-bar"
+    style="padding-bottom: calc(20rpx + env(safe-area-inset-bottom));"
+  >
+    <!-- 左边: 状态点 + 文字 + 计时 -->
+    <view class="mic-status">
+      <view class="mic-dot mic-dot-{{micState}}"></view>
+      <view class="mic-text">
+        <text wx:if="{{micState === 'idle'}}">未录音</text>
+        <text wx:elif="{{micState === 'starting'}}">启动中…</text>
+        <text wx:elif="{{micState === 'recording'}}">录音中 · {{micElapsedStr}}</text>
+        <text wx:elif="{{micState === 'paused'}}">已闭麦 · {{micElapsedStr}}</text>
+        <text wx:elif="{{micState === 'stopping'}}">停止中…</text>
+        <text wx:elif="{{micState === 'error'}}" class="mic-text-err">{{micError || '录音错误'}}</text>
+      </view>
+    </view>
+
+    <!-- 右边: 按钮 -->
+    <view class="mic-actions">
+      <!-- 闭麦/解麦 — 仅录音/暂停 状态显 -->
+      <button
+        wx:if="{{micState === 'recording'}}"
+        class="btn-mic-mute"
+        bindtap="onMicToggleMute"
+      >闭麦</button>
+      <button
+        wx:elif="{{micState === 'paused'}}"
+        class="btn-mic-resume"
+        bindtap="onMicToggleMute"
+      >解麦</button>
+
+      <!-- 主按钮 — 录音中显红色"停止", 否则显绿色"开始" -->
+      <button
+        wx:if="{{micState === 'recording' || micState === 'paused'}}"
+        class="btn-mic-stop"
+        bindtap="onMicMain"
+      >停止</button>
+      <button
+        wx:else
+        class="btn-mic-start"
+        bindtap="onMicMain"
+        disabled="{{micState === 'starting' || micState === 'stopping'}}"
+      >🎙 开始录音</button>
+    </view>
+  </view>
 </view>

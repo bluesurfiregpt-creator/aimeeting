@@ -9,7 +9,9 @@ page {
 
 .container {
   min-height: 100vh;
-  padding-bottom: calc(40rpx + env(safe-area-inset-bottom));
+  /* 给底部录音控制条留位 (~ 180rpx + safe-area). 没录音条 (非 ongoing) 时
+     白多一些也没事, 比挡按钮强. */
+  padding-bottom: calc(220rpx + env(safe-area-inset-bottom));
 }
 
 /* ===== 状态块 (loading / 错误 / 缺 token) ===== */
@@ -413,6 +415,118 @@ page {
   border-radius: 999rpx;
   box-shadow: 0 8rpx 24rpx rgba(139, 92, 246, 0.4);
   z-index: 10;
+}
+
+/* ===== 录音控制条 (第 3 刀) — 固定底部, ongoing 时显 ===== */
+
+.mic-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 20rpx 32rpx;
+  background: rgba(15, 15, 18, 0.96);
+  border-top: 1rpx solid #27272a;
+  backdrop-filter: blur(8rpx);
+}
+
+.mic-status {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.mic-dot {
+  width: 20rpx;
+  height: 20rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #52525b;
+}
+
+.mic-dot-idle { background: #52525b; }
+.mic-dot-starting,
+.mic-dot-stopping {
+  background: #fcd34d;
+  animation: micPulse 1.2s ease-in-out infinite;
+}
+.mic-dot-recording {
+  background: #f43f5e;
+  animation: micPulse 1.0s ease-in-out infinite;
+  box-shadow: 0 0 12rpx rgba(244, 63, 94, 0.6);
+}
+.mic-dot-paused {
+  background: #a78bfa;
+}
+.mic-dot-error { background: #f43f5e; }
+
+@keyframes micPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.85); }
+}
+
+.mic-text {
+  font-size: 26rpx;
+  color: #e4e4e7;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mic-text-err { color: #fda4af; }
+
+.mic-actions {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  flex-shrink: 0;
+}
+
+.btn-mic-start,
+.btn-mic-stop,
+.btn-mic-mute,
+.btn-mic-resume {
+  height: 72rpx;
+  line-height: 72rpx;
+  padding: 0 24rpx;
+  font-size: 26rpx;
+  border-radius: 999rpx;
+  margin: 0;
+  font-weight: 500;
+}
+
+.btn-mic-start {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
+}
+
+.btn-mic-start[disabled] {
+  opacity: 0.5;
+}
+
+.btn-mic-stop {
+  background: linear-gradient(135deg, #f43f5e, #e11d48);
+  color: #fff;
+}
+
+.btn-mic-mute,
+.btn-mic-resume {
+  background: #27272a;
+  color: #e4e4e7;
+  border: 1rpx solid #3f3f46;
+}
+
+/* 微信 button 默认有 border + padding, 去掉 */
+.mic-actions button::after {
+  border: none;
 }
 
 /* Footer 按钮 */
