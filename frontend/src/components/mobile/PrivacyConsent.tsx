@@ -28,6 +28,10 @@ import { useCallback, useEffect, useState } from "react";
 const CONSENT_KEY = "aimeeting_privacy_consent_v1";
 const CONSENT_VALUE = "accepted";
 
+// In-memory session flag — 给 localStorage 在 webview 内被隔离 / 禁用 的
+// 情况兜底. 同一 session (无刷新) 同意过就不再弹.
+let __sessionAcceptedFlag = false;
+
 export default function PrivacyConsent() {
   // 默认 closed — SSR 不渲染 modal (避免 闪烁); useEffect 后 才 决定 是否 弹
   const [open, setOpen] = useState(false);
@@ -35,13 +39,19 @@ export default function PrivacyConsent() {
   const [showDeclinedHint, setShowDeclinedHint] = useState(false);
 
   useEffect(() => {
+    // 优先看 sessionAcceptedFlag (in-memory, 防 localStorage 异常时永远弹)
+    if (__sessionAcceptedFlag) return;
     try {
       const v = localStorage.getItem(CONSENT_KEY);
       if (v !== CONSENT_VALUE) {
         setOpen(true);
+      } else {
+        __sessionAcceptedFlag = true;
       }
     } catch {
-      // 浏览器 禁用 localStorage → 安全起见 当 未同意, 弹
+      // 浏览器 / webview 禁用 localStorage:
+      // 之前的逻辑是兜底弹窗 → 弹窗永不消失, 挡死整个 nav. 改成 弹一次,
+      // 用户点同意后 用 in-memory flag 记, 同 session 不再弹.
       setOpen(true);
     }
   }, []);
@@ -52,14 +62,25 @@ export default function PrivacyConsent() {
     try {
       localStorage.setItem(CONSENT_KEY, CONSENT_VALUE);
     } catch {
-      // 即使 写入 失败 (隐身模式), 本次会话 也允许 通过
+      // 写入失败 (隐身模式 / webview 隔离) — 用 in-memory flag 兜底, 本 session 不重弹
     }
+    __sessionAcceptedFlag = true;
     setOpen(false);
     setPending(false);
   }, [pending]);
 
   const handleDecline = useCallback(() => {
+    // 之前的 bug: 点 decline 只显提示, modal 不关 → 用户 永远 被 mask 锁死,
+    // 点不动 nav 4 tab. 改成: 点 decline 关 modal + 跳隐私详情页,
+    // 让用户重新决定. 隐私详情页本身在 SKIP_PRIVACY_PATHS 里不会再弹.
     setShowDeclinedHint(true);
+    // 留 1 秒给用户看一眼提示, 然后跳
+    setTimeout(() => {
+      setOpen(false);
+      if (typeof window !== "undefined") {
+        window.location.href = "/m/privacy";
+      }
+    }, 1500);
   }, []);
 
   if (!open) return null;

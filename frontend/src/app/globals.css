@@ -29,8 +29,9 @@ html.mobile-viewport-locked body {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  /* 防 iOS 双指 缩放 (mobile 我们 用 fixed layout, 缩放无意义) */
-  touch-action: pan-y;
+  /* 假死修复: 之前 touch-action: pan-y 旧 x5 内核 / 部分 webview 会吞 tap,
+     让 BottomNav 点击没反应. 改 manipulation: 允许 pan + tap, 仅禁 pinch-zoom. */
+  touch-action: manipulation;
 }
 
 /* /m 下 内部 scroll 容器 (例 MobileShell <main>) 用这 class 拿 iOS 平滑滚动

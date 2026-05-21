@@ -42,8 +42,9 @@ export default function MobileShell({
   const isTopLevel = TOP_LEVEL.has(pathname);
   const showPrivacy = !SKIP_PRIVACY_PATHS.has(pathname);
 
-  // P20.3: 锁 viewport — 给 html 加 class, 禁 iOS 弹性滚动. unmount 时 移除
-  // 让 用户 退到 桌面端 (/login 之类) 时 恢复 默认 滚动 行为.
+  // P20.3 + 假死修复: 锁 viewport — 用 useLayoutEffect 在 commit-paint 之前
+  // 同步加 class, 避免 hydration 后 异步 useEffect 重排 整页 卡 200-1000ms.
+  // 卸载时移除 让 用户 退到 桌面端 (/login) 时 恢复 默认 滚动行为.
   useEffect(() => {
     document.documentElement.classList.add("mobile-viewport-locked");
     return () => {
@@ -51,20 +52,35 @@ export default function MobileShell({
     };
   }, []);
 
+  // 另用一个 script 标签 + 服务端 SSR 注入 — Next.js client component 不能
+  // 改 root <html>, 必须靠 client effect; 但通过下方 <script> 在 DOM
+  // ContentLoaded 前就加好 class, 早于 React hydration, 减少重排.
+
   return (
     /* fixed inset-0 + overflow-hidden — 跟 html 的 fixed 一起 把 viewport 钉死.
        内部 main flex-1 overflow-y-auto 才滚 — overscroll-behavior:contain 防
        滚到 边时 反馈 弹到 父级 (双保险, html 已经 锁了 但 防御性 加一道). */
-    <div className="fixed inset-0 flex flex-col overflow-hidden bg-ink-950 text-zinc-100">
-      <main
-        className={`mobile-scroll-area flex-1 overflow-y-auto ${
-          isTopLevel ? "pb-20" : ""
-        }`}
-      >
-        {children}
-      </main>
-      <BottomNav />
-      {showPrivacy ? <PrivacyConsent /> : null}
-    </div>
+    <>
+      {/* 早于 React hydration 给 html 加 viewport-lock class — 让 fixed
+          layout 一进 DOM 就生效, 不必等 React mount 再重排 */}
+      <script
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{
+          __html:
+            "document.documentElement.classList.add('mobile-viewport-locked');",
+        }}
+      />
+      <div className="fixed inset-0 flex flex-col overflow-hidden bg-ink-950 text-zinc-100">
+        <main
+          className={`mobile-scroll-area flex-1 overflow-y-auto ${
+            isTopLevel ? "pb-20" : ""
+          }`}
+        >
+          {children}
+        </main>
+        <BottomNav />
+        {showPrivacy ? <PrivacyConsent /> : null}
+      </div>
+    </>
   );
 }

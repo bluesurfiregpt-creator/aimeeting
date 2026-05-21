@@ -76,23 +76,39 @@ export default function MobileHomePage() {
   // 兼容旧 loading flag — 仅首次 (无 cache) 时 loading
   const loading = !data && isRefreshing;
 
-  // P15 prefetch: 进 /m 时后台并行预拉其他 tab 的数据写进 cache.
-  // 用户切到 /m/meetings / /m/tasks / 等时, cache 已有 = 立刻显, 不等网络.
-  // 已有 cache 时 skip 避免重复拉.
+  // P15 prefetch: 进 /m 时后台并行预拉其他 tab 数据.
+  // 修假死: 之前 mount 时同步起 3 个网络请求 + 主请求, 弱网下 hydration 跟
+  // 这堆 fetch 抢主线程, 用户体感"进入卡 1-3 秒". 用 requestIdleCallback
+  // (或 setTimeout 500ms fallback) 把 prefetch 推到主线程空闲, hydration
+  // 不被挤.
   useEffect(() => {
     const tasks: Array<[string, () => Promise<unknown>]> = [
       ["m:meetings", () => mApi.getMeetingsList()],
       ["m:tasks", () => mApi.getTasks()],
       ["m:agents/workboard", () => mApi.getAgentsWorkboard()],
     ];
-    for (const [key, fn] of tasks) {
-      if (peekCache(key) !== undefined) continue;
-      void fn()
-        .then((d) => mutateCache(key, d))
-        .catch(() => {
-          // 静默 — prefetch 失败不打扰用户
-        });
-    }
+    const run = () => {
+      for (const [key, fn] of tasks) {
+        if (peekCache(key) !== undefined) continue;
+        void fn()
+          .then((d) => mutateCache(key, d))
+          .catch(() => {});
+      }
+    };
+    // 推到 idle, 给 hydration 让路
+    const ric = (window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    }).requestIdleCallback;
+    const handle = ric
+      ? ric(run, { timeout: 2000 })
+      : (window.setTimeout(run, 500) as unknown as number);
+    return () => {
+      const cic = (window as unknown as {
+        cancelIdleCallback?: (h: number) => void;
+      }).cancelIdleCallback;
+      if (cic) cic(handle);
+      else window.clearTimeout(handle);
+    };
   }, []);
 
   const insightTopics = useMemo(() => {
