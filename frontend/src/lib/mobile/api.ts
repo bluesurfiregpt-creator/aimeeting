@@ -214,6 +214,48 @@ export const mApi = {
       `/api/meetings/attachments/${encodeURIComponent(attachmentId)}`,
     ),
 
+  // ===== P22: 声纹 管理 (移动端 /m/me/voiceprint) ============================
+
+  /** 当前用户自己的声纹状态. null = 未录. */
+  getMyVoiceprint: () =>
+    jget<{
+      id: string;
+      user_id: string;
+      pyannote_id: string;
+      sample_seconds: number | null;
+      version: number;
+      is_active: boolean;
+      created_at: string;
+    } | null>("/api/voiceprints/me"),
+
+  /** 删除自己的声纹 */
+  deleteMyVoiceprint: () =>
+    jsend<unknown>("DELETE", "/api/voiceprints/me"),
+
+  /** 上传声纹 PCM 录音. 后端要求 16kHz mono Int16 PCM, ≥ 20 秒有效语音. */
+  uploadVoiceprint: async (userId: string, pcmBlob: Blob) => {
+    const fd = new FormData();
+    fd.append("user_id", userId);
+    fd.append("audio", pcmBlob, "voice.pcm");
+    const r = await fetch("/api/voiceprints", {
+      method: "POST",
+      credentials: "include",
+      body: fd,
+    });
+    if (!r.ok) {
+      let msg = `POST /api/voiceprints → ${r.status}`;
+      try {
+        const j = await r.json();
+        const detail = (j as { detail?: string }).detail;
+        if (detail) msg = detail;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(msg);
+    }
+    return r.json();
+  },
+
   /** v27.0-mobile P9: scheduled → ongoing. 桌面 ws auto-trigger, mobile 显式 */
   startMeeting: (meetingId: string) =>
     jsend<{ meeting_id: string; status: string; started_at: string | null }>(

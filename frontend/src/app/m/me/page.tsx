@@ -171,6 +171,21 @@ export default function MobileMePage() {
           </section>
         ) : null}
 
+        {/* P22: 声纹 — 跳录音页 */}
+        <Link
+          href="/m/me/voiceprint"
+          className="rounded-2xl bg-ink-900 px-5 py-2 active:bg-ink-800"
+          data-testid="mobile-me-voiceprint-link"
+        >
+          <div className="flex items-center justify-between border-b border-zinc-800 py-3 last:border-b-0">
+            <span className="text-[14px] text-zinc-400">声纹</span>
+            <span className="flex items-center gap-1 text-[15px] text-zinc-100">
+              <span className="text-[13px] text-zinc-500">管理</span>
+              <span className="text-zinc-500">›</span>
+            </span>
+          </div>
+        </Link>
+
         {/* 关于 + 反馈 (mvp 文字提示) */}
         <section className="rounded-2xl bg-ink-900 px-5 py-2">
           <Row label="客服 / 反馈" value="联系管理员" />
