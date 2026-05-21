@@ -2,7 +2,8 @@
   "pages": [
     "pages/webview/webview",
     "pages/about/about",
-    "pages/picker/picker"
+    "pages/picker/picker",
+    "pages/meeting/meeting"
   ],
   "window": {
     "backgroundColor": "#0a0a0c",

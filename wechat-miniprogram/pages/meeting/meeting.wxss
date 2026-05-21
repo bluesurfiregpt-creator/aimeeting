@@ -1,0 +1,334 @@
+/* pages/meeting/meeting.wxss — N-1 第 1 刀 骨架 */
+
+page {
+  background: #0a0a0c;
+  color: #e4e4e7;
+  font-size: 28rpx;
+  font-family: -apple-system, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+}
+
+.container {
+  min-height: 100vh;
+  padding-bottom: calc(40rpx + env(safe-area-inset-bottom));
+}
+
+/* ===== 状态块 (loading / 错误 / 缺 token) ===== */
+
+.state-block {
+  padding: 80rpx 48rpx;
+  text-align: center;
+}
+
+.state-emoji {
+  font-size: 96rpx;
+  line-height: 1;
+  margin-bottom: 24rpx;
+}
+
+.state-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #fafafa;
+  margin-bottom: 16rpx;
+}
+
+.state-text {
+  font-size: 30rpx;
+  color: #a1a1aa;
+}
+
+.state-body {
+  margin: 16rpx 0 32rpx;
+  font-size: 26rpx;
+  line-height: 1.6;
+  color: #71717a;
+  text-align: left;
+  padding: 24rpx;
+  background: #18181b;
+  border-radius: 16rpx;
+}
+
+.state-error {
+  margin-top: 24rpx;
+  padding: 16rpx 24rpx;
+  background: rgba(244, 63, 94, 0.12);
+  color: #fda4af;
+  border-radius: 12rpx;
+  font-size: 26rpx;
+}
+
+.dev-input {
+  width: 100%;
+  min-height: 160rpx;
+  padding: 20rpx;
+  background: #18181b;
+  border: 2rpx solid #3f3f46;
+  border-radius: 16rpx;
+  color: #e4e4e7;
+  font-size: 24rpx;
+  font-family: ui-monospace, "SF Mono", monospace;
+  margin-bottom: 16rpx;
+  box-sizing: border-box;
+}
+
+.dev-input-line {
+  width: 100%;
+  height: 80rpx;
+  padding: 0 20rpx;
+  background: #18181b;
+  border: 2rpx solid #3f3f46;
+  border-radius: 16rpx;
+  color: #e4e4e7;
+  font-size: 24rpx;
+  margin-bottom: 24rpx;
+  box-sizing: border-box;
+}
+
+/* ===== 按钮通用 ===== */
+
+.btn-primary {
+  width: 100%;
+  height: 88rpx;
+  line-height: 88rpx;
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: 500;
+  border-radius: 20rpx;
+  text-align: center;
+  margin-top: 16rpx;
+}
+
+.btn-secondary {
+  height: 80rpx;
+  line-height: 80rpx;
+  background: #18181b;
+  border: 2rpx solid #3f3f46;
+  color: #e4e4e7;
+  font-size: 28rpx;
+  border-radius: 16rpx;
+  text-align: center;
+}
+
+.btn-text {
+  background: transparent;
+  color: #71717a;
+  font-size: 26rpx;
+  line-height: 80rpx;
+  margin-top: 16rpx;
+}
+
+/* ===== 主内容: 会议室 ===== */
+
+.meeting-body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 状态横条 */
+.status-bar {
+  padding: 16rpx 32rpx;
+  font-size: 26rpx;
+  border-bottom: 1rpx solid #27272a;
+  background: #18181b;
+}
+
+.status-ongoing {
+  background: rgba(16, 185, 129, 0.08);
+  color: #6ee7b7;
+}
+
+.status-finished, .status-processed {
+  background: rgba(115, 115, 130, 0.08);
+  color: #a1a1aa;
+}
+
+.status-scheduled {
+  background: rgba(245, 158, 11, 0.08);
+  color: #fcd34d;
+}
+
+/* 议程 chip 行 */
+.agenda-row {
+  white-space: nowrap;
+  padding: 24rpx 32rpx 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.agenda-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 12rpx 20rpx;
+  background: #18181b;
+  border: 2rpx solid #27272a;
+  border-radius: 20rpx;
+  margin-right: 16rpx;
+  font-size: 26rpx;
+  vertical-align: top;
+  max-width: 60vw;
+}
+
+.chip-pending { color: #71717a; }
+.chip-active { color: #93c5fd; background: rgba(59, 130, 246, 0.08); border-color: rgba(59, 130, 246, 0.3); }
+.chip-done { color: #86efac; }
+.chip-highlight { box-shadow: 0 0 0 4rpx rgba(139, 92, 246, 0.3); }
+
+.chip-icon {
+  font-size: 24rpx;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.chip-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280rpx;
+}
+
+.chip-meta {
+  font-size: 22rpx;
+  color: #71717a;
+  flex-shrink: 0;
+}
+
+/* 当前议题块 */
+.current-topic {
+  margin: 24rpx 32rpx 0;
+  padding: 24rpx;
+  background: #18181b;
+  border-radius: 24rpx;
+  border-left: 6rpx solid #8b5cf6;
+}
+
+.topic-label {
+  font-size: 22rpx;
+  color: #71717a;
+  margin-bottom: 8rpx;
+}
+
+.topic-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #fafafa;
+  margin-bottom: 8rpx;
+}
+
+.topic-meta {
+  font-size: 24rpx;
+  color: #a1a1aa;
+}
+
+/* AI 快照 mini 列表 */
+.insights-mini {
+  margin-top: 20rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid #27272a;
+}
+
+.insights-label {
+  display: block;
+  font-size: 22rpx;
+  color: #71717a;
+  margin-bottom: 12rpx;
+}
+
+.insight-mini {
+  display: flex;
+  gap: 8rpx;
+  padding: 8rpx 0;
+  font-size: 26rpx;
+}
+
+.insight-type {
+  flex-shrink: 0;
+  padding: 2rpx 10rpx;
+  background: rgba(139, 92, 246, 0.15);
+  color: #c4b5fd;
+  border-radius: 8rpx;
+  font-size: 22rpx;
+  align-self: flex-start;
+}
+
+.insight-content {
+  flex: 1;
+  color: #e4e4e7;
+  line-height: 1.5;
+}
+
+/* 在场 AI 专家 */
+.agents-bar {
+  margin: 24rpx 32rpx 0;
+  padding: 20rpx;
+  background: #18181b;
+  border-radius: 16rpx;
+}
+
+.agents-label {
+  font-size: 22rpx;
+  color: #71717a;
+  margin-bottom: 12rpx;
+  display: block;
+}
+
+.agents-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.agent-tag {
+  padding: 6rpx 16rpx;
+  background: rgba(139, 92, 246, 0.12);
+  color: #c4b5fd;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+}
+
+/* 转录占位 */
+.placeholder-box {
+  margin: 24rpx 32rpx 32rpx;
+  padding: 48rpx 24rpx;
+  background: #18181b;
+  border-radius: 24rpx;
+  border: 2rpx dashed #3f3f46;
+  text-align: center;
+}
+
+.ph-icon {
+  font-size: 64rpx;
+  margin-bottom: 16rpx;
+}
+
+.ph-title {
+  font-size: 30rpx;
+  color: #e4e4e7;
+  font-weight: 600;
+  margin-bottom: 8rpx;
+}
+
+.ph-body {
+  font-size: 24rpx;
+  color: #71717a;
+  line-height: 1.6;
+  margin-bottom: 16rpx;
+}
+
+.ph-stats {
+  font-size: 24rpx;
+  color: #a1a1aa;
+  margin-top: 8rpx;
+}
+
+/* Footer 按钮 */
+.footer-bar {
+  display: flex;
+  gap: 16rpx;
+  padding: 16rpx 32rpx 0;
+}
+
+.footer-bar .btn-secondary {
+  flex: 1;
+}

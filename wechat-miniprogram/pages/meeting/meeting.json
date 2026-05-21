@@ -1,0 +1,8 @@
+{
+  "navigationBarTitleText": "会议室",
+  "navigationBarBackgroundColor": "#0a0a0c",
+  "navigationBarTextStyle": "white",
+  "backgroundColor": "#0a0a0c",
+  "enableShareAppMessage": false,
+  "usingComponents": {}
+}

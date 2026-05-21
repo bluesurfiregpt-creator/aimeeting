@@ -1,0 +1,123 @@
+<!-- pages/meeting/meeting.wxml — N-1 第 1 刀: 骨架 -->
+<view class="container">
+
+  <!-- Loading -->
+  <view wx:if="{{loading}}" class="state-block">
+    <view class="state-emoji">⏳</view>
+    <view class="state-text">加载中…</view>
+  </view>
+
+  <!-- 开发模式 token 输入 -->
+  <view wx:elif="{{needToken}}" class="state-block">
+    <view class="state-emoji">🔑</view>
+    <view class="state-title">需要 token</view>
+    <view class="state-body">
+      开发模式. 在 H5 端登录后, 在浏览器 console 调 `await fetch('/api/auth/token', {method:'POST',...})` 拿 token 粘贴到这里.
+    </view>
+    <textarea
+      class="dev-input"
+      placeholder="粘贴 token (eyJhb...)"
+      value="{{devTokenInput}}"
+      bindinput="onDevTokenInput"
+      auto-height
+    />
+    <input
+      class="dev-input-line"
+      placeholder="(可选) expires_at ISO, 不填默认 30 天"
+      value="{{devTokenExpInput}}"
+      bindinput="onDevTokenExpInput"
+    />
+    <button class="btn-primary" bindtap="onDevTokenConfirm">确认</button>
+    <view wx:if="{{error}}" class="state-error">{{error}}</view>
+  </view>
+
+  <!-- 加载失败 -->
+  <view wx:elif="{{error}}" class="state-block">
+    <view class="state-emoji">⚠️</view>
+    <view class="state-text">{{error}}</view>
+    <button class="btn-secondary" bindtap="onRefresh">重试</button>
+    <button class="btn-text" bindtap="onBack">返回</button>
+  </view>
+
+  <!-- 主内容 -->
+  <view wx:elif="{{detail}}" class="meeting-body">
+
+    <!-- 状态横条 -->
+    <view class="status-bar status-{{detail.status}}">
+      <text wx:if="{{detail.status === 'ongoing'}}">● 进行中 · 已 {{detail.started_minutes_ago}} 分钟</text>
+      <text wx:elif="{{detail.status === 'scheduled'}}">○ 未开始</text>
+      <text wx:elif="{{detail.status === 'finished'}}">✓ 已结束</text>
+      <text wx:elif="{{detail.status === 'processed'}}">✓ 已沉淀</text>
+      <text wx:else>{{detail.status}}</text>
+    </view>
+
+    <!-- 议程 chip 行 (横滑) -->
+    <scroll-view wx:if="{{agendaChips.length > 0}}" scroll-x class="agenda-row">
+      <view
+        wx:for="{{agendaChips}}"
+        wx:key="idx"
+        class="agenda-chip {{item.toneClass}} {{item.isCurrent ? 'chip-highlight' : ''}}"
+      >
+        <view class="chip-icon">{{item.statusIcon}}</view>
+        <view class="chip-title">{{item.title}}</view>
+        <view wx:if="{{item.timeBudget}}" class="chip-meta">
+          <text wx:if="{{item.elapsedMin !== null}}">{{item.elapsedMin}}/</text>{{item.timeBudget}}m
+        </view>
+      </view>
+    </scroll-view>
+
+    <!-- 当前议题 + Insights (第 1 刀只显文本占位; 第 4 刀做完整 AI 气泡) -->
+    <view wx:if="{{detail.current_topic_title}}" class="current-topic">
+      <view class="topic-label">当前议题</view>
+      <view class="topic-title">{{detail.current_topic_title}}</view>
+      <view wx:if="{{detail.current_topic_elapsed_min}}" class="topic-meta">
+        已议 {{detail.current_topic_elapsed_min}} 分钟
+      </view>
+      <view wx:if="{{detail.current_topic_insights && detail.current_topic_insights.length > 0}}" class="insights-mini">
+        <text class="insights-label">本议题 AI 快照 · {{detail.current_topic_insights.length}}</text>
+        <view
+          wx:for="{{detail.current_topic_insights}}"
+          wx:for-item="ins"
+          wx:key="id"
+          class="insight-mini"
+        >
+          <text class="insight-type">{{ins.type}}</text>
+          <text class="insight-content">{{ins.content}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 在场 AI 专家 (第 1 刀只显数字; 第 5 刀做完整召唤 sheet) -->
+    <view wx:if="{{detail.attending_agents && detail.attending_agents.length > 0}}" class="agents-bar">
+      <text class="agents-label">在场 AI 专家 · {{detail.attending_agents.length}}</text>
+      <view class="agents-list">
+        <view
+          wx:for="{{detail.attending_agents}}"
+          wx:for-item="ag"
+          wx:key="agent_id"
+          class="agent-tag"
+        >
+          {{ag.nickname || ag.name}}
+        </view>
+      </view>
+    </view>
+
+    <!-- 转录占位 (第 2 刀接 WS + 实时转录) -->
+    <view class="placeholder-box">
+      <view class="ph-icon">💬</view>
+      <view class="ph-title">实时转录</view>
+      <view class="ph-body">
+        <text>第 1 刀骨架页, 这里 第 2 刀 会接 WebSocket 实时推送.</text>
+      </view>
+      <view class="ph-stats">
+        共 {{detail.transcript_total || 0}} 句真人 · {{detail.other_topics_count || 0}} 其他议题
+      </view>
+    </view>
+
+    <!-- Footer 按钮 -->
+    <view class="footer-bar">
+      <button class="btn-secondary" bindtap="onBack">← 返回</button>
+      <button class="btn-secondary" bindtap="onRefresh">↻ 刷新</button>
+    </view>
+  </view>
+</view>
