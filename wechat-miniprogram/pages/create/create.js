@@ -47,14 +47,28 @@ Page({
     title: '',
     mode: 'hybrid', // 'human' | 'hybrid' | 'auto'
     description: '',
-    agenda: [
-      // { id, title, time_budget_min, durationLabel, note, noteOpen }
-    ],
+    agenda: [],     // { id, title, time_budget_min, durationLabel, note, noteOpen }
 
     // UI 状态
     durationOptions: DURATION_OPTIONS,
-    // 当前正在选时长的 agenda idx (-1 表示没在选)
-    durationPickerForIdx: -1,
+
+    // 第 2 刀 — 邀请数据
+    members: null,            // [WorkspaceMember]
+    membersErr: '',
+    membersLoading: false,
+    agents: null,             // [WorkspaceAgentBrief] (仅 expert + moderator)
+    agentsLoading: false,
+    agentsErr: '',
+
+    selectedUserIdMap: {},    // { userId: true } map, wxml 渲染用
+    selectedAgentIdMap: {},   // { agentId: true } map
+    selectedUserIds: [],      // 数组, 提交时用
+    selectedAgentIds: [],
+    selectedExpertCount: 0,   // auto 模式校验用 (仅 expert, 不算 moderator)
+
+    // 第 2 刀 — AI 拆议程
+    decomposing: false,
+    decomposeConfirmOpen: false,
   },
 
   onLoad(options) {
@@ -79,14 +93,57 @@ Page({
   },
 
   _init() {
-    // 生成 draft id (附件预上传用, 即使本次没上传也无害)
     const clientDraftId = generateDraftId();
-    // 默认加一个空议程
     const firstAgenda = this._newAgendaRow();
     this.setData({
       clientDraftId,
       agenda: [firstAgenda],
     });
+    // 并行拉两份 邀请数据
+    this._fetchMembers();
+    this._fetchAgents();
+  },
+
+  async _fetchMembers() {
+    this.setData({ membersLoading: true, membersErr: '' });
+    try {
+      const list = await api.get('/api/team/members');
+      this.setData({
+        members: list || [],
+        membersLoading: false,
+      });
+    } catch (e) {
+      // member 角色 403 — 让 UI 友好降级
+      const is403 = e.message && e.message.indexOf('403') >= 0;
+      this.setData({
+        members: [],
+        membersLoading: false,
+        membersErr: is403
+          ? '仅 leader+ 可看完整成员列表 (你只能邀请 AI)'
+          : e.message || '加载失败',
+      });
+    }
+  },
+
+  async _fetchAgents() {
+    this.setData({ agentsLoading: true, agentsErr: '' });
+    try {
+      const list = await api.get('/api/agents', { active_only: true });
+      // 仅 expert + moderator (其他 role 不进会议)
+      const filtered = (list || []).filter(
+        (a) => a.role === 'expert' || a.role === 'moderator',
+      );
+      this.setData({
+        agents: filtered,
+        agentsLoading: false,
+      });
+    } catch (e) {
+      this.setData({
+        agents: [],
+        agentsLoading: false,
+        agentsErr: e.message || '加载失败',
+      });
+    }
   },
 
   _newAgendaRow() {
@@ -164,6 +221,129 @@ Page({
     });
   },
 
+  // 议程 note 展开/收起
+  onToggleAgendaNote(e) {
+    const idx = parseInt(e.currentTarget.dataset.idx, 10);
+    const cur = this.data.agenda[idx];
+    if (!cur) return;
+    const next = !cur.noteOpen;
+    const updates = { [`agenda[${idx}].noteOpen`]: next };
+    if (!next) {
+      // 收起时清掉 note (用户主动放弃)
+      updates[`agenda[${idx}].note`] = '';
+    }
+    this.setData(updates);
+  },
+
+  // ============================================================
+  // 邀请 多选 (第 2 刀)
+  // ============================================================
+
+  onToggleUser(e) {
+    const id = e.currentTarget.dataset.id;
+    if (!id) return;
+    const m = Object.assign({}, this.data.selectedUserIdMap);
+    if (m[id]) delete m[id];
+    else m[id] = true;
+    this.setData({
+      selectedUserIdMap: m,
+      selectedUserIds: Object.keys(m),
+    });
+  },
+
+  onToggleAgent(e) {
+    const id = e.currentTarget.dataset.id;
+    if (!id) return;
+    const m = Object.assign({}, this.data.selectedAgentIdMap);
+    if (m[id]) delete m[id];
+    else m[id] = true;
+    const ids = Object.keys(m);
+    // 算 expert 数 (auto 模式校验要 ≥ 3)
+    const expertCount = (this.data.agents || []).filter(
+      (a) => m[a.id] && a.role === 'expert',
+    ).length;
+    this.setData({
+      selectedAgentIdMap: m,
+      selectedAgentIds: ids,
+      selectedExpertCount: expertCount,
+    });
+  },
+
+  // ============================================================
+  // AI 拆议程 (第 2 刀)
+  // ============================================================
+
+  onAIDecompose() {
+    const brief = this.data.description.trim();
+    if (brief.length < 10) {
+      wx.showToast({ title: '请先把 brief 写够 10 字', icon: 'none' });
+      return;
+    }
+    if (this.data.decomposing) return;
+
+    // 当前 agenda 有内容? 弹 confirm 防覆盖
+    const hasContent = this.data.agenda.some((a) => a.title.trim().length > 0);
+    if (hasContent) {
+      wx.showModal({
+        title: '覆盖现有议程?',
+        content: '你已填了一些议程项. 让 AI 拆议程会替换它们 — 已有内容会丢失.',
+        confirmText: '覆盖',
+        cancelText: '再想想',
+        confirmColor: '#8b5cf6',
+        success: ({ confirm }) => {
+          if (confirm) this._doDecompose();
+        },
+      });
+    } else {
+      this._doDecompose();
+    }
+  },
+
+  async _doDecompose() {
+    this.setData({ decomposing: true, error: '' });
+    try {
+      const out = await api.post('/api/meetings/decompose-agenda', {
+        brief: this.data.description.trim(),
+        title: this.data.title.trim() || undefined,
+        target_count: 3,
+        // 第 3 刀: 把 client_draft_id 也传上 (附件做完后这里就能用 attachment 内容)
+        client_draft_id: this.data.clientDraftId || undefined,
+      });
+      // 替换 agenda
+      const newAgenda = (out.items || []).map((it) => {
+        const dur = (it.time_budget_min || 10);
+        const opt = DURATION_OPTIONS.find((o) => o.value === dur);
+        return {
+          id: 'a-' + Date.now() + '-' + Math.floor(Math.random() * 10000),
+          title: (it.title || '').slice(0, 100),
+          time_budget_min: dur,
+          durationLabel: opt ? opt.label : `${dur} 分钟`,
+          note: it.note || '',
+          // AI 拆出来的有 note → 默认展开让用户能看见 AI 写了啥
+          noteOpen: !!it.note,
+        };
+      });
+      if (newAgenda.length === 0) {
+        wx.showToast({ title: 'AI 拆出 0 项, 请稍后重试', icon: 'none' });
+      } else {
+        this.setData({ agenda: newAgenda });
+        wx.showToast({
+          title: `AI 拆了 ${newAgenda.length} 个议题`,
+          icon: 'success',
+        });
+      }
+    } catch (e) {
+      console.error('decompose failed', e);
+      wx.showToast({
+        title: e.message || 'AI 拆议程失败',
+        icon: 'none',
+        duration: 2500,
+      });
+    } finally {
+      this.setData({ decomposing: false });
+    }
+  },
+
   // ============================================================
   // 校验 + 提交
   // ============================================================
@@ -183,7 +363,17 @@ Page({
       if (this.data.description.trim().length < 10) {
         return '全 AI 自主模式 需写一段诉求 (≥ 10 字)';
       }
-      // 邀 AI ≥ 3 个 留 第 2 刀做了选择 UI 再校验
+      if (this.data.selectedExpertCount < 3) {
+        return '全 AI 自主模式 至少邀请 3 个 AI 专家 (expert 角色)';
+      }
+    } else {
+      // hybrid / human — 至少 1 个真人或 AI
+      if (
+        this.data.selectedUserIds.length + this.data.selectedAgentIds.length ===
+        0
+      ) {
+        return '至少邀请 1 个真人或 AI 专家';
+      }
     }
     return null;
   },
@@ -211,8 +401,8 @@ Page({
 
     const payload = {
       title: this.data.title.trim(),
-      attendee_user_ids: [],   // 第 2 刀填
-      attendee_agent_ids: [],  // 第 2 刀填
+      attendee_user_ids: this.data.selectedUserIds,
+      attendee_agent_ids: this.data.selectedAgentIds,
       agenda: cleanedAgenda,
       mode: this.data.mode,
       description: this.data.description.trim() || null,

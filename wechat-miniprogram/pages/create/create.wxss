@@ -340,6 +340,171 @@ page {
   font-style: italic;
 }
 
+/* ===== 第 2 刀: AI 拆议程 按钮 ===== */
+
+.ai-decompose-row {
+  margin-top: 12rpx;
+}
+
+.btn-ai-decompose {
+  display: inline-block;
+  height: 60rpx;
+  line-height: 60rpx;
+  padding: 0 24rpx;
+  background: rgba(139, 92, 246, 0.15);
+  color: #c4b5fd;
+  font-size: 24rpx;
+  font-weight: 500;
+  border-radius: 999rpx;
+  margin: 0;
+}
+
+.btn-ai-decompose::after { border: none; }
+
+.btn-ai-decompose[disabled] {
+  opacity: 0.5;
+}
+
+/* ===== 第 2 刀: 议程 note 折叠 ===== */
+
+.ar-note-toggle {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #71717a;
+}
+
+.ar-note-toggle:active {
+  color: #a78bfa;
+}
+
+.ar-note-block {
+  margin-top: 8rpx;
+}
+
+.ar-note-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6rpx;
+}
+
+.ar-note-label {
+  font-size: 22rpx;
+  color: #a1a1aa;
+}
+
+.ar-note-collapse {
+  font-size: 22rpx;
+  color: #71717a;
+}
+
+.ar-note-collapse:active {
+  color: #fda4af;
+}
+
+.ar-note-textarea {
+  width: 100%;
+  min-height: 80rpx;
+  padding: 12rpx 16rpx;
+  background: #0f0f12;
+  border: 1rpx solid #27272a;
+  border-radius: 12rpx;
+  color: #e4e4e7;
+  font-size: 24rpx;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+/* ===== 第 2 刀: 邀请 chip ===== */
+
+.section-loading {
+  font-size: 24rpx;
+  color: #71717a;
+  padding: 8rpx 0;
+}
+
+.section-hint-line {
+  font-size: 22rpx;
+  color: #71717a;
+  padding: 4rpx 0;
+  line-height: 1.5;
+}
+
+.chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 8rpx;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 10rpx 18rpx;
+  background: #18181b;
+  border: 2rpx solid #27272a;
+  border-radius: 999rpx;
+  font-size: 26rpx;
+}
+
+.chip:active {
+  background: #20202a;
+}
+
+.chip-active {
+  border-color: rgba(139, 92, 246, 0.5);
+  background: rgba(139, 92, 246, 0.15);
+}
+
+.chip-label {
+  color: #e4e4e7;
+  max-width: 200rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-active .chip-label {
+  color: #fafafa;
+}
+
+.chip-sub {
+  font-size: 22rpx;
+  color: #71717a;
+}
+
+.chip-check {
+  font-size: 22rpx;
+  color: #a78bfa;
+  font-weight: 600;
+}
+
+.chip-dot {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.chip-tag {
+  padding: 1rpx 8rpx;
+  background: rgba(245, 158, 11, 0.15);
+  color: #fcd34d;
+  border-radius: 6rpx;
+  font-size: 20rpx;
+}
+
+/* agent color 圆点 (跟 meeting 页保持一致) */
+.agent-bg-violet { background: #8b5cf6; }
+.agent-bg-emerald { background: #10b981; }
+.agent-bg-amber { background: #f59e0b; }
+.agent-bg-sky { background: #0ea5e9; }
+.agent-bg-rose { background: #f43f5e; }
+.agent-bg-teal { background: #14b8a6; }
+.agent-bg-blue { background: #3b82f6; }
+.agent-bg-indigo { background: #6366f1; }
+
 /* ===== 错误提示 ===== */
 
 .error-block {

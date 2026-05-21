@@ -95,6 +95,17 @@
         auto-height
       />
       <view class="char-counter">{{description.length}}/2000</view>
+      <!-- 第 2 刀: brief ≥ 10 字时 显 AI 拆议程 按钮 -->
+      <view wx:if="{{description.length >= 10}}" class="ai-decompose-row">
+        <button
+          class="btn-ai-decompose"
+          bindtap="onAIDecompose"
+          disabled="{{decomposing}}"
+        >
+          <text wx:if="{{decomposing}}">AI 拆议程中…</text>
+          <text wx:else>✨ 让 AI 拆议程</text>
+        </button>
+      </view>
     </view>
 
     <!-- ===== 议程 ===== -->
@@ -134,15 +145,87 @@
                 <text>时长: {{item.durationLabel}}</text>
               </view>
             </picker>
+            <!-- note 折叠按钮 / 展开 textarea -->
+            <view
+              wx:if="{{!item.noteOpen}}"
+              class="ar-note-toggle"
+              data-idx="{{index}}"
+              bindtap="onToggleAgendaNote"
+            >+ 方向提示 (可选)</view>
+            <view wx:else class="ar-note-block">
+              <view class="ar-note-head">
+                <text class="ar-note-label">方向提示 (给 AI 看)</text>
+                <text
+                  class="ar-note-collapse"
+                  data-idx="{{index}}"
+                  bindtap="onToggleAgendaNote"
+                >收起</text>
+              </view>
+              <textarea
+                class="ar-note-textarea"
+                placeholder="例: 重点考虑 Q3 时间窗 + 预算 ≤ 30w"
+                value="{{item.note}}"
+                data-idx="{{index}}"
+                bindinput="onAgendaNoteInput"
+                maxlength="200"
+                auto-height
+              />
+            </view>
           </view>
         </view>
       </view>
     </view>
 
-    <!-- ===== 邀请人 / AI (留 第 2 刀) ===== -->
-    <view class="section section-placeholder">
-      <view class="section-label">邀请人 / AI 专家</view>
-      <view class="placeholder-text">第 2 刀做 — 当前测试用户先不必填邀请人</view>
+    <!-- ===== 邀请 真人 ===== -->
+    <view class="section">
+      <view class="section-label">
+        邀请真人
+        <text wx:if="{{selectedUserIds.length > 0}}" class="section-hint section-hint-mute">· 已选 {{selectedUserIds.length}}</text>
+      </view>
+      <view wx:if="{{membersLoading}}" class="section-loading">加载中…</view>
+      <view wx:elif="{{membersErr}}" class="section-hint-line">{{membersErr}}</view>
+      <view wx:elif="{{members.length === 0}}" class="section-hint-line">没有可邀请的成员</view>
+      <view wx:else class="chip-grid">
+        <view
+          wx:for="{{members}}"
+          wx:key="user_id"
+          class="chip {{selectedUserIdMap[item.user_id] ? 'chip-active' : ''}}"
+          data-id="{{item.user_id}}"
+          bindtap="onToggleUser"
+        >
+          <view class="chip-label">{{item.name}}</view>
+          <view wx:if="{{item.department || item.role}}" class="chip-sub">
+            {{item.department || item.role}}
+          </view>
+          <view wx:if="{{selectedUserIdMap[item.user_id]}}" class="chip-check">✓</view>
+        </view>
+      </view>
+    </view>
+
+    <!-- ===== 邀请 AI 专家 ===== -->
+    <view class="section">
+      <view class="section-label">
+        邀请 AI 专家
+        <text wx:if="{{selectedAgentIds.length > 0}}" class="section-hint section-hint-mute">· 已选 {{selectedAgentIds.length}}</text>
+        <text wx:if="{{mode === 'auto'}}" class="section-hint">· 全 AI 模式 需 ≥ 3 个 expert</text>
+      </view>
+      <view wx:if="{{agentsLoading}}" class="section-loading">加载中…</view>
+      <view wx:elif="{{agentsErr}}" class="section-hint-line">{{agentsErr}}</view>
+      <view wx:elif="{{agents.length === 0}}" class="section-hint-line">工作区没有 AI 专家</view>
+      <view wx:else class="chip-grid">
+        <view
+          wx:for="{{agents}}"
+          wx:key="id"
+          class="chip chip-agent {{selectedAgentIdMap[item.id] ? 'chip-active' : ''}}"
+          data-id="{{item.id}}"
+          bindtap="onToggleAgent"
+        >
+          <view class="chip-dot agent-bg-{{item.color || 'violet'}}"></view>
+          <view class="chip-label">{{item.nickname || item.name}}</view>
+          <view wx:if="{{item.role === 'moderator'}}" class="chip-tag">主持人</view>
+          <view wx:if="{{selectedAgentIdMap[item.id]}}" class="chip-check">✓</view>
+        </view>
+      </view>
     </view>
 
     <!-- ===== 参考资料 (留 第 3 刀) ===== -->
