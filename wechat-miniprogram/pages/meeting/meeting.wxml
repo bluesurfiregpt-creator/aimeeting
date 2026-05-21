@@ -51,6 +51,20 @@
       <text wx:else>{{detail.status}}</text>
     </view>
 
+    <!-- 议程 banner (第 4 刀) — 顶部插条, 同时只显 1 个 -->
+    <view wx:if="{{banner}}" class="banner banner-{{banner.tone}}">
+      <view class="banner-emoji">{{banner.emoji}}</view>
+      <view class="banner-body">
+        <view class="banner-title">
+          {{banner.title}}
+          <text wx:if="{{banner.countdownSec > 0}}" class="banner-countdown">{{banner.countdownSec}}s</text>
+        </view>
+        <view class="banner-text">{{banner.text}}</view>
+        <view wx:if="{{banner.sub}}" class="banner-sub">{{banner.sub}}</view>
+      </view>
+      <view class="banner-close" bindtap="onBannerClose">×</view>
+    </view>
+
     <!-- 议程 chip 行 (横滑) -->
     <scroll-view wx:if="{{agendaChips.length > 0}}" scroll-x class="agenda-row">
       <view
@@ -135,20 +149,39 @@
           <text wx:if="{{detail.status === 'ongoing'}}">等待发言…</text>
           <text wx:else>暂无转录</text>
         </view>
-        <view
-          wx:for="{{transcriptLines}}"
-          wx:key="id"
-          id="{{item.id}}"
-          class="transcript-line"
-        >
-          <view class="tl-head">
-            <text class="tl-speaker">{{item.speakerName}}</text>
-            <text wx:if="{{item.atMinute !== null && item.atMinute !== undefined}}" class="tl-time">{{item.atMinute}}m</text>
-            <text wx:if="{{item.speakerStatus === 'manual'}}" class="tl-tag">手打</text>
-            <text wx:if="{{item.speakerStatus === 'auto_recognized'}}" class="tl-tag tl-tag-auto">声纹</text>
+        <block wx:for="{{transcriptLines}}" wx:key="id">
+          <!-- 真人 行 -->
+          <view
+            wx:if="{{item.kind === 'user'}}"
+            id="{{item.id}}"
+            class="transcript-line"
+          >
+            <view class="tl-head">
+              <text class="tl-speaker">{{item.speakerName}}</text>
+              <text wx:if="{{item.atMinute !== null && item.atMinute !== undefined}}" class="tl-time">{{item.atMinute}}m</text>
+              <text wx:if="{{item.speakerStatus === 'manual'}}" class="tl-tag">手打</text>
+              <text wx:if="{{item.speakerStatus === 'auto_recognized'}}" class="tl-tag tl-tag-auto">声纹</text>
+            </view>
+            <view class="tl-text">{{item.text}}</view>
           </view>
-          <view class="tl-text">{{item.text}}</view>
-        </view>
+
+          <!-- AI 行 -->
+          <view
+            wx:elif="{{item.kind === 'agent'}}"
+            id="{{item.id}}"
+            class="agent-bubble agent-color-{{item.agentColor}}"
+          >
+            <view class="ab-head">
+              <view class="ab-dot agent-bg-{{item.agentColor}}"></view>
+              <text class="ab-name">{{item.agentNickname || item.agentName}}</text>
+              <text wx:if="{{item.status === 'streaming'}}" class="ab-typing">正在说…</text>
+              <text wx:if="{{item.citationsCount > 0}}" class="ab-citations">引用 {{item.citationsCount}}</text>
+            </view>
+            <view class="ab-text">
+              {{item.text}}<text wx:if="{{item.status === 'streaming'}}" class="ab-cursor">▍</text>
+            </view>
+          </view>
+        </block>
       </scroll-view>
 
       <!-- 用户上滑后, 累积新转录时显跳到底部按钮 -->

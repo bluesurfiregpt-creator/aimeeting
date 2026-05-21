@@ -41,6 +41,11 @@ Page({
     micElapsedSec: 0,           // 已录秒数 (录音中每秒 +1)
     micElapsedStr: '00:00',     // mm:ss 格式 (供 wxml 直接渲染)
     framesSent: 0,              // 已发 PCM 帧数 (debug 用)
+
+    // 第 4 刀新增 — 议程 banner (顶部插条, 同时只显 1 个)
+    //   { type, severity, text, current, suggested, countdownSec, autoSummonAfterSec }
+    //   countdownSec 倒到 0 关闭. mvp 不做自动召唤 (留 第 5 刀)
+    banner: null,
   },
 
   // ============================================================
@@ -96,6 +101,7 @@ Page({
       clearInterval(this._micTimer);
       this._micTimer = null;
     }
+    this._clearBannerTimer();
     if (this._ws) {
       this._ws.close();
       this._ws = null;
@@ -172,43 +178,63 @@ Page({
     const { meetingId } = this.data;
     try {
       const data = await api.get(`/api/m/meetings/${meetingId}/transcript`);
-      // 只保留 user 行 (agent 行第 4 刀做完整气泡)
-      const userLines = (data.lines || [])
-        .filter((l) => l.kind === 'user')
-        .map((l) => this._normalizeUserLine(l));
-      this.setData({ transcriptLines: userLines });
+      // 第 4 刀: 保留 user + agent 两种 line, 统一 schema
+      const lines = (data.lines || []).map((l) =>
+        l.kind === 'agent' ? this._normalizeAgentLine(l) : this._normalizeUserLine(l),
+      );
+      // 重置正在 streaming 的 agent map (这是新拉的 snapshot, 历史所有 agent 行都 done)
+      this._currentAgentLineByAgent = {};
+      this.setData({ transcriptLines: lines });
       this._scrollToBottom();
     } catch (e) {
       console.warn('fetch transcript failed', e);
-      // 不抛, 拉失败不影响 WS 连接
     }
   },
 
   _normalizeUserLine(line) {
-    // 把 /transcript endpoint 的 line 和 WS transcript_persisted event 统一成 同一份 shape
     return {
       id: 't-' + line.id,
+      kind: 'user',
       lineId: line.id,
       speakerName: line.speaker_name || '未知',
       speakerStatus: line.speaker_status || '',
       text: line.text || '',
       atMinute: line.at_minute,
+      status: 'done',
+    };
+  },
+
+  _normalizeAgentLine(line) {
+    // history endpoint /transcript 返的 agent line: kind/id/text/at_minute/created_at/
+    //   agent_id/agent_name/agent_nickname/agent_color/trigger/citations_count
+    return {
+      id: 'a-hist-' + line.id,
+      kind: 'agent',
+      lineId: line.id,
+      text: line.text || '',
+      atMinute: line.at_minute,
+      agentId: line.agent_id || '',
+      agentName: line.agent_name || 'AI',
+      agentNickname: line.agent_nickname || '',
+      agentColor: line.agent_color || 'violet',
+      citationsCount: line.citations_count || 0,
+      status: 'done',
     };
   },
 
   _appendLiveLine(event) {
-    // 后端 transcript_persisted event 字段: line_id, start_ms, end_ms, text, speaker_name, speaker_status
     const newLine = {
       id: 't-' + event.line_id,
+      kind: 'user',
       lineId: event.line_id,
       speakerName: event.speaker_name || '未知',
       speakerStatus: event.speaker_status || '',
       text: event.text || '',
       atMinute: this._msToMinute(event.start_ms),
+      status: 'done',
     };
     const lines = this.data.transcriptLines.slice();
-    // 幂等: 同 line_id 已经在 (例如历史拉过) 就 skip
-    if (lines.some((l) => l.lineId === newLine.lineId)) return;
+    if (lines.some((l) => l.lineId === newLine.lineId && l.kind === 'user')) return;
     lines.push(newLine);
     const updates = { transcriptLines: lines };
     if (!this.data.transcriptStuckAtBottom) {
@@ -217,6 +243,91 @@ Page({
     this.setData(updates, () => {
       if (this.data.transcriptStuckAtBottom) this._scrollToBottom();
     });
+  },
+
+  // ============================================================
+  // AI 流式气泡 (第 4 刀)
+  // ============================================================
+  //
+  // 状态: this._currentAgentLineByAgent = { agent_id: lineId }
+  //   start → 新建一条 streaming line, 记 agent_id → 这条 line 的 id
+  //   chunk → 找 agent_id 对应的 line, 路径语法 setData 局部 append text
+  //   end → 用 event.text 替换 (防 chunk 拼接误差), status='done', 移除 map 项
+
+  _onAgentMessageStart(event) {
+    // event: { type, agent_id, agent_name, agent_nickname, agent_color }
+    if (!this._currentAgentLineByAgent) this._currentAgentLineByAgent = {};
+    // 同 agent 上一条还没 end? 强制关掉, 防 ghost line
+    if (this._currentAgentLineByAgent[event.agent_id]) {
+      this._finalizeStreamingLine(event.agent_id, null);
+    }
+    const lineId = 'a-' + event.agent_id + '-' + Date.now() + '-' +
+      Math.floor(Math.random() * 1000);
+    const newLine = {
+      id: lineId,
+      kind: 'agent',
+      text: '',
+      agentId: event.agent_id,
+      agentName: event.agent_name || 'AI',
+      agentNickname: event.agent_nickname || '',
+      agentColor: event.agent_color || 'violet',
+      status: 'streaming',
+      atMinute: null,
+      citationsCount: 0,
+    };
+    this._currentAgentLineByAgent[event.agent_id] = lineId;
+    const lines = this.data.transcriptLines.slice();
+    lines.push(newLine);
+    const updates = { transcriptLines: lines };
+    if (!this.data.transcriptStuckAtBottom) {
+      updates.pendingNewCount = this.data.pendingNewCount + 1;
+    }
+    this.setData(updates, () => {
+      if (this.data.transcriptStuckAtBottom) this._scrollToBottom();
+    });
+  },
+
+  _onAgentMessageChunk(event) {
+    // event: { type, agent_id, chunk }
+    if (!event.chunk) return;
+    const lineId = this._currentAgentLineByAgent &&
+      this._currentAgentLineByAgent[event.agent_id];
+    if (!lineId) return; // 没 start? 容错丢弃 chunk
+    const idx = this.data.transcriptLines.findIndex((l) => l.id === lineId);
+    if (idx < 0) return;
+    const oldText = this.data.transcriptLines[idx].text || '';
+    const newText = oldText + event.chunk;
+    // 路径语法局部更新, 比 setData 整个 array 轻
+    this.setData(
+      { [`transcriptLines[${idx}].text`]: newText },
+      () => {
+        if (this.data.transcriptStuckAtBottom) this._scrollToBottom();
+      },
+    );
+  },
+
+  _onAgentMessageEnd(event) {
+    // event: { type, agent_id, text, citations }
+    this._finalizeStreamingLine(event.agent_id, event);
+  },
+
+  _finalizeStreamingLine(agentId, event) {
+    if (!this._currentAgentLineByAgent) return;
+    const lineId = this._currentAgentLineByAgent[agentId];
+    if (!lineId) return;
+    delete this._currentAgentLineByAgent[agentId];
+    const idx = this.data.transcriptLines.findIndex((l) => l.id === lineId);
+    if (idx < 0) return;
+    const updates = {
+      [`transcriptLines[${idx}].status`]: 'done',
+    };
+    if (event) {
+      if (event.text) updates[`transcriptLines[${idx}].text`] = event.text;
+      if (Array.isArray(event.citations)) {
+        updates[`transcriptLines[${idx}].citationsCount`] = event.citations.length;
+      }
+    }
+    this.setData(updates);
   },
 
   _msToMinute(ms) {
@@ -310,20 +421,11 @@ Page({
         // 声纹识别完了, 重新拉一次完整转录 (因为后端可能更新了 speaker_name)
         this.fetchTranscript();
       },
-      onAgentMessageStart: (ev) => {
-        // 第 4 刀: AI 气泡 start
-        console.log('[ws] agent_message_start (留 第 4 刀):', ev);
-      },
-      onAgentMessageChunk: (ev) => {
-        // 第 4 刀: AI streaming chunk
-      },
-      onAgentMessageEnd: (ev) => {
-        // 第 4 刀: AI 气泡 end
-      },
-      onAgendaEvent: (ev) => {
-        // 第 4 刀: 议程 banner
-        console.log('[ws] agenda event (留 第 4 刀):', ev);
-      },
+      onAgentMessageStart: (ev) => this._onAgentMessageStart(ev),
+      onAgentMessageChunk: (ev) => this._onAgentMessageChunk(ev),
+      onAgentMessageEnd: (ev) => this._onAgentMessageEnd(ev),
+      onAgendaEvent: (ev) => this._onAgendaEvent(ev),
+      onDissentDetected: (ev) => this._onAgendaEvent({ ...ev, type: 'dissent_detected' }),
       onAgentsInvited: (ev) => {
         // 重新拉一次 detail (拿到新 attending_agents)
         this.fetchDetail();
@@ -332,6 +434,145 @@ Page({
         this.setData({ wsState: state });
       },
     });
+  },
+
+  // ============================================================
+  // 议程 banner (第 4 刀)
+  // ============================================================
+  //
+  // 6 种 event 各自的 banner tone + 内容. mvp 实现:
+  //   - 同时只显 1 个 banner (新 event 覆盖旧)
+  //   - 带 auto_summon_after_s 的事件做倒计时显示 (纯视觉)
+  //   - 倒计时到 0 → 关 banner (mvp 不真召唤, 留 第 5 刀)
+  //   - 用户可主动关
+  //
+  // 跟 H5 端 P16 AgendaEventBanner 视觉风格对齐.
+
+  _onAgendaEvent(event) {
+    const banner = this._eventToBanner(event);
+    if (!banner) return;
+    // 关旧 banner 的倒计时
+    this._clearBannerTimer();
+    this.setData({ banner });
+    if (banner.countdownSec && banner.countdownSec > 0) {
+      this._startBannerTimer();
+    }
+  },
+
+  _eventToBanner(event) {
+    const t = event.type;
+    if (t === 'agenda_off_topic') {
+      const severity = event.off_topic_severity || 'suspected';
+      const isSevere = severity === 'severe';
+      return {
+        type: t,
+        tone: isSevere ? 'severe' : (severity === 'confirmed' ? 'warning' : 'info'),
+        emoji: isSevere ? '🚨' : '⚠️',
+        title: isSevere ? '严重偏离议程' : '偏离议程',
+        text: event.off_topic_summary || '当前讨论似乎偏离了议程',
+        sub: event.suggested_agenda_item
+          ? `建议回到: ${event.suggested_agenda_item}`
+          : null,
+        countdownSec: event.auto_summon_after_s || 0,
+        autoSummon: !!event.auto_summon_after_s,
+      };
+    }
+    if (t === 'agenda_stuck') {
+      return {
+        type: t,
+        tone: 'warning',
+        emoji: '⏸',
+        title: '议题僵局',
+        text: event.stuck_summary || '议题卡住了, 建议召唤主持人推进',
+        sub: null,
+        countdownSec: event.auto_summon_after_s || 5,
+        autoSummon: true,
+      };
+    }
+    if (t === 'agenda_time_warning') {
+      return {
+        type: t,
+        tone: 'warning',
+        emoji: '⏰',
+        title: '议题时间预警',
+        text: event.time_warning_text || '当前议题已超过预设时间',
+        sub: event.elapsed_min ? `已议 ${event.elapsed_min} 分钟` : null,
+        countdownSec: 0,
+        autoSummon: false,
+      };
+    }
+    if (t === 'agenda_decision_summary') {
+      return {
+        type: t,
+        tone: 'info',
+        emoji: '🎯',
+        title: '需要收口拍板',
+        text: event.decision_brief || '出现多个立场, 建议主持人收口',
+        sub: event.current_agenda_item
+          ? `议题: ${event.current_agenda_item}`
+          : null,
+        countdownSec: event.auto_summon_after_s || 12,
+        autoSummon: true,
+      };
+    }
+    if (t === 'agenda_advance_suggested') {
+      return {
+        type: t,
+        tone: 'success',
+        emoji: '→',
+        title: '可以推进下一议程',
+        text: event.advance_reason || '当前议题似乎已收口',
+        sub: event.next_agenda_item
+          ? `下一项: ${event.next_agenda_item}`
+          : null,
+        countdownSec: 0,
+        autoSummon: false,
+      };
+    }
+    if (t === 'dissent_detected') {
+      return {
+        type: t,
+        tone: 'severe',
+        emoji: '⚔️',
+        title: '检测到立场分歧',
+        text: event.summary || event.dissent_summary || '专家间出现立场分歧',
+        sub: null,
+        countdownSec: 0,
+        autoSummon: false,
+      };
+    }
+    return null;
+  },
+
+  _startBannerTimer() {
+    this._clearBannerTimer();
+    this._bannerTimer = setInterval(() => {
+      const b = this.data.banner;
+      if (!b || !b.countdownSec || b.countdownSec <= 0) {
+        this._clearBannerTimer();
+        return;
+      }
+      const next = b.countdownSec - 1;
+      if (next <= 0) {
+        // 倒计时到 — mvp 仅关 banner (第 5 刀做完召唤 sheet 后接自动 invoke_agent)
+        this._clearBannerTimer();
+        this.setData({ banner: null });
+        return;
+      }
+      this.setData({ 'banner.countdownSec': next });
+    }, 1000);
+  },
+
+  _clearBannerTimer() {
+    if (this._bannerTimer) {
+      clearInterval(this._bannerTimer);
+      this._bannerTimer = null;
+    }
+  },
+
+  onBannerClose() {
+    this._clearBannerTimer();
+    this.setData({ banner: null });
   },
 
   // ============================================================
