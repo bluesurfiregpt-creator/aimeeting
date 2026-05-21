@@ -43,9 +43,15 @@ Page({
     framesSent: 0,              // 已发 PCM 帧数 (debug 用)
 
     // 第 4 刀新增 — 议程 banner (顶部插条, 同时只显 1 个)
-    //   { type, severity, text, current, suggested, countdownSec, autoSummonAfterSec }
-    //   countdownSec 倒到 0 关闭. mvp 不做自动召唤 (留 第 5 刀)
     banner: null,
+
+    // 第 5 刀新增 — 召唤 sheet
+    summonSheetOpen: false,
+    workspaceAgents: null,     // [WorkspaceAgentBrief] 工作区所有 active AI
+    workspaceAgentsLoading: false,
+    workspaceAgentsErr: '',
+    summonBusyId: '',          // 正在 summon/invite 的 agent_id (防 double click)
+    inviteableAgents: [],      // computed: workspaceAgents 过滤掉已在 attending 的
   },
 
   // ============================================================
@@ -130,6 +136,7 @@ Page({
         ),
         loading: false,
       });
+      this._recomputeInviteable();
       wx.setNavigationBarTitle({ title: detail.title || '会议室' });
       return detail;
     } catch (e) {
@@ -554,8 +561,11 @@ Page({
       }
       const next = b.countdownSec - 1;
       if (next <= 0) {
-        // 倒计时到 — mvp 仅关 banner (第 5 刀做完召唤 sheet 后接自动 invoke_agent)
         this._clearBannerTimer();
+        // 第 5 刀: 倒计时到 0 自动召唤 (autoSummon=true 时)
+        if (b.autoSummon) {
+          this._autoSummonForBanner(b);
+        }
         this.setData({ banner: null });
         return;
       }
@@ -573,6 +583,143 @@ Page({
   onBannerClose() {
     this._clearBannerTimer();
     this.setData({ banner: null });
+  },
+
+  /** banner "立刻召唤" 按钮 — 手动触发 */
+  onBannerSummonNow() {
+    const b = this.data.banner;
+    if (!b) return;
+    this._clearBannerTimer();
+    this._autoSummonForBanner(b);
+    this.setData({ banner: null });
+  },
+
+  _autoSummonForBanner(banner) {
+    // banner.autoSummon=true 的几种 (stuck / severe off_topic / decision_summary)
+    // 都是 召唤主持人. 从 attending_agents 找 role='moderator';
+    // 找不到就 toast 提示 (mvp 不自动 invite moderator).
+    const mod = this._findModerator();
+    if (!mod) {
+      wx.showToast({
+        title: '会议中无主持人, 请先邀请',
+        icon: 'none',
+        duration: 2500,
+      });
+      return;
+    }
+    this._summonAgent(mod.agent_id, { silent: false });
+  },
+
+  _findModerator() {
+    const attending =
+      (this.data.detail && this.data.detail.attending_agents) || [];
+    return attending.find((a) => a.role === 'moderator');
+  },
+
+  // ============================================================
+  // 召唤 sheet (第 5 刀)
+  // ============================================================
+
+  onOpenSummonSheet() {
+    if (!this.data.detail || this.data.detail.status !== 'ongoing') {
+      wx.showToast({ title: '仅进行中会议可召唤', icon: 'none' });
+      return;
+    }
+    this.setData({ summonSheetOpen: true });
+    if (this.data.workspaceAgents === null) {
+      this._fetchWorkspaceAgents();
+    }
+  },
+
+  onCloseSummonSheet() {
+    this.setData({ summonSheetOpen: false });
+  },
+
+  async _fetchWorkspaceAgents() {
+    this.setData({ workspaceAgentsLoading: true, workspaceAgentsErr: '' });
+    try {
+      const list = await api.get('/api/agents', { active_only: true });
+      // 仅显 expert + moderator role (其他角色不进会议)
+      const filtered = (list || []).filter(
+        (a) => a.role === 'expert' || a.role === 'moderator',
+      );
+      this.setData({
+        workspaceAgents: filtered,
+        workspaceAgentsLoading: false,
+      });
+      this._recomputeInviteable();
+    } catch (e) {
+      console.error('fetch workspace agents failed', e);
+      this.setData({
+        workspaceAgentsLoading: false,
+        workspaceAgentsErr: e.message || '加载失败',
+      });
+    }
+  },
+
+  _recomputeInviteable() {
+    const workspaceAgents = this.data.workspaceAgents;
+    if (!workspaceAgents) {
+      this.setData({ inviteableAgents: [] });
+      return;
+    }
+    const attendingIds = new Set(
+      ((this.data.detail && this.data.detail.attending_agents) || []).map(
+        (a) => a.agent_id,
+      ),
+    );
+    this.setData({
+      inviteableAgents: workspaceAgents.filter((a) => !attendingIds.has(a.id)),
+    });
+  },
+
+  /** sheet 内点击 agent 卡片 — 已邀请的直接 summon, 未邀请的先 invite 再 summon */
+  onSheetSummonAgent(e) {
+    const agentId = e.currentTarget.dataset.id;
+    if (!agentId) return;
+    this._summonAgent(agentId, { silent: false, closeSheet: true });
+  },
+
+  /**
+   * 召唤一个 AI 发言.
+   * 若 agent 不在 attending → 先调 invite endpoint, 再 summon.
+   * 后端 invite 后会通过 WS agents_invited 推, 我们 fetchDetail 更新 attending.
+   */
+  async _summonAgent(agentId, opts = {}) {
+    if (!agentId || this.data.summonBusyId === agentId) return;
+    this.setData({ summonBusyId: agentId });
+    try {
+      const meetingId = this.data.meetingId;
+      const attending =
+        (this.data.detail && this.data.detail.attending_agents) || [];
+      const isAttending = attending.some((a) => a.agent_id === agentId);
+
+      if (!isAttending) {
+        // 先邀请 (这一步 ABAC 要 leader+ 或 创建人; member 调会 403)
+        await api.post(`/api/meetings/${meetingId}/agents`, {
+          agent_ids: [agentId],
+        });
+      }
+      // 再召唤
+      await api.post(`/api/m/meetings/${meetingId}/summon`, {
+        agent_id: agentId,
+      });
+      if (!opts.silent) {
+        wx.showToast({ title: '已请发言', icon: 'success' });
+      }
+      if (opts.closeSheet) {
+        this.setData({ summonSheetOpen: false });
+      }
+    } catch (e) {
+      console.error('summon agent failed', e);
+      wx.showToast({
+        title: e.message || '召唤失败',
+        icon: 'none',
+        duration: 2500,
+      });
+    } finally {
+      this.setData({ summonBusyId: '' });
+    }
   },
 
   // ============================================================

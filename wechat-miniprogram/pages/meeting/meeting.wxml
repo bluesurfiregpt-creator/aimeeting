@@ -51,7 +51,7 @@
       <text wx:else>{{detail.status}}</text>
     </view>
 
-    <!-- 议程 banner (第 4 刀) — 顶部插条, 同时只显 1 个 -->
+    <!-- 议程 banner -->
     <view wx:if="{{banner}}" class="banner banner-{{banner.tone}}">
       <view class="banner-emoji">{{banner.emoji}}</view>
       <view class="banner-body">
@@ -61,6 +61,10 @@
         </view>
         <view class="banner-text">{{banner.text}}</view>
         <view wx:if="{{banner.sub}}" class="banner-sub">{{banner.sub}}</view>
+        <!-- 第 5 刀: autoSummon 时显 "立刻召唤" 按钮 -->
+        <view wx:if="{{banner.autoSummon}}" class="banner-actions">
+          <button class="btn-banner-summon" bindtap="onBannerSummonNow">立刻召唤主持人</button>
+        </view>
       </view>
       <view class="banner-close" bindtap="onBannerClose">×</view>
     </view>
@@ -198,7 +202,87 @@
     <view class="footer-bar">
       <button class="btn-secondary" bindtap="onBack">← 返回</button>
       <button class="btn-secondary" bindtap="onRefresh">↻ 刷新</button>
+      <button
+        wx:if="{{detail.status === 'ongoing'}}"
+        class="btn-primary-inline"
+        bindtap="onOpenSummonSheet"
+      >💬 召唤 AI</button>
     </view>
+  </view>
+
+  <!-- 召唤 sheet (第 5 刀) — 底部弹起的抽屉, mask 全屏覆盖 -->
+  <view
+    wx:if="{{summonSheetOpen}}"
+    class="sheet-mask"
+    bindtap="onCloseSummonSheet"
+    catchtouchmove="onCloseSummonSheet"
+  ></view>
+  <view class="sheet {{summonSheetOpen ? 'sheet-open' : ''}}">
+    <view class="sheet-header">
+      <view class="sheet-title">召唤 AI 专家</view>
+      <view class="sheet-close" bindtap="onCloseSummonSheet">×</view>
+    </view>
+
+    <scroll-view scroll-y class="sheet-body">
+      <!-- 会议中 section -->
+      <view wx:if="{{detail.attending_agents && detail.attending_agents.length > 0}}" class="sheet-section">
+        <view class="sheet-section-title">
+          会议中 · {{detail.attending_agents.length}}
+        </view>
+        <view
+          wx:for="{{detail.attending_agents}}"
+          wx:key="agent_id"
+          class="agent-row"
+          data-id="{{item.agent_id}}"
+          bindtap="onSheetSummonAgent"
+        >
+          <view class="ar-dot agent-bg-{{item.color || 'violet'}}"></view>
+          <view class="ar-body">
+            <view class="ar-name">{{item.nickname || item.name}}</view>
+            <view class="ar-meta">
+              <text wx:if="{{item.domain}}">{{item.domain}}</text>
+              <text wx:if="{{item.role === 'moderator'}}" class="ar-role-moderator">主持人</text>
+            </view>
+          </view>
+          <view class="ar-action">
+            <text wx:if="{{summonBusyId === item.agent_id}}">…</text>
+            <text wx:else>派他发言 →</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 可邀请 section -->
+      <view wx:if="{{workspaceAgentsLoading}}" class="sheet-loading">加载中…</view>
+      <view wx:elif="{{workspaceAgentsErr}}" class="sheet-error">{{workspaceAgentsErr}}</view>
+      <view wx:elif="{{inviteableAgents.length > 0}}" class="sheet-section">
+        <view class="sheet-section-title">
+          可邀请 · {{inviteableAgents.length}}
+        </view>
+        <view
+          wx:for="{{inviteableAgents}}"
+          wx:key="id"
+          class="agent-row"
+          data-id="{{item.id}}"
+          bindtap="onSheetSummonAgent"
+        >
+          <view class="ar-dot agent-bg-{{item.color || 'violet'}}"></view>
+          <view class="ar-body">
+            <view class="ar-name">{{item.nickname || item.name}}</view>
+            <view class="ar-meta">
+              <text wx:if="{{item.domain}}">{{item.domain}}</text>
+              <text class="ar-role-not-invited">未邀请</text>
+            </view>
+          </view>
+          <view class="ar-action">
+            <text wx:if="{{summonBusyId === item.id}}">…</text>
+            <text wx:else>邀请并发言 →</text>
+          </view>
+        </view>
+      </view>
+      <view wx:elif="{{workspaceAgents}}" class="sheet-empty">
+        所有 AI 都已在会议中
+      </view>
+    </scroll-view>
   </view>
 
   <!-- 录音控制条 (第 3 刀) — 仅 ongoing 会议显, 固定底部 -->
