@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..audit import audit_log
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
 from ..models import (
@@ -61,6 +62,11 @@ class AIInsightFull(AIInsightBrief):
     topic_idx: Optional[int] = None
     source_message_id: Optional[int] = None
     created_at: datetime
+    # v27.0-mobile P21 记忆模块金字塔:
+    #   worth_remembering — AI 推荐"值得沉淀"
+    #   human_decision   — 用户审批结果 (NULL/pending = 待审, accepted/rejected = 已决)
+    worth_remembering: bool = False
+    human_decision: Optional[str] = None
 
 
 # ============================================================================
@@ -1219,11 +1225,20 @@ async def get_agents_workboard(
 async def list_insights(
     by_agent: Optional[uuid.UUID] = Query(None),
     by_meeting: Optional[uuid.UUID] = Query(None),
+    for_review: bool = Query(
+        False,
+        description="True = 只返 AI 推荐入记忆 + 用户未审 的 (worth_remembering=true AND human_decision IS NULL)",
+    ),
     limit: int = Query(30, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    """智囊 全部 产出 — 默认 按 时间 倒序, 可 按 专家 / 议题 筛."""
+    """记忆模块 (前称 智囊) 产出 列表.
+
+    v27.0-mobile P21 金字塔:
+      默认 — 返全量快照, 给"快照" tab 用
+      for_review=true — 返 AI 推荐 + 用户未审 的, 给"待审" tab 用
+    """
     q = (
         select(AIInsight, Agent.name, Agent.nickname, Meeting.title)
         .join(Agent, Agent.id == AIInsight.agent_id)
@@ -1236,6 +1251,12 @@ async def list_insights(
         q = q.where(AIInsight.agent_id == by_agent)
     if by_meeting:
         q = q.where(AIInsight.meeting_id == by_meeting)
+    if for_review:
+        # 待审 = AI 推过 worth_remembering 且 人还没审 (human_decision NULL)
+        q = q.where(
+            AIInsight.worth_remembering.is_(True),
+            AIInsight.human_decision.is_(None),
+        )
 
     rows = (await session.execute(q)).all()
     return [
@@ -1245,9 +1266,108 @@ async def list_insights(
             evidence=ins.evidence, meeting_id=ins.meeting_id,
             meeting_title=m_title, topic_idx=ins.topic_idx,
             source_message_id=ins.source_message_id, created_at=ins.created_at,
+            worth_remembering=ins.worth_remembering,
+            human_decision=ins.human_decision,
         )
         for ins, a_name, a_nick, m_title in rows
     ]
+
+
+# ============================================================================
+# v27.0-mobile P21: PATCH /api/m/insights/{id}/decision — 人审决策
+# ============================================================================
+
+class InsightDecisionIn(BaseModel):
+    decision: str  # 'accepted' | 'rejected'
+
+
+class InsightDecisionOut(BaseModel):
+    id: uuid.UUID
+    human_decision: str
+    memory_id: Optional[uuid.UUID] = None  # accepted 时返新生成的 memory id
+
+
+@router.patch(
+    "/insights/{insight_id}/decision",
+    response_model=InsightDecisionOut,
+)
+async def patch_insight_decision(
+    insight_id: uuid.UUID,
+    payload: InsightDecisionIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v27.0-mobile P21: 用户对待审 insight 拍板.
+
+    accepted → INSERT 一条 long_term_memory + 标 insight.human_decision='accepted'
+    rejected → 仅 标 insight.human_decision='rejected', insight 保留 (快照 tab 仍可见)
+
+    幂等: 已决过 (accepted/rejected) 的 insight 再次 PATCH 同一 decision 返 200 (no-op);
+    跨决策 (rejected → accepted) 也允许 — 用户反悔机制留 Phase 3, 此处简单覆盖.
+    """
+    decision = (payload.decision or "").strip().lower()
+    if decision not in ("accepted", "rejected"):
+        raise HTTPException(400, "decision 必须是 'accepted' 或 'rejected'")
+
+    ins = (
+        await session.execute(
+            select(AIInsight).where(
+                AIInsight.id == insight_id,
+                AIInsight.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if ins is None:
+        raise HTTPException(404, "insight 不存在 或 不属于本工作区")
+    if not ins.worth_remembering:
+        raise HTTPException(
+            400,
+            "该 insight 未被 AI 推荐入记忆 (worth_remembering=false), 不可审",
+        )
+
+    memory_id: Optional[uuid.UUID] = None
+
+    if decision == "accepted":
+        # 同步写 long_term_memory. 引用 insight 的 content + evidence + 来源.
+        # scope='org' 默认 — 这是 workspace 共享记忆 (后续可加 UI 选 scope).
+        # importance=0.6 默认 — AI 推 + 人审过, 中等偏上.
+        from ..models import LongTermMemory
+
+        # 拼 memory.content — 主体 = insight.content, 后缀 evidence 引用
+        mem_content_parts = [ins.content]
+        if ins.evidence:
+            mem_content_parts.append(f"\n依据: {ins.evidence}")
+        mem_content = "\n".join(mem_content_parts)[:2000]  # safety cap
+
+        mem = LongTermMemory(
+            workspace_id=auth.workspace.id,
+            scope="org",
+            content=mem_content,
+            importance=0.6,
+            source_type="ai_insight",
+            source_id=str(ins.id),
+            source_meeting_id=ins.meeting_id,
+            curated_by_user_id=auth.user.id,
+            curated_at=datetime.now(timezone.utc),
+        )
+        session.add(mem)
+        await session.flush()
+        memory_id = mem.id
+
+    ins.human_decision = decision
+    await session.commit()
+
+    await audit_log(
+        session, auth, "insight.decision",
+        target_type="ai_insight", target_id=str(ins.id),
+        payload={
+            "decision": decision,
+            "memory_id": str(memory_id) if memory_id else None,
+        },
+    )
+    return InsightDecisionOut(
+        id=ins.id, human_decision=decision, memory_id=memory_id,
+    )
 
 
 # ============================================================================

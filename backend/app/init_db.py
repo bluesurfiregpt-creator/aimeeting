@@ -154,6 +154,11 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("meeting", "agenda_progress", "JSON"),
     # v27.0-mobile P19: 会议 brief (背景 / 目标 / 期望) — auto 模式必填
     ("meeting", "description", "TEXT"),
+    # v27.0-mobile P21 (记忆模块金字塔): ai_insight 加沉淀状态字段
+    #   worth_remembering: 会议结束时 AI 推荐"值得入记忆"标 true
+    #   human_decision:    用户审批 pending/accepted/rejected, NULL = AI 还没推过
+    ("ai_insight", "worth_remembering", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    ("ai_insight", "human_decision", "VARCHAR(16)"),
     # v26.14-P7.3: Memory 出处 链回 — 草稿 + 持久 memory 都加 source_line_ids
     #   行号 = meeting_transcript.id. 让 审批 / 入库 后 都 可 跳 实录 看 上下文.
     ("memory_draft", "source_line_ids", "JSON"),

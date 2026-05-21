@@ -17,7 +17,7 @@ export type AIInsightBrief = {
   content: string;
 };
 
-/** 完整版 — 含依据 + 来源, 智囊列表用 */
+/** 完整版 — 含依据 + 来源, 记忆模块 (前称 智囊) 列表用 */
 export type AIInsightFull = AIInsightBrief & {
   evidence: string | null;
   meeting_id: string;
@@ -25,6 +25,18 @@ export type AIInsightFull = AIInsightBrief & {
   topic_idx: number | null;
   source_message_id: number | null;
   created_at: string;
+  // v27.0-mobile P21 记忆模块金字塔:
+  //   worth_remembering — AI 推荐"值得沉淀"
+  //   human_decision    — 用户审批结果. null/undefined = 未审, 'accepted'|'rejected' = 已决
+  worth_remembering?: boolean;
+  human_decision?: "accepted" | "rejected" | null;
+};
+
+/** PATCH /api/m/insights/{id}/decision 响应 */
+export type InsightDecisionOut = {
+  id: string;
+  human_decision: "accepted" | "rejected";
+  memory_id: string | null;
 };
 
 export type WorkbenchOngoingMeeting = {

@@ -1,20 +1,23 @@
 "use client";
 
 /**
- * v27.0-mobile · Phase 4.4 · /m/insights 三 tab 真做.
+ * v27.0-mobile P21 · /m/insights · 「记忆」模块 (前称「智囊」).
  *
- * 替代旧占位页 (Phase 2-next 写的 dashed 框).
+ * 金字塔模型:
+ *   会议中 AI 发言 (agent_message)
+ *     ↓ 浓缩 (LLM 抽快照,会议结束触发)
+ *   快照 (ai_insight, 全量, 只读, 可点跳回原文)
+ *     ↓ AI 筛 worth_remembering=true
+ *   待审 (人工判断要不要进记忆库)
+ *     ↓ 用户 accepted
+ *   记忆库 (long_term_memory, 长期保留, 未来 AI 检索调用)
  *
- * 结构:
- *   PageHeader "智囊"
- *   SegmentControl  [AI 产出 (N)] [待我审 (M)] [已入库 (K)]
- *   按 tab 渲三种数据:
- *     AI 产出 → groupInsightsByTopic + InsightTopicGroupRow (议题聚合视图)
- *     待我审 → mApi.getTasks() 过滤 source_kind=draft & group=pending,
- *              用 TaskCardFull 渲, 通过/驳回 跟 /m/tasks 完全一致
- *     已入库 → mApi.getMemories() 长期记忆库列表, MemoryRow 渲
+ * 三个 tab 对应金字塔三层:
+ *   快照 tab    → mApi.getInsights()                     全量 insight
+ *   待审 tab    → mApi.getInsights({ for_review: true }) worth_remembering+pending
+ *   记忆库 tab  → mApi.getMemories()                     long_term_memory
  *
- * 三 tab 数据各自 lazy load (切到才拉, 避免一进页就发 3 个请求).
+ * task draft (任务草稿) 不再在本模块出现 — 移到会议总结页 /m/meetings/[id]/summary.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -22,40 +25,32 @@ import Link from "next/link";
 import PageHeader from "@/components/mobile/PageHeader";
 import SegmentControl from "@/components/mobile/SegmentControl";
 import MemoryRow from "@/components/mobile/MemoryRow";
-import RejectFeedbackSheet from "@/components/mobile/RejectFeedbackSheet";
-import { TaskCardFull } from "@/components/mobile/TaskCard";
+import PendingInsightReviewCard from "@/components/mobile/PendingInsightReviewCard";
 import {
   InsightTopicGroupRow,
   groupInsightsByTopic,
 } from "@/components/mobile/MiniListRows";
 import Toast from "@/components/mobile/Toast";
 import { mApi } from "@/lib/mobile/api";
-import type {
-  AIInsightFull,
-  MemoryOut,
-  MobileTaskItem,
-  MobileTasksOut,
-} from "@/lib/mobile/types";
+import type { AIInsightFull, MemoryOut } from "@/lib/mobile/types";
 
-type Tab = "ai" | "review" | "library";
+type Tab = "snapshots" | "review" | "library";
 
 export default function MobileInsightsPage() {
-  const [tab, setTab] = useState<Tab>("ai");
+  const [tab, setTab] = useState<Tab>("snapshots");
 
-  // Tab 1: AI 产出
+  // Tab 1: 快照 (全量 insight)
   const [insights, setInsights] = useState<AIInsightFull[] | null>(null);
   const [insightsErr, setInsightsErr] = useState<string | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
 
-  // Tab 2: 待我审 (拉 /m/tasks, 过滤 draft+pending)
-  const [tasks, setTasks] = useState<MobileTasksOut | null>(null);
-  const [tasksErr, setTasksErr] = useState<string | null>(null);
-  const [tasksLoading, setTasksLoading] = useState(false);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  // P4.5: 驳回时弹 sheet
-  const [rejectSheetItem, setRejectSheetItem] = useState<MobileTaskItem | null>(null);
+  // Tab 2: 待审 (worth_remembering=true AND human_decision IS NULL)
+  const [pending, setPending] = useState<AIInsightFull[] | null>(null);
+  const [pendingErr, setPendingErr] = useState<string | null>(null);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [busyInsightId, setBusyInsightId] = useState<string | null>(null);
 
-  // Tab 3: 已入库
+  // Tab 3: 记忆库 (long_term_memory)
   const [memories, setMemories] = useState<MemoryOut[] | null>(null);
   const [memoriesErr, setMemoriesErr] = useState<string | null>(null);
   const [memoriesLoading, setMemoriesLoading] = useState(false);
@@ -65,26 +60,23 @@ export default function MobileInsightsPage() {
     text: string;
   } | null>(null);
 
-  // 切到对应 tab 时 lazy load (只拉一次).
-  //
-  // P7 bug 修: 之前把 insightsLoading 等放进 effect deps, 导致
-  // setLoading(true) 触发 effect re-run → cleanup 把旧 alive=false →
-  // fetch resolve 时不更新 state → 永远显 SkeletonList.
-  //
-  // 重构: deps 只放 [tab], 用 ref 跟踪每个 tab 的"已 fetch 过"标记
-  // (避免重复拉), cancel state 用 ref 而不是 closure 变量, 这样不会
-  // 因为 deps 变化而 cleanup 失效.
-  const fetchedRef = useRef<{ ai: boolean; review: boolean; library: boolean }>({
-    ai: false,
+  // 切到对应 tab 时 lazy load (只拉一次, 走 ref 避免 deps 抖动).
+  const fetchedRef = useRef<{
+    snapshots: boolean;
+    review: boolean;
+    library: boolean;
+  }>({
+    snapshots: false,
     review: false,
     library: false,
   });
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (tab === "ai") {
-        if (fetchedRef.current.ai) return;
-        fetchedRef.current.ai = true;
+      if (tab === "snapshots") {
+        if (fetchedRef.current.snapshots) return;
+        fetchedRef.current.snapshots = true;
         setInsightsLoading(true);
         try {
           const d = await mApi.getInsights({ limit: 50 });
@@ -95,7 +87,7 @@ export default function MobileInsightsPage() {
         } catch (e) {
           if (!cancelled) {
             setInsightsErr(e instanceof Error ? e.message : String(e));
-            fetchedRef.current.ai = false; // 失败让用户重试时能再拉
+            fetchedRef.current.snapshots = false;
           }
         } finally {
           if (!cancelled) setInsightsLoading(false);
@@ -103,20 +95,23 @@ export default function MobileInsightsPage() {
       } else if (tab === "review") {
         if (fetchedRef.current.review) return;
         fetchedRef.current.review = true;
-        setTasksLoading(true);
+        setPendingLoading(true);
         try {
-          const d = await mApi.getTasks();
+          const d = await mApi.getInsights({
+            limit: 100,
+            for_review: true,
+          });
           if (!cancelled) {
-            setTasks(d);
-            setTasksErr(null);
+            setPending(d);
+            setPendingErr(null);
           }
         } catch (e) {
           if (!cancelled) {
-            setTasksErr(e instanceof Error ? e.message : String(e));
+            setPendingErr(e instanceof Error ? e.message : String(e));
             fetchedRef.current.review = false;
           }
         } finally {
-          if (!cancelled) setTasksLoading(false);
+          if (!cancelled) setPendingLoading(false);
         }
       } else if (tab === "library") {
         if (fetchedRef.current.library) return;
@@ -144,101 +139,87 @@ export default function MobileInsightsPage() {
     };
   }, [tab]);
 
-  // 议题聚合 (Tab 1)
+  // 议题聚合 (快照 tab)
   const insightTopics = useMemo(() => {
     if (!insights) return [];
     return groupInsightsByTopic(insights);
   }, [insights]);
 
-  // Tab 2: 过滤出 draft+pending 项
-  const drafts = useMemo(() => {
-    if (!tasks) return [];
-    return tasks.items.filter(
-      (i) => i.source_kind === "draft" && i.group === "pending",
-    );
-  }, [tasks]);
-
-  // 草稿通过/驳回 → reload + toast. P4.5: 驳回弹 sheet 让用户写 feedback.
-  const runDraftCta = useCallback(
-    async (item: MobileTaskItem, action: "primary" | "secondary") => {
-      if (action === "secondary") {
-        // 弹 sheet, 不直接调
-        setRejectSheetItem(item);
-        return;
-      }
-      if (busyId) return;
-      const rowKey = `${item.kind}-${item.id}`;
-      setBusyId(rowKey);
+  /** 待审 → accepted: 同步写 long_term_memory, insight.human_decision='accepted' */
+  const handleAccept = useCallback(
+    async (insight: AIInsightFull) => {
+      if (busyInsightId) return;
+      setBusyInsightId(insight.id);
       try {
-        await mApi.approveMemoryDraft(item.id);
-        // refetch tasks AND memories (新通过的会进 long-term memory, Tab 3 也得跟新)
-        const fresh = await mApi.getTasks();
-        setTasks(fresh);
-        // 让 Tab 3 下次切过去重新拉 (清缓存 + 清 fetchedRef 标记)
+        await mApi.patchInsightDecision(insight.id, "accepted");
+        // 从待审列表移除
+        setPending((prev) =>
+          prev ? prev.filter((p) => p.id !== insight.id) : prev,
+        );
+        // 让记忆库 tab 下次切过去重新拉
         setMemories(null);
         fetchedRef.current.library = false;
-        setToast({ kind: "success", text: "已通过, 已入库" });
+        setToast({ kind: "success", text: "已入库,记忆库可见" });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setToast({ kind: "error", text: `操作失败: ${msg}` });
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [busyId],
-  );
-
-  /** P4.5: sheet 提交回调. feedback 空 → kind=discard, 非空 → kind=feedback. */
-  const handleRejectSubmit = useCallback(
-    async (feedback: string) => {
-      if (!rejectSheetItem) return;
-      const item = rejectSheetItem;
-      const rowKey = `${item.kind}-${item.id}`;
-      setBusyId(rowKey);
-      try {
-        await mApi.rejectMemoryDraft(item.id, feedback || undefined);
-        setRejectSheetItem(null);
-        const fresh = await mApi.getTasks();
-        setTasks(fresh);
         setToast({
-          kind: "success",
-          text: feedback ? "已驳回并反馈" : "已驳回",
+          kind: "error",
+          text: `入库失败: ${e instanceof Error ? e.message : String(e)}`,
         });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setToast({ kind: "error", text: `驳回失败: ${msg}` });
       } finally {
-        setBusyId(null);
+        setBusyInsightId(null);
       }
     },
-    [rejectSheetItem],
+    [busyInsightId],
   );
 
-  // 三 tab count (右上角小数字)
-  const count_ai = insights?.length ?? null;
-  const count_review = drafts.length;
+  /** 待审 → rejected: 仅标记, insight 保留在快照 tab 仍可见 */
+  const handleReject = useCallback(
+    async (insight: AIInsightFull) => {
+      if (busyInsightId) return;
+      setBusyInsightId(insight.id);
+      try {
+        await mApi.patchInsightDecision(insight.id, "rejected");
+        setPending((prev) =>
+          prev ? prev.filter((p) => p.id !== insight.id) : prev,
+        );
+        setToast({ kind: "success", text: "已驳回" });
+      } catch (e) {
+        setToast({
+          kind: "error",
+          text: `驳回失败: ${e instanceof Error ? e.message : String(e)}`,
+        });
+      } finally {
+        setBusyInsightId(null);
+      }
+    },
+    [busyInsightId],
+  );
+
+  // tab 右上角 count
+  const count_snapshots = insights?.length ?? null;
+  const count_review = pending?.length ?? null;
   const count_library = memories?.length ?? null;
 
   return (
     <div>
-      <PageHeader title="智囊">
+      <PageHeader title="记忆">
         <SegmentControl<Tab>
           value={tab}
           onChange={setTab}
           items={[
             {
-              value: "ai",
-              label: "AI 产出",
-              count: count_ai ?? undefined,
+              value: "snapshots",
+              label: "快照",
+              count: count_snapshots ?? undefined,
             },
             {
               value: "review",
-              label: "待我审",
+              label: "待审",
               count: count_review || undefined,
             },
             {
               value: "library",
-              label: "已入库",
+              label: "记忆库",
               count: count_library ?? undefined,
             },
           ]}
@@ -246,8 +227,8 @@ export default function MobileInsightsPage() {
       </PageHeader>
 
       <main className="px-4 pb-6">
-        {tab === "ai" ? (
-          <AITab
+        {tab === "snapshots" ? (
+          <SnapshotsTab
             insights={insights}
             topics={insightTopics}
             loading={insightsLoading}
@@ -255,12 +236,12 @@ export default function MobileInsightsPage() {
           />
         ) : tab === "review" ? (
           <ReviewTab
-            drafts={drafts}
-            loading={tasksLoading}
-            error={tasksErr}
-            busyId={busyId}
-            onPrimary={(it) => runDraftCta(it, "primary")}
-            onSecondary={(it) => runDraftCta(it, "secondary")}
+            pending={pending}
+            loading={pendingLoading}
+            error={pendingErr}
+            busyId={busyInsightId}
+            onAccept={handleAccept}
+            onReject={handleReject}
           />
         ) : (
           <LibraryTab
@@ -271,14 +252,6 @@ export default function MobileInsightsPage() {
         )}
       </main>
 
-      <RejectFeedbackSheet
-        open={rejectSheetItem !== null}
-        draftTitle={rejectSheetItem?.title || ""}
-        busy={busyId === `${rejectSheetItem?.kind}-${rejectSheetItem?.id}`}
-        onClose={() => setRejectSheetItem(null)}
-        onSubmit={handleRejectSubmit}
-      />
-
       {toast ? (
         <Toast kind={toast.kind} text={toast.text} onClose={() => setToast(null)} />
       ) : null}
@@ -286,9 +259,9 @@ export default function MobileInsightsPage() {
   );
 }
 
-// ===== Tab 1: AI 产出 ====================================================
+// ===== Tab 1: 快照 (全量, 议题聚合) =====================================
 
-function AITab({
+function SnapshotsTab({
   insights,
   topics,
   loading,
@@ -305,8 +278,8 @@ function AITab({
     return (
       <EmptyState
         emoji="💡"
-        title="还没 AI 产出"
-        body="进一场会议召唤专家加视角, 立刻有产出"
+        title="还没有 AI 快照"
+        body="进一场会议召唤专家加视角,会议结束后这里会有快照"
       />
     );
   }
@@ -322,57 +295,53 @@ function AITab({
   );
 }
 
-// ===== Tab 2: 待我审 ====================================================
+// ===== Tab 2: 待审 ======================================================
 
 function ReviewTab({
-  drafts,
+  pending,
   loading,
   error,
   busyId,
-  onPrimary,
-  onSecondary,
+  onAccept,
+  onReject,
 }: {
-  drafts: MobileTaskItem[];
+  pending: AIInsightFull[] | null;
   loading: boolean;
   error: string | null;
   busyId: string | null;
-  onPrimary: (item: MobileTaskItem) => void;
-  onSecondary: (item: MobileTaskItem) => void;
+  onAccept: (insight: AIInsightFull) => void;
+  onReject: (insight: AIInsightFull) => void;
 }) {
-  if (loading && drafts.length === 0) return <SkeletonList />;
-  if (error) return <ErrorState text={error} />;
-  if (drafts.length === 0) {
+  if (loading && !pending) return <SkeletonList />;
+  if (error && !pending) return <ErrorState text={error} />;
+  if (!pending || pending.length === 0) {
     return (
       <EmptyState
         emoji="✓"
-        title="你这里没草稿等审"
-        body="AI 从会议抽出来的候选记忆都审完了"
+        title="没有待审快照"
+        body="AI 还没从会议里挑出值得沉淀的内容,或你都审完了"
       />
     );
   }
   return (
     <div className="space-y-3 pt-1">
       <p className="px-1 text-[13px] text-zinc-500">
-        {drafts.length} 条草稿等你判断
+        {pending.length} 条 AI 推荐入记忆 · 你来拍板
       </p>
-      {drafts.map((it) => {
-        const rowKey = `${it.kind}-${it.id}`;
-        const isBusy = busyId === rowKey;
-        return (
-          <TaskCardFull
-            key={rowKey}
-            item={it}
-            busy={isBusy}
-            onPrimary={() => onPrimary(it)}
-            onSecondary={() => onSecondary(it)}
-          />
-        );
-      })}
+      {pending.map((insight) => (
+        <PendingInsightReviewCard
+          key={insight.id}
+          insight={insight}
+          busy={busyId === insight.id}
+          onAccept={() => onAccept(insight)}
+          onReject={() => onReject(insight)}
+        />
+      ))}
     </div>
   );
 }
 
-// ===== Tab 3: 已入库 ====================================================
+// ===== Tab 3: 记忆库 ====================================================
 
 function LibraryTab({
   memories,
@@ -389,15 +358,15 @@ function LibraryTab({
     return (
       <EmptyState
         emoji="📚"
-        title="长期记忆库还空"
-        body="审通过几条草稿就有了 — 入库后未来会议 AI 会自动调用"
+        title="记忆库还空"
+        body="审通过几条待审就有了 — 入库后未来会议 AI 会自动检索调用"
       />
     );
   }
   return (
     <div className="space-y-3 pt-1">
       <p className="px-1 text-[13px] text-zinc-500">
-        {memories.length} 条已入库记忆
+        {memories.length} 条 长期记忆
       </p>
       {memories.map((m) => (
         <MemoryRow key={m.id} memory={m} />

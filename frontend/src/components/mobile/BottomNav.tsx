@@ -4,10 +4,10 @@
  * v27.0-mobile · 底部 nav · 4 个入口.
  *
  * 严按 brief: 按 "用户当下任务" 组织, 不按系统模块.
- *   🎯 今日   📅 会议   ✓ 任务   💡 智囊
+ *   🎯 今日   📅 会议   ✓ 任务   🧠 记忆
  *
  * 设计注意:
- *   - 4 个 = 移动端 nav 紧凑上限. 不加第 5 个 (智囊一项涵盖沉淀 + AI产出)
+ *   - 4 个 = 移动端 nav 紧凑上限. 不加第 5 个 (记忆一项涵盖快照 + 待审 + 记忆库金字塔)
  *   - 当前 tab 高亮 — 仅 active 用实色, 其他用灰
  *   - 不用大 emoji 卖萌, 用 lucide 风格 stroke icon 配短 label
  *   - sticky bottom, safe-area 适配 iOS 底部 home bar
@@ -44,8 +44,8 @@ const ITEMS: NavItem[] = [
   },
   {
     href: "/m/insights",
-    label: "智囊",
-    icon: "💡",
+    label: "记忆",
+    icon: "🧠",
     matcher: (p) => p.startsWith("/m/insights"),
   },
 ];

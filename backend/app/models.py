@@ -1722,4 +1722,24 @@ class AIInsight(Base):
     )
     # 关联 议程 idx (v26.14-P5 议程 进度 tracking) — 让 移动端 按 议题 索引
     topic_idx: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # v27.0-mobile P21 (记忆模块金字塔): AI 推荐沉淀 + 人审决策状态
+    #
+    # worth_remembering: 会议结束时 LLM job 跑一遍这场会议的所有 insight,
+    #   挑出"长期沉淀有价值的" 标 true. 默认 false 表示纯快照,只在
+    #   "快照"tab 显, 不进"待审"流.
+    #
+    # human_decision: 用户对 worth_remembering=true 的 insight 的审批结果.
+    #   NULL/pending — AI 推过, 等用户审
+    #   accepted     — 用户确认入库, 同步 INSERT 到 long_term_memory
+    #   rejected     — 用户驳回, insight 留在表里但不再出现在"待审"
+    #
+    # 关键路径: 快照(全量) → AI 筛 worth_remembering → 待审 → 人审 accepted → 记忆库
+    worth_remembering: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", index=True
+    )
+    human_decision: Mapped[Optional[str]] = mapped_column(
+        String(16), nullable=True, index=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

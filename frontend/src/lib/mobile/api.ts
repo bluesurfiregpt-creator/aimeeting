@@ -13,6 +13,7 @@ import type {
   CreateMeetingOut,
   DecomposeAgendaIn,
   DecomposeAgendaOut,
+  InsightDecisionOut,
   MeetingAttachmentListOut,
   MeetingAttachmentOut,
   MeetingActionItemBrief,
@@ -240,12 +241,33 @@ export const mApi = {
     const qs = q.toString();
     return jget<MemoryOut[]>(`/api/memory${qs ? `?${qs}` : ""}`);
   },
-  getInsights: (params?: { by_agent?: string; by_meeting?: string; limit?: number }) => {
+  getInsights: (params?: {
+    by_agent?: string;
+    by_meeting?: string;
+    limit?: number;
+    /** v27.0-mobile P21: true = 只取 AI 推荐 + 用户未审 的 (给"待审" tab 用) */
+    for_review?: boolean;
+  }) => {
     const q = new URLSearchParams();
     if (params?.by_agent) q.set("by_agent", params.by_agent);
     if (params?.by_meeting) q.set("by_meeting", params.by_meeting);
     if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.for_review) q.set("for_review", "true");
     const qs = q.toString();
     return jget<AIInsightFull[]>(`/api/m/insights${qs ? `?${qs}` : ""}`);
   },
+
+  /** v27.0-mobile P21: 用户对"待审" insight 拍板.
+   *  accepted → 同步写 long_term_memory + 标 decision='accepted'
+   *  rejected → 仅标 decision='rejected', insight 保留 (快照 tab 仍可见)
+   */
+  patchInsightDecision: (
+    insightId: string,
+    decision: "accepted" | "rejected",
+  ) =>
+    jsend<InsightDecisionOut>(
+      "PATCH",
+      `/api/m/insights/${encodeURIComponent(insightId)}/decision`,
+      { decision },
+    ),
 };

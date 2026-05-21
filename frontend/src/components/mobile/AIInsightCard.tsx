@@ -17,6 +17,7 @@
  *   思路       amber    (创新 / 拆分)
  */
 
+import Link from "next/link";
 import type { AIInsightBrief, AIInsightFull, AIInsightType } from "@/lib/mobile/types";
 
 // ---------- type → 颜色配 -----------------------------------------------
@@ -142,10 +143,23 @@ export function AIInsightCard({ insight }: { insight: AIInsightFull }) {
         </p>
       ) : null}
       {insight.meeting_title ? (
-        <footer className="mt-3 flex items-center gap-1 text-[13px] text-zinc-500">
+        /* v27.0-mobile P21: footer 可点跳到 会议详情 + 自动定位 那条 agent message.
+           focus_message query 让详情页 滚到对应位置 + 高亮 (Phase 3 接). */
+        <Link
+          href={
+            insight.source_message_id
+              ? `/m/meetings/${insight.meeting_id}?focus_message=${insight.source_message_id}`
+              : `/m/meetings/${insight.meeting_id}`
+          }
+          className="mt-3 flex items-center gap-1 text-[13px] text-zinc-500 active:text-zinc-300"
+          data-testid="insight-card-source-link"
+        >
           <span>来自</span>
-          <span className="text-zinc-400">{insight.meeting_title}</span>
-        </footer>
+          <span className="truncate text-zinc-400 underline-offset-2 hover:underline">
+            {insight.meeting_title}
+          </span>
+          <span className="text-zinc-500">›</span>
+        </Link>
       ) : null}
     </article>
   );
