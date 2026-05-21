@@ -1,0 +1,170 @@
+<!-- pages/create/create.wxml — N-3 第 1 刀: 骨架 -->
+<view class="container">
+
+  <!-- 没 token 时 引导 -->
+  <view wx:if="{{needToken}}" class="state-block">
+    <view class="state-emoji">📱</view>
+    <view class="state-title">请从会议列表 进入</view>
+    <view class="state-body">
+      正确进入方式: 回小程序首页 → 进会议列表 → 点 "+ 用原生创建" 按钮.
+    </view>
+    <button class="btn-secondary" bindtap="onBack">返回</button>
+
+    <view class="dev-fallback-divider">— 或开发模式 —</view>
+    <textarea class="dev-input" placeholder="粘贴 token" value="{{devTokenInput}}" bindinput="onDevTokenInput" auto-height />
+    <input class="dev-input-line" placeholder="(可选) expires_at" value="{{devTokenExpInput}}" bindinput="onDevTokenExpInput" />
+    <button class="btn-secondary" bindtap="onDevTokenConfirm">用 token 登录</button>
+  </view>
+
+  <!-- 主表单 -->
+  <view wx:else class="form-body">
+
+    <!-- ===== 标题 ===== -->
+    <view class="section">
+      <view class="section-label">会议标题</view>
+      <input
+        class="input-line"
+        placeholder="例: Q1 投诉评估"
+        value="{{title}}"
+        bindinput="onTitleInput"
+        maxlength="120"
+      />
+    </view>
+
+    <!-- ===== 会议类型 ===== -->
+    <view class="section">
+      <view class="section-label">会议类型</view>
+      <view class="mode-list">
+        <view
+          class="mode-row {{mode === 'hybrid' ? 'mode-row-active' : ''}}"
+          data-mode="hybrid"
+          bindtap="onModeChange"
+        >
+          <view class="mode-radio">
+            <view wx:if="{{mode === 'hybrid'}}" class="mode-radio-inner"></view>
+          </view>
+          <view class="mode-text">
+            <view class="mode-title">真人 + AI 混合</view>
+            <view class="mode-body">真人开会, AI 旁观或被召出来发言. 大多场景选这个.</view>
+          </view>
+        </view>
+
+        <view
+          class="mode-row {{mode === 'auto' ? 'mode-row-active' : ''}}"
+          data-mode="auto"
+          bindtap="onModeChange"
+        >
+          <view class="mode-radio">
+            <view wx:if="{{mode === 'auto'}}" class="mode-radio-inner"></view>
+          </view>
+          <view class="mode-text">
+            <view class="mode-title">全 AI 自主讨论</view>
+            <view class="mode-body">真人写议程 + brief, AI 自己跑. 需 ≥ 2 议程项 + ≥ 3 AI 专家.</view>
+          </view>
+        </view>
+
+        <view
+          class="mode-row {{mode === 'human' ? 'mode-row-active' : ''}}"
+          data-mode="human"
+          bindtap="onModeChange"
+        >
+          <view class="mode-radio">
+            <view wx:if="{{mode === 'human'}}" class="mode-radio-inner"></view>
+          </view>
+          <view class="mode-text">
+            <view class="mode-title">纯 真人 会议</view>
+            <view class="mode-body">不召唤 AI. AI 仅做实时转录 + 纪要.</view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- ===== brief (description) ===== -->
+    <view class="section">
+      <view class="section-label">
+        会议 brief / 诉求
+        <text class="section-hint" wx:if="{{mode === 'auto'}}">· 全 AI 模式 必填</text>
+        <text class="section-hint section-hint-mute" wx:else>· 选填</text>
+      </view>
+      <textarea
+        class="textarea {{mode === 'auto' ? 'textarea-highlight' : ''}}"
+        placeholder="{{mode === 'auto' ? '写清楚: 背景 / 想解决什么问题 / 期望产出 / 已知约束.\n例: Q1 物业投诉 +35%, 主要 安保 / 卫生. 想 拆原因 + 拟 Q2 整改 方案, 预算 ≤ 50w.' : '可选 — 写一段背景给 AI 看. 不写也能开, 只是 AI 召出来时 没 context.'}}"
+        value="{{description}}"
+        bindinput="onDescriptionInput"
+        maxlength="2000"
+        auto-height
+      />
+      <view class="char-counter">{{description.length}}/2000</view>
+    </view>
+
+    <!-- ===== 议程 ===== -->
+    <view class="section">
+      <view class="section-header">
+        <view class="section-label">议程 ({{agenda.length}})</view>
+        <view class="section-action" bindtap="onAddAgenda">+ 加一项</view>
+      </view>
+      <view class="agenda-list">
+        <view wx:for="{{agenda}}" wx:key="id" class="agenda-row">
+          <view class="ar-head">
+            <view class="ar-idx">{{index + 1}}.</view>
+            <input
+              class="ar-title"
+              placeholder="议题标题"
+              value="{{item.title}}"
+              data-idx="{{index}}"
+              bindinput="onAgendaTitleInput"
+              maxlength="100"
+            />
+            <view
+              wx:if="{{agenda.length > 1}}"
+              class="ar-remove"
+              data-idx="{{index}}"
+              bindtap="onRemoveAgenda"
+            >×</view>
+          </view>
+          <view class="ar-bottom">
+            <picker
+              mode="selector"
+              range="{{durationOptions}}"
+              range-key="label"
+              data-idx="{{index}}"
+              bindchange="onPickDuration"
+            >
+              <view class="ar-duration">
+                <text>时长: {{item.durationLabel}}</text>
+              </view>
+            </picker>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- ===== 邀请人 / AI (留 第 2 刀) ===== -->
+    <view class="section section-placeholder">
+      <view class="section-label">邀请人 / AI 专家</view>
+      <view class="placeholder-text">第 2 刀做 — 当前测试用户先不必填邀请人</view>
+    </view>
+
+    <!-- ===== 参考资料 (留 第 3 刀) ===== -->
+    <view class="section section-placeholder">
+      <view class="section-label">参考资料</view>
+      <view class="placeholder-text">第 3 刀做 — 当前测试用户先不必上传附件</view>
+    </view>
+
+    <!-- ===== 提示错误 ===== -->
+    <view wx:if="{{error}}" class="error-block">{{error}}</view>
+
+    <!-- ===== 提交按钮 ===== -->
+    <view class="submit-bar" style="padding-bottom: calc(20rpx + env(safe-area-inset-bottom));">
+      <button class="btn-secondary btn-back" bindtap="onBack">取消</button>
+      <button
+        class="btn-primary btn-create"
+        bindtap="onSubmit"
+        disabled="{{creating}}"
+      >
+        <text wx:if="{{creating}}">创建中…</text>
+        <text wx:else>创建会议</text>
+      </button>
+    </view>
+  </view>
+</view>
