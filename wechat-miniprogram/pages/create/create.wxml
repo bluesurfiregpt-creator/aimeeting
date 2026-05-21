@@ -88,7 +88,7 @@
       </view>
       <textarea
         class="textarea {{mode === 'auto' ? 'textarea-highlight' : ''}}"
-        placeholder="{{mode === 'auto' ? '写清楚: 背景 / 想解决什么问题 / 期望产出 / 已知约束.\n例: Q1 物业投诉 +35%, 主要 安保 / 卫生. 想 拆原因 + 拟 Q2 整改 方案, 预算 ≤ 50w.' : '可选 — 写一段背景给 AI 看. 不写也能开, 只是 AI 召出来时 没 context.'}}"
+        placeholder="{{descriptionPlaceholder}}"
         value="{{description}}"
         bindinput="onDescriptionInput"
         maxlength="2000"

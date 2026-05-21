@@ -47,6 +47,7 @@ Page({
     title: '',
     mode: 'hybrid', // 'human' | 'hybrid' | 'auto'
     description: '',
+    descriptionPlaceholder: '可选 — 写一段背景给 AI 看. 不写也能开, 只是 AI 召出来时 没 context.',
     agenda: [],     // { id, title, time_budget_min, durationLabel, note, noteOpen }
 
     // UI 状态
@@ -183,7 +184,12 @@ Page({
   onModeChange(e) {
     const mode = e.currentTarget.dataset.mode;
     if (!['human', 'hybrid', 'auto'].includes(mode)) return;
-    this.setData({ mode });
+    // 切 mode 时更新 brief placeholder (wxml 不支持复杂三元 + 换行符,
+    // 必须在 data 里预算)
+    const placeholder = mode === 'auto'
+      ? '写清楚: 背景 / 想解决什么问题 / 期望产出 / 已知约束. 例: Q1 物业投诉 +35%, 想拆原因 + 拟 Q2 整改方案, 预算 ≤ 50w.'
+      : '可选 — 写一段背景给 AI 看. 不写也能开, 只是 AI 召出来时 没 context.';
+    this.setData({ mode, descriptionPlaceholder: placeholder });
   },
 
   // ============================================================
