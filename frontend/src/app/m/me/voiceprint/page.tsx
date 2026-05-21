@@ -1,26 +1,22 @@
 "use client";
 
 /**
- * v27.0-mobile P22 · /m/me/voiceprint · 声纹录入页 (移动端).
+ * v27.0-mobile P22 · /m/me/voiceprint · 声纹库管理 (移动端).
  *
- * 跟 桌面端 /me/profile/voiceprints 同一套底层 (startAudioCapture 走
- * MediaRecorder + AudioContext 重采样到 16kHz mono Int16 PCM), 但 UI
- * 适配移动端单手操作:
- *   - 顶部朗读文 + "换一段"
- *   - 大圆按钮 开始 / 停止 录音
- *   - 进度条 + 秒数
- *   - 录够 20s+ 自动允许上传 / 60s 自动停
- *   - 上传中 跑 toast 等 pyannote 返结果
+ * 跟桌面端 /me/profile/voiceprints 同一套模型:
+ *   - 声纹库 = workspace 级共享, 列出所有 user + has_voiceprint 标记
+ *   - 任何 user 可看列表; leader+ 才能录入 / 重录 / 删除
+ *   - "录新人" 流程: 输姓名 → POST /api/users 建 speaker-only profile →
+ *     POST /api/voiceprints { user_id, audio }
+ *   - 重录已有: 选列表里某人 → POST /api/voiceprints { user_id: 同, audio }
  *
- * 跟桌面端的区别:
- *   - 只能给"自己"录 (不需要选择 user)
- *   - 后端 ABAC v27.0-mobile P22 已加 自己-录-自己 豁免
- *   - 提交 user_id = auth.user.id (从 /api/auth/me 拿)
+ * UI 两态:
+ *   - listing: 列表 + 顶部"+ 录新人"按钮 (leader+ 显) + 每行点击重录
+ *   - recording: 模态全屏 — 输姓名 + 录音 + 上传
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { mApi } from "@/lib/mobile/api";
 import { api as desktopApi } from "@/lib/api";
 import { startAudioCapture, type AudioCaptureHandle } from "@/lib/audioCapture";
@@ -30,7 +26,6 @@ const TARGET_SECONDS = 30;
 const MAX_SECONDS = 60;
 const MIN_SUBMIT_SECONDS = 20;
 
-// 跟桌面端共享同一组朗读文本
 const SCRIPTS: { title: string; text: string }[] = [
   {
     title: "午后阅读",
@@ -38,70 +33,150 @@ const SCRIPTS: { title: string; text: string }[] = [
   },
   {
     title: "清晨小镇",
-    text: "清晨的城市还没有完全醒过来. 地铁站门口排着稀疏的队, 便利店刚把热饮的招牌摆出来. 我点了一杯热豆浆和一个茶叶蛋, 靠在落地窗边吃完. 这样一份普通的早餐, 却让我觉得新的一天有了盼头. 我想, 所谓生活, 大概就是由这样一个个不起眼的瞬间慢慢拼起来的.",
+    text: "清晨的城市还没有完全醒过来. 地铁站门口排着稀疏的队, 便利店刚把热饮的招牌摆出来. 我点了一杯热豆浆和一个茶叶蛋, 靠在落地窗边吃完. 这样一份普通的早餐, 却让我觉得新的一天有了盼头.",
   },
   {
     title: "学习新事",
-    text: "学一件新东西的开头总是最难的. 你会反复怀疑自己, 会觉得别人都比你聪明, 会想干脆放弃算了. 但只要你能撑过最难受的那两三周, 事情就会突然变得清晰. 原本看不懂的概念开始有了意义, 原本笨拙的动作也慢慢顺手起来. 后来你回头看, 会觉得当时的自己只是缺一点点耐心而已.",
+    text: "学一件新东西的开头总是最难的. 你会反复怀疑自己, 会觉得别人都比你聪明, 会想干脆放弃算了. 但只要你能撑过最难受的那两三周, 事情就会突然变得清晰. 原本看不懂的概念开始有了意义.",
   },
 ];
 
-type Phase = "idle" | "recording" | "uploading" | "done";
+type Phase = "idle" | "recording" | "uploading";
 
-export default function MobileVoiceprintPage() {
-  const router = useRouter();
+type WUser = {
+  id: string;
+  name: string;
+  email: string | null;
+  has_voiceprint: boolean;
+  created_at: string;
+};
+
+export default function MobileVoiceprintLibraryPage() {
+  // 列表
+  const [users, setUsers] = useState<WUser[] | null>(null);
+  const [listErr, setListErr] = useState<string | null>(null);
+
+  // 当前 caller 是否 leader+ (影响"+ 录新人"和"重录/删除"按钮显)
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // 录入面板 state
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [targetUserId, setTargetUserId] = useState<string | null>(null);
+  // null = 录新人 (要输姓名); 非 null = 重录已有
+  const [name, setName] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [seconds, setSeconds] = useState(0);
-  const [scriptIdx, setScriptIdx] = useState(() =>
-    Math.floor(Math.random() * SCRIPTS.length),
-  );
-  const [myUserId, setMyUserId] = useState<string | null>(null);
-  const [currentVoiceprint, setCurrentVoiceprint] = useState<{
-    sample_seconds: number | null;
-    version: number;
-    created_at: string;
-  } | null>(null);
-  const [toast, setToast] = useState<{
-    kind: "success" | "error";
-    text: string;
-  } | null>(null);
-
-  const captureRef = useRef<AudioCaptureHandle | null>(null);
-  const bufRef = useRef<Uint8Array[]>([]);
-  const tickRef = useRef<number | null>(null);
-
+  const [scriptIdx, setScriptIdx] = useState(0);
   const script = SCRIPTS[scriptIdx];
   const nextScript = useMemo(
     () => () => setScriptIdx((i) => (i + 1) % SCRIPTS.length),
     [],
   );
 
-  // 拉 当前用户 id + 已录声纹状态
+  const captureRef = useRef<AudioCaptureHandle | null>(null);
+  const bufRef = useRef<Uint8Array[]>([]);
+  const tickRef = useRef<number | null>(null);
+
+  const [toast, setToast] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
+
+  // 拉列表 + me (判断 isAdmin)
+  const refresh = useCallback(async () => {
+    try {
+      const list = await mApi.listWorkspaceUsers();
+      setUsers(list);
+      setListErr(null);
+    } catch (e) {
+      setListErr(e instanceof Error ? e.message : "加载失败");
+    }
+  }, []);
+
   useEffect(() => {
     let alive = true;
     void (async () => {
       try {
         const me = await desktopApi.me();
         if (!alive) return;
-        setMyUserId(me.user_id);
+        const role = me.role;
+        setIsAdmin(role === "owner" || role === "admin" || role === "leader");
       } catch {
-        // ignore
-      }
-      try {
-        const vp = await mApi.getMyVoiceprint();
-        if (!alive) return;
-        setCurrentVoiceprint(vp);
-      } catch {
-        // ignore
+        /* ignore */
       }
     })();
+    void refresh();
     return () => {
       alive = false;
     };
+  }, [refresh]);
+
+  // 排序: 已录在前, 按 created_at 倒序
+  const sortedUsers = useMemo(() => {
+    if (!users) return null;
+    return [...users].sort((a, b) => {
+      if (a.has_voiceprint !== b.has_voiceprint) {
+        return a.has_voiceprint ? -1 : 1;
+      }
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [users]);
+
+  const enrolledCount = useMemo(
+    () => (users || []).filter((u) => u.has_voiceprint).length,
+    [users],
+  );
+
+  // 开"录新人"
+  const onOpenRecordNew = useCallback(() => {
+    setTargetUserId(null);
+    setName("");
+    setPhase("idle");
+    setSeconds(0);
+    setRecordOpen(true);
   }, []);
 
+  // 重录已有
+  const onOpenRecordFor = useCallback((u: WUser) => {
+    setTargetUserId(u.id);
+    setName(u.name);
+    setPhase("idle");
+    setSeconds(0);
+    setRecordOpen(true);
+  }, []);
+
+  // 删除某 user 声纹
+  const onDeleteFor = useCallback(
+    async (u: WUser) => {
+      if (
+        !confirm(
+          `撤销 「${u.name}」 的声纹? 撤销后会议中无法自动识别 TA 的发言.`,
+        )
+      ) {
+        return;
+      }
+      try {
+        await mApi.deleteVoiceprintForUser(u.id);
+        setToast({ kind: "success", text: "已撤销" });
+        await refresh();
+      } catch (e) {
+        setToast({
+          kind: "error",
+          text: e instanceof Error ? `撤销失败: ${e.message}` : "撤销失败",
+        });
+      }
+    },
+    [refresh],
+  );
+
+  // ===== 录音 =====
+
   const start = useCallback(async () => {
-    if (phase !== "idle" && phase !== "done") return;
+    if (phase !== "idle") return;
+    if (!targetUserId && !name.trim()) {
+      setToast({ kind: "error", text: "请先填姓名" });
+      return;
+    }
     bufRef.current = [];
     setSeconds(0);
     setPhase("recording");
@@ -127,10 +202,10 @@ export default function MobileVoiceprintPage() {
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase]);
+  }, [phase, targetUserId, name]);
 
   const stop = useCallback(
-    async (autoSubmit: boolean = false) => {
+    async (autoSubmit = false) => {
       if (tickRef.current) {
         window.clearInterval(tickRef.current);
         tickRef.current = null;
@@ -149,7 +224,6 @@ export default function MobileVoiceprintPage() {
         return;
       }
 
-      // 提交条件: ≥ 20 秒 (autoSubmit 总是提交即使 < 20s 也尝试 — 后端会做更严格校验)
       if (!autoSubmit && finalSec < MIN_SUBMIT_SECONDS) {
         setPhase("idle");
         setToast({
@@ -159,7 +233,6 @@ export default function MobileVoiceprintPage() {
         return;
       }
 
-      // 拼 PCM
       const totalLen = bufRef.current.reduce((n, b) => n + b.byteLength, 0);
       const merged = new Uint8Array(totalLen);
       let p = 0;
@@ -169,24 +242,23 @@ export default function MobileVoiceprintPage() {
       }
       const blob = new Blob([merged], { type: "application/octet-stream" });
 
-      if (!myUserId) {
-        setPhase("idle");
-        setToast({ kind: "error", text: "未拿到用户身份, 请刷新重试" });
-        return;
-      }
-
       setPhase("uploading");
       try {
-        await mApi.uploadVoiceprint(myUserId, blob);
-        setPhase("done");
-        setToast({ kind: "success", text: "声纹录入成功" });
-        // 拉新状态
-        try {
-          const vp = await mApi.getMyVoiceprint();
-          setCurrentVoiceprint(vp);
-        } catch {
-          /* ignore */
+        let userId = targetUserId;
+        if (!userId) {
+          // 新人 — 先建 speaker profile
+          const created = await mApi.createSpeakerUser(name.trim());
+          userId = created.id;
         }
+        await mApi.uploadVoiceprint(userId, blob);
+        setToast({
+          kind: "success",
+          text: targetUserId
+            ? `${name} 重新录入成功`
+            : `${name} 声纹录入成功`,
+        });
+        setRecordOpen(false);
+        await refresh();
       } catch (e) {
         setPhase("idle");
         setToast({
@@ -195,26 +267,8 @@ export default function MobileVoiceprintPage() {
         });
       }
     },
-    [seconds, myUserId],
+    [seconds, targetUserId, name, refresh],
   );
-
-  const handleDelete = useCallback(async () => {
-    if (
-      !confirm("确认删除自己的声纹? 删除后系统在会议中将无法自动识别你的发言.")
-    ) {
-      return;
-    }
-    try {
-      await mApi.deleteMyVoiceprint();
-      setCurrentVoiceprint(null);
-      setToast({ kind: "success", text: "已删除声纹" });
-    } catch (e) {
-      setToast({
-        kind: "error",
-        text: e instanceof Error ? `删除失败: ${e.message}` : "删除失败",
-      });
-    }
-  }, []);
 
   // 卸载时清资源
   useEffect(
@@ -226,7 +280,7 @@ export default function MobileVoiceprintPage() {
   );
 
   const target = Math.min(seconds / TARGET_SECONDS, 1);
-  const canStop = phase === "recording" && seconds >= MIN_SUBMIT_SECONDS;
+  const total = users?.length ?? 0;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -243,155 +297,252 @@ export default function MobileVoiceprintPage() {
           <span className="text-2xl leading-none">←</span>
         </Link>
         <h1 className="flex-1 truncate text-[18px] font-semibold text-zinc-50">
-          声纹录入
+          声纹库
         </h1>
       </div>
 
-      <main className="flex flex-1 flex-col space-y-5 p-4 pb-8">
-        {/* 当前状态卡 */}
-        {currentVoiceprint ? (
-          <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4">
-            <p className="text-[15px] font-medium text-emerald-200">
-              ✓ 已录入声纹
-            </p>
-            <p className="mt-1 text-[13px] leading-snug text-zinc-400">
-              版本 v{currentVoiceprint.version} ·{" "}
-              {currentVoiceprint.sample_seconds
-                ? `${Math.round(currentVoiceprint.sample_seconds)} 秒样本`
-                : "样本时长未知"}{" "}
-              · {new Date(currentVoiceprint.created_at).toLocaleDateString()}
-            </p>
-            <p className="mt-1 text-[12px] text-zinc-500">
-              会议中系统会自动识别你的发言. 想换 / 重新录入,继续下面流程.
-            </p>
-          </section>
-        ) : (
-          <section className="rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] p-4">
-            <p className="text-[15px] font-medium text-amber-200">
-              ⚠ 尚未录入声纹
-            </p>
-            <p className="mt-1 text-[13px] leading-snug text-zinc-400">
-              录入后,会议中系统能自动识别你的发言并打 "说话人" 标签. 录一次约
-              30-45 秒.
-            </p>
-          </section>
-        )}
-
-        {/* 朗读文本 */}
-        <section
-          className={`rounded-2xl border p-4 transition ${
-            phase === "recording"
-              ? "border-accent-500/60 bg-accent-500/5"
-              : "border-ink-800 bg-ink-900"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="rounded bg-ink-800 px-2 py-0.5 text-[12px] text-zinc-400">
-              朗读这段 · {script.title}
-            </span>
-            <button
-              type="button"
-              onClick={nextScript}
-              disabled={phase === "recording" || phase === "uploading"}
-              className="text-[12px] text-zinc-500 active:text-accent-400 disabled:opacity-40"
-            >
-              换一段 ↻
-            </button>
-          </div>
-          <p
-            className={`mt-3 text-[16px] leading-loose tracking-wide ${
-              phase === "recording" ? "text-white" : "text-zinc-200"
-            }`}
-          >
-            {script.text}
-          </p>
-          <p className="mt-3 text-[12px] text-zinc-500">
-            正常语速朗读约 30-45 秒. 读到结尾不够 30s 就接着重复.
-          </p>
-        </section>
-
-        {/* 进度条 + 秒数 */}
+      <main className="flex-1 space-y-4 p-4 pb-8">
+        {/* 概要 + 录新人按钮 */}
         <section className="rounded-2xl bg-ink-900 p-4">
-          <div className="flex items-center justify-between text-[13px] text-zinc-500">
-            <span>
-              已录 {seconds.toFixed(1)}s · 目标 {MIN_SUBMIT_SECONDS}-
-              {MAX_SECONDS}s
-            </span>
-            <span>
-              {phase === "recording"
-                ? "录音中"
-                : phase === "uploading"
-                  ? "上传中"
-                  : phase === "done"
-                    ? "已完成"
-                    : "未开始"}
-            </span>
-          </div>
-          <div className="mt-2 h-2 overflow-hidden rounded-full bg-ink-800">
-            <div
-              className="h-full bg-accent-500 transition-all"
-              style={{ width: `${target * 100}%` }}
-            />
-          </div>
-        </section>
-
-        {/* 主操作按钮 */}
-        <section className="flex flex-col items-center pt-4">
-          {phase === "idle" || phase === "done" ? (
-            <button
-              type="button"
-              onClick={() => void start()}
-              className="flex h-20 w-20 items-center justify-center rounded-full bg-accent-500 text-3xl text-white shadow-lg shadow-accent-500/30 active:scale-95"
-              data-testid="voiceprint-start"
-            >
-              🎙
-            </button>
-          ) : phase === "recording" ? (
-            <button
-              type="button"
-              onClick={() => void stop(false)}
-              className={`flex h-20 w-20 items-center justify-center rounded-full text-3xl text-white shadow-lg transition active:scale-95 ${
-                canStop
-                  ? "bg-rose-500 shadow-rose-500/30"
-                  : "bg-zinc-700 shadow-zinc-700/30"
-              }`}
-              data-testid="voiceprint-stop"
-            >
-              ■
-            </button>
-          ) : (
-            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-violet-500/20 text-3xl">
-              <span className="animate-pulse">⏳</span>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[18px] font-semibold text-zinc-50">
+                工作区声纹 · {enrolledCount}/{total}
+              </p>
+              <p className="mt-1 text-[12px] leading-snug text-zinc-400">
+                已录 {enrolledCount} 人 · 共 {total} 人. 会议中系统自动识别已录者发言.
+              </p>
             </div>
-          )}
-          <p className="mt-3 text-[13px] text-zinc-400">
-            {phase === "idle" && "点击开始录音"}
-            {phase === "recording" &&
-              (canStop
-                ? `已录 ${seconds.toFixed(0)}s,点击提交`
-                : `继续录到 ${MIN_SUBMIT_SECONDS}s 以上`)}
-            {phase === "uploading" && "正在生成声纹 (5-15s)..."}
-            {phase === "done" && "完成 — 可重录"}
-          </p>
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={onOpenRecordNew}
+                className="shrink-0 rounded-full bg-accent-500 px-4 py-2 text-[13px] font-medium text-white active:scale-[0.97] active:bg-accent-600"
+                data-testid="voiceprint-add-new"
+              >
+                + 录新人
+              </button>
+            ) : null}
+          </div>
+          {!isAdmin ? (
+            <p className="mt-3 text-[12px] text-amber-300">
+              ⚠ 只有 leader / admin / owner 可以录入或修改声纹.
+            </p>
+          ) : null}
         </section>
 
-        {/* 删除入口(已录过的才显)*/}
-        {currentVoiceprint ? (
-          <section className="mt-auto">
+        {/* 列表 */}
+        {listErr ? (
+          <div className="rounded-xl border border-rose-500/30 bg-rose-500/[0.06] p-3 text-[13px] text-rose-300">
+            {listErr}
+          </div>
+        ) : null}
+
+        {users === null ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="h-16 animate-pulse rounded-2xl bg-ink-900"
+              />
+            ))}
+          </div>
+        ) : sortedUsers && sortedUsers.length > 0 ? (
+          <ul className="space-y-2">
+            {sortedUsers.map((u) => (
+              <li
+                key={u.id}
+                className="flex items-center gap-3 rounded-2xl bg-ink-900 p-4"
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-accent-500 text-[18px] font-semibold text-white">
+                  {u.name.slice(0, 1)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[15px] font-medium text-zinc-50">
+                    {u.name}
+                  </p>
+                  <p className="mt-0.5 text-[12px] text-zinc-500">
+                    {u.has_voiceprint ? (
+                      <span className="text-emerald-300">● 已录入</span>
+                    ) : (
+                      <span className="text-zinc-500">○ 未录入</span>
+                    )}
+                    {u.email ? (
+                      <span className="ml-2 text-zinc-600">· {u.email}</span>
+                    ) : null}
+                  </p>
+                </div>
+                {isAdmin ? (
+                  <div className="flex shrink-0 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onOpenRecordFor(u)}
+                      className="rounded-full bg-ink-800 px-3 py-1.5 text-[12px] text-zinc-200 active:bg-ink-700"
+                    >
+                      {u.has_voiceprint ? "重录" : "录入"}
+                    </button>
+                    {u.has_voiceprint ? (
+                      <button
+                        type="button"
+                        onClick={() => void onDeleteFor(u)}
+                        className="rounded-full border border-rose-500/30 px-3 py-1.5 text-[12px] text-rose-300 active:bg-rose-500/[0.06]"
+                      >
+                        撤销
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-zinc-800 p-8 text-center">
+            <p className="text-[14px] text-zinc-400">工作区里 没人</p>
+            {isAdmin ? (
+              <p className="mt-2 text-[12px] text-zinc-500">
+                点上面的 + 录新人 添加一个人
+              </p>
+            ) : null}
+          </div>
+        )}
+      </main>
+
+      {/* 录音 模态 */}
+      {recordOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex flex-col bg-ink-950"
+          data-testid="voiceprint-record-modal"
+        >
+          {/* 顶栏 */}
+          <div
+            className="sticky top-0 z-10 flex items-center gap-3 border-b border-ink-800 bg-ink-950/85 px-4 pb-3 backdrop-blur"
+            style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
+          >
             <button
               type="button"
-              onClick={() => void handleDelete()}
-              disabled={phase === "recording" || phase === "uploading"}
-              className="flex h-11 w-full items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/[0.06] text-[14px] text-rose-300 active:scale-[0.98] active:bg-rose-500/[0.12] disabled:opacity-50"
+              onClick={() => {
+                if (phase === "recording" || phase === "uploading") return;
+                setRecordOpen(false);
+              }}
+              className="-ml-2 flex h-10 w-10 items-center justify-center text-zinc-300 active:text-zinc-50"
+              aria-label="关闭"
             >
-              删除我的声纹
+              <span className="text-2xl leading-none">×</span>
             </button>
-            <p className="mt-2 text-center text-[12px] text-zinc-500">
-              删除后下次会议无法自动识别你的发言.
-            </p>
-          </section>
-        ) : null}
-      </main>
+            <h2 className="flex-1 truncate text-[17px] font-semibold text-zinc-50">
+              {targetUserId ? `重录 · ${name}` : "录入新人"}
+            </h2>
+          </div>
+
+          <div className="flex-1 space-y-4 overflow-y-auto p-4">
+            {/* 姓名 — 新人才能编辑 */}
+            <section>
+              <label className="text-[12px] text-zinc-500">姓名</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                disabled={!!targetUserId || phase !== "idle"}
+                placeholder="例: 张三"
+                maxLength={40}
+                className="mt-1 h-11 w-full rounded-xl bg-ink-900 px-3 text-[16px] text-zinc-50 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:opacity-60"
+              />
+            </section>
+
+            {/* 朗读文 */}
+            <section
+              className={`rounded-2xl border p-4 transition ${
+                phase === "recording"
+                  ? "border-accent-500/60 bg-accent-500/5"
+                  : "border-ink-800 bg-ink-900"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="rounded bg-ink-800 px-2 py-0.5 text-[12px] text-zinc-400">
+                  朗读 · {script.title}
+                </span>
+                <button
+                  type="button"
+                  onClick={nextScript}
+                  disabled={phase !== "idle"}
+                  className="text-[12px] text-zinc-500 active:text-accent-400 disabled:opacity-40"
+                >
+                  换一段 ↻
+                </button>
+              </div>
+              <p
+                className={`mt-3 text-[15px] leading-loose tracking-wide ${
+                  phase === "recording" ? "text-white" : "text-zinc-200"
+                }`}
+              >
+                {script.text}
+              </p>
+              <p className="mt-3 text-[12px] text-zinc-500">
+                正常 语速 读完一遍 约 30-45 秒. 不够 30s 接着重复.
+              </p>
+            </section>
+
+            {/* 进度 */}
+            <section className="rounded-2xl bg-ink-900 p-4">
+              <div className="flex items-center justify-between text-[13px] text-zinc-500">
+                <span>
+                  已录 {seconds.toFixed(1)}s · 目标 {MIN_SUBMIT_SECONDS}-{MAX_SECONDS}s
+                </span>
+                <span>
+                  {phase === "recording"
+                    ? "录音中"
+                    : phase === "uploading"
+                      ? "上传中"
+                      : "未开始"}
+                </span>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-ink-800">
+                <div
+                  className="h-full bg-accent-500 transition-all"
+                  style={{ width: `${target * 100}%` }}
+                />
+              </div>
+            </section>
+
+            {/* 大圆按钮 */}
+            <section className="flex flex-col items-center pt-2">
+              {phase === "idle" ? (
+                <button
+                  type="button"
+                  onClick={() => void start()}
+                  className="flex h-20 w-20 items-center justify-center rounded-full bg-accent-500 text-3xl text-white shadow-lg shadow-accent-500/30 active:scale-95"
+                >
+                  🎙
+                </button>
+              ) : phase === "recording" ? (
+                <button
+                  type="button"
+                  onClick={() => void stop(false)}
+                  className={`flex h-20 w-20 items-center justify-center rounded-full text-3xl text-white shadow-lg transition active:scale-95 ${
+                    seconds >= MIN_SUBMIT_SECONDS
+                      ? "bg-rose-500 shadow-rose-500/30"
+                      : "bg-zinc-700 shadow-zinc-700/30"
+                  }`}
+                >
+                  ■
+                </button>
+              ) : (
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-violet-500/20 text-3xl">
+                  <span className="animate-pulse">⏳</span>
+                </div>
+              )}
+              <p className="mt-3 text-[13px] text-zinc-400">
+                {phase === "idle" && "点击开始录音"}
+                {phase === "recording" &&
+                  (seconds >= MIN_SUBMIT_SECONDS
+                    ? `已录 ${seconds.toFixed(0)}s, 点击提交`
+                    : `继续录到 ${MIN_SUBMIT_SECONDS}s 以上`)}
+                {phase === "uploading" && "正在生成声纹 (5-15s)..."}
+              </p>
+            </section>
+          </div>
+        </div>
+      ) : null}
 
       {toast ? (
         <Toast

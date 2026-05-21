@@ -214,25 +214,30 @@ export const mApi = {
       `/api/meetings/attachments/${encodeURIComponent(attachmentId)}`,
     ),
 
-  // ===== P22: 声纹 管理 (移动端 /m/me/voiceprint) ============================
+  // ===== P22: 声纹库 管理 (移动端 /m/me/voiceprint) ==========================
+  // 声纹库是 workspace 级共享资源 — 任何成员可读列表, leader+ 才能录入 / 修改 / 删.
+  // "录新人"流程: 先 POST /api/users 建 speaker-only profile, 再 POST /api/voiceprints.
+  // 跟桌面端 /me/profile/voiceprints 同一套底层 API.
 
-  /** 当前用户自己的声纹状态. null = 未录. */
-  getMyVoiceprint: () =>
-    jget<{
-      id: string;
-      user_id: string;
-      pyannote_id: string;
-      sample_seconds: number | null;
-      version: number;
-      is_active: boolean;
-      created_at: string;
-    } | null>("/api/voiceprints/me"),
+  /** 列 workspace 所有 user (含 has_voiceprint 标记). member 看不到 email. */
+  listWorkspaceUsers: () =>
+    jget<
+      Array<{
+        id: string;
+        name: string;
+        email: string | null;
+        has_voiceprint: boolean;
+        created_at: string;
+      }>
+    >("/api/users"),
 
-  /** 删除自己的声纹 */
-  deleteMyVoiceprint: () =>
-    jsend<unknown>("DELETE", "/api/voiceprints/me"),
+  /** 创建 speaker-only profile (没邮箱密码, 仅供声纹关联).
+   *  ABAC: leader+ — member 调会 403. */
+  createSpeakerUser: (name: string) =>
+    jsend<{ id: string; name: string }>("POST", "/api/users", { name }),
 
-  /** 上传声纹 PCM 录音. 后端要求 16kHz mono Int16 PCM, ≥ 20 秒有效语音. */
+  /** 上传声纹 PCM 录音. 后端要求 16kHz mono Int16 PCM, ≥ 20 秒有效语音.
+   *  ABAC: leader+. */
   uploadVoiceprint: async (userId: string, pcmBlob: Blob) => {
     const fd = new FormData();
     fd.append("user_id", userId);
@@ -255,6 +260,13 @@ export const mApi = {
     }
     return r.json();
   },
+
+  /** 撤销 / 删除某 user 的声纹. ABAC: leader+. */
+  deleteVoiceprintForUser: (userId: string) =>
+    jsend<unknown>(
+      "DELETE",
+      `/api/voiceprints/by-user/${encodeURIComponent(userId)}`,
+    ),
 
   /** v27.0-mobile P9: scheduled → ongoing. 桌面 ws auto-trigger, mobile 显式 */
   startMeeting: (meetingId: string) =>

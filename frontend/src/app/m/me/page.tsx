@@ -279,7 +279,7 @@ function VoiceprintEntry() {
       data-testid="mobile-me-voiceprint-link"
     >
       <div className="flex items-center justify-between border-b border-zinc-800 py-3 last:border-b-0">
-        <span className="text-[14px] text-zinc-400">声纹</span>
+        <span className="text-[14px] text-zinc-400">声纹库</span>
         <span className="flex items-center gap-1 text-[15px] text-zinc-100">
           <span className="text-[13px] text-zinc-500">管理</span>
           <span className="text-zinc-500">›</span>
