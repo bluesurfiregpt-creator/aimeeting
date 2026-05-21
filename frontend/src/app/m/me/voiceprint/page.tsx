@@ -284,9 +284,11 @@ export default function MobileVoiceprintLibraryPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      {/* 顶栏 */}
+      {/* 顶栏 — 用实色 bg-ink-950 (无透明度 + 无 backdrop-blur), 跟微信小程序
+          navigationBar 同色融合, 避免视觉色差形成 "白线". safe-area 保留供
+          Safari 浏览器全屏模式 (小程序 webview 内 env 应该为 0). */}
       <div
-        className="sticky top-0 z-30 flex items-center gap-3 border-b border-ink-800 bg-ink-950/85 px-4 pb-3 backdrop-blur"
+        className="sticky top-0 z-30 flex items-center gap-3 border-b border-ink-800 bg-ink-950 px-4 pb-3"
         style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
       >
         <Link

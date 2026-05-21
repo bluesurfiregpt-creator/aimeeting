@@ -1,6 +1,14 @@
+page {
+  background: #0a0a0c;
+}
+
 .root {
   width: 100vw;
   height: 100vh;
   background: #0a0a0c;
 }
-/* web-view 默认占满 — 这里不做额外样式 */
+
+/* web-view 容器 默认 白底 — 强制深色, 避免加载瞬间 / 进度条位置露出白线 */
+web-view {
+  background: #0a0a0c;
+}
