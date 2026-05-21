@@ -51,14 +51,28 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 # ----- JWT --------------------------------------------------------------------
 
-def issue_token(user_id: uuid.UUID, workspace_id: Optional[uuid.UUID]) -> str:
+def issue_token(
+    user_id: uuid.UUID,
+    workspace_id: Optional[uuid.UUID],
+    ttl_days: Optional[int] = None,
+) -> str:
+    """签发 JWT.
+
+    ttl_days:
+      - None (默认) → 用 config.jwt_ttl_days (默认 14 天, 给 H5 cookie 用)
+      - 30 之类的显式值 → 给小程序原生 / iOS App token 用,
+        客户端持有 + 主动 refresh
+
+    v27.0-mobile P21 原生 C-1: 加 ttl_days 参数, 不改默认值, 不影响 H5 cookie 行为.
+    """
     s = get_settings()
     now = datetime.now(timezone.utc)
+    effective_ttl = ttl_days if ttl_days is not None else s.jwt_ttl_days
     payload = {
         "sub": str(user_id),
         "wsid": str(workspace_id) if workspace_id else None,
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(days=s.jwt_ttl_days)).timestamp()),
+        "exp": int((now + timedelta(days=effective_ttl)).timestamp()),
     }
     return jwt.encode(payload, s.jwt_secret, algorithm=JWT_ALGO)
 
@@ -66,6 +80,34 @@ def issue_token(user_id: uuid.UUID, workspace_id: Optional[uuid.UUID]) -> str:
 def decode_token(token: str) -> dict:
     s = get_settings()
     return jwt.decode(token, s.jwt_secret, algorithms=[JWT_ALGO])
+
+
+def extract_ws_token(ws) -> Optional[str]:
+    """v27.0-mobile P21 原生 C-1: 从 WebSocket 抽 JWT token, 兼容三种来源.
+
+    优先级:
+      1. Authorization: Bearer header (小程序 wx.connectSocket header 参数传, 最干净)
+      2. query param ?token=xxx (fallback, 兼容老小程序 SDK / 某些场景 header 不通)
+      3. cookie aimeeting_session (H5 浏览器场景, 自动随 fetch 一起发)
+
+    返回 token str 或 None.
+
+    注意 query param 模式安全考量:
+      - 完整 URL 可能 出现在 反向代理 access log (token 暴露)
+      - 大部分客户端用 header 即可, query 仅作 fallback
+    """
+    # 1. Authorization header
+    auth_header = (
+        ws.headers.get("authorization") or ws.headers.get("Authorization") or ""
+    )
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
+    # 2. query param
+    qp_token = ws.query_params.get("token")
+    if qp_token:
+        return qp_token.strip()
+    # 3. cookie
+    return ws.cookies.get(COOKIE_NAME)
 
 
 def set_session_cookie(response: Response, token: str) -> None:

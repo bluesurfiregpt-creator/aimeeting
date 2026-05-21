@@ -24,7 +24,7 @@ from .models import Meeting, MeetingTranscript
 from .agent_router import invoke_agent_directly, maybe_invoke_agents
 from .agenda_monitor import maybe_check_agenda
 from .dissent_detector import maybe_detect_dissent
-from .auth import COOKIE_NAME, decode_token
+from .auth import COOKIE_NAME, decode_token, extract_ws_token
 from .routers import access_requests as access_requests_router
 from .routers import agent_templates as agent_templates_router  # v26.6-01
 from .routers import agents as agents_router
@@ -202,8 +202,10 @@ async def ws_stt(ws: WebSocket):
     # codes during the handshake to JS reliably).
     await ws.accept()
 
+    # v27.0-mobile P21 原生 C-1: 用 extract_ws_token 抽 token, 兼容
+    # Bearer header (小程序原生) / query param / cookie (H5).
     auth_workspace_id: uuid.UUID | None = None
-    token = ws.cookies.get(COOKIE_NAME)
+    token = extract_ws_token(ws)
     if token:
         try:
             payload = decode_token(token)
@@ -498,8 +500,8 @@ async def ws_chat_stt(ws: WebSocket):
     """STT pipe for chat 调试模式. 仅 ASR, 不 持久化, 不 关联 任何 meeting."""
     await ws.accept()
 
-    # 鉴权 — 跟 ws_stt 同一套
-    token = ws.cookies.get(COOKIE_NAME)
+    # 鉴权 — 跟 ws_stt 同一套, 用 extract_ws_token (兼容 Bearer header / query / cookie)
+    token = extract_ws_token(ws)
     auth_workspace_id: uuid.UUID | None = None
     if token:
         try:

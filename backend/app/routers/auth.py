@@ -64,6 +64,18 @@ class LoginIn(BaseModel):
     password: str
 
 
+# v27.0-mobile P21 原生 C-1: 小程序原生 / 移动 App token-based 鉴权出参.
+# 跟 /login 走 cookie 不一样, /token 把 JWT 在 body 直接返, 客户端持有 + 调用时
+# 自带 Authorization: Bearer <token> header.
+class TokenIssueOut(BaseModel):
+    token: str
+    token_type: str = "Bearer"
+    expires_at: datetime  # token 到期时间 (UTC), 客户端用来判断要不要 refresh
+    user_id: uuid.UUID
+    workspace_id: uuid.UUID
+    role: str  # 基本角色, 详细 me 信息调 /api/auth/me
+
+
 class MyAgentBrief(BaseModel):
     """v26.5-Profile: 简版 agent 信息, 供 /me 接口 返回我维护的 AI 列表."""
     id: uuid.UUID
@@ -402,6 +414,135 @@ async def login(
         workspace_id=ws.id,
         workspace_name=ws.name,
         workspace_slug=ws.slug,
+        role=membership.role if membership else "member",
+    )
+
+
+# ============================================================================
+# v27.0-mobile P21 原生 C-1: token-based 鉴权 (Bearer header)
+# ============================================================================
+# 给小程序原生 / 移动 App 用. 跟 /login 走 cookie 的区别:
+#   /login    → set-cookie httpOnly + body 返 MeOut         (H5 浏览器, 14 天)
+#   /token    → 不 set cookie, body 直接返 JWT + 元数据      (原生客户端, 30 天)
+#   /token/refresh → 已认证用户延期, 客户端定期主动刷         (距过期 < 7 天时)
+#
+# get_current_auth 同时支持 cookie 和 Authorization: Bearer header (auth.py L109-112),
+# 所以新增 token endpoint 后, 所有 protected endpoint 自动兼容, 不必逐个改.
+
+NATIVE_TOKEN_TTL_DAYS = 30
+
+
+async def _authenticate_user(
+    session: AsyncSession, email: str, password: str
+) -> tuple[User, Workspace, Optional[WorkspaceMembership]]:
+    """复用的鉴权 helper — 从邮箱 + 密码 拉 user / workspace / membership.
+
+    抽出来让 /login (cookie 路径) 和 /token (Bearer 路径) 共用. raise 401/403 同 /login.
+    """
+    user = (
+        await session.execute(
+            select(User).where(func.lower(User.email) == email.lower())
+        )
+    ).scalar_one_or_none()
+    if not user or not user.password_hash:
+        raise HTTPException(401, "incorrect email or password")
+    if not verify_password(password, user.password_hash):
+        raise HTTPException(401, "incorrect email or password")
+    if not user.is_active:
+        raise HTTPException(403, "[需重新登录] 账号已被禁用,请联系管理员")
+
+    ws_id = user.workspace_id
+    if not ws_id:
+        # auto-self-heal: 跟 /login 一致, 没 workspace 的用户自动建一个
+        ws = Workspace(name=f"{user.name} 的工作空间", slug=f"u-{user.id.hex[:8]}")
+        session.add(ws)
+        await session.flush()
+        user.workspace_id = ws.id
+        session.add(
+            WorkspaceMembership(workspace_id=ws.id, user_id=user.id, role="owner")
+        )
+        ws_id = ws.id
+
+    user.last_login_at = datetime.now(timezone.utc)
+    await session.commit()
+
+    ws = (
+        await session.execute(select(Workspace).where(Workspace.id == ws_id))
+    ).scalar_one()
+    membership = (
+        await session.execute(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.user_id == user.id,
+                WorkspaceMembership.workspace_id == ws.id,
+            )
+        )
+    ).scalar_one_or_none()
+    return user, ws, membership
+
+
+@router.post("/token", response_model=TokenIssueOut)
+async def issue_native_token(
+    payload: LoginIn,
+    session: AsyncSession = Depends(get_session),
+):
+    """v27.0-mobile P21 原生 C-1: 邮箱 + 密码换 30 天 JWT, 给原生客户端用.
+
+    客户端拿到 token 后:
+    - 持久化到 wx.setStorage / iOS Keychain / Android EncryptedSharedPreferences
+    - 后续所有 HTTP 调用加 Authorization: Bearer <token> header
+    - WebSocket 走 wx.connectSocket({ url, header: { Authorization: 'Bearer xxx' } })
+    - 距 expires_at < 7 天 时调 POST /api/auth/token/refresh 续期
+
+    跟 /login 不设 cookie, 互不影响.
+    """
+    user, ws, membership = await _authenticate_user(
+        session, payload.email, payload.password
+    )
+    token = issue_token(user.id, ws.id, ttl_days=NATIVE_TOKEN_TTL_DAYS)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=NATIVE_TOKEN_TTL_DAYS)
+    return TokenIssueOut(
+        token=token,
+        token_type="Bearer",
+        expires_at=expires_at,
+        user_id=user.id,
+        workspace_id=ws.id,
+        role=membership.role if membership else "member",
+    )
+
+
+@router.post("/token/refresh", response_model=TokenIssueOut)
+async def refresh_native_token(
+    auth: AuthContext = Depends(get_current_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    """v27.0-mobile P21 原生 C-1: 当前 token 还有效时, 换新的 30 天 token.
+
+    走 get_current_auth — 现有 token 必须能验签 (没过期 + 合法). 不验密码, 复用 session.
+    客户端拿到新 token 后丢掉旧的, 不必再走 /token 邮箱密码.
+
+    安全:
+    - 旧 token 不显式作废 (JWT 是 stateless, 作废要建 revocation list, mvp 不做)
+    - 但旧 token 自然 expire (≤ 14 天剩余生命周期), 风险可控
+    """
+    membership = (
+        await session.execute(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.user_id == auth.user.id,
+                WorkspaceMembership.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    new_token = issue_token(
+        auth.user.id, auth.workspace.id, ttl_days=NATIVE_TOKEN_TTL_DAYS
+    )
+    expires_at = datetime.now(timezone.utc) + timedelta(days=NATIVE_TOKEN_TTL_DAYS)
+    return TokenIssueOut(
+        token=new_token,
+        token_type="Bearer",
+        expires_at=expires_at,
+        user_id=auth.user.id,
+        workspace_id=auth.workspace.id,
         role=membership.role if membership else "member",
     )
 
