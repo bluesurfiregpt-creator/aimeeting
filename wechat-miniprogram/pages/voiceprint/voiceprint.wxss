@@ -1,0 +1,339 @@
+/* pages/voiceprint/voiceprint.wxss */
+
+page {
+  background: #0a0a0c;
+  color: #e4e4e7;
+  font-size: 28rpx;
+  font-family: -apple-system, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+}
+
+.container {
+  min-height: 100vh;
+  padding: 24rpx 32rpx calc(40rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+/* ===== 缺 token 状态 ===== */
+
+.state-block {
+  padding: 80rpx 16rpx;
+  text-align: center;
+}
+
+.state-emoji {
+  font-size: 96rpx;
+  margin-bottom: 24rpx;
+}
+
+.state-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #fafafa;
+  margin-bottom: 16rpx;
+}
+
+.state-body {
+  font-size: 26rpx;
+  line-height: 1.6;
+  color: #71717a;
+  background: #18181b;
+  padding: 24rpx;
+  border-radius: 16rpx;
+  margin-bottom: 24rpx;
+  text-align: left;
+}
+
+.dev-input {
+  width: 100%;
+  min-height: 160rpx;
+  padding: 20rpx;
+  background: #18181b;
+  border: 2rpx solid #3f3f46;
+  border-radius: 16rpx;
+  color: #e4e4e7;
+  font-size: 24rpx;
+  margin-bottom: 16rpx;
+  box-sizing: border-box;
+}
+
+.dev-input-line {
+  width: 100%;
+  height: 80rpx;
+  padding: 0 20rpx;
+  background: #18181b;
+  border: 2rpx solid #3f3f46;
+  border-radius: 16rpx;
+  color: #e4e4e7;
+  font-size: 24rpx;
+  margin-bottom: 24rpx;
+  box-sizing: border-box;
+}
+
+.dev-fallback-divider {
+  margin: 48rpx 0 24rpx;
+  text-align: center;
+  font-size: 22rpx;
+  color: #52525b;
+}
+
+.btn-secondary {
+  background: #18181b;
+  border: 2rpx solid #3f3f46;
+  color: #e4e4e7;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+}
+
+.btn-secondary::after { border: none; }
+
+/* ===== 主体 ===== */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+}
+
+/* ===== 状态卡 (已录 / 未录) ===== */
+
+.status-card {
+  padding: 24rpx;
+  border-radius: 24rpx;
+  border: 2rpx solid;
+}
+
+.status-card-ok {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.status-card-ok .status-title {
+  color: #6ee7b7;
+}
+
+.status-card-empty {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.status-card-empty .status-title {
+  color: #fcd34d;
+}
+
+.status-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  margin-bottom: 8rpx;
+}
+
+.status-meta {
+  font-size: 24rpx;
+  color: #a1a1aa;
+  margin-bottom: 6rpx;
+}
+
+.status-sub {
+  font-size: 24rpx;
+  color: #71717a;
+  line-height: 1.55;
+}
+
+/* ===== 朗读文本 ===== */
+
+.script-block {
+  padding: 24rpx;
+  background: #18181b;
+  border: 2rpx solid #27272a;
+  border-radius: 24rpx;
+  transition: all 0.2s ease;
+}
+
+.script-block-active {
+  border-color: rgba(139, 92, 246, 0.5);
+  background: rgba(139, 92, 246, 0.06);
+}
+
+.script-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16rpx;
+}
+
+.script-tag {
+  font-size: 22rpx;
+  color: #71717a;
+  padding: 2rpx 12rpx;
+  background: #27272a;
+  border-radius: 8rpx;
+}
+
+.script-next {
+  font-size: 22rpx;
+  color: #71717a;
+  padding: 8rpx;
+}
+
+.script-next:active {
+  color: #a78bfa;
+}
+
+.script-text {
+  font-size: 30rpx;
+  line-height: 1.85;
+  color: #e4e4e7;
+  letter-spacing: 1rpx;
+}
+
+.script-block-active .script-text {
+  color: #fafafa;
+}
+
+.script-hint {
+  margin-top: 16rpx;
+  font-size: 22rpx;
+  color: #52525b;
+}
+
+/* ===== 进度 ===== */
+
+.progress-block {
+  padding: 20rpx;
+  background: #18181b;
+  border-radius: 16rpx;
+}
+
+.progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 24rpx;
+  color: #a1a1aa;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 12rpx;
+}
+
+.progress-state-recording { color: #f43f5e; }
+.progress-state-uploading { color: #a78bfa; }
+.progress-state-done { color: #6ee7b7; }
+.progress-state-idle { color: #71717a; }
+
+.progress-bar {
+  height: 8rpx;
+  background: #27272a;
+  border-radius: 4rpx;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #8b5cf6, #6d28d9);
+  transition: width 0.3s ease;
+}
+
+/* ===== 主操作 大圆按钮 ===== */
+
+.main-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32rpx 0;
+}
+
+.btn-circle {
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 64rpx;
+  color: #fff;
+  margin: 0;
+  padding: 0;
+  transition: transform 0.1s ease;
+}
+
+.btn-circle::after { border: none; }
+
+.btn-circle:active {
+  transform: scale(0.95);
+}
+
+.btn-circle-start {
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  box-shadow: 0 8rpx 24rpx rgba(139, 92, 246, 0.3);
+}
+
+.btn-circle-stop {
+  background: linear-gradient(135deg, #f43f5e, #e11d48);
+  box-shadow: 0 8rpx 24rpx rgba(244, 63, 94, 0.3);
+}
+
+.btn-circle-disabled {
+  background: #3f3f46;
+  box-shadow: none;
+  color: #71717a;
+}
+
+.btn-circle-uploading {
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+}
+
+.uploading-dots {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.main-action-hint {
+  margin-top: 20rpx;
+  font-size: 26rpx;
+  color: #a1a1aa;
+  text-align: center;
+}
+
+/* ===== 错误 / 删除 ===== */
+
+.error-block {
+  padding: 16rpx 24rpx;
+  background: rgba(244, 63, 94, 0.12);
+  color: #fda4af;
+  border-radius: 12rpx;
+  font-size: 26rpx;
+}
+
+.delete-block {
+  margin-top: 16rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid #27272a;
+}
+
+.btn-delete {
+  width: 100%;
+  height: 80rpx;
+  line-height: 80rpx;
+  background: rgba(244, 63, 94, 0.08);
+  border: 2rpx solid rgba(244, 63, 94, 0.3);
+  color: #fda4af;
+  font-size: 26rpx;
+  border-radius: 16rpx;
+  margin: 0;
+}
+
+.btn-delete::after { border: none; }
+
+.btn-delete[disabled] {
+  opacity: 0.4;
+}
+
+.delete-hint {
+  margin-top: 12rpx;
+  text-align: center;
+  font-size: 22rpx;
+  color: #52525b;
+}

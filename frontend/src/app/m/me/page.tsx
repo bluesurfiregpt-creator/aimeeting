@@ -171,20 +171,12 @@ export default function MobileMePage() {
           </section>
         ) : null}
 
-        {/* P22: 声纹 — 跳录音页 */}
-        <Link
-          href="/m/me/voiceprint"
-          className="rounded-2xl bg-ink-900 px-5 py-2 active:bg-ink-800"
-          data-testid="mobile-me-voiceprint-link"
-        >
-          <div className="flex items-center justify-between border-b border-zinc-800 py-3 last:border-b-0">
-            <span className="text-[14px] text-zinc-400">声纹</span>
-            <span className="flex items-center gap-1 text-[15px] text-zinc-100">
-              <span className="text-[13px] text-zinc-500">管理</span>
-              <span className="text-zinc-500">›</span>
-            </span>
-          </div>
-        </Link>
+        {/* P22: 声纹 — 跳录音页. 在小程序 webview 内, 自动跳 原生 voiceprint 页;
+            浏览器 / 普通 H5 走 /m/me/voiceprint H5 版.
+            等 v1.0.1 小程序发版前, NATIVE_VOICEPRINT_ENABLED=false 时退化全走 H5. */}
+        <VoiceprintEntry />
+
+        {/* 关于 + 反馈 (mvp 文字提示) */}
 
         {/* 关于 + 反馈 (mvp 文字提示) */}
         <section className="rounded-2xl bg-ink-900 px-5 py-2">
@@ -233,5 +225,66 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-[14px] text-zinc-400">{label}</span>
       <span className="truncate text-[15px] text-zinc-100">{value}</span>
     </div>
+  );
+}
+
+// 等 小程序 v1.0.1 (含 pages/voiceprint) 通过审核 + 发布后, 改 true 重新部署 H5
+const NATIVE_VOICEPRINT_ENABLED = false;
+
+declare global {
+  interface Window {
+    __wxjs_environment?: string;
+    wx?: {
+      miniProgram?: {
+        navigateTo: (opts: { url: string; fail?: (err: unknown) => void }) => void;
+      };
+    };
+  }
+}
+
+function VoiceprintEntry() {
+  const handleClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (typeof window === "undefined") return;
+    const inMp = window.__wxjs_environment === "miniprogram";
+    if (!inMp || !NATIVE_VOICEPRINT_ENABLED) {
+      // 浏览器 / flag 关 → 走 H5 (Link 自然跳)
+      return;
+    }
+    // 小程序内 + flag 开 → 拦截 Link, 调 exchange-token + navigateTo 原生
+    e.preventDefault();
+    try {
+      const r = await fetch("/api/auth/exchange-token", {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const { token, expires_at } = await r.json();
+      const url =
+        `/pages/voiceprint/voiceprint` +
+        `?t=${encodeURIComponent(token)}` +
+        `&exp=${encodeURIComponent(expires_at)}`;
+      window.wx?.miniProgram?.navigateTo({ url });
+    } catch (err) {
+      console.error("[voiceprint-entry] navigateTo fail", err);
+      // fallback 走 H5
+      window.location.href = "/m/me/voiceprint";
+    }
+  };
+
+  return (
+    <Link
+      href="/m/me/voiceprint"
+      onClick={handleClick}
+      className="rounded-2xl bg-ink-900 px-5 py-2 active:bg-ink-800"
+      data-testid="mobile-me-voiceprint-link"
+    >
+      <div className="flex items-center justify-between border-b border-zinc-800 py-3 last:border-b-0">
+        <span className="text-[14px] text-zinc-400">声纹</span>
+        <span className="flex items-center gap-1 text-[15px] text-zinc-100">
+          <span className="text-[13px] text-zinc-500">管理</span>
+          <span className="text-zinc-500">›</span>
+        </span>
+      </div>
+    </Link>
   );
 }

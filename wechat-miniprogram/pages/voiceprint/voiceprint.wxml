@@ -1,0 +1,119 @@
+<!-- pages/voiceprint/voiceprint.wxml — 原生声纹录入 -->
+<view class="container">
+
+  <!-- 缺 token: 引导 -->
+  <view wx:if="{{needToken}}" class="state-block">
+    <view class="state-emoji">📱</view>
+    <view class="state-title">请从个人中心 进入</view>
+    <view class="state-body">
+      正确路径: 回小程序 → "我的" → "声纹 管理" 按钮.
+    </view>
+    <button class="btn-secondary" bindtap="onBack">返回</button>
+
+    <view class="dev-fallback-divider">— 或开发模式 —</view>
+    <textarea
+      class="dev-input"
+      placeholder="粘贴 token"
+      value="{{devTokenInput}}"
+      bindinput="onDevTokenInput"
+      auto-height
+    />
+    <input
+      class="dev-input-line"
+      placeholder="(可选) expires_at"
+      value="{{devTokenExpInput}}"
+      bindinput="onDevTokenExpInput"
+    />
+    <button class="btn-secondary" bindtap="onDevTokenConfirm">用 token 登录</button>
+  </view>
+
+  <view wx:else class="body">
+
+    <!-- 状态卡 -->
+    <view wx:if="{{currentVoiceprint}}" class="status-card status-card-ok">
+      <view class="status-title">✓ 已录入声纹</view>
+      <view class="status-meta">
+        版本 v{{currentVoiceprint.version}}
+        <text wx:if="{{currentVoiceprint.sample_seconds}}">
+          · {{currentVoiceprint.sample_seconds}} 秒 样本
+        </text>
+      </view>
+      <view class="status-sub">
+        会议中 系统会 自动识别 你的发言. 想换 / 重新录, 继续 下方流程.
+      </view>
+    </view>
+    <view wx:else class="status-card status-card-empty">
+      <view class="status-title">⚠ 尚未录入声纹</view>
+      <view class="status-sub">
+        录入后, 会议中 系统能 自动识别 你的发言 并 打 "说话人" 标签.
+        录一次约 30-45 秒.
+      </view>
+    </view>
+
+    <!-- 朗读文本 -->
+    <view class="script-block {{phase === 'recording' ? 'script-block-active' : ''}}">
+      <view class="script-head">
+        <text class="script-tag">朗读这段 · {{scripts[scriptIdx].title}}</text>
+        <text
+          class="script-next"
+          bindtap="onNextScript"
+        >换一段 ↻</text>
+      </view>
+      <view class="script-text">{{scripts[scriptIdx].text}}</view>
+      <view class="script-hint">
+        正常 语速 读完一遍 约 30-45 秒. 读到 结尾 不够 30s 就 接着重复.
+      </view>
+    </view>
+
+    <!-- 进度 -->
+    <view class="progress-block">
+      <view class="progress-meta">
+        <text>已录 {{secondsStr}}s · 目标 20-60s</text>
+        <text wx:if="{{phase === 'recording'}}" class="progress-state-recording">录音中</text>
+        <text wx:elif="{{phase === 'uploading'}}" class="progress-state-uploading">上传中</text>
+        <text wx:elif="{{phase === 'done'}}" class="progress-state-done">已完成</text>
+        <text wx:else class="progress-state-idle">未开始</text>
+      </view>
+      <view class="progress-bar">
+        <view class="progress-fill" style="width: {{progressPct}}%"></view>
+      </view>
+    </view>
+
+    <!-- 主操作按钮 -->
+    <view class="main-action">
+      <button
+        wx:if="{{phase === 'idle' || phase === 'done' || phase === 'starting' || phase === 'error'}}"
+        class="btn-circle btn-circle-start"
+        bindtap="onStart"
+        disabled="{{phase === 'starting'}}"
+      >🎙</button>
+      <button
+        wx:elif="{{phase === 'recording'}}"
+        class="btn-circle btn-circle-stop {{canSubmit ? '' : 'btn-circle-disabled'}}"
+        bindtap="onStop"
+      >■</button>
+      <view wx:else class="btn-circle btn-circle-uploading">
+        <text class="uploading-dots">⏳</text>
+      </view>
+      <view class="main-action-hint">
+        <text wx:if="{{phase === 'idle' || phase === 'done' || phase === 'error'}}">点击开始录音</text>
+        <text wx:elif="{{phase === 'starting'}}">麦克风启动中…</text>
+        <text wx:elif="{{phase === 'recording' && canSubmit}}">已录 {{secondsStr}}s · 点击提交</text>
+        <text wx:elif="{{phase === 'recording'}}">继续录到 20s 以上</text>
+        <text wx:elif="{{phase === 'uploading'}}">正在生成声纹 (5-15s)…</text>
+      </view>
+    </view>
+
+    <view wx:if="{{error}}" class="error-block">{{error}}</view>
+
+    <!-- 删除入口 (已录过的才显) -->
+    <view wx:if="{{currentVoiceprint}}" class="delete-block">
+      <button
+        class="btn-delete"
+        bindtap="onDelete"
+        disabled="{{phase === 'recording' || phase === 'uploading'}}"
+      >删除我的声纹</button>
+      <view class="delete-hint">删除后 下次会议 无法自动识别 你的发言.</view>
+    </view>
+  </view>
+</view>

@@ -4,7 +4,8 @@
     "pages/about/about",
     "pages/picker/picker",
     "pages/meeting/meeting",
-    "pages/create/create"
+    "pages/create/create",
+    "pages/voiceprint/voiceprint"
   ],
   "window": {
     "backgroundColor": "#0a0a0c",
