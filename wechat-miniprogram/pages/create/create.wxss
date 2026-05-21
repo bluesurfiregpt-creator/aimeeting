@@ -505,6 +505,159 @@ page {
 .agent-bg-blue { background: #3b82f6; }
 .agent-bg-indigo { background: #6366f1; }
 
+/* ===== 第 3 刀: 附件 ===== */
+
+.att-actions {
+  display: flex;
+  gap: 12rpx;
+  margin: 12rpx 0;
+}
+
+.btn-att {
+  flex: 1;
+  height: 72rpx;
+  line-height: 72rpx;
+  font-size: 24rpx;
+  border-radius: 12rpx;
+  margin: 0;
+}
+
+.btn-att::after { border: none; }
+
+.btn-att[disabled] {
+  opacity: 0.5;
+}
+
+.btn-att-wechat {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+}
+
+.btn-att-album {
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+}
+
+.att-uploading {
+  margin-top: 8rpx;
+  padding: 12rpx 16rpx;
+  background: rgba(139, 92, 246, 0.10);
+  color: #c4b5fd;
+  font-size: 24rpx;
+  border-radius: 12rpx;
+  text-align: center;
+}
+
+.att-error {
+  margin-top: 8rpx;
+  padding: 12rpx 16rpx;
+  background: rgba(244, 63, 94, 0.12);
+  color: #fda4af;
+  font-size: 24rpx;
+  border-radius: 12rpx;
+}
+
+.att-list {
+  margin-top: 12rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.att-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+  padding: 16rpx;
+  background: #18181b;
+  border: 2rpx solid #27272a;
+  border-radius: 16rpx;
+}
+
+.att-icon {
+  font-size: 40rpx;
+  flex-shrink: 0;
+  line-height: 1;
+  margin-top: 4rpx;
+}
+
+.att-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.att-name {
+  font-size: 26rpx;
+  color: #fafafa;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 6rpx;
+}
+
+.att-meta {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  font-size: 22rpx;
+}
+
+.att-size {
+  color: #71717a;
+  font-variant-numeric: tabular-nums;
+}
+
+.att-status-chip {
+  padding: 2rpx 10rpx;
+  border-radius: 8rpx;
+  font-size: 20rpx;
+}
+
+.att-tone-ready {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+}
+
+.att-tone-extracting,
+.att-tone-pending {
+  background: rgba(139, 92, 246, 0.15);
+  color: #c4b5fd;
+}
+
+.att-tone-skipped {
+  background: rgba(115, 115, 130, 0.15);
+  color: #a1a1aa;
+}
+
+.att-tone-failed {
+  background: rgba(244, 63, 94, 0.15);
+  color: #fda4af;
+}
+
+.att-delete {
+  width: 56rpx;
+  height: 56rpx;
+  line-height: 56rpx;
+  text-align: center;
+  font-size: 36rpx;
+  color: #71717a;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.att-delete:active {
+  background: rgba(244, 63, 94, 0.15);
+  color: #fda4af;
+}
+
+.att-hint {
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: #52525b;
+  line-height: 1.55;
+}
+
 /* ===== 错误提示 ===== */
 
 .error-block {

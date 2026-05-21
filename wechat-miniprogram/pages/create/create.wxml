@@ -228,10 +228,58 @@
       </view>
     </view>
 
-    <!-- ===== 参考资料 (留 第 3 刀) ===== -->
-    <view class="section section-placeholder">
-      <view class="section-label">参考资料</view>
-      <view class="placeholder-text">第 3 刀做 — 当前测试用户先不必上传附件</view>
+    <!-- ===== 参考资料 (第 3 刀) ===== -->
+    <view class="section">
+      <view class="section-label">
+        参考资料
+        <text wx:if="{{attachments.length > 0}}" class="section-hint section-hint-mute">· {{attachments.length}} 份</text>
+        <text wx:else class="section-hint section-hint-mute">· 选填</text>
+      </view>
+
+      <!-- 上传操作按钮 -->
+      <view class="att-actions">
+        <button
+          class="btn-att btn-att-wechat"
+          bindtap="onChooseFromWeChat"
+          disabled="{{uploadingCount > 0}}"
+        >💬 微信聊天记录</button>
+        <button
+          class="btn-att btn-att-album"
+          bindtap="onChooseFromAlbum"
+          disabled="{{uploadingCount > 0}}"
+        >🖼 相册图片</button>
+      </view>
+
+      <view wx:if="{{uploadingCount > 0}}" class="att-uploading">
+        上传中 · {{uploadingCount}} 个文件…
+      </view>
+
+      <view wx:if="{{attachmentsErr}}" class="att-error">{{attachmentsErr}}</view>
+
+      <!-- 附件列表 -->
+      <view wx:if="{{attachments.length > 0}}" class="att-list">
+        <view wx:for="{{attachments}}" wx:key="id" class="att-item">
+          <view class="att-icon">📄</view>
+          <view class="att-body">
+            <view class="att-name">{{item.filename}}</view>
+            <view class="att-meta">
+              <text class="att-size">{{item.sizeStr}}</text>
+              <text class="att-status-chip att-tone-{{item.statusTone}}">{{item.statusLabel}}</text>
+            </view>
+          </view>
+          <view
+            class="att-delete"
+            data-id="{{item.id}}"
+            data-name="{{item.filename}}"
+            bindtap="onDeleteAttachment"
+          >×</view>
+        </view>
+      </view>
+
+      <view class="att-hint">
+        支持 PDF / Word / Excel / PPT / 文本 / 图片 (走 OCR). 单文件 ≤ 50MB. AI
+        拆议程 + 自主讨论 会读这些资料.
+      </view>
     </view>
 
     <!-- ===== 提示错误 ===== -->

@@ -69,6 +69,12 @@ Page({
     // 第 2 刀 — AI 拆议程
     decomposing: false,
     decomposeConfirmOpen: false,
+
+    // 第 3 刀 — 附件
+    attachments: [],          // [{id, filename, size_bytes, extension, extract_status, extract_summary}]
+    attachmentsErr: '',
+    uploadingCount: 0,        // 正在上传的数量 (UI 显 loading)
+    pollingAttachments: false, // 是否在 polling extract 状态
   },
 
   onLoad(options) {
@@ -102,6 +108,10 @@ Page({
     // 并行拉两份 邀请数据
     this._fetchMembers();
     this._fetchAgents();
+  },
+
+  onUnload() {
+    this._stopAttachmentPolling();
   },
 
   async _fetchMembers() {
@@ -342,6 +352,225 @@ Page({
     } finally {
       this.setData({ decomposing: false });
     }
+  },
+
+  // ============================================================
+  // 附件 (第 3 刀)
+  // ============================================================
+  //
+  // 三种入口:
+  //   1. 微信聊天记录 — wx.chooseMessageFile (跟已有 picker 页 同一个 API)
+  //   2. 手机相册图片 — wx.chooseMedia (PCM 图片自动走 OCR)
+  //   3. 普通文件 — wx.chooseMessageFile 已覆盖, 不另做
+  //
+  // 上传完后 GET /api/meetings/attachments?draft_id 刷新列表.
+  // 有 extracting 状态时 每 5 秒 poll 一次 直到全 ready / failed / skipped.
+
+  /** 从微信聊天记录选文件 */
+  onChooseFromWeChat() {
+    if (this.data.uploadingCount > 0) return;
+    wx.chooseMessageFile({
+      count: 5,
+      type: 'file',
+      extension: [
+        'pdf', 'docx', 'xlsx', 'xls', 'pptx',
+        'txt', 'md', 'csv', 'log', 'json', 'yaml', 'yml',
+      ],
+      success: (res) => this._uploadTempFiles(res.tempFiles || []),
+      fail: (err) => {
+        if (err && err.errMsg && err.errMsg.indexOf('cancel') < 0) {
+          wx.showToast({ title: '选文件失败', icon: 'none' });
+        }
+      },
+    });
+  },
+
+  /** 从相册选图片 (走 OCR) */
+  onChooseFromAlbum() {
+    if (this.data.uploadingCount > 0) return;
+    wx.chooseMedia({
+      count: 5,
+      mediaType: ['image'],
+      sourceType: ['album'],
+      success: (res) => {
+        // chooseMedia 返的 tempFiles 字段名 size/tempFilePath 跟 chooseMessageFile 字段名不一致, 统一
+        const files = (res.tempFiles || []).map((f) => ({
+          path: f.tempFilePath,
+          size: f.size,
+          name: this._inferImageName(f.tempFilePath),
+        }));
+        this._uploadTempFiles(files);
+      },
+      fail: (err) => {
+        if (err && err.errMsg && err.errMsg.indexOf('cancel') < 0) {
+          wx.showToast({ title: '选图片失败', icon: 'none' });
+        }
+      },
+    });
+  },
+
+  _inferImageName(tempFilePath) {
+    // tempFilePath 形如 wxfile://tmp_xxx.jpg, 取末段 + 时间戳防重名
+    const ext = (tempFilePath.match(/\.(\w+)$/) || [, 'jpg'])[1];
+    return `image_${Date.now()}.${ext}`;
+  },
+
+  async _uploadTempFiles(files) {
+    if (!files || files.length === 0) return;
+    const MAX_BYTES = 50 * 1024 * 1024;
+
+    this.setData({ uploadingCount: this.data.uploadingCount + files.length });
+
+    let okCount = 0;
+    let failCount = 0;
+    for (const f of files) {
+      if (f.size > MAX_BYTES) {
+        wx.showToast({
+          title: `${f.name} 超 50MB`,
+          icon: 'none',
+          duration: 2000,
+        });
+        failCount += 1;
+        continue;
+      }
+      try {
+        // utils/api.uploadFile 走 wx.uploadFile, 自动带 Bearer header
+        await api.uploadFile(
+          '/api/meetings/attachments',
+          f.path,
+          { client_draft_id: this.data.clientDraftId },
+        );
+        okCount += 1;
+      } catch (e) {
+        console.warn('upload failed', f.name, e);
+        failCount += 1;
+      }
+    }
+
+    this.setData({
+      uploadingCount: this.data.uploadingCount - files.length,
+    });
+
+    if (okCount > 0) {
+      wx.showToast({
+        title: `已上传 ${okCount}${failCount > 0 ? ` (${failCount} 失败)` : ''}`,
+        icon: 'success',
+        duration: 1500,
+      });
+    } else if (failCount > 0) {
+      wx.showToast({ title: '全部上传失败', icon: 'none', duration: 2000 });
+    }
+
+    // 刷新列表 + 启动 polling (如果有 extracting)
+    await this._fetchAttachments();
+    this._maybeStartPolling();
+  },
+
+  async _fetchAttachments() {
+    if (!this.data.clientDraftId) return;
+    try {
+      const out = await api.get('/api/meetings/attachments', {
+        draft_id: this.data.clientDraftId,
+      });
+      const items = ((out && out.items) || []).map((a) =>
+        this._enrichAttachment(a),
+      );
+      this.setData({ attachments: items, attachmentsErr: '' });
+    } catch (e) {
+      console.warn('fetch attachments failed', e);
+      this.setData({ attachmentsErr: e.message || '加载失败' });
+    }
+  },
+
+  _enrichAttachment(a) {
+    // 预算 wxml 直接用的字段 (sizeStr / statusLabel / statusTone)
+    const sizeStr = this._formatAttachmentSize(a.size_bytes);
+    const status = a.extract_status || 'pending';
+    let statusLabel = '';
+    let statusTone = 'pending';
+    if (status === 'ready') {
+      statusLabel = '✓ 就绪';
+      statusTone = 'ready';
+    } else if (status === 'extracting' || status === 'pending') {
+      statusLabel = '抽取中…';
+      statusTone = 'extracting';
+    } else if (status === 'skipped') {
+      statusLabel = '⊘ 未识别';
+      statusTone = 'skipped';
+    } else if (status === 'failed') {
+      statusLabel = '✗ 失败';
+      statusTone = 'failed';
+    }
+    return Object.assign({}, a, { sizeStr, statusLabel, statusTone });
+  },
+
+  _maybeStartPolling() {
+    // 有 extracting / pending 状态 → 5s 轮询直到全 done
+    const hasUnfinished = this.data.attachments.some(
+      (a) => a.extract_status === 'extracting' || a.extract_status === 'pending',
+    );
+    if (!hasUnfinished) {
+      this._stopAttachmentPolling();
+      return;
+    }
+    if (this.data.pollingAttachments) return;
+    this.setData({ pollingAttachments: true });
+    this._attachmentPollTimer = setInterval(async () => {
+      await this._fetchAttachments();
+      // 没未完成的 → 停
+      const stillUnfinished = this.data.attachments.some(
+        (a) => a.extract_status === 'extracting' || a.extract_status === 'pending',
+      );
+      if (!stillUnfinished) this._stopAttachmentPolling();
+    }, 5000);
+  },
+
+  _stopAttachmentPolling() {
+    if (this._attachmentPollTimer) {
+      clearInterval(this._attachmentPollTimer);
+      this._attachmentPollTimer = null;
+    }
+    if (this.data.pollingAttachments) {
+      this.setData({ pollingAttachments: false });
+    }
+  },
+
+  /** 删一个附件 */
+  onDeleteAttachment(e) {
+    const id = e.currentTarget.dataset.id;
+    const name = e.currentTarget.dataset.name || '';
+    if (!id) return;
+    wx.showModal({
+      title: '删除附件?',
+      content: name ? `确定删除「${name}」?` : '确定删除该附件?',
+      confirmText: '删除',
+      cancelText: '取消',
+      confirmColor: '#f43f5e',
+      success: async ({ confirm }) => {
+        if (!confirm) return;
+        try {
+          await api.del(`/api/meetings/attachments/${id}`);
+          // 本地移除
+          this.setData({
+            attachments: this.data.attachments.filter((a) => a.id !== id),
+          });
+          wx.showToast({ title: '已删除', icon: 'success', duration: 1000 });
+        } catch (e) {
+          wx.showToast({
+            title: e.message || '删除失败',
+            icon: 'none',
+            duration: 2000,
+          });
+        }
+      },
+    });
+  },
+
+  _formatAttachmentSize(bytes) {
+    if (!bytes) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   },
 
   // ============================================================
