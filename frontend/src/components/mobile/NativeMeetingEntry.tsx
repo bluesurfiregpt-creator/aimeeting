@@ -11,9 +11,15 @@
  *
  * 不在 小程序 webview 内时 整个组件 不渲染 (普通浏览器看不到).
  *
- * 第 6 刀 mvp: 仅在 ongoing 会议详情页 用. N-3 做完 (创建会议原生) 后还会
- * 加入到新建会议入口.
+ * v1.0.1 发版前的临时保护:
+ *   线上小程序 v1.0.0 没有 /pages/meeting/meeting 原生页. 如果让按钮可点,
+ *   用户点 navigateTo 会 fail. 用 ENABLED feature flag 关掉.
+ *   v1.0.1 小程序上线后 改为 true + 部署 H5 即可启用.
  */
+
+// ⚠️ 等小程序 v1.0.1 (含 pages/meeting + pages/create 原生页) 通过审核 + 发布后,
+// 改为 true 重新部署 H5. 在那之前 按钮不显, 防用户 navigateTo 到不存在的页.
+const NATIVE_MEETING_ENABLED = false;
 
 import { useEffect, useState } from "react";
 
@@ -47,6 +53,8 @@ export default function NativeMeetingEntry({
     if (isInMiniprogram()) setShow(true);
   }, []);
 
+  // feature flag — v1.0.1 上线前 暂时全关
+  if (!NATIVE_MEETING_ENABLED) return null;
   if (!show) return null;
 
   const handleJump = async () => {
