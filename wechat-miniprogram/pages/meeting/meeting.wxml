@@ -102,15 +102,62 @@
       </view>
     </view>
 
-    <!-- 转录占位 (第 2 刀接 WS + 实时转录) -->
-    <view class="placeholder-box">
-      <view class="ph-icon">💬</view>
-      <view class="ph-title">实时转录</view>
-      <view class="ph-body">
-        <text>第 1 刀骨架页, 这里 第 2 刀 会接 WebSocket 实时推送.</text>
+    <!-- 实时转录 (第 2 刀) -->
+    <view class="transcript-block">
+      <view class="transcript-header">
+        <view class="th-left">
+          <text class="th-title">实时转录</text>
+          <text class="th-count">{{transcriptLines.length}} 条</text>
+        </view>
+        <!-- WS 连接状态点 -->
+        <view class="ws-state-{{wsState}}">
+          <text wx:if="{{wsState === 'ready'}}">● 已就绪</text>
+          <text wx:elif="{{wsState === 'connected'}}">○ 连接中…</text>
+          <text wx:elif="{{wsState === 'connecting'}}">○ 连接中…</text>
+          <text wx:elif="{{wsState === 'reconnecting'}}">○ 重连中…</text>
+          <text wx:elif="{{wsState === 'closed'}}">⊘ 已断开</text>
+          <text wx:else>⊘ 未连接</text>
+        </view>
       </view>
-      <view class="ph-stats">
-        共 {{detail.transcript_total || 0}} 句真人 · {{detail.other_topics_count || 0}} 其他议题
+
+      <scroll-view
+        id="transcript-scroll"
+        class="transcript-scroll"
+        scroll-y
+        scroll-into-view="{{transcriptScrollIntoView}}"
+        scroll-with-animation
+        enable-flex
+        bindscrolltolower="onScrollToBottom"
+        bindscroll="onTranscriptScroll"
+        bindtouchend="onTranscriptTouchEnd"
+      >
+        <view wx:if="{{transcriptLines.length === 0}}" class="transcript-empty">
+          <text wx:if="{{detail.status === 'ongoing'}}">等待发言…</text>
+          <text wx:else>暂无转录</text>
+        </view>
+        <view
+          wx:for="{{transcriptLines}}"
+          wx:key="id"
+          id="{{item.id}}"
+          class="transcript-line"
+        >
+          <view class="tl-head">
+            <text class="tl-speaker">{{item.speakerName}}</text>
+            <text wx:if="{{item.atMinute !== null && item.atMinute !== undefined}}" class="tl-time">{{item.atMinute}}m</text>
+            <text wx:if="{{item.speakerStatus === 'manual'}}" class="tl-tag">手打</text>
+            <text wx:if="{{item.speakerStatus === 'auto_recognized'}}" class="tl-tag tl-tag-auto">声纹</text>
+          </view>
+          <view class="tl-text">{{item.text}}</view>
+        </view>
+      </scroll-view>
+
+      <!-- 用户上滑后, 累积新转录时显跳到底部按钮 -->
+      <view
+        wx:if="{{pendingNewCount > 0}}"
+        class="jump-bottom-fab"
+        bindtap="onJumpToBottom"
+      >
+        ↓ {{pendingNewCount}} 条新
       </view>
     </view>
 

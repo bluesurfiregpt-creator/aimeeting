@@ -287,39 +287,132 @@ page {
   font-size: 24rpx;
 }
 
-/* 转录占位 */
-.placeholder-box {
-  margin: 24rpx 32rpx 32rpx;
-  padding: 48rpx 24rpx;
+/* ===== 实时转录区 (第 2 刀) ===== */
+
+.transcript-block {
+  position: relative;
+  margin: 24rpx 32rpx 0;
+  padding: 24rpx;
   background: #18181b;
   border-radius: 24rpx;
-  border: 2rpx dashed #3f3f46;
-  text-align: center;
 }
 
-.ph-icon {
-  font-size: 64rpx;
+.transcript-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 16rpx;
 }
 
-.ph-title {
-  font-size: 30rpx;
-  color: #e4e4e7;
+.th-left {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+}
+
+.th-title {
+  font-size: 28rpx;
   font-weight: 600;
-  margin-bottom: 8rpx;
+  color: #fafafa;
 }
 
-.ph-body {
-  font-size: 24rpx;
+.th-count {
+  font-size: 22rpx;
   color: #71717a;
-  line-height: 1.6;
-  margin-bottom: 16rpx;
 }
 
-.ph-stats {
+/* WS 连接状态 */
+.ws-state-ready {
+  font-size: 22rpx;
+  color: #6ee7b7;
+}
+
+.ws-state-connected,
+.ws-state-connecting,
+.ws-state-reconnecting {
+  font-size: 22rpx;
+  color: #fcd34d;
+}
+
+.ws-state-closed,
+.ws-state-idle {
+  font-size: 22rpx;
+  color: #71717a;
+}
+
+/* scroll-view */
+.transcript-scroll {
+  height: 800rpx;          /* 固定高度让 scroll-view 工作; 后续刀可调 */
+  background: #0f0f12;
+  border-radius: 16rpx;
+  padding: 16rpx 20rpx;
+  box-sizing: border-box;
+}
+
+.transcript-empty {
+  text-align: center;
+  padding: 80rpx 0;
+  color: #71717a;
+  font-size: 26rpx;
+}
+
+/* 单行 */
+.transcript-line {
+  margin-bottom: 20rpx;
+}
+
+.tl-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+  margin-bottom: 6rpx;
+}
+
+.tl-speaker {
   font-size: 24rpx;
+  font-weight: 600;
   color: #a1a1aa;
-  margin-top: 8rpx;
+}
+
+.tl-time {
+  font-size: 22rpx;
+  color: #52525b;
+  font-variant-numeric: tabular-nums;
+}
+
+.tl-tag {
+  padding: 1rpx 8rpx;
+  border-radius: 6rpx;
+  font-size: 20rpx;
+  background: rgba(115, 115, 130, 0.15);
+  color: #a1a1aa;
+}
+
+.tl-tag-auto {
+  background: rgba(16, 185, 129, 0.12);
+  color: #6ee7b7;
+}
+
+.tl-text {
+  font-size: 28rpx;
+  line-height: 1.55;
+  color: #e4e4e7;
+  word-break: break-word;
+}
+
+/* 跳到底部 fab */
+.jump-bottom-fab {
+  position: absolute;
+  left: 50%;
+  bottom: 88rpx;
+  transform: translateX(-50%);
+  padding: 12rpx 24rpx;
+  background: rgba(139, 92, 246, 0.95);
+  color: #fff;
+  font-size: 24rpx;
+  border-radius: 999rpx;
+  box-shadow: 0 8rpx 24rpx rgba(139, 92, 246, 0.4);
+  z-index: 10;
 }
 
 /* Footer 按钮 */
