@@ -173,6 +173,11 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=_new_uuid)
     name: Mapped[str] = mapped_column(String(128))
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
+    # v27.2 手机号登录: phone 跟 email 并列 作为 登录账号. 中国手机号 11 位
+    # (^1\d{10}$). 存的时候 已 strip 掉 "+86" 前缀, 数据库里 只 留 11 位.
+    # NULL = 没填 (email-only 老用户). 偏分 unique index 在 init_db 里 加
+    # (NULL 多, 非 NULL 唯一).
+    phone: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     role: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     # Auth (Sprint F): password_hash null means this is a "speaker-only"
     # user — created during voiceprint enrollment, can't log in. Real
@@ -197,6 +202,15 @@ class User(Base):
     workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("workspace.id"), nullable=True, index=True
     )
+    # v27.1 微信 OAuth: 一键登录的 openid (同一个 mini program AppID 下唯一).
+    # 首次登录: 用户邮密绑定一次 → 服务端把 wx_openid 写到 User → 后续 wx.login
+    # 直接换 token.
+    # NULL = 该账号 还没绑微信 (e.g. demo seed user / 桌面 H5 注册用户).
+    # 部分 unique index 在 init_db (CREATE UNIQUE INDEX ... WHERE wx_openid IS NOT NULL).
+    wx_openid: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    # 同一开放平台下 跨 mini program / 公众号 / Web 应用 的同人识别. 单 mini program
+    # 场景下用不到 (openid 已唯一), 留字段是为了未来 同时上 App / 公众号 时不再 migrate.
+    wx_unionid: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     voiceprints: Mapped[list["Voiceprint"]] = relationship(back_populates="user", cascade="all, delete-orphan")

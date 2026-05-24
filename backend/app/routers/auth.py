@@ -51,8 +51,35 @@ def _slugify(name: str) -> str:
     return base[:48]
 
 
+# v27.2 手机号 / 邮箱 都可作为登录账号. 中国手机号: 11 位, 1 开头.
+# 允许 "+86" / "86" / 空格 / 横线 等等 用户随手输入, normalize 之后只留数字 11 位.
+_PHONE_RE = re.compile(r"^1\d{10}$")
+_PHONE_CLEAN_RE = re.compile(r"[\s\-]")  # 抽掉 空白 + 横线
+
+
+def _normalize_phone(raw: str) -> Optional[str]:
+    """把用户输入归一到 11 位 CN 手机号. 不是 CN 手机号 → 返 None.
+
+    接受 形式: "13812345678" / "+86 138-1234-5678" / "86 13812345678"
+    """
+    s = _PHONE_CLEAN_RE.sub("", raw or "").strip()
+    if s.startswith("+86"):
+        s = s[3:]
+    elif s.startswith("86") and len(s) == 13:
+        s = s[2:]
+    return s if _PHONE_RE.match(s) else None
+
+
+def _looks_like_email(s: str) -> bool:
+    """粗判 — 真正合法 由 EmailStr / 上游 EmailValidator 决定."""
+    return "@" in (s or "")
+
+
 class RegisterIn(BaseModel):
-    email: EmailStr
+    # v27.2: email 或 phone 必须 至少 给 一个 (现在 phone 也算 注册账号).
+    # 老 client 只 传 email — 仍然 work.
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
     password: str
     name: str
     workspace_name: Optional[str] = None  # if omitted, use "<name> 的工作空间"
@@ -60,7 +87,13 @@ class RegisterIn(BaseModel):
 
 
 class LoginIn(BaseModel):
-    email: EmailStr
+    # v27.2 三种入参 任 一 即可 (优先级 account > email > phone):
+    #   account — 通用入口, 服务端 自动 识别 email / phone (推荐 新 client 用)
+    #   email   — 老 client 兼容
+    #   phone   — 显式 手机号 (老 client 不会用, 但 留 hook)
+    account: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
     password: str
 
 
@@ -123,6 +156,17 @@ async def register(
     if len(payload.password) < 6:
         raise HTTPException(400, "password too short (min 6)")
 
+    # v27.2: email 或 phone 至少 一个; 都没 就 没法 后续 找回 / 二次登录.
+    if not payload.email and not payload.phone:
+        raise HTTPException(400, "请提供邮箱或手机号")
+
+    # phone 格式 check + normalize (存 11 位 无 +86)
+    normalized_phone: Optional[str] = None
+    if payload.phone:
+        normalized_phone = _normalize_phone(payload.phone)
+        if not normalized_phone:
+            raise HTTPException(400, "手机号格式不正确 (需 11 位 CN 手机号)")
+
     # If an invite token is provided, the new user joins the inviter's
     # workspace as the invited role instead of creating a fresh one.
     invite: Optional[WorkspaceInvitation] = None
@@ -141,13 +185,24 @@ async def register(
         if invite.expires_at < datetime.now(timezone.utc):
             raise HTTPException(410, "invite expired")
 
-    existing = (
-        await session.execute(
-            select(User).where(func.lower(User.email) == payload.email.lower())
-        )
-    ).scalar_one_or_none()
-    if existing and existing.password_hash:
-        raise HTTPException(409, "email already registered")
+    # 同 email / phone 唯一性 校验 — 任 一 已 注册 (含 password) 就 拒.
+    existing: Optional[User] = None
+    if payload.email:
+        existing = (
+            await session.execute(
+                select(User).where(func.lower(User.email) == payload.email.lower())
+            )
+        ).scalar_one_or_none()
+        if existing and existing.password_hash:
+            raise HTTPException(409, "邮箱已被注册")
+    if normalized_phone and not existing:
+        existing = (
+            await session.execute(
+                select(User).where(User.phone == normalized_phone)
+            )
+        ).scalar_one_or_none()
+        if existing and existing.password_hash:
+            raise HTTPException(409, "手机号已被注册")
 
     if invite is not None:
         # Join the inviting workspace
@@ -177,8 +232,12 @@ async def register(
         role = "owner"
 
     if existing:
-        # Speaker-only stub (e.g. enrolled via /enroll without password); upgrade it
-        existing.email = payload.email
+        # Speaker-only stub (e.g. enrolled via /enroll without password); upgrade it.
+        # v27.2: 任 一 字段 没值 时 自动 补 (existing 可能 只 有 phone, 注册 时 给 email).
+        if payload.email and not existing.email:
+            existing.email = payload.email
+        if normalized_phone and not existing.phone:
+            existing.phone = normalized_phone
         existing.password_hash = hash_password(payload.password)
         existing.workspace_id = ws.id
         existing.last_login_at = datetime.now(timezone.utc)
@@ -188,6 +247,7 @@ async def register(
         user = User(
             name=payload.name,
             email=payload.email,
+            phone=normalized_phone,
             password_hash=hash_password(payload.password),
             workspace_id=ws.id,
             last_login_at=datetime.now(timezone.utc),
@@ -368,43 +428,14 @@ async def login(
     response: Response,
     session: AsyncSession = Depends(get_session),
 ):
-    user = (
-        await session.execute(
-            select(User).where(func.lower(User.email) == payload.email.lower())
-        )
-    ).scalar_one_or_none()
-    if not user or not user.password_hash:
-        raise HTTPException(401, "incorrect email or password")
-    if not verify_password(payload.password, user.password_hash):
-        raise HTTPException(401, "incorrect email or password")
-    if not user.is_active:
-        raise HTTPException(403, "[需重新登录] 账号已被禁用,请联系管理员")
+    """v27.2 接受 email 或 phone (字段名: account / email / phone 任一) + 密码.
 
-    ws_id = user.workspace_id
-    if not ws_id:
-        # auto-self-heal: if somehow the user has no workspace, give them one
-        ws = Workspace(name=f"{user.name} 的工作空间", slug=f"u-{user.id.hex[:8]}")
-        session.add(ws)
-        await session.flush()
-        user.workspace_id = ws.id
-        session.add(WorkspaceMembership(workspace_id=ws.id, user_id=user.id, role="owner"))
-        ws_id = ws.id
-
-    user.last_login_at = datetime.now(timezone.utc)
-    await session.commit()
-
-    ws = (
-        await session.execute(select(Workspace).where(Workspace.id == ws_id))
-    ).scalar_one()
-    membership = (
-        await session.execute(
-            select(WorkspaceMembership).where(
-                WorkspaceMembership.user_id == user.id,
-                WorkspaceMembership.workspace_id == ws.id,
-            )
-        )
-    ).scalar_one_or_none()
-
+    老 client 只 传 email — 走 兼容 路径; 新 client 推荐 用 account 字段 让 server
+    自动 识别.
+    """
+    account = _extract_login_account(payload)
+    user, ws, membership = await _authenticate_user(session, account, payload.password)
+    # _authenticate_user 已 commit (last_login_at 更新). 这里 只 set cookie + 返 MeOut.
     token = issue_token(user.id, ws.id)
     set_session_cookie(response, token)
     return MeOut(
@@ -432,22 +463,56 @@ async def login(
 NATIVE_TOKEN_TTL_DAYS = 30
 
 
+def _extract_login_account(payload: "LoginIn") -> str:
+    """v27.2 从 LoginIn 抽出 用户输入的 "账号" — 优先 account, 退 email, 再 phone.
+
+    全空 → 401 (跟 错密码 同 等级, 不泄露 哪个字段 错).
+    """
+    raw: Optional[str] = None
+    if payload.account:
+        raw = payload.account
+    elif payload.email:
+        raw = str(payload.email)
+    elif payload.phone:
+        raw = payload.phone
+    if not raw:
+        raise HTTPException(401, "incorrect account or password")
+    return raw.strip()
+
+
 async def _authenticate_user(
-    session: AsyncSession, email: str, password: str
+    session: AsyncSession, account: str, password: str
 ) -> tuple[User, Workspace, Optional[WorkspaceMembership]]:
-    """复用的鉴权 helper — 从邮箱 + 密码 拉 user / workspace / membership.
+    """复用 鉴权 helper — 账号 (邮箱或手机号) + 密码 → user / workspace / membership.
+
+    v27.2 起 同一 helper 处理 email + phone:
+      - account 含 '@' → 按 email 查 (case-insensitive)
+      - account 是 11 位 CN 手机号 (经 _normalize_phone) → 按 phone 查
+      - 都不像 → 401 (不泄露 是 格式 错 还是 查无此人)
 
     抽出来让 /login (cookie 路径) 和 /token (Bearer 路径) 共用. raise 401/403 同 /login.
     """
-    user = (
-        await session.execute(
-            select(User).where(func.lower(User.email) == email.lower())
-        )
-    ).scalar_one_or_none()
+    user: Optional[User] = None
+    if _looks_like_email(account):
+        user = (
+            await session.execute(
+                select(User).where(func.lower(User.email) == account.lower())
+            )
+        ).scalar_one_or_none()
+    else:
+        phone = _normalize_phone(account)
+        if phone:
+            user = (
+                await session.execute(
+                    select(User).where(User.phone == phone)
+                )
+            ).scalar_one_or_none()
+        # 既 不像 email 也 不像 phone → user 留 None → 走 下面 401
+
     if not user or not user.password_hash:
-        raise HTTPException(401, "incorrect email or password")
+        raise HTTPException(401, "incorrect account or password")
     if not verify_password(password, user.password_hash):
-        raise HTTPException(401, "incorrect email or password")
+        raise HTTPException(401, "incorrect account or password")
     if not user.is_active:
         raise HTTPException(403, "[需重新登录] 账号已被禁用,请联系管理员")
 
@@ -494,9 +559,12 @@ async def issue_native_token(
     - 距 expires_at < 7 天 时调 POST /api/auth/token/refresh 续期
 
     跟 /login 不设 cookie, 互不影响.
+
+    v27.2: account / email / phone 任 一 + password.
     """
+    account = _extract_login_account(payload)
     user, ws, membership = await _authenticate_user(
-        session, payload.email, payload.password
+        session, account, payload.password
     )
     token = issue_token(user.id, ws.id, ttl_days=NATIVE_TOKEN_TTL_DAYS)
     expires_at = datetime.now(timezone.utc) + timedelta(days=NATIVE_TOKEN_TTL_DAYS)
@@ -581,6 +649,426 @@ async def refresh_native_token(
     expires_at = datetime.now(timezone.utc) + timedelta(days=NATIVE_TOKEN_TTL_DAYS)
     return TokenIssueOut(
         token=new_token,
+        token_type="Bearer",
+        expires_at=expires_at,
+        user_id=auth.user.id,
+        workspace_id=auth.workspace.id,
+        role=membership.role if membership else "member",
+    )
+
+
+# ============================================================================
+# v27.1 微信 OAuth (原生小程序一键登录)
+# ============================================================================
+#
+# 流程:
+#   - wx-login: 小程序 wx.login() → code → POST /api/auth/wx-login
+#     * openid 命中 User → 发 30 天 token (跟 /api/auth/token 等价)
+#     * 未命中  → 200 + {bound: false} 让 客户端 提示 用户 邮密 绑定一次
+#   - wx-bind:  已 Bearer 登录 状态 下, 再 wx.login() 一次 拿 code → POST,
+#     把 openid 写到 当前 User. 之后 wx-login 就能一键过.
+#
+# 安全:
+#   - openid 不从 server → client 透出. 全程 code (5 min, 一次性) 由 wx 框架
+#     生成 + 走 https + server 端 code2Session.
+#   - openid unique partial index (init_db) — 同一 openid 不能 绑 两个 User.
+#   - 缺 WX_APPID / WX_SECRET 时 endpoint 返 503, 不静默 fail.
+
+class WxLoginIn(BaseModel):
+    code: str  # wx.login() 拿到的 5-min 一次性 code
+
+
+class WxBindIn(BaseModel):
+    code: str
+
+
+class WxPhoneLoginIn(BaseModel):
+    """手机号一键登录 入参.
+
+    code: getPhoneNumber 按钮 bindgetphonenumber 拿到的 5-min 一次性 code
+    wx_login_code: (可选) 同时 fire 的 wx.login() code. 若 提供, 后端 顺手把
+                   openid 也绑到 该 User, 之后 wx-login 可秒进.
+    """
+    code: str
+    wx_login_code: Optional[str] = None
+
+
+class WxLoginOut(BaseModel):
+    """两种返回形态合并:
+       - bound=true   → 跟 TokenIssueOut 一致, token / expires_at 等填齐
+       - bound=false  → token 等都 None, 客户端切到 邮密 绑定 UI
+    """
+    bound: bool
+    # 仅 bound=true 时 有值
+    token: Optional[str] = None
+    token_type: str = "Bearer"
+    expires_at: Optional[datetime] = None
+    user_id: Optional[uuid.UUID] = None
+    workspace_id: Optional[uuid.UUID] = None
+    role: Optional[str] = None
+
+
+# v27.2 微信 access_token 缓存 (cgi-bin/token).
+#
+# 跟 code2Session 不同, access_token 是 平台级 凭证, 每 2h 过期, 全 mp 共享 (一天
+# 2000 次 quota). 调 getuserphonenumber / 发 模板消息 / 等 需要它.
+#
+# 简单 in-process 缓存; 多 worker 部署 时 各 worker 各自缓存 — 每天 ~24 × worker
+# 次刷新, 离 2000 quota 远着, 不上 redis.
+import asyncio as _asyncio
+import time as _time
+
+_WX_ACCESS_TOKEN_LOCK = _asyncio.Lock()
+_WX_ACCESS_TOKEN_CACHE = {"token": None, "expires_at": 0.0}
+
+
+async def _wx_access_token() -> str:
+    """拿 platform-level access_token. 缓存 ~2h, 过期前 60s 自动 refresh."""
+    now = _time.time()
+    cached = _WX_ACCESS_TOKEN_CACHE
+    if cached["token"] and cached["expires_at"] > now + 60:
+        return cached["token"]
+    async with _WX_ACCESS_TOKEN_LOCK:
+        # double-check after acquiring lock
+        now = _time.time()
+        cached = _WX_ACCESS_TOKEN_CACHE
+        if cached["token"] and cached["expires_at"] > now + 60:
+            return cached["token"]
+
+        import httpx
+        from ..config import get_settings
+        s = get_settings()
+        if not s.wx_appid or not s.wx_secret:
+            raise HTTPException(503, "微信 OAuth 未配置 (服务端缺 WX_APPID / WX_SECRET)")
+        params = {
+            "grant_type": "client_credential",
+            "appid": s.wx_appid,
+            "secret": s.wx_secret,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=3.0)) as c:
+                r = await c.get("https://api.weixin.qq.com/cgi-bin/token", params=params)
+                data = r.json()
+        except Exception as e:
+            logger.exception("wx access_token network failure")
+            raise HTTPException(502, f"获取微信 access_token 失败: {e}")
+        if data.get("errcode"):
+            logger.warning(
+                "wx access_token errcode=%s errmsg=%s",
+                data.get("errcode"), data.get("errmsg"),
+            )
+            raise HTTPException(
+                502,
+                f"获取微信 access_token 失败: {data.get('errmsg')} (errcode {data.get('errcode')})",
+            )
+        token = data.get("access_token")
+        expires_in = int(data.get("expires_in") or 7200)
+        if not token:
+            raise HTTPException(502, "微信 API 响应缺 access_token")
+        _WX_ACCESS_TOKEN_CACHE["token"] = token
+        _WX_ACCESS_TOKEN_CACHE["expires_at"] = now + expires_in
+        return token
+
+
+async def _phone_code_to_phone(code: str) -> str:
+    """调微信 getuserphonenumber 拿 用户的 微信注册手机号. 返 11 位 (无 +86).
+
+    raise:
+      - 503 WX OAuth 未配置
+      - 400 phone code 无效 / 已过期
+      - 502 微信 API 异常 / 解析失败
+    """
+    import httpx
+    access_token = await _wx_access_token()
+    url = (
+        "https://api.weixin.qq.com/wxa/business/getuserphonenumber"
+        f"?access_token={access_token}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=3.0)) as c:
+            r = await c.post(url, json={"code": code})
+            data = r.json()
+    except Exception as e:
+        logger.exception("wx getuserphonenumber network failure")
+        raise HTTPException(502, f"微信 API 调用失败: {e}")
+
+    if data.get("errcode"):
+        # 常见 errcode:
+        #   40029 code 过期 / 已用
+        #   40159 quota exceed (免费 1000/月)
+        #   45011 频率限制
+        logger.warning(
+            "wx getuserphonenumber errcode=%s errmsg=%s",
+            data.get("errcode"), data.get("errmsg"),
+        )
+        raise HTTPException(
+            400,
+            f"微信手机号验证失败: {data.get('errmsg') or 'getuserphonenumber error'} "
+            f"(errcode {data.get('errcode')})",
+        )
+    phone_info = data.get("phone_info") or {}
+    pure = phone_info.get("purePhoneNumber") or ""
+    # 微信返的 purePhoneNumber 已经 不含 +86. 但 防御性 再 normalize 一次.
+    normalized = _normalize_phone(pure)
+    if not normalized:
+        raise HTTPException(502, f"微信返回的手机号格式异常: {pure!r}")
+    return normalized
+
+
+async def _code_to_openid(code: str) -> tuple[str, Optional[str]]:
+    """调微信 code2Session 拿 openid (+ optional unionid).
+
+    raise HTTPException:
+      - 503 WX OAuth 未配置 (env 缺 WX_APPID / WX_SECRET)
+      - 400 code 无效 / 已过期 (微信返 errcode != 0)
+      - 502 微信 API 网络 / 解析 异常
+    """
+    import httpx
+    from ..config import get_settings
+    s = get_settings()
+    if not s.wx_appid or not s.wx_secret:
+        raise HTTPException(
+            503,
+            "微信 OAuth 未配置 (服务端缺 WX_APPID / WX_SECRET)",
+        )
+    params = {
+        "appid": s.wx_appid,
+        "secret": s.wx_secret,
+        "js_code": code,
+        "grant_type": "authorization_code",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=3.0)) as c:
+            r = await c.get(s.wx_code2session_url, params=params)
+            data = r.json()
+    except Exception as e:
+        logger.exception("wx code2Session network failure")
+        raise HTTPException(502, f"微信 API 调用失败: {e}")
+
+    if data.get("errcode"):
+        # 常见 errcode:
+        #   40029 invalid code (已过期 / 已用过)
+        #   45011 频率限制 (100 次/min)
+        #   40226 高风险用户 — 拒登
+        logger.warning(
+            "wx code2Session errcode=%s errmsg=%s",
+            data.get("errcode"),
+            data.get("errmsg"),
+        )
+        raise HTTPException(
+            400,
+            f"微信登录失败: {data.get('errmsg') or 'code2Session error'} "
+            f"(errcode {data.get('errcode')})",
+        )
+    openid = data.get("openid")
+    if not openid:
+        raise HTTPException(502, "微信 API 响应缺 openid")
+    return openid, data.get("unionid")
+
+
+@router.post("/wx-login", response_model=WxLoginOut)
+async def wx_login(
+    payload: WxLoginIn,
+    session: AsyncSession = Depends(get_session),
+):
+    """微信一键登录入口. 完全不需要 Bearer.
+
+    成功: bound=true + token + 各字段填齐.
+    未绑: bound=false (其他字段 None) — 客户端弹邮密绑定页, 再走 /wx-bind.
+    """
+    openid, unionid = await _code_to_openid(payload.code)
+    user = (
+        await session.execute(select(User).where(User.wx_openid == openid))
+    ).scalar_one_or_none()
+    if not user:
+        return WxLoginOut(bound=False)
+    if not user.is_active:
+        raise HTTPException(403, "[需重新登录] 账号已被禁用,请联系管理员")
+
+    # 顺手把 unionid 补上 (老数据 可能 只 有 openid, 现在 拿到 unionid 就 持久化)
+    if unionid and not user.wx_unionid:
+        user.wx_unionid = unionid
+
+    ws_id = user.workspace_id
+    if not ws_id:
+        # 跟 _authenticate_user 一致: 没 workspace 的用户 auto-self-heal
+        ws = Workspace(name=f"{user.name} 的工作空间", slug=f"u-{user.id.hex[:8]}")
+        session.add(ws)
+        await session.flush()
+        user.workspace_id = ws.id
+        session.add(
+            WorkspaceMembership(workspace_id=ws.id, user_id=user.id, role="owner")
+        )
+        ws_id = ws.id
+
+    user.last_login_at = datetime.now(timezone.utc)
+    await session.commit()
+
+    ws = (
+        await session.execute(select(Workspace).where(Workspace.id == ws_id))
+    ).scalar_one()
+    membership = (
+        await session.execute(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.user_id == user.id,
+                WorkspaceMembership.workspace_id == ws.id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    token = issue_token(user.id, ws.id, ttl_days=NATIVE_TOKEN_TTL_DAYS)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=NATIVE_TOKEN_TTL_DAYS)
+    return WxLoginOut(
+        bound=True,
+        token=token,
+        token_type="Bearer",
+        expires_at=expires_at,
+        user_id=user.id,
+        workspace_id=ws.id,
+        role=membership.role if membership else "member",
+    )
+
+
+@router.post("/wx-phone-login", response_model=WxLoginOut)
+async def wx_phone_login(
+    payload: WxPhoneLoginIn,
+    session: AsyncSession = Depends(get_session),
+):
+    """v27.2 微信手机号 一键登录.
+
+    流程:
+      1. 客户端 <button open-type="getPhoneNumber"> 拿到 phone code
+      2. (同时) 客户端 wx.login() 拿到 openid code — 可选 一起 传
+      3. 后端: code → getuserphonenumber → purePhoneNumber (11 位 无 +86)
+      4. 后端: 按 phone 查 User.phone (跟 邮密登录 同 lookup 一致)
+         - 命中: 顺手 把 openid 也绑了 (若 wx_login_code 提供且 user 还没 openid)
+                 → 发 30 天 token (bound=True, 体验同 /api/auth/token)
+         - 不命中: 返 bound=False, 让 客户端 提示 "该手机号 还没账号, 请联系管理员"
+                  或 fallback 到 邮密表单
+      5. 之后 用户开 小程序 → wx.login → openid 命中 → 0 操作 进 home
+
+    安全:
+      - phone code 一次性, 5min 过期 (微信 enforce)
+      - 不用 SMS, 也不需要 access_token cache 暴露给前端 — server 端 cache
+      - 没有 phone 字段 / 没绑微信手机号 的 user 永远走不到这条路
+    """
+    phone = await _phone_code_to_phone(payload.code)
+
+    user = (
+        await session.execute(select(User).where(User.phone == phone))
+    ).scalar_one_or_none()
+    if not user:
+        return WxLoginOut(bound=False)
+    if not user.is_active:
+        raise HTTPException(403, "[需重新登录] 账号已被禁用,请联系管理员")
+
+    # 顺手 绑 openid (如果 客户端 一起 传了 wx.login code, 且 user 还没 openid)
+    if payload.wx_login_code:
+        try:
+            openid, unionid = await _code_to_openid(payload.wx_login_code)
+            if not user.wx_openid:
+                user.wx_openid = openid
+            if unionid and not user.wx_unionid:
+                user.wx_unionid = unionid
+        except HTTPException:
+            # wx_login_code 失败 不阻塞 phone 登录 — 只是 没法 顺手绑 openid
+            logger.warning("wx_login_code 失败, 跳过 openid 绑定 (phone 登录仍走)")
+
+    ws_id = user.workspace_id
+    if not ws_id:
+        # auto-self-heal
+        ws = Workspace(name=f"{user.name} 的工作空间", slug=f"u-{user.id.hex[:8]}")
+        session.add(ws)
+        await session.flush()
+        user.workspace_id = ws.id
+        session.add(
+            WorkspaceMembership(workspace_id=ws.id, user_id=user.id, role="owner")
+        )
+        ws_id = ws.id
+
+    user.last_login_at = datetime.now(timezone.utc)
+    await session.commit()
+
+    ws = (
+        await session.execute(select(Workspace).where(Workspace.id == ws_id))
+    ).scalar_one()
+    membership = (
+        await session.execute(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.user_id == user.id,
+                WorkspaceMembership.workspace_id == ws.id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    token = issue_token(user.id, ws.id, ttl_days=NATIVE_TOKEN_TTL_DAYS)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=NATIVE_TOKEN_TTL_DAYS)
+    return WxLoginOut(
+        bound=True,
+        token=token,
+        token_type="Bearer",
+        expires_at=expires_at,
+        user_id=user.id,
+        workspace_id=ws.id,
+        role=membership.role if membership else "member",
+    )
+
+
+@router.post("/wx-bind", response_model=TokenIssueOut)
+async def wx_bind(
+    payload: WxBindIn,
+    auth: AuthContext = Depends(get_current_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    """已 Bearer 登录 的 用户 把 当前 微信 openid 绑到 自己 账号.
+
+    场景: wx-login 返 bound=false → 客户端 弹邮密表单 → POST /api/auth/token
+    拿 token → 再 wx.login() 拿 新 code → 调本 endpoint.
+
+    错误:
+      - 409 openid 已绑到 别的 User (防 抢绑)
+      - 400 当前 User 已绑别的 openid (要换微信号? 应先 unbind, mvp 不做)
+    """
+    openid, unionid = await _code_to_openid(payload.code)
+
+    # 已被别人绑 → 409
+    other = (
+        await session.execute(
+            select(User).where(User.wx_openid == openid, User.id != auth.user.id)
+        )
+    ).scalar_one_or_none()
+    if other:
+        raise HTTPException(409, "该微信号已绑定其他账号")
+
+    # 当前 User 已绑过别的 openid → 拒绝 (不允许 转绑, mvp)
+    if auth.user.wx_openid and auth.user.wx_openid != openid:
+        raise HTTPException(
+            400,
+            "本账号已绑定过其他微信号,如需换绑请先在桌面端解除",
+        )
+
+    # 没问题 → 写入
+    auth.user.wx_openid = openid
+    if unionid:
+        auth.user.wx_unionid = unionid
+    auth.user.last_login_at = datetime.now(timezone.utc)
+    await session.commit()
+
+    # 顺手发一个新 token (避免 客户端 再调 /api/auth/token/refresh 这一步)
+    membership = (
+        await session.execute(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.user_id == auth.user.id,
+                WorkspaceMembership.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    token = issue_token(
+        auth.user.id, auth.workspace.id, ttl_days=NATIVE_TOKEN_TTL_DAYS
+    )
+    expires_at = datetime.now(timezone.utc) + timedelta(days=NATIVE_TOKEN_TTL_DAYS)
+    return TokenIssueOut(
+        token=token,
         token_type="Bearer",
         expires_at=expires_at,
         user_id=auth.user.id,

@@ -29,10 +29,10 @@ logger = logging.getLogger(__name__)
 # Each tuple: (table, column, postgres column-spec). Run as ADD COLUMN IF NOT EXISTS.
 _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     # User auth fields
-    ('"user"', "password_hash", "VARCHAR(255)"),
-    ('"user"', "is_active", "BOOLEAN NOT NULL DEFAULT TRUE"),
-    ('"user"', "last_login_at", "TIMESTAMPTZ"),
-    ('"user"', "workspace_id", "UUID"),
+    ("user", "password_hash", "VARCHAR(255)"),
+    ("user", "is_active", "BOOLEAN NOT NULL DEFAULT TRUE"),
+    ("user", "last_login_at", "TIMESTAMPTZ"),
+    ("user", "workspace_id", "UUID"),
     # Workspace scoping on data tables
     ("agent", "workspace_id", "UUID"),
     ("meeting", "workspace_id", "UUID"),
@@ -79,10 +79,10 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("meeting_agent_message", "citations", "JSONB"),
     # v24.3 #3 (扣分 + 暂停派单):user.suspended_until.
     # NULL = 未暂停;过去时间 = 已恢复.
-    ('"user"', "suspended_until", "TIMESTAMPTZ"),
+    ("user", "suspended_until", "TIMESTAMPTZ"),
     # v24.3 #5 (ABAC 雏形):user.department + attributes JSONB.
-    ('"user"', "department", "VARCHAR(128)"),
-    ('"user"', "attributes", "JSONB"),
+    ("user", "department", "VARCHAR(128)"),
+    ("user", "attributes", "JSONB"),
     # v25.15: action item 实录依据 — 让 用户看 待办的来源句
     ("meeting_action_item", "evidence_quote", "TEXT"),
     # v25.19: action item 实录锚点(LLM 输出的行号数组,JSON 数组).
@@ -168,6 +168,12 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     #   rejection_feedback: 用户 写 的 "为什么 这条 不准 / 错在哪"
     ("memory_draft", "rejection_kind", "VARCHAR(16)"),
     ("memory_draft", "rejection_feedback", "TEXT"),
+    # v27.1 微信 OAuth: User 加 wx_openid + wx_unionid (一键登录映射).
+    # 偏分唯一索引在 init_db 末尾 加 (NULL 允许多个, 非 NULL 唯一).
+    ("user", "wx_openid", "VARCHAR(128)"),
+    ("user", "wx_unionid", "VARCHAR(128)"),
+    # v27.2 手机号 登录: 跟 email 并列, 11 位 CN 手机号 存原值 (无 +86 前缀).
+    ("user", "phone", "VARCHAR(16)"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).
@@ -192,17 +198,20 @@ async def init_db() -> None:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
-        # 2. additive ALTERs for existing tables that gained columns
+        # 2. additive ALTERs for existing tables that gained columns.
+        # v27.2 fix: 始终 "" 引号 包 table name. "user" 是 PG reserved keyword,
+        # 不引号 会 ALTER TABLE user ADD ... 语法 错. 其他 表名 (meeting / agent
+        # 等) 不是 keyword, 但 引号也 不影响 (PG 接受 mixed-case quoted).
         for table, col, spec in _COLUMN_MIGRATIONS:
             await conn.execute(
-                text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {spec}")
+                text(f'ALTER TABLE "{table}" ADD COLUMN IF NOT EXISTS {col} {spec}')
             )
 
         # 2b. ALTER COLUMN TYPE for capacity extensions (idempotent — PG no-ops
         # when current type matches target).
         for table, col, spec in _COLUMN_TYPE_MIGRATIONS:
             await conn.execute(
-                text(f"ALTER TABLE {table} ALTER COLUMN {col} TYPE {spec}")
+                text(f'ALTER TABLE "{table}" ALTER COLUMN {col} TYPE {spec}')
             )
 
         # 2c. v26.13.2: KbSedimentationDraft.task_id 改 nullable — Perplexity 抓取
@@ -661,6 +670,12 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS ix_meeting_attendee_agent_id ON meeting_attendee (agent_id) WHERE agent_id IS NOT NULL",
             "CREATE INDEX IF NOT EXISTS ix_meeting_attendee_meeting_id ON meeting_attendee (meeting_id)",
             "CREATE INDEX IF NOT EXISTS ix_meeting_attendee_user_id ON meeting_attendee (user_id) WHERE user_id IS NOT NULL",
+            # v27.1 微信 OAuth: wx_openid 偏分 unique index (NULL 多, 非 NULL 唯一).
+            # 用 WHERE 子句 partial index, 避免 NULL 触发 unique violation.
+            'CREATE UNIQUE INDEX IF NOT EXISTS ix_user_wx_openid ON "user" (wx_openid) WHERE wx_openid IS NOT NULL',
+            'CREATE UNIQUE INDEX IF NOT EXISTS ix_user_wx_unionid ON "user" (wx_unionid) WHERE wx_unionid IS NOT NULL',
+            # v27.2 phone 登录: phone 偏分 unique index (同 wx_openid 模式).
+            'CREATE UNIQUE INDEX IF NOT EXISTS ix_user_phone ON "user" (phone) WHERE phone IS NOT NULL',
         ]:
             try:
                 await conn.execute(text(sql))

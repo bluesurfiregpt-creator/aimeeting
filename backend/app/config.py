@@ -52,6 +52,16 @@ class Settings(BaseSettings):
     # 示例:PLATFORM_ADMIN_EMAILS=bluesurfiregpt@gmail.com,ops@yourcompany.com
     platform_admin_emails: str = ""
 
+    # v27.1 微信 OAuth (原生小程序一键登录)
+    # AppID 公开,从 mp.weixin.qq.com → 开发 → 开发管理 → 开发设置.
+    # AppSecret 私密 — 后台同一页面 "重置". 若历史 secret 已泄露 必须 reset.
+    # 任一为空 时, /api/auth/wx-login 返 503 提示 "未配置微信 OAuth".
+    # 部署: 在 /opt/aimeeting/deploy/.env 加 WX_APPID=... + WX_SECRET=...
+    wx_appid: str = ""
+    wx_secret: str = ""
+    # code2Session API. 默认是官方 endpoint, 一般不改.
+    wx_code2session_url: str = "https://api.weixin.qq.com/sns/jscode2session"
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
