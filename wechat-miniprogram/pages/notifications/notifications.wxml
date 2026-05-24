@@ -1,0 +1,91 @@
+<!-- pages/notifications/notifications.wxml — v27.2 「通知」原生页 -->
+
+<view class="page page-fade-in">
+
+  <!-- ============ 自定义导航栏 ============ -->
+  <view class="cnav" style="padding-top: {{statusBarHeight}}px;">
+    <view class="cnav-inner" style="height: {{navBarHeight}}px;">
+      <view class="cnav-back" bindtap="onTapBack" hover-class="cnav-back-hover">
+        <text class="cnav-back-arrow">‹</text>
+      </view>
+      <view class="cnav-title">通知</view>
+    </view>
+  </view>
+
+  <!-- 顶部 "全部已读" 条 -->
+  <view wx:if="{{!loading && !error && rows.length > 0}}" class="topbar">
+    <text class="topbar-count">{{unreadCount > 0 ? unreadCount + ' 条未读' : '全部已读'}}</text>
+    <view
+      wx:if="{{unreadCount > 0}}"
+      class="mark-all {{marking ? 'mark-all-busy' : ''}}"
+      bindtap="onTapMarkAll"
+      hover-class="mark-all-hover"
+      hover-stay-time="80"
+    >{{marking ? '处理中…' : '全部已读'}}</view>
+  </view>
+
+  <scroll-view
+    scroll-y
+    class="body"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refreshing}}"
+    bindrefresherrefresh="onPullDownRefresh"
+  >
+
+    <!-- Loading -->
+    <block wx:if="{{loading}}">
+      <view class="sk sk-row"></view>
+      <view class="sk sk-row"></view>
+      <view class="sk sk-row"></view>
+    </block>
+
+    <!-- Error -->
+    <block wx:elif="{{error}}">
+      <view class="centered">
+        <view class="centered-title">未能加载</view>
+        <view class="centered-body">{{error}}</view>
+        <button class="btn-ghost" bindtap="onTapRetry">重试</button>
+      </view>
+    </block>
+
+    <!-- Empty -->
+    <block wx:elif="{{rows.length === 0}}">
+      <view class="empty-card">
+        <view class="empty-emoji">🔔</view>
+        <view class="empty-title">还没有通知</view>
+        <view class="empty-body">会议邀请 / 任务派发 / AI 草稿待审 等会出现在这里</view>
+      </view>
+    </block>
+
+    <!-- 列表 -->
+    <block wx:else>
+      <view
+        wx:for="{{rows}}"
+        wx:key="id"
+        wx:for-item="n"
+        wx:for-index="idx"
+        class="notif-card notif-enter {{n._isUnread ? 'notif-unread' : ''}}"
+        style="animation-delay: {{n._animDelayMs}}ms;"
+        data-idx="{{idx}}"
+        bindtap="onTapRow"
+        hover-class="notif-hover"
+        hover-stay-time="80"
+      >
+        <view class="notif-dot-col">
+          <view wx:if="{{n._isUnread}}" class="unread-dot {{n._dotClass}}"></view>
+        </view>
+        <view class="notif-emoji">{{n._emoji}}</view>
+        <view class="notif-body">
+          <view class="notif-head">
+            <text class="notif-kind">{{n._kindLabel}}</text>
+            <text class="notif-when">{{n._whenLabel}}</text>
+          </view>
+          <view wx:if="{{n._title}}" class="notif-title">{{n._title}}</view>
+        </view>
+      </view>
+      <view class="bottom-pad"></view>
+    </block>
+
+  </scroll-view>
+
+</view>

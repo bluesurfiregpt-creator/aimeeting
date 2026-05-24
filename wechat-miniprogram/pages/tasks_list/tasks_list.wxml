@@ -1,0 +1,188 @@
+<!-- pages/tasks_list/tasks_list.wxml — v27.0-mobile S3 -->
+
+<view class="page page-fade-in">
+
+  <!-- ============ Header (custom nav 留顶) ============ -->
+  <view class="hd" style="padding-top: {{navPadTop}}px;">
+    <view class="hd-row">
+      <view class="hd-title">任务</view>
+      <view class="hd-icons">
+        <view
+          class="hd-icon-btn"
+          bindtap="onTapNotifications"
+          hover-class="hd-icon-hover"
+          hover-stay-time="80"
+        >🔔</view>
+        <view
+          class="hd-icon-btn"
+          bindtap="onTapMe"
+          hover-class="hd-icon-hover"
+          hover-stay-time="80"
+        >⚙</view>
+      </view>
+    </view>
+    <view class="hd-segment">
+      <view
+        class="seg-item {{tab === 'pending' ? 'seg-on' : ''}}"
+        data-tab="pending"
+        bindtap="onTapTab"
+      >
+        <text class="seg-label">等你处理</text>
+        <text wx:if="{{counts.pending > 0}}" class="seg-count">{{counts.pending}}</text>
+      </view>
+      <view
+        class="seg-item {{tab === 'tracking' ? 'seg-on' : ''}}"
+        data-tab="tracking"
+        bindtap="onTapTab"
+      >
+        <text class="seg-label">跟踪中</text>
+        <text wx:if="{{counts.tracking > 0}}" class="seg-count">{{counts.tracking}}</text>
+      </view>
+      <view
+        class="seg-item {{tab === 'done' ? 'seg-on' : ''}}"
+        data-tab="done"
+        bindtap="onTapTab"
+      >
+        <text class="seg-label">已完成</text>
+        <text wx:if="{{counts.done > 0}}" class="seg-count">{{counts.done}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ============ Body ============ -->
+  <scroll-view
+    scroll-y
+    class="body"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refreshing}}"
+    bindrefresherrefresh="onPullDownRefresh"
+  >
+
+    <!-- Loading -->
+    <block wx:if="{{loading}}">
+      <view class="sk sk-card"></view>
+      <view class="sk sk-card"></view>
+    </block>
+
+    <!-- Error -->
+    <block wx:elif="{{error}}">
+      <view class="centered">
+        <view class="centered-title">未能加载</view>
+        <view class="centered-body">{{error}}</view>
+        <button class="btn-ghost" bindtap="onTapRetry">重试</button>
+      </view>
+    </block>
+
+    <!-- Empty -->
+    <block wx:elif="{{rows.length === 0}}">
+      <view class="empty-card">
+        <view class="empty-title">{{emptyTitle}}</view>
+        <view wx:if="{{emptyBody}}" class="empty-body">{{emptyBody}}</view>
+      </view>
+    </block>
+
+    <!-- pending tab — full 卡片 + CTA -->
+    <block wx:elif="{{tab === 'pending'}}">
+      <view
+        wx:for="{{rows}}"
+        wx:key="_rowKey"
+        wx:for-item="t"
+        wx:for-index="idx"
+        class="task-card task-enter"
+        style="animation-delay: {{t._animDelayMs}}ms;"
+      >
+        <!-- Header — 整块 可点跳详情 (catchtap 让按钮 区不冒泡) -->
+        <view
+          class="task-head-area"
+          data-id="{{t.id}}"
+          data-source-kind="{{t.source_kind}}"
+          bindtap="onTapTask"
+          hover-class="task-hover"
+          hover-stay-time="80"
+        >
+          <view class="task-head">
+            <view class="badge {{t._kindTone}}">{{t._kindLabel}}</view>
+            <text wx:if="{{t._ageLabel}}" class="task-age">{{t._ageLabel}}</text>
+          </view>
+          <view class="task-title">{{t.title}}</view>
+          <view wx:if="{{t.source_meeting_title}}" class="task-source">
+            来自: {{t.source_meeting_title}}
+          </view>
+        </view>
+
+        <!-- AI 智囊 (insights) -->
+        <view wx:if="{{t._hasInsights}}" class="insights">
+          <view class="insights-label">🧠 AI 判断 · {{t._insights.length}} 条</view>
+          <view
+            wx:for="{{t._insights}}"
+            wx:key="id"
+            wx:for-item="ins"
+            class="insight-row"
+          >
+            <view class="insight-head">
+              <text class="badge {{ins._tone}} insight-type-pill">{{ins.type}}</text>
+              <text class="insight-agent">{{ins.agent_nickname || ins.agent_name}}</text>
+            </view>
+            <view class="insight-text">{{ins.content}}</view>
+          </view>
+        </view>
+
+        <!-- CTAs -->
+        <view wx:if="{{t._hasPrimary || t._hasSecondary}}" class="task-cta-row">
+          <button
+            wx:if="{{t._hasSecondary}}"
+            class="cta-btn cta-secondary {{busyKey === t._rowKey ? 'cta-busy' : ''}}"
+            data-idx="{{idx}}"
+            catchtap="onTapSecondary"
+            disabled="{{busyKey === t._rowKey}}"
+            hover-class="cta-secondary-hover"
+            hover-stay-time="80"
+          >{{t.cta_secondary}}</button>
+          <button
+            wx:if="{{t._hasPrimary}}"
+            class="cta-btn cta-primary {{busyKey === t._rowKey ? 'cta-busy' : ''}}"
+            data-idx="{{idx}}"
+            catchtap="onTapPrimary"
+            disabled="{{busyKey === t._rowKey}}"
+            hover-class="cta-primary-hover"
+            hover-stay-time="80"
+          >{{busyKey === t._rowKey ? '处理中…' : t.cta_primary}}</button>
+        </view>
+      </view>
+
+      <view class="bottom-pad"></view>
+    </block>
+
+    <!-- tracking / done — 紧凑 row -->
+    <block wx:else>
+      <view
+        wx:for="{{rows}}"
+        wx:key="_rowKey"
+        wx:for-item="t"
+        wx:for-index="idx"
+        class="task-row task-enter"
+        style="animation-delay: {{t._animDelayMs}}ms;"
+        data-id="{{t.id}}"
+        data-source-kind="{{t.source_kind}}"
+        bindtap="onTapTask"
+        hover-class="task-hover"
+        hover-stay-time="80"
+      >
+        <view class="task-row-head">
+          <view class="badge {{t._kindTone}}">{{t._kindLabel}}</view>
+          <text class="task-row-title">{{t.title}}</text>
+        </view>
+        <view class="task-row-meta">
+          <text wx:if="{{t._ageLabel}}">{{t._ageLabel}}</text>
+          <text wx:if="{{t.source_meeting_title}}">· {{t.source_meeting_title}}</text>
+        </view>
+      </view>
+
+      <view class="bottom-pad"></view>
+    </block>
+
+  </scroll-view>
+
+  <!-- 底部 tab 由 custom-tab-bar 组件渲染 -->
+
+</view>

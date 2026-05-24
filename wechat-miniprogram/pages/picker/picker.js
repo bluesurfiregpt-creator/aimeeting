@@ -162,12 +162,12 @@ Page({
   },
 
   onDone() {
-    // 回 web-view. H5 端 onVisible / visibility-change 时 自己拉 attachments 新列表.
+    // 回上一页 (通常是创建会议页). 上一页 onShow 时自己重拉 attachments.
     wx.navigateBack({
       delta: 1,
       fail: () => {
-        // 没历史可退 (例: 用户从首页深链进来) → switchTab 回 webview
-        wx.reLaunch({ url: "/pages/webview/webview" });
+        // 没历史可退 (例: 深链直进) → 回原生首页
+        wx.switchTab({ url: "/pages/home/home" });
       },
     });
   },

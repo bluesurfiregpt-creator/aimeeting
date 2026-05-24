@@ -1,0 +1,94 @@
+<!-- pages/me/me.wxml — v27.2 「我的」原生页 -->
+
+<view class="page page-fade-in">
+
+  <!-- ============ 自定义导航栏 ============ -->
+  <view class="cnav" style="padding-top: {{statusBarHeight}}px;">
+    <view class="cnav-inner" style="height: {{navBarHeight}}px;">
+      <view class="cnav-back" bindtap="onTapBack" hover-class="cnav-back-hover">
+        <text class="cnav-back-arrow">‹</text>
+      </view>
+      <view class="cnav-title">我的</view>
+    </view>
+  </view>
+
+  <!-- Loading -->
+  <block wx:if="{{loading}}">
+    <view class="sk sk-card"></view>
+    <view class="sk sk-row"></view>
+  </block>
+
+  <!-- Error -->
+  <block wx:elif="{{error}}">
+    <view class="centered">
+      <view class="centered-title">未能加载</view>
+      <view class="centered-body">{{error}}</view>
+      <button class="btn-ghost" bindtap="onTapRetry">重试</button>
+    </view>
+  </block>
+
+  <!-- 正常 -->
+  <block wx:else>
+    <view class="body">
+
+      <!-- 档案卡 -->
+      <view class="profile-card">
+        <view class="avatar">{{avatarChar}}</view>
+        <view class="profile-meta">
+          <view class="profile-name">{{me.name}}</view>
+          <view class="profile-sub">
+            <text class="badge {{roleTone}}">{{roleLabel}}</text>
+            <text wx:if="{{accountLine}}" class="profile-account">{{accountLine}}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 工作区 / 部门 -->
+      <view class="info-card">
+        <view class="info-row">
+          <text class="info-label">工作区</text>
+          <text class="info-value">{{me.workspace_name}}</text>
+        </view>
+        <view wx:if="{{me.department}}" class="info-row">
+          <text class="info-label">所属部门</text>
+          <text class="info-value">{{me.department}}</text>
+        </view>
+      </view>
+
+      <!-- 声纹库 -->
+      <view class="info-card">
+        <view class="info-row" bindtap="onTapVoiceprint" hover-class="info-row-hover">
+          <text class="info-label">声纹库</text>
+          <text class="info-value info-arrow">录入 / 管理 →</text>
+        </view>
+      </view>
+
+      <!-- 关于 -->
+      <view class="info-card">
+        <view class="info-row" bindtap="onTapAbout" hover-class="info-row-hover">
+          <text class="info-label">关于 智囊团</text>
+          <text class="info-value info-arrow">→</text>
+        </view>
+        <view class="info-row">
+          <text class="info-label">客服 / 反馈</text>
+          <text class="info-value">联系工作区管理员</text>
+        </view>
+        <view class="info-row">
+          <text class="info-label">环境</text>
+          <text class="info-value">生产</text>
+        </view>
+      </view>
+
+      <!-- 退出登录 -->
+      <view
+        class="logout-btn"
+        bindtap="onTapLogout"
+        hover-class="logout-btn-hover"
+        hover-stay-time="80"
+      >退出登录</view>
+
+      <view class="version">智囊团 · {{version}}</view>
+    </view>
+  </block>
+
+</view>

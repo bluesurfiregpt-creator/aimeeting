@@ -14,7 +14,7 @@
   </view>
 
   <view class="section">
-    <navigator url="/pages/webview/webview" open-type="redirectTo" class="cta">
+    <navigator url="/pages/home/home" open-type="switchTab" class="cta">
       返回工作台 →
     </navigator>
   </view>

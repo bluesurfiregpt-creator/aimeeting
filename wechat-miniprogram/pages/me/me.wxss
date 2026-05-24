@@ -1,0 +1,175 @@
+/* pages/me/me.wxss — v27.2 「我的」原生页 */
+
+page {
+  background: #0a0a0c;
+  color: #e4e4e7;
+  font-size: 28rpx;
+}
+
+.page {
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.body {
+  padding: 32rpx 32rpx calc(48rpx + env(safe-area-inset-bottom));
+}
+
+/* ============ Skeleton ============ */
+.sk {
+  background: #18181b;
+  border-radius: 24rpx;
+  margin: 0 32rpx 24rpx;
+  animation: sk-pulse 1.4s ease-in-out infinite;
+}
+.sk:first-child { margin-top: 32rpx; }
+.sk-card { height: 200rpx; }
+.sk-row { height: 140rpx; }
+@keyframes sk-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ============ Error ============ */
+.centered {
+  padding: 100rpx 48rpx;
+  text-align: center;
+}
+.centered-title { font-size: 32rpx; color: #fafafa; }
+.centered-body { margin-top: 12rpx; font-size: 26rpx; color: #a1a1aa; }
+.btn-ghost {
+  margin-top: 32rpx;
+  display: inline-block;
+  padding: 20rpx 48rpx;
+  background: #18181b;
+  border: 2rpx solid #3f3f46;
+  border-radius: 24rpx;
+  color: #e4e4e7;
+  font-size: 28rpx;
+}
+
+/* ============ 档案卡 ============ */
+.profile-card {
+  display: flex;
+  align-items: center;
+  gap: 28rpx;
+  background: #18181b;
+  border-radius: 28rpx;
+  padding: 36rpx 32rpx;
+}
+.avatar {
+  width: 112rpx;
+  height: 112rpx;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 48rpx;
+  font-weight: 600;
+  color: #fff;
+}
+.profile-meta {
+  flex: 1;
+  min-width: 0;
+}
+.profile-name {
+  font-size: 40rpx;
+  font-weight: 600;
+  color: #fafafa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-sub {
+  margin-top: 12rpx;
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+.profile-account {
+  font-size: 26rpx;
+  color: #a1a1aa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============ 信息卡 ============ */
+.info-card {
+  margin-top: 24rpx;
+  background: #18181b;
+  border-radius: 24rpx;
+  padding: 0 32rpx;
+}
+.info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28rpx 0;
+  border-bottom: 2rpx solid #27272a;
+}
+.info-row:last-child {
+  border-bottom: none;
+}
+.info-row-hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+.info-label {
+  font-size: 28rpx;
+  color: #a1a1aa;
+}
+.info-value {
+  font-size: 28rpx;
+  color: #fafafa;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.info-arrow {
+  color: #71717a;
+}
+
+/* ============ Badge ============ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6rpx 16rpx;
+  border-radius: 12rpx;
+  font-size: 22rpx;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.tone-violet  { background: rgba(139, 92, 246, 0.15); color: #c4b5fd; }
+.tone-amber   { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
+.tone-sky     { background: rgba(14, 165, 233, 0.15); color: #7dd3fc; }
+.tone-emerald { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
+.tone-zinc    { background: #27272a; color: #a1a1aa; }
+
+/* ============ 退出登录 ============ */
+.logout-btn {
+  margin-top: 48rpx;
+  height: 96rpx;
+  line-height: 96rpx;
+  text-align: center;
+  border: 2rpx solid rgba(244, 63, 94, 0.3);
+  background: rgba(244, 63, 94, 0.06);
+  color: #fda4af;
+  font-size: 30rpx;
+  font-weight: 500;
+  border-radius: 24rpx;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.logout-btn-hover {
+  transform: scale(0.98);
+  background: rgba(244, 63, 94, 0.12);
+}
+
+.version {
+  margin-top: 32rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #52525b;
+}

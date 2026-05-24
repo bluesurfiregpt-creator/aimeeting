@@ -1,0 +1,200 @@
+<!-- pages/login/login.wxml — v27.1 微信 OAuth 一键登录 -->
+
+<view class="page page-fade-in" style="padding-top: {{statusBarHeight}}px;">
+
+  <!-- ============ Hero ============ -->
+  <view class="hero">
+    <view class="hero-logo">🧠</view>
+    <view class="hero-title">智囊团</view>
+    <view class="hero-sub">AI 协作 · 多专家 · 真人参与</view>
+  </view>
+
+  <!-- ============ 主按钮 / 加载态 ============ -->
+  <block wx:if="{{state === 'ready' || state === 'loading'}}">
+    <view class="cta-section">
+
+      <!-- 主按钮: 微信一键登录 (openid 路径, 已绑过 = 0 操作) -->
+      <button
+        class="btn-wx-login {{busy ? 'btn-disabled' : ''}}"
+        bindtap="onTapWxLogin"
+        disabled="{{busy}}"
+        hover-class="btn-wx-hover"
+        hover-stay-time="80"
+      >
+        <view class="btn-wx-emoji">💬</view>
+        <view class="btn-wx-label">{{state === 'loading' ? '正在登录…' : '微信一键登录'}}</view>
+      </button>
+
+      <!-- v27.2 副按钮: 微信手机号 一键登录 (open-type getPhoneNumber) -->
+      <button
+        class="btn-phone-login {{busy ? 'btn-disabled' : ''}}"
+        open-type="getPhoneNumber"
+        bindgetphonenumber="onGetPhoneNumber"
+        disabled="{{busy}}"
+        hover-class="btn-phone-hover"
+        hover-stay-time="80"
+      >
+        <view class="btn-phone-emoji">📱</view>
+        <view class="btn-phone-label">微信手机号一键登录</view>
+      </button>
+
+      <view wx:if="{{error}}" class="error-banner">{{error}}</view>
+
+      <view class="hint-line">登录即表示已阅读并同意</view>
+      <view class="hint-line">
+        <text class="link" bindtap="onTapPrivacy">《隐私保护指引》</text>
+      </view>
+    </view>
+  </block>
+
+  <!-- ============ Bind 表单 (邮密绑定) ============ -->
+  <block wx:if="{{state === 'bind'}}">
+    <view class="bind-section">
+      <view class="bind-title">首次使用 · 绑定账号</view>
+      <view class="bind-body">{{hint}}</view>
+
+      <view class="form">
+        <view class="field">
+          <view class="field-label">邮箱 或 手机号</view>
+          <input
+            class="field-input"
+            type="text"
+            value="{{account}}"
+            bindinput="onAccountInput"
+            placeholder="you@example.com 或 13812345678"
+            placeholder-class="ph"
+            disabled="{{busy}}"
+            confirm-type="next"
+          />
+        </view>
+
+        <view class="field">
+          <view class="field-label">密码</view>
+          <view class="field-row">
+            <input
+              class="field-input"
+              password="{{!showPassword}}"
+              value="{{password}}"
+              bindinput="onPasswordInput"
+              placeholder="6 位 以上"
+              placeholder-class="ph"
+              disabled="{{busy}}"
+              confirm-type="done"
+              bindconfirm="onSubmitBind"
+            />
+            <view class="eye" bindtap="togglePassword">
+              {{showPassword ? '🙈' : '👁'}}
+            </view>
+          </view>
+        </view>
+
+        <view wx:if="{{error}}" class="error-banner">{{error}}</view>
+
+        <button
+          class="btn-primary {{busy ? 'btn-disabled' : ''}}"
+          bindtap="onSubmitBind"
+          disabled="{{busy}}"
+          hover-class="btn-primary-hover"
+          hover-stay-time="80"
+        >{{busy ? '绑定中…' : '绑定并登录'}}</button>
+
+        <view
+          class="btn-cancel"
+          bindtap="onCancelBind"
+          hover-class="btn-cancel-hover"
+        >返回</view>
+      </view>
+
+      <view class="bind-tip">
+        还没账号?
+        <text class="link" bindtap="onTapGoToRegister">点这里注册新账号</text>
+      </view>
+    </view>
+  </block>
+
+  <!-- ============ Register 表单 (态 4) ============ -->
+  <block wx:if="{{state === 'register'}}">
+    <view class="bind-section">
+      <view class="bind-title">注册新账号</view>
+      <view class="bind-body">填姓名 + 邮箱/手机号 + 密码 (6+ 位), 后台 自动 给你 建工作区.</view>
+
+      <view class="form">
+        <view class="field">
+          <view class="field-label">姓名</view>
+          <input
+            class="field-input"
+            type="text"
+            value="{{registerName}}"
+            bindinput="onRegNameInput"
+            placeholder="张小明"
+            placeholder-class="ph"
+            disabled="{{busy}}"
+            confirm-type="next"
+          />
+        </view>
+
+        <view class="field">
+          <view class="field-label">邮箱 或 手机号</view>
+          <input
+            class="field-input"
+            type="text"
+            value="{{registerAccount}}"
+            bindinput="onRegAccountInput"
+            placeholder="you@example.com 或 13812345678"
+            placeholder-class="ph"
+            disabled="{{busy}}"
+            confirm-type="next"
+          />
+        </view>
+
+        <view class="field">
+          <view class="field-label">密码 (6+ 位)</view>
+          <view class="field-row">
+            <input
+              class="field-input"
+              password="{{!registerShowPassword}}"
+              value="{{registerPassword}}"
+              bindinput="onRegPasswordInput"
+              placeholder="设个 6 位以上 的 密码"
+              placeholder-class="ph"
+              disabled="{{busy}}"
+              confirm-type="done"
+              bindconfirm="onSubmitRegister"
+            />
+            <view class="eye" bindtap="toggleRegPassword">
+              {{registerShowPassword ? '🙈' : '👁'}}
+            </view>
+          </view>
+        </view>
+
+        <view wx:if="{{error}}" class="error-banner">{{error}}</view>
+
+        <button
+          class="btn-primary {{busy ? 'btn-disabled' : ''}}"
+          bindtap="onSubmitRegister"
+          disabled="{{busy}}"
+          hover-class="btn-primary-hover"
+          hover-stay-time="80"
+        >{{busy ? '注册中…' : '注册并登录'}}</button>
+
+        <view
+          class="btn-cancel"
+          bindtap="onCancelRegister"
+          hover-class="btn-cancel-hover"
+        >返回登录</view>
+      </view>
+
+      <view class="bind-tip">
+        注册即表示 同意《隐私保护指引》.
+      </view>
+    </view>
+  </block>
+
+  <!-- ============ 底栏 ============ -->
+  <view class="foot">
+    <text class="foot-link" bindtap="onTapAbout">关于</text>
+    <text class="foot-dot">·</text>
+    <text class="foot-link" bindtap="onTapPrivacy">隐私</text>
+  </view>
+
+</view>

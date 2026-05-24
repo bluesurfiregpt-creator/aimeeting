@@ -95,16 +95,20 @@
         auto-height
       />
       <view class="char-counter">{{description.length}}/2000</view>
-      <!-- 第 2 刀: brief ≥ 10 字时 显 AI 拆议程 按钮 -->
-      <view wx:if="{{description.length >= 10}}" class="ai-decompose-row">
+      <!-- v27.2: AI 拆议程 按钮 一直显 (之前 ≥10 字才显, 用户找不到).
+           brief 不够 10 字 时 灰置 + 提示, 让用户知道有这功能. -->
+      <view class="ai-decompose-row">
         <button
-          class="btn-ai-decompose"
+          class="btn-ai-decompose {{description.length < 10 ? 'btn-ai-disabled' : ''}}"
           bindtap="onAIDecompose"
-          disabled="{{decomposing}}"
+          disabled="{{decomposing || description.length < 10}}"
         >
           <text wx:if="{{decomposing}}">AI 拆议程中…</text>
-          <text wx:else>✨ 让 AI 拆议程</text>
+          <text wx:else>✨ 让 AI 把这段话拆成议程</text>
         </button>
+        <view wx:if="{{description.length < 10}}" class="ai-decompose-hint">
+          在上方 brief 里写一段会议背景 / 诉求 (≥ 10 字), AI 自动拆出议题
+        </view>
       </view>
     </view>
 

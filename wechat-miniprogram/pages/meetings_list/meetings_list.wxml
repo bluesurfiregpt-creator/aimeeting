@@ -1,0 +1,169 @@
+<!-- pages/meetings_list/meetings_list.wxml — v27.0-mobile S2 会议列表 -->
+
+<view class="page page-fade-in">
+
+  <!-- ============ Header (custom nav 留顶) ============ -->
+  <view class="hd" style="padding-top: {{navPadTop}}px;">
+    <view class="hd-row">
+      <view class="hd-title">会议</view>
+      <view class="hd-icons">
+        <view
+          class="hd-icon-btn"
+          bindtap="onTapNotifications"
+          hover-class="hd-icon-hover"
+          hover-stay-time="80"
+        >🔔</view>
+        <view
+          class="hd-icon-btn"
+          bindtap="onTapMe"
+          hover-class="hd-icon-hover"
+          hover-stay-time="80"
+        >⚙</view>
+      </view>
+    </view>
+    <view class="hd-segment">
+      <view
+        class="seg-item {{tab === 'ongoing' ? 'seg-on' : ''}}"
+        data-tab="ongoing"
+        bindtap="onTapTab"
+      >
+        <text class="seg-label">进行中</text>
+        <text wx:if="{{counts.ongoing > 0}}" class="seg-count">{{counts.ongoing}}</text>
+      </view>
+      <view
+        class="seg-item {{tab === 'upcoming' ? 'seg-on' : ''}}"
+        data-tab="upcoming"
+        bindtap="onTapTab"
+      >
+        <text class="seg-label">即将开始</text>
+        <text wx:if="{{counts.upcoming > 0}}" class="seg-count">{{counts.upcoming}}</text>
+      </view>
+      <view
+        class="seg-item {{tab === 'finished' ? 'seg-on' : ''}}"
+        data-tab="finished"
+        bindtap="onTapTab"
+      >
+        <text class="seg-label">已结束</text>
+        <text wx:if="{{counts.finished > 0}}" class="seg-count">{{counts.finished}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ============ Body ============ -->
+  <scroll-view
+    scroll-y
+    class="body"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refreshing}}"
+    bindrefresherrefresh="onPullDownRefresh"
+  >
+
+    <!-- "+ 新建会议" sticky 入口 -->
+    <view class="new-btn-wrap">
+      <view
+        class="new-btn"
+        bindtap="onTapNew"
+        hover-class="new-btn-hover"
+        hover-stay-time="80"
+      >
+        <text class="new-btn-plus">+</text>
+        <text class="new-btn-label">新建会议</text>
+      </view>
+    </view>
+
+    <!-- Loading -->
+    <block wx:if="{{loading}}">
+      <view class="sk sk-row"></view>
+      <view class="sk sk-row"></view>
+      <view class="sk sk-row"></view>
+    </block>
+
+    <!-- Error -->
+    <block wx:elif="{{error}}">
+      <view class="centered">
+        <view class="centered-title">未能加载</view>
+        <view class="centered-body">{{error}}</view>
+        <button class="btn-ghost" bindtap="onTapRetry">重试</button>
+      </view>
+    </block>
+
+    <!-- Empty -->
+    <block wx:elif="{{rows.length === 0}}">
+      <view class="empty-card">{{emptyMsg}}</view>
+    </block>
+
+    <!-- 列表 -->
+    <block wx:else>
+      <view
+        wx:for="{{rows}}"
+        wx:key="meeting_id"
+        wx:for-item="m"
+        class="meeting-card meeting-enter"
+        style="animation-delay: {{m._animDelayMs}}ms;"
+        data-id="{{m.meeting_id}}"
+        data-status="{{m.status}}"
+        bindtap="onTapMeeting"
+        hover-class="meeting-hover"
+        hover-stay-time="80"
+      >
+        <!-- 状态行 -->
+        <view class="meeting-head">
+          <view class="badge {{m._statusTone}}">
+            <view wx:if="{{m._isOngoing}}" class="live-dot"></view>
+            <text>{{m._statusLabel}}</text>
+          </view>
+          <text
+            wx:if="{{m._timeText}}"
+            class="meeting-time {{m._timeOver ? 'time-over' : ''}}"
+          >· {{m._timeText}}</text>
+        </view>
+
+        <!-- 标题 -->
+        <view class="meeting-title">{{m.title}}</view>
+
+        <!-- 底部 metadata 行 -->
+        <view class="meeting-meta">
+
+          <!-- 议程 mini-bar -->
+          <view wx:if="{{m.agenda_total > 0}}" class="meta-item">
+            <view class="progress-bar">
+              <view
+                wx:for="{{m._progressCells}}"
+                wx:key="key"
+                wx:for-item="c"
+                class="p-cell {{c.cls}}"
+              ></view>
+              <text wx:if="{{m._progressMore > 0}}" class="p-more">+{{m._progressMore}}</text>
+            </view>
+            <text class="meta-label">{{m._progressText}}</text>
+          </view>
+
+          <view wx:if="{{m._hasUsers}}" class="meta-item">
+            <text class="meta-icon">👤</text>
+            <text class="meta-num">{{m.users_count}}</text>
+          </view>
+
+          <view wx:if="{{m._hasAgents}}" class="meta-item meta-violet">
+            <text class="meta-icon">🤖</text>
+            <text class="meta-num">{{m.agents_count}}</text>
+          </view>
+
+          <view wx:if="{{m._hasInsights}}" class="meta-item meta-violet">
+            <text>💡 {{m.insights_count}}</text>
+          </view>
+
+          <view wx:if="{{m._hasActions}}" class="meta-item">
+            <text>📌 {{m.actions_count}}</text>
+          </view>
+
+        </view>
+      </view>
+
+      <view class="bottom-pad"></view>
+    </block>
+
+  </scroll-view>
+
+  <!-- 底部 tab 由 custom-tab-bar 组件渲染 -->
+
+</view>

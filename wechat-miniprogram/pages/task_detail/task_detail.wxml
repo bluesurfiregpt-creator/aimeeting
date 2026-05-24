@@ -1,0 +1,144 @@
+<!-- pages/task_detail/task_detail.wxml — v27.2 任务详情 -->
+
+<view class="page page-fade-in">
+
+  <!-- ============ 自定义导航栏 ============ -->
+  <view class="cnav" style="padding-top: {{statusBarHeight}}px;">
+    <view class="cnav-inner" style="height: {{navBarHeight}}px;">
+      <view class="cnav-back" bindtap="onTapBack" hover-class="cnav-back-hover">
+        <text class="cnav-back-arrow">‹</text>
+      </view>
+      <view class="cnav-title">任务详情</view>
+    </view>
+  </view>
+
+  <!-- Loading -->
+  <block wx:if="{{loading}}">
+    <view class="sk sk-card"></view>
+    <view class="sk sk-row"></view>
+  </block>
+
+  <!-- Error -->
+  <block wx:elif="{{error}}">
+    <view class="centered">
+      <view class="centered-title">未能加载任务</view>
+      <view class="centered-body">{{error}}</view>
+      <button class="btn-ghost" bindtap="onTapRetry">重试</button>
+    </view>
+  </block>
+
+  <!-- 正常 -->
+  <block wx:else>
+    <scroll-view scroll-y class="body">
+
+      <!-- ===== Header 卡 ===== -->
+      <view class="card">
+        <view class="task-content">{{data.content}}</view>
+        <view class="chip-row">
+          <view class="badge {{data._statusTone}}">{{data._statusLabel}}</view>
+          <view
+            wx:if="{{data._dueLabel}}"
+            class="badge {{data.is_overdue ? 'tone-rose' : 'tone-zinc'}}"
+          >截止 {{data._dueLabel}}{{data.is_overdue ? ' · 超期' : ''}}</view>
+          <view wx:if="{{data._assignee}}" class="badge {{data._assignee.tone}}">
+            {{data._assignee.icon}} {{data._assignee.text}}
+          </view>
+        </view>
+        <view
+          wx:if="{{data.source_meeting_id && data.source_meeting_title}}"
+          class="source-link"
+          bindtap="onTapSourceMeeting"
+          hover-class="source-link-hover"
+        >来自 {{data.source_meeting_title}} →</view>
+      </view>
+
+      <!-- ===== AI 智囊依据 ===== -->
+      <block wx:if="{{data._hasInsights}}">
+        <view class="sec-title">💡 AI 智囊依据 · {{data._insights.length}} 条</view>
+        <view
+          wx:for="{{data._insights}}"
+          wx:key="id"
+          wx:for-item="ins"
+          class="card insight-card"
+        >
+          <view class="insight-head">
+            <text class="badge {{ins._tone}}">{{ins.type}}</text>
+            <text class="insight-agent">{{ins.agent_nickname || ins.agent_name}}</text>
+          </view>
+          <view class="insight-content">{{ins.content}}</view>
+          <view wx:if="{{ins.evidence}}" class="insight-evidence">{{ins.evidence}}</view>
+        </view>
+      </block>
+
+      <!-- ===== 实录依据 ===== -->
+      <block wx:if="{{data._hasEvidence}}">
+        <view class="sec-title">📝 实录依据</view>
+        <view class="card">
+          <view wx:if="{{data.evidence_quote}}" class="evidence-quote">{{data.evidence_quote}}</view>
+          <view wx:if="{{data._evLines.length > 0}}" class="evidence-lines">
+            <view
+              wx:for="{{data._evLines}}"
+              wx:key="line_id"
+              wx:for-item="l"
+              class="ev-line"
+            >
+              <text class="ev-min">{{l._minLabel}}</text>
+              <text class="ev-speaker">{{l.speaker_name || '未识别'}}</text>
+              <text class="ev-text">{{l.text}}</text>
+            </view>
+          </view>
+        </view>
+      </block>
+
+      <!-- ===== 评论 ===== -->
+      <view class="sec-title">💬 评论 · {{data._comments.length}}</view>
+      <block wx:if="{{data._comments.length === 0}}">
+        <view class="comment-empty">还没人评论, 你来开个头</view>
+      </block>
+      <block wx:else>
+        <view
+          wx:for="{{data._comments}}"
+          wx:key="id"
+          wx:for-item="c"
+          class="card comment-card"
+        >
+          <view class="comment-head">
+            <view class="comment-meta">
+              <text class="comment-author">{{c.author_name}}</text>
+              <text class="comment-when">{{c._whenLabel}}</text>
+            </view>
+            <view
+              wx:if="{{c.can_delete}}"
+              class="comment-del"
+              data-cid="{{c.id}}"
+              bindtap="onTapDeleteComment"
+            >删除</view>
+          </view>
+          <view class="comment-content">{{c.content}}</view>
+        </view>
+      </block>
+
+      <view class="bottom-pad"></view>
+    </scroll-view>
+
+    <!-- ===== 发评论 bar (固定底) ===== -->
+    <view class="comment-bar" style="padding-bottom: env(safe-area-inset-bottom);">
+      <textarea
+        class="comment-input"
+        value="{{commentText}}"
+        bindinput="onCommentInput"
+        placeholder="写点进展、问题或反馈…"
+        placeholder-class="ph"
+        maxlength="2000"
+        auto-height
+        disabled="{{posting}}"
+        adjust-position
+      />
+      <view
+        class="comment-send {{(!commentText || posting) ? 'comment-send-off' : ''}}"
+        bindtap="onPostComment"
+      >{{posting ? '发送中' : '发送'}}</view>
+    </view>
+  </block>
+
+</view>

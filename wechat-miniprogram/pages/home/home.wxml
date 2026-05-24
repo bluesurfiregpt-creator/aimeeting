@@ -1,0 +1,321 @@
+<!-- pages/home/home.wxml — v27.0-mobile S1 第 1 刀 -->
+
+<view class="page page-fade-in">
+
+  <!-- ============ Header (跟 H5 PageHeader 对齐, custom nav 留顶) ============ -->
+  <view class="hd" style="padding-top: {{navPadTop}}px;">
+    <view class="hd-row">
+      <view class="hd-title">今日</view>
+      <view class="hd-icons">
+        <view
+          class="hd-icon-btn"
+          bindtap="onTapNotifications"
+          hover-class="hd-icon-hover"
+          hover-stay-time="80"
+          aria-label="通知"
+        >🔔</view>
+        <view
+          class="hd-icon-btn"
+          bindtap="onTapMe"
+          hover-class="hd-icon-hover"
+          hover-stay-time="80"
+          aria-label="我的"
+        >⚙</view>
+      </view>
+    </view>
+    <view class="hd-segment">
+      <view
+        class="seg-item {{view === 'meeting' ? 'seg-on' : ''}}"
+        data-view="meeting"
+        bindtap="onTapSegment"
+      >会议视角</view>
+      <view
+        class="seg-item {{view === 'expert' ? 'seg-on' : ''}}"
+        data-view="expert"
+        bindtap="onTapSegment"
+      >专家视角</view>
+    </view>
+  </view>
+
+  <!-- ============ 主区 ============ -->
+  <scroll-view
+    scroll-y
+    class="body"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refreshing}}"
+    bindrefresherrefresh="onPullDownRefresh"
+  >
+
+    <!-- Loading skeleton -->
+    <block wx:if="{{loading}}">
+      <view class="sk sk-hero"></view>
+      <view class="sk sk-row"></view>
+      <view class="sk sk-row"></view>
+      <view class="sk sk-row"></view>
+    </block>
+
+    <!-- Need login (会跳走, 这里只是过渡) -->
+    <block wx:elif="{{needLogin}}">
+      <view class="centered">
+        <view class="centered-emoji">🔒</view>
+        <view class="centered-title">需要登录</view>
+        <view class="centered-body">正在打开登录页…</view>
+      </view>
+    </block>
+
+    <!-- Error -->
+    <block wx:elif="{{error}}">
+      <view class="centered">
+        <view class="centered-title">未能加载</view>
+        <view class="centered-body">{{error}}</view>
+        <button class="btn-ghost" bindtap="onTapRetry">重试</button>
+      </view>
+    </block>
+
+    <!-- 会议视角 (S1 第 1 刀) -->
+    <block wx:elif="{{view === 'meeting'}}">
+
+      <!-- ========= Hero: 进行中 会议 OR 空 ========= -->
+      <view class="sec sec-hero">
+        <block wx:if="{{showEmptyHero}}">
+          <view class="hero-empty">
+            <view class="hero-empty-emoji">📭</view>
+            <view class="hero-empty-title">今天没有进行中的会议</view>
+            <view class="hero-empty-body">想开个新会? 去「会议」tab 创建.</view>
+          </view>
+        </block>
+        <block wx:else>
+          <view
+            wx:for="{{ongoingMeetings}}"
+            wx:key="meeting_id"
+            class="hero-card"
+            data-id="{{item.meeting_id}}"
+            bindtap="onTapOngoing"
+            hover-class="hero-hover"
+            hover-stay-time="100"
+          >
+            <view class="hero-tag">● 进行中</view>
+            <view class="hero-title">{{item.title}}</view>
+            <view class="hero-meta">
+              <text>已开 {{item.elapsedText}}</text>
+              <text class="dot">·</text>
+              <text>{{item.progressText}}</text>
+            </view>
+            <view wx:if="{{item.latestInsight}}" class="hero-insight">
+              <view class="hero-insight-head">
+                <text class="badge {{item.latestInsightTypeTone}}">{{item.latestInsight.type}}</text>
+                <text class="hero-insight-agent">{{item.latestInsight.agent_nickname || item.latestInsight.agent_name}}</text>
+              </view>
+              <view class="hero-insight-text">{{item.latestInsight.content}}</view>
+            </view>
+            <view class="hero-cta">进入会议室 →</view>
+          </view>
+        </block>
+      </view>
+
+      <!-- ========= 等你处理 ========= -->
+      <view class="sec">
+        <view class="sec-head">
+          <view class="sec-title">等你处理</view>
+          <view wx:if="{{pendingCount > 0}}" class="sec-count">· {{pendingCount}} 件</view>
+        </view>
+        <block wx:if="{{pendingCount === 0}}">
+          <view class="empty-thin">✓ 今日待办全处理完</view>
+        </block>
+        <block wx:else>
+          <view
+            wx:for="{{pending}}"
+            wx:key="id"
+            wx:for-item="p"
+            class="row-card"
+            data-kind="{{p.kind}}"
+            data-id="{{p.id}}"
+            bindtap="onTapPending"
+            hover-class="row-hover"
+            hover-stay-time="80"
+          >
+            <view class="row-head">
+              <text class="badge {{p.kindTone}}">{{p.kindLabel}}</text>
+              <text class="row-title">{{p.title}}</text>
+            </view>
+            <view wx:if="{{p.source_meeting_title}}" class="row-meta">
+              来自: {{p.source_meeting_title}}
+            </view>
+            <view wx:if="{{p.insightCount > 0}}" class="row-meta">
+              {{p.insightCount}} 条 AI 判断 →
+            </view>
+            <view class="row-cta">{{p.cta_label}} →</view>
+          </view>
+        </block>
+      </view>
+
+      <!-- ========= AI 智囊 ========= -->
+      <view class="sec">
+        <view class="sec-head">
+          <view class="sec-title">AI 智囊</view>
+          <view wx:if="{{insightCount > 0}}" class="sec-count">· {{topicCount}} 议题 / {{insightCount}} 条</view>
+          <view
+            wx:if="{{insightCount > 0}}"
+            class="sec-link"
+            bindtap="onTapAllInsights"
+          >全部 →</view>
+        </view>
+        <block wx:if="{{insightCount === 0}}">
+          <view class="empty-thin">今天 AI 还没给新判断</view>
+        </block>
+        <block wx:else>
+          <view
+            wx:for="{{insightTopics}}"
+            wx:key="key"
+            wx:for-item="t"
+            class="row-card"
+            data-key="{{t.key}}"
+            bindtap="onTapInsightTopic"
+            hover-class="row-hover"
+            hover-stay-time="80"
+          >
+            <view class="row-head">
+              <text class="row-title">{{t.topicTitle}} · {{t.meetingTitle}}</text>
+            </view>
+            <view class="row-meta">{{t.agentLine}} · {{t.count}} 条</view>
+            <view class="row-preview">{{t.preview}}</view>
+          </view>
+        </block>
+      </view>
+
+      <view class="bottom-pad"></view>
+    </block>
+
+    <!-- 专家视角 (S1 第 2 刀) -->
+    <block wx:elif="{{view === 'expert'}}">
+
+      <!-- Loading -->
+      <block wx:if="{{expertLoading}}">
+        <view class="sk sk-row"></view>
+        <view class="sk sk-row"></view>
+        <view class="sk sk-row"></view>
+      </block>
+
+      <!-- Error -->
+      <block wx:elif="{{expertError}}">
+        <view class="centered">
+          <view class="centered-title">未能加载专家</view>
+          <view class="centered-body">{{expertError}}</view>
+          <button class="btn-ghost" bindtap="onTapRetryExpert">重试</button>
+        </view>
+      </block>
+
+      <!-- Empty -->
+      <block wx:elif="{{expertEmpty}}">
+        <view class="empty-experts">
+          <view class="empty-experts-emoji">🧠</view>
+          <view class="empty-experts-title">还没添加 AI 专家</view>
+          <view class="empty-experts-body">从桌面端「AI 专家」管理页 添加</view>
+        </view>
+      </block>
+
+      <!-- 工卡墙 -->
+      <block wx:else>
+        <view class="expert-count">共 {{expertCount}} 位 AI 专家 · 按最近活跃排序</view>
+
+        <view
+          wx:for="{{expertAgents}}"
+          wx:key="agent_id"
+          wx:for-item="a"
+          class="agent-card agent-enter"
+          style="animation-delay: {{a._animDelayMs}}ms;"
+          data-id="{{a.agent_id}}"
+          bindtap="onTapAgent"
+          hover-class="agent-hover"
+          hover-stay-time="80"
+        >
+          <view class="agent-row">
+            <!-- 左色条 -->
+            <view class="agent-bar {{a._colorClass}}"></view>
+
+            <view class="agent-body">
+              <!-- Header -->
+              <view class="agent-head">
+                <view class="agent-head-l">
+                  <view class="agent-name">{{a._displayName}}</view>
+                  <view wx:if="{{a.domain}}" class="agent-domain">
+                    {{a.domain}}<text wx:if="{{a._showNicknameTag}}" class="muted"> · {{a.name}}</text>
+                  </view>
+                  <!-- 折叠态 才显数字摘要 -->
+                  <view
+                    wx:if="{{!expandedMap[a.agent_id] && a._summaryLine}}"
+                    class="agent-summary"
+                  >{{a._summaryLine}}</view>
+                </view>
+                <view class="agent-head-r">
+                  <text wx:if="{{a._isActive}}" class="agent-active">{{a._lastActiveLabel}}</text>
+                  <text wx:else class="agent-inactive">未激活</text>
+                  <view
+                    class="chevron-btn {{expandedMap[a.agent_id] ? 'chevron-open' : ''}}"
+                    data-id="{{a.agent_id}}"
+                    catchtap="onToggleAgent"
+                  >▼</view>
+                </view>
+              </view>
+
+              <!-- 展开时 才渲染明细 -->
+              <block wx:if="{{expandedMap[a.agent_id]}}">
+
+                <!-- 最近会议 -->
+                <view class="sec-block">
+                  <view class="sec-block-head">
+                    <text class="sec-block-title">📅 最近会议</text>
+                    <text wx:if="{{a._hasMeetings}}" class="sec-block-count">{{a.recent_meetings.length}} 场</text>
+                  </view>
+                  <view wx:if="{{!a._hasMeetings}}" class="sec-block-empty">未参会</view>
+                  <view wx:else class="meeting-list">
+                    <view
+                      wx:for="{{a._meetings3}}"
+                      wx:key="meeting_id"
+                      wx:for-item="m"
+                      class="meeting-item"
+                    >
+                      <text wx:if="{{m.shortDate}}" class="meeting-date">{{m.shortDate}}</text>
+                      <text class="meeting-title">{{m.title}}</text>
+                    </view>
+                  </view>
+                </view>
+
+                <!-- 任务 -->
+                <view class="sec-block sec-block-border">
+                  <view class="sec-block-head">
+                    <text class="sec-block-title">📋 任务</text>
+                    <text wx:if="{{a._hasTasks}}" class="sec-block-count">共 {{a.tasks.total}}</text>
+                  </view>
+                  <view wx:if="{{!a._hasTasks}}" class="sec-block-empty">未分配</view>
+                  <view wx:else class="task-line">
+                    <view wx:if="{{a.tasks.open_count > 0}}" class="task-stat">
+                      <text class="task-num">{{a.tasks.open_count}}</text>
+                      <text class="task-label">进行中</text>
+                    </view>
+                    <view wx:if="{{a.tasks.done_count > 0}}" class="task-stat">
+                      <text class="task-num task-num-done">{{a.tasks.done_count}}</text>
+                      <text class="task-label">已完成</text>
+                    </view>
+                    <view wx:if="{{a.tasks.overdue_count > 0}}" class="task-stat">
+                      <text class="task-num task-num-overdue">{{a.tasks.overdue_count}}</text>
+                      <text class="task-label task-label-overdue">超期</text>
+                    </view>
+                  </view>
+                </view>
+
+              </block>
+            </view>
+          </view>
+        </view>
+
+        <view class="bottom-pad"></view>
+      </block>
+
+    </block>
+
+  </scroll-view>
+
+  <!-- 底部 tab 由 custom-tab-bar 组件渲染 (app.json tabBar.custom), 此处不再画 -->
+
+</view>

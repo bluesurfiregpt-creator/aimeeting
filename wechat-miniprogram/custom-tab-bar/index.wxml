@@ -1,0 +1,15 @@
+<!-- custom-tab-bar/index.wxml — v27.2 自定义 tabBar -->
+<view class="tabbar" style="padding-bottom: env(safe-area-inset-bottom);">
+  <view
+    wx:for="{{list}}"
+    wx:key="text"
+    class="tab-item {{selected === index ? 'tab-on' : ''}}"
+    data-index="{{index}}"
+    bindtap="onTap"
+    hover-class="tab-hover"
+    hover-stay-time="60"
+  >
+    <view class="tab-emoji">{{item.emoji}}</view>
+    <view class="tab-label">{{item.text}}</view>
+  </view>
+</view>

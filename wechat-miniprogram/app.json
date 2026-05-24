@@ -1,5 +1,16 @@
 {
   "pages": [
+    "pages/home/home",
+    "pages/login/login",
+    "pages/meetings_list/meetings_list",
+    "pages/tasks_list/tasks_list",
+    "pages/insights/insights",
+    "pages/me/me",
+    "pages/notifications/notifications",
+    "pages/voiceprint/voiceprint",
+    "pages/task_detail/task_detail",
+    "pages/meeting_summary/meeting_summary",
+    "pages/agent_detail/agent_detail",
     "pages/webview/webview",
     "pages/about/about",
     "pages/picker/picker",
@@ -13,6 +24,19 @@
     "navigationBarTitleText": "智囊团",
     "navigationBarTextStyle": "white",
     "enablePullDownRefresh": false
+  },
+  "tabBar": {
+    "custom": true,
+    "color": "#71717a",
+    "selectedColor": "#c4b5fd",
+    "backgroundColor": "#0a0a0c",
+    "borderStyle": "black",
+    "list": [
+      { "pagePath": "pages/home/home", "text": "今日" },
+      { "pagePath": "pages/meetings_list/meetings_list", "text": "会议" },
+      { "pagePath": "pages/tasks_list/tasks_list", "text": "任务" },
+      { "pagePath": "pages/insights/insights", "text": "记忆" }
+    ]
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json",

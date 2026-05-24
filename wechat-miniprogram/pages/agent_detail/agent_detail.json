@@ -1,0 +1,6 @@
+{
+  "navigationStyle": "custom",
+  "navigationBarTitleText": "专家详情",
+  "backgroundColor": "#0a0a0c",
+  "enablePullDownRefresh": false
+}

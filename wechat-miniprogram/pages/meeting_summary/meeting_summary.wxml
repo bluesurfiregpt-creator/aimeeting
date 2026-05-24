@@ -1,0 +1,126 @@
+<!-- pages/meeting_summary/meeting_summary.wxml — v27.2 会议总结 -->
+
+<view class="page page-fade-in">
+
+  <!-- ============ 自定义导航栏 ============ -->
+  <view class="cnav" style="padding-top: {{statusBarHeight}}px;">
+    <view class="cnav-inner" style="height: {{navBarHeight}}px;">
+      <view class="cnav-back" bindtap="onTapBack" hover-class="cnav-back-hover">
+        <text class="cnav-back-arrow">‹</text>
+      </view>
+      <view class="cnav-title">会议总结</view>
+    </view>
+  </view>
+
+  <scroll-view scroll-y class="body">
+
+    <!-- 状态横幅 -->
+    <view class="done-banner">
+      <view class="done-banner-title">✓ 会议已结束</view>
+      <view class="done-banner-body">AI 正在生成纪要 + 抽待办. 可现在看, 也可稍后回来.</view>
+    </view>
+
+    <!-- ===== AI 纪要 ===== -->
+    <view class="sec-title">📝 会议纪要</view>
+    <view class="card">
+      <!-- pending -->
+      <block wx:if="{{summaryStatus === 'pending'}}">
+        <view class="summary-pending">
+          <view class="pending-dot"></view>
+          <text>AI 正在生成纪要…</text>
+        </view>
+        <view class="pending-hint">通常 1-3 分钟, 本页自动刷新</view>
+      </block>
+      <!-- skipped -->
+      <block wx:elif="{{summaryStatus === 'skipped'}}">
+        <view class="summary-skip">⏭ {{summaryMessage || '纪要已跳过 (转录内容太薄)'}}</view>
+      </block>
+      <!-- failed -->
+      <block wx:elif="{{summaryStatus === 'failed'}}">
+        <view class="summary-fail">⚠ 生成失败: {{summaryMessage || '未知错误'}}</view>
+        <view class="retry-btn" bindtap="onTapRetrySummary">↻ 重试</view>
+      </block>
+      <!-- ready -->
+      <block wx:elif="{{summaryBlocks.length > 0}}">
+        <view
+          wx:for="{{summaryBlocks}}"
+          wx:key="index"
+          wx:for-item="b"
+          class="md-block md-{{b.t}}"
+        >
+          <text wx:if="{{b.t === 'li'}}" class="md-bullet">·</text>
+          <text class="md-text">{{b.text}}</text>
+        </view>
+      </block>
+      <block wx:else>
+        <view class="summary-skip">(纪要为空)</view>
+      </block>
+    </view>
+
+    <!-- ===== 待办 pending ===== -->
+    <block wx:if="{{pendingActions.length > 0}}">
+      <view class="sec-title">📌 AI 抽出的待办 · {{pendingActions.length}}</view>
+      <view class="sec-hint">确认入库或驳回. 之后在 任务页 也能操作.</view>
+      <view
+        wx:for="{{pendingActions}}"
+        wx:key="id"
+        wx:for-item="act"
+        class="card action-card"
+      >
+        <view class="action-content">{{act.content}}</view>
+        <view class="action-meta">
+          <text>归属: {{act._assignee}}</text>
+          <text wx:if="{{act._dueLabel}}"> · 截止 {{act._dueLabel}}</text>
+        </view>
+        <view wx:if="{{act.evidence_quote}}" class="action-evidence">▸ {{act.evidence_quote}}</view>
+        <view class="action-cta">
+          <view
+            class="cta-btn cta-ghost {{busyActionId === act.id ? 'cta-busy' : ''}}"
+            data-id="{{act.id}}"
+            data-mid="{{act.meeting_id}}"
+            bindtap="onRejectAction"
+          >驳回</view>
+          <view
+            class="cta-btn cta-primary {{busyActionId === act.id ? 'cta-busy' : ''}}"
+            data-id="{{act.id}}"
+            data-mid="{{act.meeting_id}}"
+            bindtap="onConfirmAction"
+          >{{busyActionId === act.id ? '处理中…' : '确认'}}</view>
+        </view>
+      </view>
+    </block>
+
+    <!-- 无待办 (summary ready 且 actions 拉过) -->
+    <block wx:elif="{{actionsLoaded && summaryStatus === 'ready'}}">
+      <view class="sec-title">📌 待办</view>
+      <view class="no-action-card">
+        <view class="no-action-title">AI 没抽出明显的待办</view>
+        <view class="no-action-body">这场会主要是信息同步 / 讨论</view>
+      </view>
+    </block>
+
+    <!-- ===== 已处理 ===== -->
+    <block wx:if="{{decidedActions.length > 0}}">
+      <view class="sec-title sec-title-mute">已处理 · {{decidedActions.length}}</view>
+      <view
+        wx:for="{{decidedActions}}"
+        wx:key="id"
+        wx:for-item="act"
+        class="decided-row"
+      >
+        <text class="{{act._done ? 'decided-done' : 'decided-cancel'}}">
+          {{act._done ? '✓' : '✗'}} {{act.content}}
+        </text>
+      </view>
+    </block>
+
+    <view class="bottom-pad"></view>
+  </scroll-view>
+
+  <!-- ===== 底部导航 ===== -->
+  <view class="foot-bar" style="padding-bottom: env(safe-area-inset-bottom);">
+    <view class="foot-btn foot-ghost" bindtap="onTapFullMeeting">看完整会议</view>
+    <view class="foot-btn foot-primary" bindtap="onTapHome">回工作台</view>
+  </view>
+
+</view>

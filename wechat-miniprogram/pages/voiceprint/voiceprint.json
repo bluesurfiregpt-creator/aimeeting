@@ -1,8 +1,7 @@
 {
-  "navigationBarTitleText": "声纹录入",
-  "navigationBarBackgroundColor": "#0a0a0c",
-  "navigationBarTextStyle": "white",
+  "navigationStyle": "custom",
+  "navigationBarTitleText": "声纹库",
   "backgroundColor": "#0a0a0c",
-  "enableShareAppMessage": false,
+  "enablePullDownRefresh": false,
   "usingComponents": {}
 }

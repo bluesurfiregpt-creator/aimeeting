@@ -1,0 +1,259 @@
+/* pages/task_detail/task_detail.wxss — v27.2 任务详情 */
+
+page {
+  background: #0a0a0c;
+  color: #e4e4e7;
+  font-size: 28rpx;
+  height: 100vh;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  box-sizing: border-box;
+}
+
+/* ============ Skeleton / Error ============ */
+.sk {
+  background: #18181b;
+  border-radius: 24rpx;
+  margin: 0 32rpx 16rpx;
+  animation: sk-pulse 1.4s ease-in-out infinite;
+}
+.sk:first-of-type { margin-top: 24rpx; }
+.sk-card { height: 240rpx; }
+.sk-row { height: 160rpx; }
+@keyframes sk-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.centered {
+  padding: 100rpx 48rpx;
+  text-align: center;
+}
+.centered-title { font-size: 32rpx; color: #fafafa; }
+.centered-body { margin-top: 12rpx; font-size: 26rpx; color: #a1a1aa; }
+.btn-ghost {
+  margin-top: 32rpx;
+  display: inline-block;
+  padding: 20rpx 48rpx;
+  background: #18181b;
+  border: 2rpx solid #3f3f46;
+  border-radius: 24rpx;
+  color: #e4e4e7;
+  font-size: 28rpx;
+}
+
+/* ============ Body ============ */
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24rpx 32rpx 0;
+}
+
+.sec-title {
+  margin: 28rpx 4rpx 12rpx;
+  font-size: 26rpx;
+  font-weight: 500;
+  color: #d4d4d8;
+}
+
+/* ============ 通用卡 ============ */
+.card {
+  background: #18181b;
+  border-radius: 24rpx;
+  padding: 28rpx;
+  margin-bottom: 12rpx;
+}
+
+/* ============ Header ============ */
+.task-content {
+  font-size: 32rpx;
+  color: #fafafa;
+  line-height: 1.5;
+}
+.chip-row {
+  margin-top: 20rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+.source-link {
+  margin-top: 20rpx;
+  font-size: 24rpx;
+  color: #a78bfa;
+}
+.source-link-hover {
+  opacity: 0.6;
+}
+
+/* ============ Badge ============ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6rpx 16rpx;
+  border-radius: 12rpx;
+  font-size: 22rpx;
+  font-weight: 500;
+}
+.tone-violet  { background: rgba(139, 92, 246, 0.15); color: #c4b5fd; }
+.tone-amber   { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
+.tone-rose    { background: rgba(244, 63, 94, 0.15); color: #fda4af; }
+.tone-cyan    { background: rgba(6, 182, 212, 0.15); color: #67e8f9; }
+.tone-emerald { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
+.tone-sky     { background: rgba(14, 165, 233, 0.15); color: #7dd3fc; }
+.tone-zinc    { background: #27272a; color: #a1a1aa; }
+
+/* ============ Insight 卡 ============ */
+.insight-head {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+.insight-agent {
+  font-size: 24rpx;
+  color: #a1a1aa;
+}
+.insight-content {
+  margin-top: 14rpx;
+  font-size: 28rpx;
+  color: #e4e4e7;
+  line-height: 1.55;
+}
+.insight-evidence {
+  margin-top: 14rpx;
+  padding: 16rpx 20rpx;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 4rpx solid #3f3f46;
+  border-radius: 12rpx;
+  font-size: 24rpx;
+  color: #a1a1aa;
+  line-height: 1.5;
+}
+
+/* ============ 实录依据 ============ */
+.evidence-quote {
+  border-left: 6rpx solid #52525b;
+  padding-left: 20rpx;
+  font-size: 28rpx;
+  font-style: italic;
+  color: #e4e4e7;
+  line-height: 1.6;
+}
+.evidence-lines {
+  margin-top: 20rpx;
+  padding-top: 20rpx;
+  border-top: 2rpx solid #27272a;
+}
+.ev-line {
+  margin-bottom: 16rpx;
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+}
+.ev-min {
+  flex-shrink: 0;
+  font-size: 22rpx;
+  color: #71717a;
+  font-variant-numeric: tabular-nums;
+}
+.ev-speaker {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  font-weight: 500;
+  color: #a1a1aa;
+}
+.ev-text {
+  flex: 1;
+  font-size: 26rpx;
+  color: #d4d4d8;
+  line-height: 1.5;
+}
+
+/* ============ 评论 ============ */
+.comment-empty {
+  border: 2rpx dashed #3f3f46;
+  border-radius: 16rpx;
+  padding: 36rpx 0;
+  text-align: center;
+  font-size: 26rpx;
+  color: #71717a;
+}
+.comment-card {
+  padding: 24rpx 28rpx;
+}
+.comment-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.comment-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+}
+.comment-author {
+  font-size: 26rpx;
+  font-weight: 500;
+  color: #fafafa;
+}
+.comment-when {
+  font-size: 22rpx;
+  color: #71717a;
+}
+.comment-del {
+  font-size: 22rpx;
+  color: #71717a;
+  padding: 4rpx 8rpx;
+}
+.comment-content {
+  margin-top: 12rpx;
+  font-size: 28rpx;
+  color: #d4d4d8;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.bottom-pad { height: 40rpx; }
+
+/* ============ 发评论 bar ============ */
+.comment-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 16rpx;
+  padding: 16rpx 32rpx;
+  background: #0e0e10;
+  border-top: 2rpx solid #1f1f23;
+}
+.comment-input {
+  flex: 1;
+  min-height: 64rpx;
+  max-height: 200rpx;
+  padding: 16rpx 20rpx;
+  background: #18181b;
+  border: 2rpx solid #27272a;
+  border-radius: 18rpx;
+  color: #fafafa;
+  font-size: 28rpx;
+  box-sizing: border-box;
+}
+.ph { color: #52525b; }
+.comment-send {
+  flex-shrink: 0;
+  height: 72rpx;
+  padding: 0 32rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  color: #fff;
+  font-size: 28rpx;
+  font-weight: 500;
+  border-radius: 18rpx;
+}
+.comment-send-off {
+  background: #27272a;
+  color: #52525b;
+}

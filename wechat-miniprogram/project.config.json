@@ -34,15 +34,24 @@
     "checkInvalidKey": true,
     "disableUseStrict": false,
     "minifyWXML": true,
-    "showES6CompileOption": false
+    "showES6CompileOption": false,
+    "compileWorklet": false,
+    "packNpmManually": false,
+    "minifyWXSS": true,
+    "localPlugins": false,
+    "useCompilerPlugins": false,
+    "condition": false,
+    "swc": false,
+    "disableSWC": true
   },
   "compileType": "miniprogram",
-  "libVersion": "3.5.0",
+  "libVersion": "3.16.0",
   "appid": "wx1ed17af888224311",
   "projectname": "aimeeting",
   "condition": {},
   "editorSetting": {
     "tabIndent": "insertSpaces",
     "tabSize": 2
-  }
+  },
+  "simulatorPluginLibVersion": {}
 }

@@ -5,7 +5,7 @@
 //   const token = await ensureAuth();      // 没 token / 快过期 → 自动 refresh; 返 token 或 抛错跳登录
 //   wx.request({ url, header: { Authorization: 'Bearer ' + token } });
 //
-// 没 token 时 ensureAuth 抛 'no-token', 调用方应 wx.navigateTo 到登录页 (web-view login).
+// 没 token 时 ensureAuth 抛 'no-token', 调用方应 reLaunch 到原生登录页 /pages/login/login.
 //
 // v27.0-mobile P21 原生 N-1: 小程序原生页统一从这里拿 token, 不要在各 page 自己读 storage.
 
@@ -97,8 +97,8 @@ function refreshToken() {
  *     const token = await ensureAuth();
  *     // 用 token 调 API
  *   } catch (e) {
- *     // 跳登录页 (web-view login)
- *     wx.reLaunch({ url: '/pages/webview/webview?path=/login' });
+ *     // 跳原生登录页
+ *     wx.reLaunch({ url: '/pages/login/login' });
  *   }
  */
 async function ensureAuth() {

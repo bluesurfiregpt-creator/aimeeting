@@ -1,0 +1,45 @@
+/* custom-tab-bar/index.wxss — v27.2 自定义 tabBar
+   配色对齐各页 navbar: bg 跟 page bg #0a0a0c 一致 (无白线), active 浅紫 */
+
+.tabbar {
+  display: flex;
+  background: #0a0a0c;
+  /* 无 border-top — 之前用户反馈那是"白色缝隙", bg 跟页面一致即可 */
+  padding-top: 6rpx;
+}
+
+.tab-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8rpx 0 10rpx;
+  color: #71717a;
+  transition: color 0.18s ease;
+}
+
+.tab-hover {
+  opacity: 0.7;
+}
+
+.tab-emoji {
+  font-size: 40rpx;
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.tab-label {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  font-weight: 500;
+}
+
+.tab-on {
+  color: #c4b5fd;
+}
+.tab-on .tab-emoji {
+  opacity: 1;
+  transform: scale(1.08);
+}

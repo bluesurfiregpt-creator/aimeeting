@@ -1,0 +1,595 @@
+/* pages/home/home.wxss — v27.0-mobile S1 第 1 刀
+   配色对齐 H5 globals.css (ink-950 #0a0a0c 等). rpx 已 / 2 算成桌面 px. */
+
+page {
+  background: #0a0a0c;
+  color: #e4e4e7;
+  font-size: 28rpx;
+  height: 100vh;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  box-sizing: border-box;
+}
+
+/* ============ Header (跟 H5 PageHeader 对齐) ============ */
+.hd {
+  flex-shrink: 0;
+  padding: 40rpx 32rpx 24rpx;
+}
+.hd-title {
+  font-size: 52rpx;          /* H5 text-[26px] */
+  font-weight: 600;
+  color: #fafafa;
+  line-height: 1;
+  letter-spacing: -0.5rpx;
+}
+.hd-segment {
+  margin-top: 32rpx;
+  display: flex;
+  background: rgba(24, 24, 27, 0.6);
+  border-radius: 24rpx;
+  padding: 8rpx;
+  width: 380rpx;
+}
+.seg-item {
+  flex: 1;
+  height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  color: #d4d4d8;
+  border-radius: 18rpx;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.seg-on {
+  background: #3f3f46;       /* zinc-700, 跟 H5 一致 */
+  color: #fafafa;
+  font-weight: 500;
+  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.2);
+}
+
+/* ============ Body (scroll) ============ */
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 32rpx;
+}
+
+/* ============ Skeleton ============ */
+.sk {
+  background: #18181b;
+  border-radius: 24rpx;
+  margin-bottom: 24rpx;
+  animation: sk-pulse 1.4s ease-in-out infinite;
+}
+.sk-hero { height: 280rpx; }
+.sk-row { height: 140rpx; }
+@keyframes sk-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ============ Section ============ */
+.sec {
+  margin: 24rpx 0 32rpx;
+}
+.sec-head {
+  display: flex;
+  align-items: baseline;
+  margin-bottom: 16rpx;
+}
+.sec-title {
+  font-size: 34rpx;
+  font-weight: 500;
+  color: #fafafa;
+}
+.sec-count {
+  margin-left: 12rpx;
+  font-size: 24rpx;
+  color: #71717a;
+}
+.sec-link {
+  margin-left: auto;
+  font-size: 24rpx;
+  color: #a78bfa;
+  padding: 8rpx 0 8rpx 24rpx;
+}
+
+/* ============ Hero (进行中会议) ============ */
+.sec-hero {
+  margin-top: 16rpx;
+}
+.hero-card {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(99, 102, 241, 0.04));
+  border: 2rpx solid rgba(139, 92, 246, 0.25);
+  border-radius: 32rpx;
+  padding: 32rpx;
+  margin-bottom: 16rpx;
+  transition: transform 0.15s ease;
+}
+.hero-hover {
+  transform: scale(0.98);
+}
+.hero-tag {
+  font-size: 22rpx;
+  color: #c4b5fd;
+  letter-spacing: 0.5rpx;
+  font-weight: 500;
+}
+.hero-title {
+  margin-top: 12rpx;
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #fafafa;
+  line-height: 1.3;
+}
+.hero-meta {
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #a1a1aa;
+}
+.hero-meta .dot {
+  margin: 0 12rpx;
+  color: #52525b;
+}
+.hero-insight {
+  margin-top: 24rpx;
+  padding: 20rpx;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 20rpx;
+  border-left: 4rpx solid #8b5cf6;
+}
+.hero-insight-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8rpx;
+}
+.hero-insight-agent {
+  margin-left: 12rpx;
+  font-size: 22rpx;
+  color: #a1a1aa;
+}
+.hero-insight-text {
+  font-size: 26rpx;
+  color: #e4e4e7;
+  line-height: 1.5;
+}
+.hero-cta {
+  margin-top: 24rpx;
+  font-size: 26rpx;
+  color: #a78bfa;
+  font-weight: 500;
+  text-align: right;
+}
+
+/* 空 hero */
+.hero-empty {
+  background: #18181b;
+  border: 2rpx dashed #3f3f46;
+  border-radius: 32rpx;
+  padding: 56rpx 32rpx;
+  text-align: center;
+}
+.hero-empty-emoji {
+  font-size: 64rpx;
+  line-height: 1;
+}
+.hero-empty-title {
+  margin-top: 20rpx;
+  font-size: 30rpx;
+  color: #e4e4e7;
+}
+.hero-empty-body {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #71717a;
+}
+
+/* ============ Row card (pending / insight topic) ============ */
+.row-card {
+  background: #18181b;
+  border: 2rpx solid #27272a;
+  border-radius: 20rpx;
+  padding: 24rpx 28rpx;
+  margin-bottom: 12rpx;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.row-hover {
+  transform: scale(0.98);
+  background: #1f1f23;
+}
+.row-head {
+  display: flex;
+  align-items: center;
+}
+.row-title {
+  font-size: 28rpx;
+  color: #fafafa;
+  font-weight: 500;
+  flex: 1;
+  margin-left: 12rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-meta {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #71717a;
+}
+.row-preview {
+  margin-top: 10rpx;
+  font-size: 26rpx;
+  color: #d4d4d8;
+  line-height: 1.5;
+}
+.row-cta {
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #a78bfa;
+  text-align: right;
+}
+
+/* ============ Badge (kind / insight type 等) ============ */
+.badge {
+  display: inline-block;
+  padding: 6rpx 14rpx;
+  border-radius: 12rpx;
+  font-size: 22rpx;
+  font-weight: 500;
+}
+.tone-violet {
+  background: rgba(139, 92, 246, 0.15);
+  color: #c4b5fd;
+}
+.tone-amber {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fcd34d;
+}
+.tone-rose {
+  background: rgba(244, 63, 94, 0.15);
+  color: #fda4af;
+}
+.tone-cyan {
+  background: rgba(6, 182, 212, 0.15);
+  color: #67e8f9;
+}
+.tone-zinc {
+  background: #27272a;
+  color: #a1a1aa;
+}
+
+/* ============ Empty thin (pending 0 / insight 0) ============ */
+.empty-thin {
+  border: 2rpx dashed #3f3f46;
+  background: rgba(16, 185, 129, 0.04);
+  border-color: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+  border-radius: 20rpx;
+  text-align: center;
+  padding: 28rpx 0;
+  font-size: 26rpx;
+}
+
+/* ============ Centered (error / login / empty view) ============ */
+.centered {
+  padding: 80rpx 32rpx;
+  text-align: center;
+}
+.centered-emoji {
+  font-size: 80rpx;
+  line-height: 1;
+}
+.centered-title {
+  margin-top: 24rpx;
+  font-size: 32rpx;
+  color: #fafafa;
+}
+.centered-body {
+  margin-top: 12rpx;
+  font-size: 26rpx;
+  color: #a1a1aa;
+  line-height: 1.6;
+}
+.btn-ghost {
+  margin-top: 32rpx;
+  display: inline-block;
+  padding: 20rpx 48rpx;
+  background: #18181b;
+  border: 2rpx solid #3f3f46;
+  border-radius: 24rpx;
+  color: #e4e4e7;
+  font-size: 28rpx;
+}
+
+.bottom-pad {
+  height: 80rpx;
+}
+
+/* ============ Expert view (S1 第 2 刀) ============ */
+.expert-count {
+  margin: 8rpx 8rpx 16rpx;
+  font-size: 24rpx;
+  color: #71717a;
+}
+
+.empty-experts {
+  margin: 64rpx 0;
+  padding: 64rpx 32rpx;
+  background: #18181b;
+  border: 2rpx dashed #3f3f46;
+  border-radius: 32rpx;
+  text-align: center;
+}
+.empty-experts-emoji {
+  font-size: 80rpx;
+  line-height: 1;
+}
+.empty-experts-title {
+  margin-top: 24rpx;
+  font-size: 30rpx;
+  color: #fafafa;
+}
+.empty-experts-body {
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #71717a;
+}
+
+/* —— 工卡 —— */
+.agent-card {
+  background: #18181b;
+  border-radius: 24rpx;
+  margin-bottom: 16rpx;
+  overflow: hidden;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.agent-hover {
+  transform: scale(0.985);
+  background: #1f1f23;
+}
+.agent-row {
+  display: flex;
+  align-items: stretch;
+}
+
+/* 色条 */
+.agent-bar {
+  width: 8rpx;
+  flex-shrink: 0;
+}
+.bar-violet  { background: #8b5cf6; }
+.bar-emerald { background: #10b981; }
+.bar-amber   { background: #f59e0b; }
+.bar-sky     { background: #0ea5e9; }
+.bar-rose    { background: #f43f5e; }
+.bar-teal    { background: #14b8a6; }
+.bar-blue    { background: #3b82f6; }
+.bar-indigo  { background: #6366f1; }
+.bar-zinc    { background: #3f3f46; }
+
+.agent-body {
+  flex: 1;
+  min-width: 0;
+  padding: 28rpx 28rpx 28rpx 24rpx;
+}
+
+/* Header */
+.agent-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+}
+.agent-head-l {
+  flex: 1;
+  min-width: 0;
+}
+.agent-name {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #fafafa;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-domain {
+  margin-top: 8rpx;
+  font-size: 26rpx;
+  color: #a1a1aa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.muted {
+  color: #71717a;
+}
+.agent-summary {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #71717a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-head-r {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  flex-shrink: 0;
+}
+.agent-active {
+  font-size: 22rpx;
+  color: #71717a;
+}
+.agent-inactive {
+  font-size: 22rpx;
+  color: #a1a1aa;
+  background: #27272a;
+  padding: 6rpx 16rpx;
+  border-radius: 999rpx;
+}
+
+/* Chevron */
+.chevron-btn {
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #27272a;
+  color: #a1a1aa;
+  font-size: 18rpx;
+  transition: transform 0.2s ease, background 0.15s ease;
+}
+.chevron-btn:active {
+  background: #3f3f46;
+  transform: scale(0.92);
+}
+.chevron-open {
+  transform: rotate(180deg);
+}
+
+/* —— 展开后 子 section —— */
+.sec-block {
+  margin-top: 32rpx;
+}
+.sec-block-border {
+  border-top: 2rpx solid #27272a;
+  padding-top: 24rpx;
+}
+.sec-block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.sec-block-title {
+  font-size: 26rpx;
+  font-weight: 500;
+  color: #d4d4d8;
+}
+.sec-block-count {
+  font-size: 24rpx;
+  color: #71717a;
+}
+.sec-block-empty {
+  margin-top: 12rpx;
+  font-size: 26rpx;
+  color: #71717a;
+}
+
+/* 最近会议 list */
+.meeting-list {
+  margin-top: 16rpx;
+}
+.meeting-item {
+  margin-bottom: 12rpx;
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+}
+.meeting-date {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  color: #71717a;
+  font-variant-numeric: tabular-nums;
+}
+.meeting-title {
+  flex: 1;
+  font-size: 28rpx;
+  color: #d4d4d8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 任务 stat */
+.task-line {
+  margin-top: 16rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32rpx;
+}
+.task-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 8rpx;
+}
+.task-num {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #fafafa;
+  font-variant-numeric: tabular-nums;
+}
+.task-num-done {
+  color: #6ee7b7;
+}
+.task-num-overdue {
+  color: #fda4af;
+}
+.task-label {
+  font-size: 26rpx;
+  color: #a1a1aa;
+}
+.task-label-overdue {
+  color: rgba(253, 164, 175, 0.85);
+}
+
+/* ============ 入场动效 (fade + slide-up + stagger) ============ */
+/* card 出现 时 从 24rpx 下方 + opacity 0 → 落位.
+   stagger 由 wxml 的 inline style animation-delay 控制 (50ms × idx, cap 8). */
+@keyframes agent-enter-anim {
+  from {
+    opacity: 0;
+    transform: translateY(24rpx) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.agent-enter {
+  animation: agent-enter-anim 0.36s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ============ Bottom Nav (跟 page bg 完全一致, 消除"白线") ============ */
+.navbar {
+  flex-shrink: 0;
+  display: flex;
+  background: #0a0a0c;        /* 跟 page bg 一致 — 没有 视觉断层 */
+  padding: 6rpx 0 0;
+  /* 不放 border-top — 用户反馈"白色缝隙"就是这个 1px 线 */
+}
+.nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8rpx 0 10rpx;
+  color: #71717a;             /* zinc-500 */
+  transition: color 0.2s ease;
+}
+.nav-emoji {
+  font-size: 40rpx;           /* H5 text-xl */
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+.nav-label {
+  margin-top: 6rpx;
+  font-size: 22rpx;           /* H5 text-[11px] */
+  font-weight: 500;
+}
+.nav-on {
+  color: #c4b5fd;             /* H5 accent-300 — 浅紫 */
+}
+.nav-on .nav-emoji {
+  opacity: 1;
+}

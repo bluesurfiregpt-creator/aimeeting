@@ -1,11 +1,17 @@
-// pages/voiceprint/voiceprint.js — v27.0-mobile P22 声纹录入 (原生版)
+// pages/voiceprint/voiceprint.js — v27.2 声纹库 (原生重写)
 //
-// 跟 H5 版 /m/me/voiceprint 行为对齐, 但:
-//   - 录音走 wx.getRecorderManager (PCM 16kHz mono, 复用 utils/recorder.js)
-//   - 累积 frame buffer → 拼成 PCM Blob → 写临时文件 → wx.uploadFile
-//   - 没顶部 web-view 进度条 (用户要的 "100% 原生" 体验)
+// 模型 = workspace 级共享声纹库 (跟 H5 /m/me/voiceprint + 桌面端 同一套):
+//   - 列 workspace 所有 user, 标 has_voiceprint
+//   - "录新人": 输姓名 → POST /api/users 建 speaker-only profile → 录音 → POST /api/voiceprints
+//   - "重录": 选已有 user → 录音 → POST /api/voiceprints { user_id 同 }
+//   - 删: DELETE /api/voiceprints/by-user/{user_id}
+//   - ABAC: 列表 谁都能看; 录入 / 删除 限 leader+ (member 看得到 但 按钮 不显)
+//
+// 录音: wx.getRecorderManager (16kHz mono PCM) — 复用 utils/recorder.js.
+// 旧版 是 "我的个人声纹" 模型 + 调死端点 /api/voiceprints/me, 本次 整体重写.
 
-const { getToken, setToken } = require('../../utils/auth');
+const { getToken, clearAuth } = require('../../utils/auth');
+const { getNavMetrics } = require('../../utils/nav');
 const api = require('../../utils/api');
 const { createRecorder, openMicSetting } = require('../../utils/recorder');
 
@@ -14,69 +20,59 @@ const MAX_SECONDS = 60;
 const MIN_SUBMIT_SECONDS = 20;
 
 const SCRIPTS = [
-  {
-    title: '午后阅读',
-    text:
-      '我喜欢在安静的午后捧一本书, 坐在阳台上慢慢翻看. 窗外的阳光斜斜地洒在书页上, 远处偶尔传来几声鸟鸣. 读书最让人愉快的, 不是读完一本厚厚的著作那种成就感, 而是在某一页突然遇到一句让自己心里一动的话.',
-  },
-  {
-    title: '清晨小镇',
-    text:
-      '清晨的城市还没有完全醒过来. 地铁站门口排着稀疏的队, 便利店刚把热饮的招牌摆出来. 我点了一杯热豆浆和一个茶叶蛋, 靠在落地窗边吃完. 这样一份普通的早餐, 却让我觉得新的一天有了盼头.',
-  },
-  {
-    title: '学习新事',
-    text:
-      '学一件新东西的开头总是最难的. 你会反复怀疑自己, 会觉得别人都比你聪明, 会想干脆放弃算了. 但只要你能撑过最难受的那两三周, 事情就会突然变得清晰. 原本看不懂的概念开始有了意义, 原本笨拙的动作也慢慢顺手起来.',
-  },
+  '我喜欢在安静的午后捧一本书, 坐在阳台上慢慢翻看. 窗外的阳光斜斜地洒在书页上, 远处偶尔传来几声鸟鸣. 读书最让人愉快的, 是在某一页突然遇到一句让自己心里一动的话.',
+  '清晨的城市还没有完全醒过来. 地铁站门口排着稀疏的队, 便利店刚把热饮的招牌摆出来. 我点了一杯热豆浆和一个茶叶蛋, 靠在落地窗边吃完, 觉得新的一天有了盼头.',
+  '学一件新东西的开头总是最难的. 你会反复怀疑自己, 会想干脆放弃. 但只要撑过最难受的那两三周, 原本看不懂的概念就会开始有意义, 笨拙的动作也慢慢顺手起来.',
 ];
 
 Page({
   data: {
-    needToken: false,
-    devTokenInput: '',
-    devTokenExpInput: '',
+    // 自定义导航
+    statusBarHeight: 20,
+    navBarHeight: 44,
 
-    userId: '',                    // 当前用户 id (从 /api/auth/me 拿)
-    currentVoiceprint: null,       // 已录的声纹 (或 null)
-
-    phase: 'idle',                 // idle / starting / recording / uploading / done / error
-    seconds: 0,
-    secondsStr: '0.0',             // 进度条旁的秒数 (wxml 用)
-    progressPct: 0,                // 0-100, 进度条宽度
-    canSubmit: false,              // 秒数 ≥ 20 时可提交
-
-    scriptIdx: 0,
-    scripts: SCRIPTS,
-
+    loading: true,
     error: '',
+
+    isWriter: false,       // leader+ 才能 录入 / 删除
+    users: [],             // [{ id, name, has_voiceprint, created_at, _statusLabel }]
+    enrolledCount: 0,
+    total: 0,
+
+    // ===== 录音 modal =====
+    recordOpen: false,
+    targetUserId: '',
+    targetUserName: '',
+    isNewUser: false,      // true = 录新人 (先建 profile)
+    newUserName: '',
+
+    phase: 'idle',         // idle / starting / recording / uploading
+    seconds: 0,
+    secondsStr: '0.0',
+    progressPct: 0,
+    canSubmit: false,
+    scriptText: SCRIPTS[0],
+
+    // ===== 新人输名 modal =====
+    nameInputOpen: false,
   },
 
   // ============================================================
   // 生命周期
   // ============================================================
 
-  onLoad(options) {
-    if (options.t) {
-      try {
-        const exp =
-          options.exp ||
-          new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
-        setToken(decodeURIComponent(options.t), decodeURIComponent(exp));
-      } catch (e) {
-        console.warn('save token from query failed', e);
-      }
-    }
-    // 随机选一段朗读文
+  onLoad() {
+    const nav = getNavMetrics();
     this.setData({
-      scriptIdx: Math.floor(Math.random() * SCRIPTS.length),
+      statusBarHeight: nav.statusBarHeight,
+      navBarHeight: nav.navBarHeight,
+      scriptText: SCRIPTS[Math.floor(Math.random() * SCRIPTS.length)],
     });
-
     if (!getToken()) {
-      this.setData({ needToken: true });
+      wx.reLaunch({ url: '/pages/login/login' });
       return;
     }
-    this._init();
+    this._fetch();
   },
 
   onUnload() {
@@ -87,29 +83,143 @@ Page({
     }
   },
 
-  async _init() {
-    try {
-      const me = await api.get('/api/auth/me');
-      this.setData({ userId: me.user_id });
-    } catch (e) {
-      console.warn('fetch me failed', e);
-    }
-    await this._fetchMyVoiceprint();
+  onTapBack() {
+    wx.navigateBack({
+      fail: () => wx.reLaunch({ url: '/pages/me/me' }),
+    });
   },
 
-  async _fetchMyVoiceprint() {
+  // ============================================================
+  // 数据
+  // ============================================================
+
+  async _fetch() {
+    this.setData({ loading: true, error: '' });
     try {
-      const vp = await api.get('/api/voiceprints/me');
-      this.setData({ currentVoiceprint: vp || null });
+      // 并行: 拉 me (判 role) + 拉 workspace users
+      const [me, users] = await Promise.all([
+        api.get('/api/auth/me'),
+        api.get('/api/users'),
+      ]);
+      const role = (me && me.role) || 'member';
+      const isWriter = role === 'owner' || role === 'admin' || role === 'leader';
+      const list = (users || []).map((u) => ({
+        id: u.id,
+        name: u.name || '(未命名)',
+        has_voiceprint: !!u.has_voiceprint,
+        created_at: u.created_at,
+      }));
+      // 排序: 已录在前, 再按 created_at 倒序
+      list.sort((a, b) => {
+        if (a.has_voiceprint !== b.has_voiceprint) {
+          return a.has_voiceprint ? -1 : 1;
+        }
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+      });
+      this.setData({
+        isWriter,
+        users: list,
+        enrolledCount: list.filter((u) => u.has_voiceprint).length,
+        total: list.length,
+        loading: false,
+      });
     } catch (e) {
-      // null / 404 都视为未录
-      this.setData({ currentVoiceprint: null });
+      console.error('[voiceprint] fetch failed', e);
+      if (e.message === 'unauthorized') {
+        clearAuth();
+        wx.reLaunch({ url: '/pages/login/login' });
+        return;
+      }
+      this.setData({ loading: false, error: e.message || '加载失败' });
+    }
+  },
+
+  onTapRetry() {
+    this._fetch();
+  },
+
+  // ============================================================
+  // 录新人 — 先输姓名
+  // ============================================================
+
+  onTapAddNew() {
+    if (!this.data.isWriter) return;
+    this.setData({ nameInputOpen: true, newUserName: '' });
+  },
+
+  onNewNameInput(e) {
+    this.setData({ newUserName: e.detail.value });
+  },
+
+  onCancelNameInput() {
+    this.setData({ nameInputOpen: false, newUserName: '' });
+  },
+
+  async onConfirmNewName() {
+    const name = (this.data.newUserName || '').trim();
+    if (!name) {
+      wx.showToast({ title: '请输入姓名', icon: 'none' });
+      return;
+    }
+    try {
+      // POST /api/users 建 speaker-only profile
+      const created = await api.post('/api/users', { name });
+      this.setData({ nameInputOpen: false, newUserName: '' });
+      // 直接 进 录音 modal
+      this._openRecordModal(created.id, name, true);
+    } catch (e) {
+      console.error('[voiceprint] create user failed', e);
+      wx.showToast({
+        title: e.message || '建档失败',
+        icon: 'none',
+        duration: 2500,
+      });
     }
   },
 
   // ============================================================
-  // 录音
+  // 录音 modal
   // ============================================================
+
+  /** 点 列表里 某人 的 录入 / 重录 */
+  onTapEnroll(e) {
+    if (!this.data.isWriter) return;
+    const id = e.currentTarget.dataset.id;
+    const name = e.currentTarget.dataset.name;
+    if (!id) return;
+    this._openRecordModal(id, name, false);
+  },
+
+  _openRecordModal(userId, userName, isNewUser) {
+    this.setData({
+      recordOpen: true,
+      targetUserId: userId,
+      targetUserName: userName,
+      isNewUser: !!isNewUser,
+      phase: 'idle',
+      seconds: 0,
+      secondsStr: '0.0',
+      progressPct: 0,
+      canSubmit: false,
+      scriptText: SCRIPTS[Math.floor(Math.random() * SCRIPTS.length)],
+    });
+  },
+
+  onCloseRecordModal() {
+    if (this.data.phase === 'recording' || this.data.phase === 'uploading') {
+      wx.showToast({ title: '录音中, 请先停止', icon: 'none' });
+      return;
+    }
+    this._stopTick();
+    this.setData({ recordOpen: false });
+  },
+
+  onNextScript() {
+    if (this.data.phase === 'recording' || this.data.phase === 'uploading') return;
+    let idx = SCRIPTS.indexOf(this.data.scriptText);
+    idx = (idx + 1) % SCRIPTS.length;
+    this.setData({ scriptText: SCRIPTS[idx] });
+  },
 
   _ensureRecorder() {
     if (this._recorder) return this._recorder;
@@ -145,7 +255,7 @@ Page({
     return this._recorder;
   },
 
-  async onStart() {
+  async onStartRecord() {
     if (this.data.phase === 'recording' || this.data.phase === 'uploading') return;
     this._pcmBuffer = [];
     this.setData({
@@ -154,7 +264,6 @@ Page({
       secondsStr: '0.0',
       progressPct: 0,
       canSubmit: false,
-      error: '',
     });
     this._ensureRecorder();
     try {
@@ -162,7 +271,6 @@ Page({
       this.setData({ phase: 'recording' });
       this._startTick();
     } catch (e) {
-      // onError 已弹错
       this.setData({ phase: 'idle' });
     }
   },
@@ -178,7 +286,7 @@ Page({
         progressPct: pct,
         canSubmit: s >= MIN_SUBMIT_SECONDS,
       });
-      if (s >= MAX_SECONDS) this.onStop(true);
+      if (s >= MAX_SECONDS) this.onStopRecord(true);
     }, 200);
   },
 
@@ -187,12 +295,10 @@ Page({
     this._tickTimer = null;
   },
 
-  async onStop(autoSubmit) {
+  async onStopRecord(autoSubmit) {
     if (this.data.phase !== 'recording') return;
     this._stopTick();
-    if (this._recorder) {
-      this._recorder.stop();
-    }
+    if (this._recorder) this._recorder.stop();
 
     const sec = this.data.seconds;
     if (!this._pcmBuffer || this._pcmBuffer.length === 0 || sec < 1) {
@@ -200,27 +306,19 @@ Page({
       wx.showToast({ title: '没录到声音', icon: 'none' });
       return;
     }
-
-    if (!autoSubmit && sec < MIN_SUBMIT_SECONDS) {
+    if (autoSubmit !== true && sec < MIN_SUBMIT_SECONDS) {
       this.setData({ phase: 'idle' });
       wx.showToast({
-        title: `录了 ${sec.toFixed(0)}s, 至少 ${MIN_SUBMIT_SECONDS}s 才能提交`,
+        title: `录了 ${sec.toFixed(0)}s, 至少 ${MIN_SUBMIT_SECONDS}s`,
         icon: 'none',
         duration: 2500,
       });
       return;
     }
-
-    await this._uploadVoiceprint();
+    await this._upload();
   },
 
-  async _uploadVoiceprint() {
-    if (!this.data.userId) {
-      this.setData({ phase: 'idle', error: '未拿到用户身份' });
-      return;
-    }
-
-    // 拼 PCM
+  async _upload() {
     const totalLen = this._pcmBuffer.reduce((n, b) => n + b.byteLength, 0);
     const merged = new Uint8Array(totalLen);
     let p = 0;
@@ -230,12 +328,9 @@ Page({
     }
 
     this.setData({ phase: 'uploading' });
-
     const fs = wx.getFileSystemManager();
     const tempPath = `${wx.env.USER_DATA_PATH}/voiceprint-${Date.now()}.pcm`;
-
     try {
-      // 1. 写临时文件
       await new Promise((resolve, reject) => {
         fs.writeFile({
           filePath: tempPath,
@@ -245,28 +340,18 @@ Page({
           fail: reject,
         });
       });
-
-      // 2. wx.uploadFile (走 utils/api.uploadFile, 自动 Bearer)
       await api.uploadFile('/api/voiceprints', tempPath, {
-        user_id: this.data.userId,
+        user_id: this.data.targetUserId,
       });
+      try { fs.unlinkSync(tempPath); } catch (_) { /* ignore */ }
 
-      // 3. 清临时文件
-      try {
-        fs.unlinkSync(tempPath);
-      } catch (_) { /* ignore */ }
-
-      // 4. 拉新状态
-      await this._fetchMyVoiceprint();
       this._pcmBuffer = [];
-      this.setData({ phase: 'done' });
+      this.setData({ recordOpen: false, phase: 'idle' });
       wx.showToast({ title: '声纹录入成功', icon: 'success' });
+      this._fetch(); // 刷新列表
     } catch (e) {
-      console.error('upload voiceprint failed', e);
-      this.setData({
-        phase: 'idle',
-        error: e.message || '上传失败',
-      });
+      console.error('[voiceprint] upload failed', e);
+      this.setData({ phase: 'idle' });
       wx.showToast({
         title: (e && e.message) || '上传失败',
         icon: 'none',
@@ -276,71 +361,33 @@ Page({
   },
 
   // ============================================================
-  // 删除
+  // 删除声纹
   // ============================================================
 
-  onDelete() {
+  onTapDelete(e) {
+    if (!this.data.isWriter) return;
+    const id = e.currentTarget.dataset.id;
+    const name = e.currentTarget.dataset.name;
+    if (!id) return;
     wx.showModal({
-      title: '删除我的声纹?',
-      content: '删除后 会议中 将无法 自动识别 你的发言.',
+      title: `删除 ${name} 的声纹?`,
+      content: '删除后, 会议中将无法自动识别 TA 的发言.',
       confirmText: '删除',
       confirmColor: '#f43f5e',
       success: async ({ confirm }) => {
         if (!confirm) return;
         try {
-          await api.del('/api/voiceprints/me');
-          this.setData({ currentVoiceprint: null });
+          await api.del(`/api/voiceprints/by-user/${encodeURIComponent(id)}`);
           wx.showToast({ title: '已删除', icon: 'success' });
-        } catch (e) {
+          this._fetch();
+        } catch (err) {
           wx.showToast({
-            title: e.message || '删除失败',
+            title: err.message || '删除失败',
             icon: 'none',
             duration: 2500,
           });
         }
       },
     });
-  },
-
-  // ============================================================
-  // 朗读文 切换 + 其他 UI
-  // ============================================================
-
-  onNextScript() {
-    if (this.data.phase === 'recording' || this.data.phase === 'uploading') return;
-    this.setData({
-      scriptIdx: (this.data.scriptIdx + 1) % SCRIPTS.length,
-    });
-  },
-
-  onBack() {
-    wx.navigateBack({
-      delta: 1,
-      fail: () => wx.reLaunch({ url: '/pages/webview/webview' }),
-    });
-  },
-
-  // ============================================================
-  // 开发模式 token
-  // ============================================================
-
-  onDevTokenInput(e) {
-    this.setData({ devTokenInput: e.detail.value });
-  },
-  onDevTokenExpInput(e) {
-    this.setData({ devTokenExpInput: e.detail.value });
-  },
-  onDevTokenConfirm() {
-    const token = (this.data.devTokenInput || '').trim();
-    if (!token) {
-      wx.showToast({ title: '请粘贴 token', icon: 'none' });
-      return;
-    }
-    const exp =
-      (this.data.devTokenExpInput || '').trim() ||
-      new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
-    setToken(token, exp);
-    this.setData({ needToken: false });
-    this._init();
   },
 });

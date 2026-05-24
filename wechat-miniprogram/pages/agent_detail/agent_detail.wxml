@@ -1,0 +1,157 @@
+<!-- pages/agent_detail/agent_detail.wxml — v27.2 专家详情 -->
+
+<view class="page page-fade-in">
+
+  <!-- ============ 自定义导航栏 ============ -->
+  <view class="cnav" style="padding-top: {{statusBarHeight}}px;">
+    <view class="cnav-inner" style="height: {{navBarHeight}}px;">
+      <view class="cnav-back" bindtap="onTapBack" hover-class="cnav-back-hover">
+        <text class="cnav-back-arrow">‹</text>
+      </view>
+      <view class="cnav-title">{{displayName || '专家详情'}}</view>
+    </view>
+  </view>
+
+  <!-- Loading -->
+  <block wx:if="{{loading}}">
+    <view class="sk sk-card"></view>
+    <view class="sk sk-row"></view>
+  </block>
+
+  <!-- Error -->
+  <block wx:elif="{{error}}">
+    <view class="centered">
+      <view class="centered-title">未能加载专家详情</view>
+      <view class="centered-body">{{error}}</view>
+      <button class="btn-ghost" bindtap="onTapRetry">重试</button>
+    </view>
+  </block>
+
+  <!-- 正常 -->
+  <block wx:else>
+    <scroll-view scroll-y class="body">
+
+      <!-- ===== 档案区 ===== -->
+      <view class="profile">
+        <view class="profile-bar {{colorClass}}"></view>
+        <view class="profile-body">
+          <view wx:if="{{subLine}}" class="profile-sub">{{subLine}}</view>
+          <view class="profile-stats">
+            <view class="stat">
+              <text class="stat-num">{{totalMeetings}}</text>
+              <text class="stat-label">场会议</text>
+            </view>
+            <view class="stat">
+              <text class="stat-num">{{totalInsights}}</text>
+              <text class="stat-label">条智囊</text>
+            </view>
+            <view class="stat">
+              <text class="stat-num">{{totalTasks}}</text>
+              <text class="stat-label">项任务</text>
+            </view>
+          </view>
+          <view class="profile-active">{{lastActiveLabel}}</view>
+        </view>
+      </view>
+
+      <!-- ===== Segment ===== -->
+      <view class="segment">
+        <view
+          class="seg-item {{tab === 'meetings' ? 'seg-on' : ''}}"
+          data-tab="meetings"
+          bindtap="onTapSegment"
+        >会议 {{counts.meetings > 0 ? counts.meetings : ''}}</view>
+        <view
+          class="seg-item {{tab === 'tasks' ? 'seg-on' : ''}}"
+          data-tab="tasks"
+          bindtap="onTapSegment"
+        >任务 {{counts.tasks > 0 ? counts.tasks : ''}}</view>
+        <view
+          class="seg-item {{tab === 'insights' ? 'seg-on' : ''}}"
+          data-tab="insights"
+          bindtap="onTapSegment"
+        >智囊 {{counts.insights > 0 ? counts.insights : ''}}</view>
+      </view>
+
+      <!-- ===== 会议 tab ===== -->
+      <block wx:if="{{tab === 'meetings'}}">
+        <block wx:if="{{meetings.length === 0}}">
+          <view class="empty-hint">该专家还没参加过会议</view>
+        </block>
+        <view
+          wx:for="{{meetings}}"
+          wx:key="meeting_id"
+          wx:for-item="m"
+          class="card tab-enter"
+          data-id="{{m.meeting_id}}"
+          data-status="{{m.status}}"
+          bindtap="onTapMeeting"
+          hover-class="card-hover"
+          hover-stay-time="80"
+        >
+          <view class="row-head">
+            <text class="badge {{m._statusTone}}">{{m._statusLabel}}</text>
+            <text wx:if="{{m._dateLabel}}" class="row-date">{{m._dateLabel}}</text>
+          </view>
+          <view class="row-title">{{m.title}}</view>
+          <view wx:if="{{m.insights_count > 0}}" class="row-extra">
+            💡 该专家在此会产出 {{m.insights_count}} 条智囊
+          </view>
+        </view>
+      </block>
+
+      <!-- ===== 任务 tab ===== -->
+      <block wx:elif="{{tab === 'tasks'}}">
+        <block wx:if="{{taskGroups.length === 0}}">
+          <view class="empty-hint">该专家还没分配任务</view>
+        </block>
+        <block wx:for="{{taskGroups}}" wx:key="key" wx:for-item="g">
+          <view class="group-title">{{g.title}} · {{g.items.length}}</view>
+          <view
+            wx:for="{{g.items}}"
+            wx:key="task_id"
+            wx:for-item="t"
+            class="card tab-enter {{g.muted ? 'card-muted' : ''}}"
+            data-aid="{{t.action_item_id}}"
+            bindtap="onTapTask"
+            hover-class="card-hover"
+            hover-stay-time="80"
+          >
+            <view class="row-head">
+              <text class="badge {{t._statusTone}}">{{t._statusLabel}}</text>
+              <text wx:if="{{t.is_overdue}}" class="badge tone-rose">超期</text>
+              <text wx:if="{{t._dueLabel}}" class="row-date">截止 {{t._dueLabel}}</text>
+            </view>
+            <view class="row-title {{g.muted ? 'row-title-muted' : ''}}">{{t.title}}</view>
+            <view wx:if="{{t.source_meeting_title}}" class="row-extra row-extra-mute">
+              来自 {{t.source_meeting_title}}
+            </view>
+          </view>
+        </block>
+      </block>
+
+      <!-- ===== 智囊 tab ===== -->
+      <block wx:elif="{{tab === 'insights'}}">
+        <block wx:if="{{insights.length === 0}}">
+          <view class="empty-hint">该专家暂无智囊产出</view>
+        </block>
+        <view
+          wx:for="{{insights}}"
+          wx:key="id"
+          wx:for-item="ins"
+          class="card tab-enter"
+        >
+          <view class="row-head">
+            <text class="badge {{ins._tone}}">{{ins.type}}</text>
+            <text wx:if="{{ins.meeting_title}}" class="row-date">{{ins.meeting_title}}</text>
+          </view>
+          <view class="insight-content">{{ins.content}}</view>
+          <view wx:if="{{ins.evidence}}" class="insight-evidence">{{ins.evidence}}</view>
+        </view>
+      </block>
+
+      <view class="bottom-pad"></view>
+    </scroll-view>
+  </block>
+
+</view>

@@ -909,7 +909,7 @@ Page({
   onBack() {
     wx.navigateBack({
       delta: 1,
-      fail: () => wx.reLaunch({ url: '/pages/webview/webview' }),
+      fail: () => wx.switchTab({ url: '/pages/home/home' }),
     });
   },
 

@@ -1,0 +1,224 @@
+<!-- pages/insights/insights.wxml — v27.0-mobile S4 -->
+
+<view class="page page-fade-in">
+
+  <!-- ============ Header (custom nav 留顶) ============ -->
+  <view class="hd" style="padding-top: {{navPadTop}}px;">
+    <view class="hd-row">
+      <view class="hd-title">记忆</view>
+      <view class="hd-icons">
+        <view
+          class="hd-icon-btn"
+          bindtap="onTapNotifications"
+          hover-class="hd-icon-hover"
+          hover-stay-time="80"
+        >🔔</view>
+        <view
+          class="hd-icon-btn"
+          bindtap="onTapMe"
+          hover-class="hd-icon-hover"
+          hover-stay-time="80"
+        >⚙</view>
+      </view>
+    </view>
+    <view class="hd-segment">
+      <view
+        class="seg-item {{tab === 'snapshots' ? 'seg-on' : ''}}"
+        data-tab="snapshots"
+        bindtap="onTapTab"
+      >
+        <text class="seg-label">快照</text>
+        <text wx:if="{{countSnapshots > 0}}" class="seg-count">{{countSnapshots}}</text>
+      </view>
+      <view
+        class="seg-item {{tab === 'review' ? 'seg-on' : ''}}"
+        data-tab="review"
+        bindtap="onTapTab"
+      >
+        <text class="seg-label">待审</text>
+        <text wx:if="{{countReview > 0}}" class="seg-count seg-count-warn">{{countReview}}</text>
+      </view>
+      <view
+        class="seg-item {{tab === 'library' ? 'seg-on' : ''}}"
+        data-tab="library"
+        bindtap="onTapTab"
+      >
+        <text class="seg-label">记忆库</text>
+        <text wx:if="{{countLibrary > 0}}" class="seg-count">{{countLibrary}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ============ Body ============ -->
+  <scroll-view
+    scroll-y
+    class="body"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refreshing}}"
+    bindrefresherrefresh="onPullDownRefresh"
+  >
+
+    <!-- ==================== Tab 1: 快照 ==================== -->
+    <block wx:if="{{tab === 'snapshots'}}">
+      <block wx:if="{{snapshotsLoading && snapshotTopics.length === 0}}">
+        <view class="sk sk-row"></view>
+        <view class="sk sk-row"></view>
+        <view class="sk sk-row"></view>
+      </block>
+      <block wx:elif="{{snapshotsErr}}">
+        <view class="centered">
+          <view class="centered-title">未能加载</view>
+          <view class="centered-body">{{snapshotsErr}}</view>
+          <button class="btn-ghost" bindtap="onTapRetry">重试</button>
+        </view>
+      </block>
+      <block wx:elif="{{snapshotTopics.length === 0}}">
+        <view class="empty-card">
+          <view class="empty-emoji">{{emptyEmoji}}</view>
+          <view class="empty-title">{{emptyTitle}}</view>
+          <view class="empty-body">{{emptyBody}}</view>
+        </view>
+      </block>
+      <block wx:else>
+        <view class="sub-hint">{{snapshotTopics.length}} 议题 · {{countSnapshots}} 条</view>
+        <view
+          wx:for="{{snapshotTopics}}"
+          wx:key="key"
+          wx:for-item="t"
+          class="topic-row tab-enter"
+          style="animation-delay: {{t._animDelayMs}}ms;"
+          data-meeting="{{t.meetingId}}"
+          data-topic="{{t.topicIdx}}"
+          bindtap="onTapTopic"
+          hover-class="row-hover"
+          hover-stay-time="80"
+        >
+          <view class="topic-head">
+            <text class="topic-title">{{t.topicTitle}} · {{t.meetingTitle}}</text>
+          </view>
+          <view class="topic-meta">{{t.agentLine}} · {{t.count}} 条</view>
+          <view class="topic-preview">{{t.preview}}</view>
+        </view>
+        <view class="bottom-pad"></view>
+      </block>
+    </block>
+
+    <!-- ==================== Tab 2: 待审 ==================== -->
+    <block wx:if="{{tab === 'review'}}">
+      <block wx:if="{{reviewLoading && review.length === 0}}">
+        <view class="sk sk-card"></view>
+        <view class="sk sk-card"></view>
+      </block>
+      <block wx:elif="{{reviewErr}}">
+        <view class="centered">
+          <view class="centered-title">未能加载</view>
+          <view class="centered-body">{{reviewErr}}</view>
+          <button class="btn-ghost" bindtap="onTapRetry">重试</button>
+        </view>
+      </block>
+      <block wx:elif="{{review.length === 0}}">
+        <view class="empty-card">
+          <view class="empty-emoji">{{emptyEmoji}}</view>
+          <view class="empty-title">{{emptyTitle}}</view>
+          <view class="empty-body">{{emptyBody}}</view>
+        </view>
+      </block>
+      <block wx:else>
+        <view class="sub-hint">{{review.length}} 条 AI 推荐入记忆 · 你来拍板</view>
+        <view
+          wx:for="{{review}}"
+          wx:key="id"
+          wx:for-item="ins"
+          class="review-card tab-enter"
+          style="animation-delay: {{ins._animDelayMs}}ms;"
+        >
+          <view class="review-head">
+            <view class="badge {{ins._typeTone}}">{{ins.type}}</view>
+            <text class="review-agent">{{ins._displayAgent}}</text>
+            <text class="review-when">{{ins._whenLabel}}</text>
+          </view>
+          <view class="review-content">{{ins.content}}</view>
+          <view wx:if="{{ins._evidenceShort}}" class="review-evidence">
+            <text class="ev-label">依据</text>
+            <text class="ev-text">{{ins._evidenceShort}}</text>
+          </view>
+          <view wx:if="{{ins.meeting_title}}" class="review-source">
+            来自: {{ins.meeting_title}}
+          </view>
+          <view class="review-cta">
+            <button
+              class="cta-btn cta-secondary {{busyInsightId === ins.id ? 'cta-busy' : ''}}"
+              data-id="{{ins.id}}"
+              catchtap="onTapReject"
+              disabled="{{busyInsightId === ins.id}}"
+              hover-class="cta-secondary-hover"
+              hover-stay-time="80"
+            >驳回</button>
+            <button
+              class="cta-btn cta-primary {{busyInsightId === ins.id ? 'cta-busy' : ''}}"
+              data-id="{{ins.id}}"
+              catchtap="onTapAccept"
+              disabled="{{busyInsightId === ins.id}}"
+              hover-class="cta-primary-hover"
+              hover-stay-time="80"
+            >{{busyInsightId === ins.id ? '处理中…' : '入库'}}</button>
+          </view>
+        </view>
+        <view class="bottom-pad"></view>
+      </block>
+    </block>
+
+    <!-- ==================== Tab 3: 记忆库 ==================== -->
+    <block wx:if="{{tab === 'library'}}">
+      <block wx:if="{{libraryLoading && library.length === 0}}">
+        <view class="sk sk-row"></view>
+        <view class="sk sk-row"></view>
+        <view class="sk sk-row"></view>
+      </block>
+      <block wx:elif="{{libraryErr}}">
+        <view class="centered">
+          <view class="centered-title">未能加载</view>
+          <view class="centered-body">{{libraryErr}}</view>
+          <button class="btn-ghost" bindtap="onTapRetry">重试</button>
+        </view>
+      </block>
+      <block wx:elif="{{library.length === 0}}">
+        <view class="empty-card">
+          <view class="empty-emoji">{{emptyEmoji}}</view>
+          <view class="empty-title">{{emptyTitle}}</view>
+          <view class="empty-body">{{emptyBody}}</view>
+        </view>
+      </block>
+      <block wx:else>
+        <view class="sub-hint">{{library.length}} 条 长期记忆</view>
+        <view
+          wx:for="{{library}}"
+          wx:key="id"
+          wx:for-item="m"
+          wx:for-index="idx"
+          class="memory-card tab-enter"
+          style="animation-delay: {{m._animDelayMs}}ms;"
+          data-idx="{{idx}}"
+          bindtap="onTapMemory"
+          hover-class="row-hover"
+          hover-stay-time="80"
+        >
+          <view class="memory-head">
+            <text class="mem-stars">{{m._importanceStars}}</text>
+            <text wx:if="{{m._whenLabel}}" class="mem-when">{{m._whenLabel}}</text>
+          </view>
+          <view class="memory-content">{{m.content}}</view>
+          <view wx:if="{{m._agentsLine}}" class="memory-agents">
+            {{m._agentsLine}}
+          </view>
+          <view wx:if="{{m._hasSource}}" class="memory-source">📎 跳来源会议 →</view>
+        </view>
+        <view class="bottom-pad"></view>
+      </block>
+    </block>
+
+  </scroll-view>
+
+  <!-- 底部 tab 由 custom-tab-bar 组件渲染 -->
+
+</view>
