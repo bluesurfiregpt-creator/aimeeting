@@ -9,7 +9,9 @@ function LoginInner() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") || "/";
-  const [email, setEmail] = useState("");
+  // v27.2: account 同时 接受 email / phone, 前端 用 type="text" 让 用户自由 输.
+  // 老 input email 自动 弹 键盘 是 @ — 现在 不能, 让 用户自己 切.
+  const [account, setAccount] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -19,7 +21,7 @@ function LoginInner() {
     setErr("");
     setBusy(true);
     try {
-      await api.login({ email: email.trim(), password });
+      await api.login({ account: account.trim(), password });
       router.replace(next);
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "登录失败");
@@ -38,7 +40,7 @@ function LoginInner() {
         onSubmit={submit}
         className="mt-8 space-y-4 rounded-xl border border-ink-700 bg-ink-900 p-6"
       >
-        <Field label="邮箱" type="email" value={email} onChange={setEmail} required />
+        <Field label="邮箱 或 手机号" type="text" value={account} onChange={setAccount} required />
         {/* v26.8-UI-05: 密码可见性切换 */}
         <PasswordField
           label="密码"

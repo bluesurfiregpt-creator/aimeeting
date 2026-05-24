@@ -126,6 +126,12 @@ export default function PrivacyConsent() {
           </li>
           <li className="flex gap-2">
             <span className="text-violet-300">●</span>
+            为 提供 一键登录 体验, 你 主动 点击 "微信手机号 一键登录"
+            时, 我们会 读取 你的 微信注册手机号 (仅用于 匹配 系统账号, 不
+            外发).
+          </li>
+          <li className="flex gap-2">
+            <span className="text-violet-300">●</span>
             所有 数据 存储 在 中国境内, 不跨境 不出售 不广告投放.
           </li>
           <li className="flex gap-2">

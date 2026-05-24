@@ -11,6 +11,9 @@ function RegisterInner() {
   const inviteToken = params.get("invite");
 
   const [email, setEmail] = useState("");
+  // v27.2: 手机号 替代 email — email 和 phone 至少 一个. 邀请链接 仍 走 email
+  // (邀请 创建 时 拿到的 是 email; phone 邀请 后续 phase 再做).
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [workspaceName, setWorkspaceName] = useState("");
@@ -47,10 +50,15 @@ function RegisterInner() {
       setErr("密码至少 6 位");
       return;
     }
+    if (!email.trim() && !phone.trim()) {
+      setErr("请填邮箱或手机号 (至少一个)");
+      return;
+    }
     setBusy(true);
     try {
       await api.register({
-        email: email.trim(),
+        email: email.trim() || undefined,
+        phone: phone.trim() || undefined,
         password,
         name: name.trim(),
         workspace_name: inviteToken
@@ -108,11 +116,16 @@ function RegisterInner() {
       >
         <Field label="姓名" value={name} onChange={setName} required />
         <Field
-          label={inviteInfo?.email ? "邮箱（来自邀请, 可改）" : "邮箱"}
+          label={inviteInfo?.email ? "邮箱（来自邀请, 可改）" : "邮箱 (可选)"}
           type="email"
           value={email}
           onChange={setEmail}
-          required
+        />
+        <Field
+          label="手机号 (可选, 邮箱和手机号至少填一个)"
+          type="tel"
+          value={phone}
+          onChange={setPhone}
         />
         <Field
           label="密码 (至少 6 位)"

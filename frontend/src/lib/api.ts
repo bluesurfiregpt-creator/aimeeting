@@ -1291,15 +1291,23 @@ export type InvitePreview = {
 
 export const api = {
   // Auth
+  // v27.2: email / phone 至少 一个 (后端 二选一 必填). 老 client 还传 email 即可.
   register: (body: {
-    email: string;
+    email?: string;
+    phone?: string;
     password: string;
     name: string;
     workspace_name?: string;
     invite_token?: string;
   }) => jpost<Me>("/api/auth/register", body),
-  login: (body: { email: string; password: string }) =>
-    jpost<Me>("/api/auth/login", body),
+  // v27.2: account 字段 同时 接受 email / phone (后端 自动 识别); 老 client
+  // 还能 直接 传 email 字段 (后端 兼容 fall-back 到 LoginIn.email).
+  login: (body: {
+    account?: string;
+    email?: string;
+    phone?: string;
+    password: string;
+  }) => jpost<Me>("/api/auth/login", body),
   logout: () => jpost<{ ok: boolean }>("/api/auth/logout", {}),
   me: () => jget<Me>("/api/auth/me"),
   // v26.5-Profile: 个人中心 自助 改名 + 改密码

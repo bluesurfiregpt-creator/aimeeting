@@ -77,6 +77,29 @@ export function switchTabMP(url: string): boolean {
   }
 }
 
+/**
+ * 重启小程序到指定页 (清栈). 当前未用 — v27.1 原生登录改为小程序内直接
+ * wx.login + 邮密绑定, H5 不再参与登录桥接. 保留 helper 留给后续场景
+ * (如 H5 端检测 OAuth 状态变化 reLaunch 刷小程序栈).
+ *
+ * 返 boolean: true 表示 在 小程序里 且 调用 已 fire (但 navigate 是 异步的,
+ * 真正成功靠 onSuccess; 这里只是同步可用性 ack).
+ */
+export function reLaunchMP(
+  url: string,
+  onFail?: (err: unknown) => void,
+): boolean {
+  const mp = getWx();
+  if (!mp) return false;
+  try {
+    mp.reLaunch({ url, fail: onFail });
+    return true;
+  } catch (e) {
+    if (onFail) onFail(e);
+    return false;
+  }
+}
+
 /** 后退. mvp 没用 — 一般用 H5 浏览器后退 (history.back). */
 export function navigateBackMP(): boolean {
   const mp = getWx();
@@ -95,6 +118,7 @@ export const wxBridge = {
   navigateTo: navigateToMP,
   switchTab: switchTabMP,
   navigateBack: navigateBackMP,
+  reLaunch: reLaunchMP,
   /** 是否在小程序里 (re-export, 调用方不需另外 import runtime) */
   isInMiniProgram: isInWxMiniProgram,
 };

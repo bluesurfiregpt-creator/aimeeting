@@ -55,8 +55,15 @@ export default function PrivacyPolicyPage() {
           <p>为提供 协作会议 工作台 服务, 我们需要收集 以下信息:</p>
           <ol className="ml-4 list-decimal space-y-2">
             <li>
-              <strong>账号身份信息</strong>:邮箱 / 姓名 / 所在工作区 +
-              部门 / 角色. 用于 创建账号 + 在 会议中 标识 你身份.
+              <strong>账号身份信息</strong>:邮箱 / 手机号 (可选其一) / 姓名 /
+              所在工作区 + 部门 / 角色. 用于 创建账号 + 在 会议中 标识 你身份.
+            </li>
+            <li>
+              <strong>微信 openid / 微信注册手机号</strong>(仅小程序场景):
+              当你 主动点击 "微信一键登录" 或 "微信手机号一键登录" 时,
+              微信会 把 你的 openid (在 本小程序 内 唯一标识) 或 已绑定 的
+              手机号 提供 给 我们, 仅用于 匹配 已有 系统账号, 不发送 给
+              第三方, 不外发, 不广告.
             </li>
             <li>
               <strong>麦克风音频</strong>:在 你 主动开启 会议录音 后,
@@ -154,6 +161,12 @@ export default function PrivacyPolicyPage() {
                 "授权登录 / 文件选择 (聊天记录) / 分享",
                 "微信 openid (你 主动 授权 后)",
                 "openid 仅 微信内 标识, 不暴露 给 其他 用户",
+              ],
+              [
+                "微信开放平台 getuserphonenumber 接口",
+                "你 主动 点 '微信手机号一键登录' 时, 解析 微信注册手机号",
+                "phone code (一次性 5 分钟过期) → 11 位手机号",
+                "手机号 仅 匹配 系统账号, 不外发 不广告",
               ],
             ]}
           />

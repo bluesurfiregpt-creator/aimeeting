@@ -31,6 +31,9 @@ const TOP_LEVEL = new Set([
 //   - /m/privacy 自身 (用户来读全文, 不能 被弹窗 挡住)
 //   - /login 之类的 鉴权页 (路径上是 /login, 不在 /m 下, 实际 不会被 shell 包,
 //     此处仅 防御性 列举)
+//
+// v27.1 注: 原 /m/native-handoff (走 H5 cookie 桥到原生) 已 删 — 改为 小程序
+// 内直接 wx.login 一键登录 + 邮密绑定, H5 这边不再 参与 鉴权 桥接.
 const SKIP_PRIVACY_PATHS = new Set(["/m/privacy"]);
 
 export default function MobileShell({
