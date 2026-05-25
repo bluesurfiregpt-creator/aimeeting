@@ -10,7 +10,7 @@
  * 结构跟 bundle (meeting-room-shared.jsx index 14) 1:1.
  */
 
-import type { MockAiId, MockHumanId } from "../avatars";
+import type { MockAiId, MockHumanId } from "../../shared/avatars";
 
 export type RoundStance = "support" | "caution" | "block";
 

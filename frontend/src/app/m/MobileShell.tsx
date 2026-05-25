@@ -73,7 +73,14 @@ export default function MobileShell({
             "document.documentElement.classList.add('mobile-viewport-locked');",
         }}
       />
-      <div className="fixed inset-0 flex flex-col overflow-hidden bg-ink-950 text-zinc-100">
+      {/* Saga A · round-4 浅色化:
+          - bg #F2F2F7 (iOS systemGroupedBackground)
+          - text #1C1C1E (iOS label)
+          会议室 / 二级页内部自行控制深浅, 这里仅设根容器. */}
+      <div
+        className="fixed inset-0 flex flex-col overflow-hidden"
+        style={{ background: "#F2F2F7", color: "#1C1C1E" }}
+      >
         <main
           className={`mobile-scroll-area flex-1 overflow-y-auto ${
             isTopLevel ? "pb-20" : ""

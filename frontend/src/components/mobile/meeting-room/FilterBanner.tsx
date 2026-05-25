@@ -13,9 +13,9 @@
 
 import type { ReactElement } from "react";
 
-import { MRAIAvatar, MRHostAvatar, MRHumanAvatar } from "./avatars";
+import { MRAIAvatar, MRHostAvatar, MRHumanAvatar } from "../shared/avatars";
 import type { FilterSpeaker } from "./FilterSheet";
-import MRIcon from "./MRIcon";
+import MRIcon from "../shared/Icon";
 import { MR_COLORS } from "./styles";
 
 type Props = {

@@ -1,20 +1,21 @@
 "use client";
 
 /**
- * v1.2.0 · Saga · meeting-room-v2 · 3 型头像.
+ * v1.3.0 · Saga · mobile-app-r4-A · 共享头像系统.
  *
- * 设计源 1:1: docs/design/handoffs/2026-05-25-meeting-room/project/meeting-room-shared.jsx:169-239.
+ * 提层自: components/mobile/meeting-room/avatars.tsx (round-3 实施)
+ * 设计源: docs/design/system/DESIGN_SYSTEM.md §6.1 + round-4 mobile-shared.jsx:257-321
  *
- *  - MRHumanAvatar: 圆形 个人色 + 首字 (speaking 脉冲 + muted 角标)
- *  - MRAIAvatar:    渐变 圆角方形 + 白色 sparkle SVG
- *  - MRHostAvatar:  同心圆 amber 渐变 (Mira 主持人专属, 区别于 domain AI)
+ * 三型分类:
+ *   - MRHumanAvatar: 圆形 个人色 + 首字 (speaking 脉冲 + muted 角标)
+ *   - MRAIAvatar:    渐变 圆角方形 + 白色 sparkle SVG
+ *   - MRHostAvatar:  同心圆 amber 渐变 (Mira 主持人专属, 区别于 domain AI)
  *
- * R5 mitigation: backend `agent_color` 不是渐变, 这里内置 `COLOR_TO_GRADIENT`
- * 映射 (8 个 Tailwind 色名 → hex 渐变). 后端不给 / 名字不在表里 → fallback
- * 紫色单色, 仍是 渐变方形, 视觉一致.
+ * 圆桌 走 bundle 固定 6 名 (Aria/Stratos/Lex/Sage/Tally/Scout), 真实
+ * transcript 走后端 agent_color → COLOR_TO_GRADIENT 映射 → 渐变方形, 视觉一致.
  *
- * mock 圆桌 走 bundle 固定 6 名 (Aria/Stratos/Lex/Sage/Tally/Scout), 真实
- * transcript 走后端 agent_color → 映射. 命名空间分离 (TD9).
+ * 新增 (Saga A): MAvatarStack — 多人 + AI 叠加头像组件 (today 页 LiveMeetingCard /
+ * MeetingCardSmall 用). 真人在前, AI 在后, 最大 maxShown + "+N" overflow.
  */
 
 import type { ReactElement } from "react";
@@ -262,5 +263,76 @@ export function MRHostAvatar({
         flexShrink: 0,
       }}
     />
+  );
+}
+
+// ─────── 头像 stack (round-4 新增) ───────
+
+type AvatarStackProps = {
+  humans?: MockHumanId[];
+  ais?: MockAiId[];
+  size?: number;
+  maxShown?: number;
+  ring?: string;
+};
+
+/**
+ * 多人 + AI 叠加头像 — 真人在前, AI 在后, 最大 maxShown + "+N" overflow.
+ * 来源: round-4 mobile-shared.jsx:293-321 (MAvatarStack).
+ */
+export function MAvatarStack({
+  humans = [],
+  ais = [],
+  size = 22,
+  maxShown = 5,
+  ring = "#fff",
+}: AvatarStackProps): ReactElement {
+  const all: Array<{ kind: "h"; id: MockHumanId } | { kind: "a"; id: MockAiId }> = [
+    ...humans.map((id) => ({ kind: "h" as const, id })),
+    ...ais.map((id) => ({ kind: "a" as const, id })),
+  ];
+  const shown = all.slice(0, maxShown);
+  const extra = all.length - shown.length;
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center" }}>
+      {shown.map((x, i) => (
+        <span
+          key={`${x.kind}-${x.id}-${i}`}
+          style={{ marginLeft: i === 0 ? 0 : -6, zIndex: maxShown - i }}
+        >
+          {x.kind === "h" ? (
+            <MRHumanAvatar
+              name={MOCK_HUMANS[x.id]?.name || ""}
+              color={MOCK_HUMANS[x.id]?.color || "#8E8E93"}
+              size={size}
+              ring={ring}
+            />
+          ) : (
+            <MRAIAvatar grad={MOCK_AIS[x.id]?.grad} size={size} ring={ring} />
+          )}
+        </span>
+      ))}
+      {extra > 0 ? (
+        <span
+          style={{
+            marginLeft: -6,
+            width: size,
+            height: size,
+            borderRadius: "50%",
+            background: "#E5E5EA",
+            color: "#3C3C43",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: size * 0.38,
+            fontWeight: 700,
+            flexShrink: 0,
+            boxShadow: `0 0 0 1.5px ${ring}`,
+          }}
+        >
+          +{extra}
+        </span>
+      ) : null}
+    </div>
   );
 }

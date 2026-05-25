@@ -9,8 +9,8 @@
 import { useState } from "react";
 import type { ReactElement } from "react";
 
-import { MRHostAvatar } from "./avatars";
-import MRIcon, { type MRIconName } from "./MRIcon";
+import { MRHostAvatar } from "../shared/avatars";
+import MRIcon, { type MRIconName } from "../shared/Icon";
 import Sheet from "./Sheet";
 import { MR_COLORS } from "./styles";
 

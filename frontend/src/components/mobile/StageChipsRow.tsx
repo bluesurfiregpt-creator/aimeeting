@@ -16,7 +16,7 @@ import type { ReactElement } from "react";
 import type { MobileMeetingAgendaItem } from "@/lib/mobile/types";
 
 import { MR_COLORS } from "./meeting-room/styles";
-import MRIcon from "./meeting-room/MRIcon";
+import MRIcon from "./shared/Icon";
 
 type Props = {
   items: MobileMeetingAgendaItem[];

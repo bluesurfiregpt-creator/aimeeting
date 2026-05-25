@@ -32,9 +32,9 @@ import type { ReactElement } from "react";
 
 import type { MobileMeetingAgendaItem } from "@/lib/mobile/types";
 
-import { MRHumanAvatar } from "./avatars";
-import type { MockHumanId } from "./avatars";
-import { MOCK_HUMANS } from "./avatars";
+import { MRHumanAvatar } from "../shared/avatars";
+import type { MockHumanId } from "../shared/avatars";
+import { MOCK_HUMANS } from "../shared/avatars";
 import { MR_COLORS } from "./styles";
 
 type Props = {

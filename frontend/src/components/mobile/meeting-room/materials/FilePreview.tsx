@@ -23,7 +23,7 @@
 import { useState } from "react";
 import type { ReactElement } from "react";
 
-import MRIcon from "../MRIcon";
+import MRIcon from "../../shared/Icon";
 
 import FileGlyph from "./FileGlyph";
 import type { Material } from "./types";

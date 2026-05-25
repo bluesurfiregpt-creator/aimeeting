@@ -15,8 +15,8 @@ import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
 import type { AgentMini } from "@/lib/mobile/types";
 
-import { MRAIAvatar } from "./meeting-room/avatars";
-import MRIcon from "./meeting-room/MRIcon";
+import { MRAIAvatar } from "./shared/avatars";
+import MRIcon from "./shared/Icon";
 import { MR_COLORS, MR_FONT_FAMILY } from "./meeting-room/styles";
 
 type Props = {

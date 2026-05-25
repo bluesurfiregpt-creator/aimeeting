@@ -14,7 +14,7 @@
 
 import type { ReactElement } from "react";
 
-import MRIcon from "./MRIcon";
+import MRIcon from "../shared/Icon";
 import { MR_COLORS } from "./styles";
 
 type Props = {

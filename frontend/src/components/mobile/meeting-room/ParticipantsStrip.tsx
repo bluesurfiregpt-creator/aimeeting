@@ -24,7 +24,7 @@ import {
   MRHostAvatar,
   MRHumanAvatar,
   type MockHumanId,
-} from "./avatars";
+} from "../shared/avatars";
 import { MR_COLORS } from "./styles";
 
 export type StripAgent = {

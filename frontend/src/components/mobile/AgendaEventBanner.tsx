@@ -26,8 +26,8 @@ import {
   MOCK_HOST,
   MRHostAvatar,
   gradientForAgentColor,
-} from "./meeting-room/avatars";
-import MRIcon, { type MRIconName } from "./meeting-room/MRIcon";
+} from "./shared/avatars";
+import MRIcon, { type MRIconName } from "./shared/Icon";
 import { MR_COLORS } from "./meeting-room/styles";
 
 export type BannerKind =

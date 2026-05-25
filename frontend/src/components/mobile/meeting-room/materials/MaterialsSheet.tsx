@@ -20,7 +20,7 @@
 import { useState } from "react";
 import type { ReactElement } from "react";
 
-import MRIcon from "../MRIcon";
+import MRIcon from "../../shared/Icon";
 import { MR_COLORS } from "../styles";
 
 import FileGlyph, { FILE_TYPES } from "./FileGlyph";
