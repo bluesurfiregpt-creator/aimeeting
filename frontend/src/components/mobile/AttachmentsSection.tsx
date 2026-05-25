@@ -1,7 +1,18 @@
 "use client";
 
 /**
- * v27.0-mobile P19-B · 会议参考资料 上传区.
+ * @deprecated v1.2.0 Saga 起 — 用 round-3 风格的 `MaterialsInline`
+ * (`@/components/mobile/meeting-room/materials/MaterialsInline`) 替代.
+ * 三页面 (会议室 / new / summary) 统一在 round-3 视觉:
+ *   - 会议室: `MaterialsStrip` + `MaterialsSheet` (折叠 strip + bottom sheet)
+ *   - new / summary: `MaterialsInline` (inline 渲染, 跟 form / page 流融合)
+ *
+ * 当前 调用方 应该 全部 迁移到 `MaterialsInline`. 本组件 保留 直到 0 调用,
+ * 之后 单独 saga 删. 不要 新增 调用 — review 时 应该 拒.
+ *
+ * ─────────────────────────────────────────────────────
+ *
+ * v27.0-mobile P19-B · 会议参考资料 上传区 (legacy).
  *
  * 用于 /m/meetings/new 创建页 + (后续) /m/meetings/[id] 详情页追加附件.
  *
@@ -78,6 +89,10 @@ function isInMiniprogram(): boolean {
   return env === "miniprogram";
 }
 
+/**
+ * @deprecated 用 `MaterialsInline` from `@/components/mobile/meeting-room/materials`
+ * 替代. 见组件顶 注释.
+ */
 export default function AttachmentsSection({
   draftId,
   meetingId,

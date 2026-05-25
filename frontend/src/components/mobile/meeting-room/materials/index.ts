@@ -8,6 +8,7 @@ export { default as FileGlyph, FILE_TYPES, mapExtensionToType } from "./FileGlyp
 export type { MaterialType } from "./FileGlyph";
 export { default as MaterialsStrip } from "./MaterialsStrip";
 export { default as MaterialsSheet } from "./MaterialsSheet";
+export { default as MaterialsInline } from "./MaterialsInline";
 export { default as UploadSheet } from "./UploadSheet";
 export { default as FilePreview } from "./FilePreview";
 export { default as MaterialUploadedEvent } from "./MaterialUploadedEvent";
