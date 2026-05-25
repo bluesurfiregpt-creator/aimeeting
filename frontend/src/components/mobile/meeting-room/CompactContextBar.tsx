@@ -15,9 +15,12 @@
  *   • chevron (180deg 旋转)
  *
  * 用法: 父组件管 expanded state. 这个组件只渲染那 40px 触发条 (按钮),
- * 父组件负责把下方真正的 strips (AgendaStrip / AttachmentsSection /
+ * 父组件负责把下方真正的 strips (AgendaStrip / MaterialsStrip /
  * ParticipantsStrip) 包在 max-height collapsible div 里. 这样不跟原 strip
  * 内部逻辑耦合.
+ *
+ * round-3 (2026-05-25, PM 最满意版本): materials 用 MaterialsStrip 接入,
+ * 跟议程 / 参与人 一起折叠 (旧版 AttachmentsSection 仅在 创建页 / 总结页 用).
  *
  * R2 peek-then-tuck (在父组件 useEffect 里):
  *   - mount 后默认 expanded = true
@@ -41,7 +44,7 @@ type Props = {
   currentAgendaIdx: number | null;
   /** 是否全议程完成 (从 backend is_agenda_complete). */
   isAgendaComplete: boolean;
-  /** 资料数量 (来自 AttachmentsSection 的 onAttachmentsChange 回调). */
+  /** 资料数量 (来自 页面层 materials state). */
   materialsCount: number;
   /** 有 "新" 文件 (会中上传的) → 资料图标右上挂红点. R3 — 暂用 boolean,
    *  后续接 backend uploaded_at vs meeting started_at 推断. */
@@ -353,7 +356,8 @@ export function CompactContextExpandable({
   return (
     <div
       style={{
-        maxHeight: expanded ? 360 : 0,
+        // round-3: 加 MaterialsStrip 后 内容 略增 (~56px), 400 给安全余量
+        maxHeight: expanded ? 400 : 0,
         opacity: expanded ? 1 : 0,
         overflow: "hidden",
         transition:

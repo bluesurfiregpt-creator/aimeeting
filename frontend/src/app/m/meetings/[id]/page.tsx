@@ -7,25 +7,32 @@
  * round-2 设计源 (PM 优化): Claude Design handoff
  *   https://api.anthropic.com/v1/design/h/iJXetu7lfxK03t94tx9MOw
  *   主要 delta: CompactContextBar + 单行 dock + 结束按钮独立大红
+ * round-3 设计源 (PM round-3 — 最满意版本):
+ *   https://api.anthropic.com/v1/design/h/6raIVEiSUPIJuj67uhaw9g (Meeting Room.html)
+ *   主要 delta:
+ *     - 参考资料 用 MaterialsStrip 在 CompactContextExpandable 内 (跟议程/参与人 一起折叠)
+ *     - 旧 AttachmentsSection (放 main body 独立 折叠) → 移除
+ *     - 新增 MaterialsSheet / UploadSheet / FilePreview / MaterialUploadedEvent
+ *     - 资料图标 用 4 色 折角 FileGlyph (PDF 红 / Word 蓝 / Excel 绿 / PPT 橙)
  *
- * Saga 边界: 只动这一页 + 它的专用 mobile 组件. 不动跨页共享 (Toast / MobileShell
- * / globals.css / tailwind config / lib / backend).
+ * Saga 边界: 只动这一页 + 它的专用 mobile 组件 (含新 materials/ 子目录). 不动跨页
+ * 共享 (Toast / MobileShell / globals.css / tailwind config / lib / backend).
  *
  * 顶层结构 (上 → 下):
  *   1. MRHeader      — ← 历史 / 标题+实时红点+timer / 章节 / 筛选 (R10)
  *   2. CompactContextBar (40px) — round-2 — 绿点 · 议程 X/N · 资料数 · 头像叠 · ⌄
- *   3. ContextExpandable (peek-then-tuck) — 包 AgendaStrip + AttachmentsSection +
+ *   3. ContextExpandable (peek-then-tuck) — 包 AgendaStrip + **MaterialsStrip** +
  *      ParticipantsStrip (默认展开 2.5s 自收, 滚动 transcript >24px 也自收)
  *   4. FilterBanner — sticky (筛选激活时)
  *   5. transcript view — user/agent line + inline host card + mock round (R9)
  *   6. JumpToLatestFab — 滚离底时显
  *   7. Dock (round-2 — 单行: AI pill · Mira pill · mic · video · more  +  独立大红 结束)
- *   8. 5 sheets (Summon/AskHost/More/Filter/Highlights) + EndConfirm + Leave + SevereModal + Toast
+ *   8. sheets (Summon/AskHost/More/Filter/Highlights/**Materials/Upload**) + EndConfirm +
+ *      Leave + SevereModal + Toast + **FilePreview** (full screen overlay)
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, use } from "react";
 import { useRouter } from "next/navigation";
-import AttachmentsSection from "@/components/mobile/AttachmentsSection";
 import NativeMeetingEntry from "@/components/mobile/NativeMeetingEntry";
 import StageChipsRow from "@/components/mobile/StageChipsRow";
 import StickyActionBar from "@/components/mobile/StickyActionBar";
@@ -68,8 +75,18 @@ import {
   MR_FONT_FAMILY,
   useInjectAnimations,
 } from "@/components/mobile/meeting-room/styles";
+import {
+  MaterialsStrip,
+  MaterialsSheet,
+  UploadSheet,
+  FilePreview,
+  adaptAttachmentsToMaterials,
+  hasNewMaterial,
+  type Material,
+} from "@/components/mobile/meeting-room/materials";
 import { MOCK_ROUND_MESSAGES } from "@/components/mobile/meeting-room/mock/roundtable";
 import { mApi } from "@/lib/mobile/api";
+import type { MeetingAttachmentOut } from "@/lib/mobile/types";
 import {
   MeetingWsProvider,
   useMeetingWsConn,
@@ -134,8 +151,15 @@ function MeetingDetailInner({ id }: { id: string }) {
   //   - 用户手动 toggle 后, 不再自动 collapse (尊重用户意图)
   const [ctxExpanded, setCtxExpanded] = useState(true);
   const ctxUserToggledRef = useRef(false);
-  // 资料 count + 是否有新文件 (由 AttachmentsSection 通过 onAttachmentsChange 回调写)
-  const [materialsCount, setMaterialsCount] = useState(0);
+
+  // round-3: 资料 — 页面层 own attachments state + 4 个 sheet 控制位.
+  // 设计稿 把 资料 折叠 进 CompactContextExpandable, 跟 议程 / 参与人 一起 收起.
+  const [attachments, setAttachments] = useState<MeetingAttachmentOut[]>([]);
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [materialsSheetOpen, setMaterialsSheetOpen] = useState(false);
+  const [uploadSheetOpen, setUploadSheetOpen] = useState(false);
+  const [previewingMaterial, setPreviewingMaterial] =
+    useState<Material | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -179,6 +203,60 @@ function MeetingDetailInner({ id }: { id: string }) {
     kind: "success" | "error";
     text: string;
   } | null>(null);
+
+  // round-3: 资料 — 拉取 / 删除 (依赖 setToast, 故放在 toast state 之后)
+  const refreshAttachments = useCallback(async () => {
+    try {
+      const r = await mApi.listMeetingAttachments(id);
+      setAttachments(r.items);
+      setMaterials(adaptAttachmentsToMaterials(r.items));
+    } catch (e) {
+      // 静默 — 拉 list 失败 不影响 别的功能
+      console.warn("materials list failed", e);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    void refreshAttachments();
+  }, [refreshAttachments]);
+
+  // 5s 轮询 — 有 extracting / pending 时 重拉
+  useEffect(() => {
+    const has = attachments.some(
+      (a) =>
+        a.extract_status === "extracting" || a.extract_status === "pending",
+    );
+    if (!has) return;
+    const t = setInterval(() => void refreshAttachments(), 5000);
+    return () => clearInterval(t);
+  }, [attachments, refreshAttachments]);
+
+  // visibility-change → 从 小程序 picker 跳回 H5 时 重拉 (兼容旧 P19-B)
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") void refreshAttachments();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [refreshAttachments]);
+
+  const handleDeleteMaterial = useCallback(
+    async (m: Material) => {
+      if (!confirm(`删除 「${m.name}」?`)) return;
+      try {
+        await mApi.deleteMeetingAttachment(m.id);
+        await refreshAttachments();
+        setToast({ kind: "success", text: "已删除" });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setToast({ kind: "error", text: `删除失败: ${msg}` });
+      }
+    },
+    [refreshAttachments],
+  );
+
+  const materialsCount = materials.length;
+  const materialsHasNewFlag = hasNewMaterial(materials);
 
   const reload = useCallback(async () => {
     try {
@@ -782,7 +860,7 @@ function MeetingDetailInner({ id }: { id: string }) {
         currentAgendaIdx={data.current_agenda_idx}
         isAgendaComplete={data.is_agenda_complete}
         materialsCount={materialsCount}
-        materialsHasNew={false}
+        materialsHasNew={materialsHasNewFlag}
         participantHumans={(Object.keys(MOCK_HUMANS) as MockHumanId[]).map(
           (id) => ({
             id,
@@ -796,13 +874,23 @@ function MeetingDetailInner({ id }: { id: string }) {
         onToggle={toggleCtxBar}
       />
 
-      {/* ===== round-2: 折叠区 (peek-then-tuck) ============ */}
+      {/* ===== round-2/3: 折叠区 (peek-then-tuck) ============
+        round-3: 把 MaterialsStrip 加入 折叠区, 跟 议程 / 参与人 一起折叠.
+        PM 原话: "参考资料的显示应该是被一起折叠". */}
       <CompactContextExpandable expanded={ctxExpanded}>
         {/* ===== Agenda strip =============================== */}
         <StageChipsRow
           items={data.agenda_items}
           currentIdx={data.current_agenda_idx}
           isComplete={data.is_agenda_complete}
+        />
+
+        {/* ===== Materials strip (round-3 新增) ============== */}
+        <MaterialsStrip
+          materials={materials}
+          onOpen={() => setMaterialsSheetOpen(true)}
+          onUpload={() => setUploadSheetOpen(true)}
+          readOnly={data.status !== "ongoing"}
         />
 
         {/* ===== Participants strip ========================= */}
@@ -923,15 +1011,9 @@ function MeetingDetailInner({ id }: { id: string }) {
             <NativeMeetingEntry meetingId={id} />
           ) : null}
 
-          {/* 附件区 (复用旧组件 + round-2: 把 count 上报给 CompactContextBar) */}
-          <div style={{ margin: "10px 16px 0" }}>
-            <AttachmentsSection
-              meetingId={id}
-              readOnly={data.status !== "ongoing"}
-              defaultCollapsed={data.status === "ongoing"}
-              onAttachmentsChange={setMaterialsCount}
-            />
-          </div>
+          {/* round-3: 资料 区 不再 独立 渲染 在 main body —
+              已 移入 上方 CompactContextExpandable 内的 MaterialsStrip,
+              跟 议程 / 参与人 一起折叠 (PM round-3 设定). */}
 
           {/* ===== 主滚动区 (transcript + host cards + round) ===== */}
           <main
@@ -1068,6 +1150,44 @@ function MeetingDetailInner({ id }: { id: string }) {
         onSummon={handleSummonAgent}
         onDismiss={() => setSevereOffTopic(null)}
       />
+      {/* round-3: 资料 sheets + 全屏 预览 (PM 强调 严格 按设计稿) */}
+      <MaterialsSheet
+        open={materialsSheetOpen}
+        materials={materials}
+        readOnly={data.status !== "ongoing"}
+        onClose={() => setMaterialsSheetOpen(false)}
+        onPreview={(m) => {
+          setMaterialsSheetOpen(false);
+          setPreviewingMaterial(m);
+        }}
+        onUpload={() => {
+          setMaterialsSheetOpen(false);
+          setUploadSheetOpen(true);
+        }}
+        onDelete={(m) => void handleDeleteMaterial(m)}
+      />
+      <UploadSheet
+        open={uploadSheetOpen}
+        meetingId={id}
+        onClose={() => setUploadSheetOpen(false)}
+        onComplete={() => void refreshAttachments()}
+      />
+      {previewingMaterial ? (
+        <FilePreview
+          file={previewingMaterial}
+          attachmentId={previewingMaterial.id}
+          extractSummary={
+            attachments.find((a) => a.id === previewingMaterial.id)
+              ?.extract_summary ?? null
+          }
+          extractStatus={
+            attachments.find((a) => a.id === previewingMaterial.id)
+              ?.extract_status
+          }
+          onClose={() => setPreviewingMaterial(null)}
+        />
+      ) : null}
+
       <LeaveMeetingSheet
         open={leaveOpen}
         meetingTitle={data.title}
