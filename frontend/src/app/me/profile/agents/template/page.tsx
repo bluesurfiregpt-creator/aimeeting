@@ -19,7 +19,8 @@ import { api, type AgentTemplateDraft, type Me, type TeamMember } from "@/lib/ap
 import { toast } from "@/lib/toast";
 
 const COLORS = ["violet", "sky", "emerald", "amber", "rose", "teal"];
-const FULL_ADMIN = new Set(["owner", "admin", "leader"]);
+// v1.3.1: AI 模板生成器 仅 workspace_creator / leader (创建 AI 是 PM Q7.4 严控).
+const FULL_ADMIN = new Set(["workspace_creator", "leader", "owner"]);
 
 type Stage = "input" | "previewing" | "preview" | "committing" | "done";
 
@@ -42,8 +43,16 @@ export default function AgentTemplatePage() {
     api.me().then(setMe).catch(() => setMe(null));
     api.listMembers()
       .then((rows) => {
+        // v1.3.1: 可分配给 primary_user 的角色 — agent_owner / leader / admin / workspace_creator.
+        // 老 'manager' / 'owner' 字符串兼容服务端老 cache.
         const mgrs = rows.filter(
-          (m) => m.role === "manager" || m.role === "leader" || m.role === "admin" || m.role === "owner",
+          (m) =>
+            m.role === "agent_owner" ||
+            m.role === "manager" ||
+            m.role === "leader" ||
+            m.role === "admin" ||
+            m.role === "workspace_creator" ||
+            m.role === "owner",
         );
         setManagers(mgrs);
       })

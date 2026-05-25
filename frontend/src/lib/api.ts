@@ -1045,19 +1045,29 @@ export type Me = {
   task_counts?: MyTaskCounts | null;
 };
 
-/** v21 → v26.5: 角色枚举扩展.
- *  - owner / admin — 「领导/管理员」
- *  - leader — admin 的别名 (智慧住建偏好)
- *  - manager — v26.5 新, 部门 AI 维护人 (取代 v21 expert)
- *  - expert — v21 兼容, deprecated by manager
- *  - member — 默认成员 */
+/** v1.3.1: 角色重设计 (PM 拍板, 取代 v21/v26.5 6-role 模型).
+ *  - workspace_creator — workspace 注册者 (旧 'owner', 改名). ws 内最高权.
+ *  - leader            — workspace 管理员, 等同 workspace_creator
+ *  - admin             — workspace 内 科室级 (管科室人员 + 发起会议; 不改 AI/KB/memory)
+ *  - agent_owner       — 某 AI 的 primary user (旧 'manager', 改名). 改 自己 AI 的 KB/memory
+ *  - member            — 默认普通员工, 仅查看 + 发起会议
+ *
+ * system_owner 不在 此集合 — 走 env PLATFORM_ADMIN_EMAILS 白名单, 不入 membership 表
+ * (前端通过 me.role === 'workspace_creator' 时检查是否 system_owner — 见 lib/superSession.ts).
+ *
+ * 老 'owner' / 'manager' / 'expert' 保留 union 以兼容 老服务端 response (init_db
+ * 自动 migrate, 但 H5 / 小程序 缓存的 me payload 可能 还是 老值, 不要 break runtime).
+ */
 export type TeamRole =
-  | "owner"
-  | "admin"
+  | "workspace_creator"
   | "leader"
+  | "admin"
+  | "agent_owner"
+  | "member"
+  // v1.3.1 老兼容: 服务端 init_db 已迁移, 但 老 H5 cache 可能 仍是 这些值
+  | "owner"
   | "manager"
-  | "expert"
-  | "member";
+  | "expert";
 
 export type TeamMember = {
   user_id: string;
@@ -1129,7 +1139,9 @@ export type DashboardOverview = {
 
   // 元
   period: string;     // 'YYYY-MM'
-  role: "leader" | "expert" | "member";
+  // v1.3.1: 服务端 _scope_filter_clauses 返 'leader' | 'agent_owner' | 'member'.
+  // 老 'expert' 保留以兼容 老 client 缓存.
+  role: "leader" | "agent_owner" | "expert" | "member";
   scope_label: string;
 };
 
@@ -1249,7 +1261,9 @@ export type KanbanOut = {
   grouping: "agent" | "user";
   columns: KanbanColumn[];
   period_label: string;
-  role: "leader" | "expert" | "member";
+  // v1.3.1: 服务端 _scope_filter_clauses 返 'leader' | 'agent_owner' | 'member'.
+  // 老 'expert' 保留以兼容 老 client 缓存.
+  role: "leader" | "agent_owner" | "expert" | "member";
   scope_label: string;
   include_closed: boolean;
 };
@@ -1273,7 +1287,8 @@ export type AccessRequest = {
 export type Invitation = {
   id: string;
   email: string | null;
-  role: "admin" | "member";
+  // v1.3.1: 邀请可选角色 leader / admin / agent_owner / member
+  role: TeamRole;
   token: string;
   invite_url: string;
   created_by_user_id: string | null;
@@ -1335,8 +1350,11 @@ export const api = {
     },
   ) => jpatch<TeamMember>(`/api/team/members/${userId}`, body),
   listInvitations: () => jget<Invitation[]>("/api/team/invitations"),
-  createInvitation: (body: { email?: string; role: "admin" | "member" }) =>
-    jpost<Invitation>("/api/team/invitations", body),
+  // v1.3.1: 邀请角色 leader / admin / agent_owner / member (workspace_creator 走 transfer-ownership)
+  createInvitation: (body: {
+    email?: string;
+    role: "leader" | "admin" | "agent_owner" | "member";
+  }) => jpost<Invitation>("/api/team/invitations", body),
   revokeInvitation: (id: string) => jdelete(`/api/team/invitations/${id}`),
 
   listUsers: () => jget<User[]>("/api/users"),

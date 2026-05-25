@@ -30,7 +30,9 @@ import {
 } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
-const FULL_ADMIN = new Set(["owner", "admin", "leader"]);
+// v1.3.1 (PM Q7.4): AI 详情页 编辑权限 — workspace_creator / leader 全权 (admin 仅看).
+// agent_owner (该 AI 的 primary_user) 改自己 AI 走 row-level check (服务端 is_agent_owner).
+const FULL_ADMIN = new Set(["workspace_creator", "leader", "owner"]);
 
 // v26.14-P3: 加 "履历" tab — 该 AI 历史 发言 + 参与 会议 (老 仅 静态 配置 三件)
 type Tab = "card" | "kb" | "memory" | "history";

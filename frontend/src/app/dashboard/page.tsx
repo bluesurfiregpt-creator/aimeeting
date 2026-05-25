@@ -600,7 +600,14 @@ export default function DashboardPage() {
               {fmtMonthShort(data.period)}
               <span className="mx-2 text-zinc-700">·</span>
               <span className="text-zinc-600">
-                角色:{data.role === "leader" ? "领导/管理员" : data.role === "expert" ? "AI 专家用户" : "普通成员"}
+                角色:
+                {data.role === "leader"
+                  ? "工作空间管理员"
+                  : data.role === "agent_owner"
+                    ? "AI 主用户"
+                    : data.role === "expert"
+                      ? "AI 主用户(老)"
+                      : "普通成员"}
               </span>
             </p>
           ) : null}

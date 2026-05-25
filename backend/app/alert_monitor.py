@@ -293,7 +293,12 @@ async def _create_alert_task_and_notify(
         await session.execute(
             select(WorkspaceMembership.user_id).where(
                 WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.role.in_(("owner", "admin", "leader")),
+                WorkspaceMembership.role.in_((
+                    # v1.3.1: ws_admin_or_above
+                    "workspace_creator", "leader", "admin",
+                    # 老兼容 (init_db 已 migrate, 但 防御性 保留)
+                    "owner",
+                )),
             )
         )
     ).all()

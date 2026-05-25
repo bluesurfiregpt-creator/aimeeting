@@ -100,7 +100,13 @@ export default function MobileVoiceprintLibraryPage() {
         const me = await desktopApi.me();
         if (!alive) return;
         const role = me.role;
-        setIsAdmin(role === "owner" || role === "admin" || role === "leader");
+        // v1.3.1: ws_admin_or_above (workspace_creator / leader / admin). 老 'owner' 兼容.
+        setIsAdmin(
+          role === "workspace_creator" ||
+            role === "leader" ||
+            role === "admin" ||
+            role === "owner",
+        );
       } catch {
         /* ignore */
       }

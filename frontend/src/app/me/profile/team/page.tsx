@@ -10,20 +10,25 @@ import {
 } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
+// v1.3.1: 5 角色 (PM 拍板) + 老兼容色票.
 const ROLE_TONE: Record<string, string> = {
-  owner: "bg-amber-500/15 text-amber-300",
-  admin: "bg-violet-500/15 text-violet-300",
+  workspace_creator: "bg-amber-500/15 text-amber-300",
   leader: "bg-violet-500/15 text-violet-300",
-  expert: "bg-cyan-500/15 text-cyan-300",
+  admin: "bg-violet-500/15 text-violet-300",
+  agent_owner: "bg-cyan-500/15 text-cyan-300",
   member: "bg-zinc-700/40 text-zinc-300",
+  // 老兼容 (服务端 init_db 已 migrate, 但 H5 cache 滞后)
+  owner: "bg-amber-500/15 text-amber-300",
+  manager: "bg-cyan-500/15 text-cyan-300",
+  expert: "bg-cyan-500/15 text-cyan-300",
 };
 
-// v21: 角色中文标签 + 简短描述,UI 用
+// v1.3.1: 可邀请/可改派的角色 (workspace_creator 走 transfer-ownership, 不在此列).
 const ROLE_OPTIONS: { value: TeamRole; label: string; desc: string }[] = [
-  { value: "admin", label: "admin / leader (领导)", desc: "全局俯瞰 + 调度,等同管理员" },
-  { value: "leader", label: "leader (别名)", desc: "同 admin,智慧住建场景偏好" },
-  { value: "expert", label: "expert (专家)", desc: "绑定一个 AI 专家,只能看 bound 范围" },
-  { value: "member", label: "member (普通)", desc: "默认权限,只看自己 assignee 的 Task" },
+  { value: "leader", label: "leader (工作空间管理员)", desc: "ws 内最高权, 管所有 AI / KB / 成员" },
+  { value: "admin", label: "admin (科室长)", desc: "管科室人员 + 发起会议; 不改 AI/KB/memory" },
+  { value: "agent_owner", label: "agent_owner (AI 主用户)", desc: "改自己 primary AI 的 KB/memory" },
+  { value: "member", label: "member (普通)", desc: "仅查看 + 发起会议" },
 ];
 
 export default function TeamAdmin() {
@@ -32,7 +37,10 @@ export default function TeamAdmin() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [me, setMe] = useState<{ user_id: string; role: string } | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"admin" | "member">("member");
+  // v1.3.1: 邀请角色 — leader / admin / agent_owner / member
+  const [inviteRole, setInviteRole] = useState<
+    "leader" | "admin" | "agent_owner" | "member"
+  >("member");
   const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(true);
   // v21: 行内编辑 role + bound_agent 的草稿
@@ -64,7 +72,13 @@ export default function TeamAdmin() {
     void refresh();
   }, [refresh]);
 
-  const canManage = me?.role === "owner" || me?.role === "admin";
+  // v1.3.1: ws 管理员 (workspace_creator / leader / admin) 都可管邀请.
+  // 老 'owner' 兼容服务端老 cache.
+  const canManage =
+    me?.role === "workspace_creator" ||
+    me?.role === "leader" ||
+    me?.role === "admin" ||
+    me?.role === "owner";
 
   const createInvite = async () => {
     if (!canManage) return;
@@ -114,15 +128,14 @@ export default function TeamAdmin() {
 
   const saveEdit = async (userId: string) => {
     if (saving) return;
-    if (editRole === "expert" && !editBoundAgent) {
-      toast.warn("请为专家用户选择 bound AI 专家");
-      return;
-    }
+    // v1.3.1: expert 已 deprecated (老 bound_agent_id 不再 使用),
+    // agent_owner 通过 Agent.primary_user_id 反向查管的 AI, 不需要 UI 选 bound.
     setSaving(true);
     try {
       await api.updateMember(userId, {
         role: editRole,
-        bound_agent_id: editRole === "expert" ? editBoundAgent : null,
+        // bound_agent_id 永不再 传 (老字段保留 schema 兼容, 不再使用)
+        bound_agent_id: null,
         department: editDepartment.trim() || null, // v24.3 #5
       });
       setEditingId(null);
@@ -171,12 +184,20 @@ export default function TeamAdmin() {
                 <select
                   value={inviteRole}
                   onChange={(e) =>
-                    setInviteRole(e.target.value as "admin" | "member")
+                    setInviteRole(
+                      e.target.value as
+                        | "leader"
+                        | "admin"
+                        | "agent_owner"
+                        | "member",
+                    )
                   }
                   className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm text-white focus:border-accent-500 focus:outline-none"
                 >
-                  <option value="member">member（普通成员, 不能管理团队）</option>
-                  <option value="admin">admin（可邀请、可移除其他成员）</option>
+                  <option value="member">member（普通成员, 仅查看 + 发起会议）</option>
+                  <option value="agent_owner">agent_owner（某 AI 的 主用户, 改自己 AI 的 KB/memory）</option>
+                  <option value="admin">admin（科室长, 管科室人员 + 发起会议）</option>
+                  <option value="leader">leader（工作空间管理员, ws 内最高权）</option>
                 </select>
               </label>
               <button
@@ -221,6 +242,8 @@ export default function TeamAdmin() {
                           <span className={`rounded-full px-2 py-0.5 text-xs ${tone}`}>
                             {m.role}
                           </span>
+                          {/* v1.3.1: 老 expert 的 bound_agent_name 老数据 兼容显示
+                              (agent_owner 通过 Agent.primary_user_id 反向查, 不显示在这里) */}
                           {m.role === "expert" && m.bound_agent_name ? (
                             <span className="rounded bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-400">
                               👤 {m.bound_agent_name}
@@ -255,7 +278,11 @@ export default function TeamAdmin() {
                           {new Date(m.joined_at).toLocaleDateString("zh-CN")}
                         </div>
                       </div>
-                      {canManage && !isMe && m.role !== "owner" && !isEditing && (
+                      {canManage &&
+                        !isMe &&
+                        m.role !== "workspace_creator" &&
+                        m.role !== "owner" /* 老兼容 */ &&
+                        !isEditing && (
                         <div className="flex flex-col items-end gap-1">
                           <button
                             onClick={() => startEdit(m)}
@@ -297,9 +324,12 @@ export default function TeamAdmin() {
                             {ROLE_OPTIONS.find((r) => r.value === editRole)?.desc}
                           </span>
                         </label>
-                        {editRole === "expert" && (
+                        {/* v1.3.1: 老 expert bound_agent_id UI 已 retire.
+                            agent_owner 通过 Agent.primary_user_id 反向查管的 AI,
+                            不需要在这里 选 bound — 改在 agents 页面 选 primary_user. */}
+                        {false && editRole === "expert" && (
                           <label className="text-xs text-zinc-400">
-                            绑定 AI 专家(必填)
+                            (v1.3.1 后此 UI 已废弃, 见 /me/profile/agents)
                             <select
                               value={editBoundAgent}
                               onChange={(e) => setEditBoundAgent(e.target.value)}

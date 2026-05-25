@@ -11,8 +11,12 @@ const SCOPE_LABEL: Record<string, { label: string; tone: string }> = {
   org: { label: "组织", tone: "bg-emerald-500/15 text-emerald-300" },
 };
 
-// v26.5: 长期记忆 写权限 仅 leader+, manager P1 后才能写自己 agent 的
-const FULL_ADMIN_ROLES = new Set(["owner", "admin", "leader"]);
+// v1.3.1 (PM Q7.4): 长期记忆 写权限:
+//   workspace_creator / leader 全权 (含通用 memory)
+//   admin                       仅看
+//   agent_owner                  仅可写 自己 primary AI 的 memory
+//   member                       仅只读
+const FULL_ADMIN_ROLES = new Set(["workspace_creator", "leader", "owner"]);
 
 export default function MemoryAdmin() {
   const [memories, setMemories] = useState<Memory[]>([]);

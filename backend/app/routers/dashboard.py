@@ -133,27 +133,23 @@ async def _scope_filter_clauses(
     """
     Returns (sql_filter_list, role_label, scope_label).
 
-    sql_filter_list 是要 AND 进 Task 查询的 where 条件.
-    leader/admin/owner → 仅 workspace_id 过滤(看全空间)
-    manager (v26.5)    → 加 (assignee=me OR source_ref.agent_id IN 我管的 N 个 agent)
-    member             → 仅 assignee=me
+    v1.3.1 角色范围 (Task 查询):
+      workspace_creator / leader / admin / system_owner → 全 workspace
+      agent_owner       → assignee=我 OR source_ref.agent_id IN 我管的所有 agent
+      member            → 仅 assignee=我
 
-    把决策集中在这一处,各 KPI 查询直接 unpack 用.
-
-    v26.5 升级:expert (v21,1 user 绑 1 agent) → manager (v26.5,1 user 管 N agent).
-    通过 auth.manager_owned_agent_ids 拿 list,生成 IN clause.
-    向后兼容:老 expert role 用户 还有 bound_agent_id 但 没改 primary_user_id 的话,
-    fallback 到 expert_bound_agent_id (单值) 也能 work.
+    把决策集中在这一处, 各 KPI 查询直接 unpack 用.
     """
     base = [Task.workspace_id == auth.workspace.id]
+    # v1.3.1: ws_admin_or_above 全空间; agent_owner / member 限自己范围
     if await is_leader_or_admin(session, auth):
         return (base, "leader", "全工作空间")
 
-    # v26.5: 优先用 manager 的反向查 (1 user → N agent)
+    # agent_owner: 通过 Agent.primary_user_id 反向查 (1 user → N agent)
     from ..auth import manager_owned_agent_ids
     owned = await manager_owned_agent_ids(session, auth)
     if owned:
-        # manager: assignee=我 OR source_ref.agent_id ∈ 我管的所有 agent
+        # agent_owner: assignee=我 OR source_ref.agent_id ∈ 我管的所有 agent
         from sqlalchemy import text
         owned_strs = [str(a) for a in owned]
         clause = or_(
@@ -162,19 +158,7 @@ async def _scope_filter_clauses(
                 owned=owned_strs
             ),
         )
-        return (base + [clause], "manager", f"我管理的 {len(owned)} 个 AI 专家")
-
-    # v21 兼容: 老 expert role 还有 bound_agent_id (但没改 primary_user_id) → fallback
-    bound = await expert_bound_agent_id(session, auth)
-    if bound is not None:
-        from sqlalchemy import text
-        clause = or_(
-            Task.assignee_user_id == auth.user.id,
-            text("(task.source_ref ->> 'agent_id') = :bound").bindparams(
-                bound=str(bound)
-            ),
-        )
-        return (base + [clause], "expert", "我绑定的 AI 专家(v21 兼容路径)")
+        return (base + [clause], "agent_owner", f"我管理的 {len(owned)} 个 AI 专家")
 
     # member / 其他
     return (base + [Task.assignee_user_id == auth.user.id], "member", "我的待办")
@@ -1404,8 +1388,13 @@ async def scorched_earth_reset(
             )
         )
     ).scalar_one_or_none()
-    if not membership or membership.role not in ("owner",):
-        raise HTTPException(403, "[操作受限] 焦土数据清除仅 workspace owner 可操作 (平台超管也不代操作,安全设计)")
+    # v1.3.1: 焦土仅 workspace_creator (老 owner 兼容) 可触发 (system_owner 也不代操作)
+    if not membership or membership.role not in ("workspace_creator", "owner"):
+        raise HTTPException(
+            403,
+            "[操作受限] 焦土数据清除仅 workspace_creator 可操作 "
+            "(system_owner 也不代操作, 安全设计)"
+        )
 
     main_user_id = auth.user.id
     main_ws_id = auth.workspace.id

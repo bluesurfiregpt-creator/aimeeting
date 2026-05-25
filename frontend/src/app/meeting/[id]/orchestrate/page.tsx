@@ -25,8 +25,9 @@ import {
 } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
-// v26.3.1: 谁能调 orchestrate 写端点 / 看到 裁决按钮.跟后端 require_leader_or_admin 对齐.
-const WRITE_ROLES = new Set(["owner", "admin", "leader"]);
+// v1.3.1: 谁能调 orchestrate 写端点 / 看到 裁决按钮.
+// 跟后端 require_workspace_admin_or_above 对齐.
+const WRITE_ROLES = new Set(["workspace_creator", "leader", "admin", "owner"]);
 
 type Phase =
   | "idle"

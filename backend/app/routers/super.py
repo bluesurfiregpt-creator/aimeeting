@@ -235,20 +235,20 @@ async def create_workspace(
         session.add(user)
         await session.flush()
 
-    # 5) Membership: owner role
+    # 5) Membership: v1.3.1 workspace_creator role (旧 'owner', system_owner 建 ws 给指定 user)
     membership = WorkspaceMembership(
-        workspace_id=ws.id, user_id=user.id, role="owner",
+        workspace_id=ws.id, user_id=user.id, role="workspace_creator",
     )
     session.add(membership)
 
-    # 6) 可选 邀请链接 (7 天有效)
+    # 6) 可选 邀请链接 (7 天有效) — 邀请角色 workspace_creator (老 'owner')
     invite_url: Optional[str] = None
     if payload.create_invite:
         invite_token = secrets.token_urlsafe(32)
         invite = WorkspaceInvitation(
             workspace_id=ws.id,
             email=payload.owner_email,
-            role="owner",
+            role="workspace_creator",
             token=invite_token,
             created_by_user_id=auth.user.id,
             expires_at=datetime.now(timezone.utc) + timedelta(days=7),

@@ -32,17 +32,20 @@ async def _require_admin(
     session: AsyncSession, auth: AuthContext
 ) -> Optional[WorkspaceMembership]:
     """
-    v26.4-fix3: 改走 is_leader_or_admin (复用 auth.py 顶层 helper),它已经给
-    platform admin 加了 short-circuit fallback (v26.4-fix1).
-    跨 workspace 视角下 platform admin 没 membership 行,这里 return None,
-    caller 都是 `await _require_admin(...)` 不用 return value,无影响.
+    v1.3.1: 改走 is_workspace_admin_or_above (即 workspace_creator / leader / admin
+    + system_owner). admin (科室级) 也能看团队 / 发邀请, 但 编辑 AI/KB/memory
+    需要 require_workspace_manager (更严).
 
-    v25-bug-fix W-2: 智慧住建文档 §2.1.2 — leader 等同于 admin 权限.
+    跨 workspace 视角下 system_owner 没 membership 行, 这里 return None,
+    caller 都是 `await _require_admin(...)` 不用 return value, 无影响.
     """
-    from ..auth import is_leader_or_admin
-    if not await is_leader_or_admin(session, auth):
-        raise HTTPException(403, "[权限不足] 此功能需要 owner / admin / leader 角色")
-    # 取 membership row (普通用户必有;platform admin 跨 ws 时为 None — caller 不用 return value)
+    from ..auth import is_workspace_admin_or_above
+    if not await is_workspace_admin_or_above(session, auth):
+        raise HTTPException(
+            403,
+            "[权限不足] 此功能需要 workspace_creator / leader / admin 角色"
+        )
+    # 取 membership row (普通用户必有;system_owner 跨 ws 时为 None — caller 不用 return value)
     return (
         await session.execute(
             select(WorkspaceMembership).where(
@@ -63,8 +66,8 @@ class MemberOut(BaseModel):
     user_id: uuid.UUID
     name: str
     email: Optional[str] = None
-    # v17-v20: owner | admin | member
-    # v21+: 加入 'leader' (admin 别名,智慧住建偏好)和 'expert' (绑定单一 Agent)
+    # v1.3.1: workspace_creator / leader / admin / agent_owner / member
+    # (旧 owner / manager / expert 字符串 通过 init_db 迁移到新值)
     role: str
     bound_agent_id: Optional[uuid.UUID] = None
     bound_agent_name: Optional[str] = None
@@ -77,8 +80,9 @@ class MemberOut(BaseModel):
 
 
 class MemberPatchIn(BaseModel):
-    role: Optional[str] = None  # owner | admin | leader | expert | member
-    bound_agent_id: Optional[uuid.UUID] = None  # required when role='expert'
+    # v1.3.1: workspace_creator / leader / admin / agent_owner / member 之一
+    role: Optional[str] = None
+    bound_agent_id: Optional[uuid.UUID] = None  # v1.3.1 deprecated, 留兼容
     # v24.3 #5: ABAC 雏形 — 可改科室
     department: Optional[str] = None
     # 显式 None vs 不传:用 sentinel 区分清空;Pydantic 不传 = 字段缺失,
@@ -90,22 +94,26 @@ class InviteIn(BaseModel):
     role: str = "member"
 
 
-# v21 + v26.5: workspace_membership.role 枚举(权限模型)
-# v26.5 角色重设计:
-#   owner   — 工作空间拥有者(SaaS 最高权,注册创建时自动得到)
-#   admin   — 局长/一把手(全权 + 任免 leader/manager/member,不可改 owner)
-#   leader  — 副局长(等同 admin 别名,能读能写;v25 引入)
-#   manager — 部门 AI 维护人(科长),通过 Agent.primary_user_id 反向查管哪几个 AI
-#             v26.5 新增,取代 v21 'expert' 概念.bound_agent_id 字段不再强校验.
-#   expert  — DEPRECATED v26.5:迁移后所有 expert → manager.字符串保留以兼容老数据
-#             查询,但 _PATCHABLE_ROLES 不再列入(不让 admin 主动选 expert).
-#   member  — 普通员工 (legacy default).
+# v1.3.1 角色重设计 (PM 拍板, 取代 v21/v26.5 6-role 模型):
+#   workspace_creator — workspace 注册者 (旧 'owner'); workspace 内最高权
+#   leader            — workspace 管理员, 等同 workspace_creator 同权 (智慧住建偏好)
+#   admin             — workspace 内 科室级 (管科室人员 + 发起会议; 不改 AI/KB/memory)
+#   agent_owner       — 某 AI 的 primary user (旧 'manager'); 改 自己 AI 的 KB/memory
+#   member            — 默认普通员工, 仅查看 + 发起会议
+#
+# system_owner 不在此集合 — 走 env PLATFORM_ADMIN_EMAILS 白名单, 不入 membership 表.
+# 老 'owner' / 'manager' / 'expert' 字符串保留以兼容老查询 (init_db 自动迁移到新值).
 _ALL_ROLES: frozenset[str] = frozenset(
-    {"owner", "admin", "leader", "manager", "expert", "member"}
+    {
+        "workspace_creator", "leader", "admin", "agent_owner", "member",
+        # 老兼容 (init_db 迁移后 DB 里不该再有, 但 保留以防 老前端 误传)
+        "owner", "manager", "expert",
+    }
 )
-# 谁能被 admin 改派 — 不能改 owner role,不再让选 expert (deprecated)
+# 谁能被 ws 管理员 改派. workspace_creator 不能 被改派 (transfer-ownership 单独流程).
+# expert 已 deprecated (老数据 init_db 自动 migrate, 不让 admin 主动选).
 _PATCHABLE_ROLES: frozenset[str] = frozenset(
-    {"admin", "leader", "manager", "member"}
+    {"leader", "admin", "agent_owner", "member"}
 )
 
 
@@ -200,8 +208,14 @@ async def update_member(
     ).scalar_one_or_none()
     if not target:
         raise HTTPException(404, "member not found")
-    if target.role == "owner":
-        raise HTTPException(403, "[操作受限] 不能直接修改 workspace owner 角色 (请用 transfer-ownership 端点)")
+    # v1.3.1: workspace_creator (旧 owner) 不能被 admin 改 (需 transfer-ownership 单独流程).
+    # 老 'owner' 字符串 也防御 (虽然 init_db 应该已 migrate).
+    if target.role in ("workspace_creator", "owner"):
+        raise HTTPException(
+            403,
+            "[操作受限] 不能直接修改 workspace_creator 角色 "
+            "(请用 transfer-ownership 端点)"
+        )
 
     new_role = payload.role
     new_bound = payload.bound_agent_id
@@ -302,8 +316,13 @@ async def remove_member(
     ).scalar_one_or_none()
     if not target:
         raise HTTPException(404, "member not found")
-    if target.role == "owner":
-        raise HTTPException(403, "[操作受限] 不能从 workspace 移除 owner (需先 transfer-ownership 给别的成员)")
+    # v1.3.1: workspace_creator (旧 owner) 不能被 admin 移除.
+    if target.role in ("workspace_creator", "owner"):
+        raise HTTPException(
+            403,
+            "[操作受限] 不能从 workspace 移除 workspace_creator "
+            "(需先 transfer-ownership 给别的成员)"
+        )
     await session.delete(target)
     await session.commit()
     await audit_log(
@@ -352,14 +371,16 @@ async def create_invitation(
     auth: AuthContext = Depends(get_current_auth),
 ):
     await _require_admin(session, auth)
-    # v26.5: 邀请角色加 manager + leader (跟 _PATCHABLE_ROLES 一致, 不再限 admin/member).
-    # 邀请角色 不允许 owner — owner 是 workspace 创建者, 通过 transfer-ownership 流程任命.
-    # expert 已 deprecated, 不让邀请 (老数据 自动 migrate 成 manager).
-    _INVITABLE_ROLES = {"admin", "leader", "manager", "member"}
+    # v1.3.1: 可邀请角色 = leader / admin / agent_owner / member.
+    # 不允许:
+    #   - workspace_creator — workspace 注册者, 通过 transfer-ownership 流程任命
+    #   - system_owner — env 白名单, 不入 membership 表
+    #   - 老 owner / manager / expert — DB 不再产生, 拒绝以免老客户端污染
+    _INVITABLE_ROLES = {"leader", "admin", "agent_owner", "member"}
     if payload.role not in _INVITABLE_ROLES:
         raise HTTPException(
             400,
-            f"role must be one of {sorted(_INVITABLE_ROLES)} (v26.5 manager/leader 加入)"
+            f"role must be one of {sorted(_INVITABLE_ROLES)}"
         )
     inv = WorkspaceInvitation(
         workspace_id=auth.workspace.id,

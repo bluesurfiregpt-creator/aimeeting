@@ -123,7 +123,12 @@ async def _tick_once(session: AsyncSession) -> dict[str, int]:
                     await session.execute(
                         select(WorkspaceMembership.user_id).where(
                             WorkspaceMembership.workspace_id == action.workspace_id,
-                            WorkspaceMembership.role.in_(["owner", "admin"]),
+                            WorkspaceMembership.role.in_([
+                                # v1.3.1: ws_admin_or_above 等同老 owner/admin/leader
+                                "workspace_creator", "leader", "admin",
+                                # 老兼容 (init_db 已 migrate, 但 防御性 保留)
+                                "owner",
+                            ]),
                         )
                     )
                 ).all()
@@ -338,7 +343,12 @@ async def _tick_penalties(session: AsyncSession) -> int:
                         await session.execute(
                             select(WorkspaceMembership.user_id).where(
                                 WorkspaceMembership.workspace_id == t.workspace_id,
-                                WorkspaceMembership.role.in_(("owner", "admin", "leader")),
+                                WorkspaceMembership.role.in_((
+                                    # v1.3.1: ws_admin_or_above
+                                    "workspace_creator", "leader", "admin",
+                                    # 老兼容
+                                    "owner",
+                                )),
                             )
                         )
                     ).all()

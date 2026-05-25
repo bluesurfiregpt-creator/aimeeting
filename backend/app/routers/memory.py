@@ -184,12 +184,15 @@ async def create_memory(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    """v26.5-Lineage P1: 手工写 memory — 不走 gate, 直接入库.
+    """v1.3.1: 手工写 memory — 不走 gate, 直接入库.
 
-    ABAC:
-      - agent_ids 非空 → 至少 1 个 agent 满足 is_agent_manager
-      - agent_ids 为空 → workspace 通用, 仅 leader+
+    ABAC (PM Q7.4):
+      - agent_ids 非空 → 至少 1 个 agent 满足 is_agent_owner
+        (ws_manager OR 该 agent 的 primary_user)
+      - agent_ids 为空 → workspace 通用, 仅 workspace_manager
+        (admin 不能 创建 通用 memory)
     """
+    from ..auth import is_agent_owner, require_workspace_manager
     aids = payload.resolved_agent_ids()
     if aids:
         # 校验 都在 同 workspace
@@ -203,15 +206,15 @@ async def create_memory(
         ).scalars().all()
         if len(rows) != len(set(aids)):
             raise HTTPException(400, "agent_ids 包含 不在本 workspace 的 agent")
-        # ABAC: 至少 第一个 agent 满足 is_agent_manager (primary 的)
-        if not await is_agent_manager(session, auth, aids[0]):
+        # ABAC: 至少 第一个 agent 满足 is_agent_owner (= ws_manager OR primary)
+        if not await is_agent_owner(session, auth, aids[0]):
             raise HTTPException(
                 403,
-                "[权限不足] 写此 memory 需要 owner/admin/leader,"
-                "或第一个 agent (primary) 的 primary_user (manager)"
+                "[权限不足] 写此 memory 需要 workspace_creator / leader,"
+                "或第一个 agent (primary) 的 agent_owner (primary_user)"
             )
     else:
-        await require_leader_or_admin(session, auth)
+        await require_workspace_manager(session, auth)
 
     if payload.scope not in ("user", "project", "org"):
         raise HTTPException(400, "scope must be user|project|org")

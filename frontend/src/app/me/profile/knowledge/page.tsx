@@ -7,11 +7,13 @@ import { toast } from "@/lib/toast";
 import { SkeletonGrid } from "@/components/Skeleton";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 
-// v26.5-02a P1 完整 ABAC:
-//   leader+ 可创建 / 删 KB + 改 owner_agent_id
-//   manager 仅可写 KB.owner_agent_id 指向 自己 primary AI 的 KB (UI 上看 can_write 字段)
-//   member 全只读
-const FULL_ADMIN_ROLES = new Set(["owner", "admin", "leader"]);
+// v1.3.1 ABAC (PM Q7.4 web 独占编辑):
+//   workspace_creator / leader 可创建 / 删 KB + 改 owner_agent_id
+//   admin                       仅看 (不能创建 / 不能删)
+//   agent_owner                  仅可写 KB.owner_agent_id 指向 自己 primary AI 的 KB
+//                                (UI 上看 can_write 字段)
+//   member                       仅只读
+const FULL_ADMIN_ROLES = new Set(["workspace_creator", "leader", "owner"]);
 
 export default function KnowledgeAdmin() {
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
