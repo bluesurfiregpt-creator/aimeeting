@@ -155,6 +155,12 @@ html.mobile-viewport-locked body {
   animation: clock-glow-red 1.2s ease-in-out infinite;
 }
 
+/* Saga · mobile-app-r4-A · LiveMeetingCard 的 LIVE pill 脉冲 (设计稿 maPulse) */
+@keyframes maPulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
 /* 隐藏滚动条但保持可滑动 (画廊 + 任务面板等) */
 .scrollbar-thin::-webkit-scrollbar {
   height: 6px;

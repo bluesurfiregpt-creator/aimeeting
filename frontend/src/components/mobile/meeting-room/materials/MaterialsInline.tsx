@@ -39,7 +39,7 @@ import type { ReactElement } from "react";
 import { mApi } from "@/lib/mobile/api";
 import type { MeetingAttachmentOut } from "@/lib/mobile/types";
 
-import MRIcon from "../MRIcon";
+import MRIcon from "../../shared/Icon";
 import { MR_COLORS, useInjectAnimations } from "../styles";
 
 import FileGlyph, { FILE_TYPES } from "./FileGlyph";

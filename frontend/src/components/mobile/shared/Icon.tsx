@@ -1,15 +1,26 @@
 "use client";
 
 /**
- * v1.2.0 · Saga · meeting-room-v2 · inline SVG icon set.
+ * v1.3.0 · Saga · mobile-app-r4-A · 共享 inline SVG icon set.
  *
- * 设计源 1:1: docs/design/handoffs/2026-05-25-meeting-room/project/meeting-room-shared.jsx:241-269.
- * 仅本 Saga 内组件用; 不进全局 icon registry.
+ * 提层自: components/mobile/meeting-room/MRIcon.tsx (round-3 实施)
+ * 设计源 1:1:
+ *   - 会议室原有 (round-3): docs/design/handoffs/2026-05-25-meeting-room/project/meeting-room-shared.jsx:241-269
+ *   - round-4 新增: /tmp/claude-design-round4/aimeeting/project/mobile-shared.jsx:324-388
+ *
+ * 命名约定:
+ *   - 保留旧名兼容现有调用 (back/more/mic/...)
+ *   - round-4 加: target / cal / task / brain / bell / sun / flag / arrow-right /
+ *                 play / pin / archive / history / today / logout / sparkle (已存) /
+ *                 bolt / doc / search / check-circle / circle / plus
+ *
+ * 注意: 旧 default export `MRIcon` 也保留 (re-export from old path is via this).
  */
 
 import type { ReactElement } from "react";
 
 export type MRIconName =
+  // ─── 会议室 round-3 已有 ───
   | "back"
   | "more"
   | "mic"
@@ -37,20 +48,43 @@ export type MRIconName =
   | "live"
   | "filter"
   | "close"
-  | "menu";
+  | "menu"
+  // ─── round-4 新增 ───
+  | "target"
+  | "cal"
+  | "task"
+  | "brain"
+  | "bell"
+  | "sun"
+  | "flag"
+  | "arrow-right"
+  | "play"
+  | "pin"
+  | "archive"
+  | "history"
+  | "today"
+  | "logout"
+  | "bolt"
+  | "doc"
+  | "search"
+  | "check-circle"
+  | "circle"
+  | "plus";
 
 type Props = {
   name: MRIconName;
   size?: number;
   color?: string;
+  strokeWidth?: number;
 };
 
-export default function MRIcon({
+export default function Icon({
   name,
   size = 17,
   color = "currentColor",
+  strokeWidth,
 }: Props): ReactElement | null {
-  const sw = 1.6;
+  const sw = strokeWidth ?? 1.6;
   const strokeProps = {
     stroke: color,
     strokeWidth: sw,
@@ -59,6 +93,7 @@ export default function MRIcon({
     strokeLinejoin: "round" as const,
   };
   switch (name) {
+    // ─── 会议室 round-3 已有 (1:1 保留) ───
     case "back":
       return (
         <svg width={size} height={size} viewBox="0 0 24 24">
@@ -298,6 +333,163 @@ export default function MRIcon({
           <circle cx="3" cy="6" r="1" fill={color} />
           <circle cx="3" cy="12" r="1" fill={color} />
           <circle cx="3" cy="18" r="1" fill={color} />
+        </svg>
+      );
+    // ─── round-4 新增 ───
+    case "target":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" {...strokeProps} />
+          <circle cx="12" cy="12" r="5" {...strokeProps} />
+          <circle cx="12" cy="12" r="1.4" fill={color} />
+        </svg>
+      );
+    case "cal":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <rect x="3" y="5" width="18" height="16" rx="2" {...strokeProps} />
+          <path d="M16 3v4M8 3v4M3 11h18" {...strokeProps} />
+        </svg>
+      );
+    case "task":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <path d="M9 11l3 3 8-8" {...strokeProps} />
+          <path
+            d="M20 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11"
+            {...strokeProps}
+          />
+        </svg>
+      );
+    case "brain":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <path
+            d="M12 5a3 3 0 1 0-6 0 3 3 0 0 0-2 5 3 3 0 0 0 1 5 3 3 0 0 0 4 4 3 3 0 0 0 6 0 3 3 0 0 0 4-4 3 3 0 0 0 1-5 3 3 0 0 0-2-5 3 3 0 1 0-6 0z"
+            {...strokeProps}
+          />
+          <path d="M12 5v14" {...strokeProps} />
+        </svg>
+      );
+    case "bell":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" {...strokeProps} />
+          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" {...strokeProps} />
+        </svg>
+      );
+    case "sun":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="4" {...strokeProps} />
+          <path
+            d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
+            {...strokeProps}
+          />
+        </svg>
+      );
+    case "flag":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <path d="M4 21V4h12l-2 4 2 4H4" {...strokeProps} />
+        </svg>
+      );
+    case "arrow-right":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <path d="M5 12h14M13 5l7 7-7 7" {...strokeProps} />
+        </svg>
+      );
+    case "play":
+      return (
+        <svg
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          fill={color}
+          stroke="none"
+        >
+          <path d="M7 4v16l13-8z" />
+        </svg>
+      );
+    case "pin":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <path d="M12 22v-7M9 11l3-7 3 7-3 4-3-4z" {...strokeProps} />
+        </svg>
+      );
+    case "archive":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <rect x="3" y="3" width="18" height="5" rx="1" {...strokeProps} />
+          <path
+            d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 13h4"
+            {...strokeProps}
+          />
+        </svg>
+      );
+    case "history":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8" {...strokeProps} />
+          <path d="M3 3v5h5M12 7v5l3 2" {...strokeProps} />
+        </svg>
+      );
+    case "today":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <rect x="3" y="5" width="18" height="16" rx="2" {...strokeProps} />
+          <path d="M16 3v4M8 3v4M3 11h18" {...strokeProps} />
+          <circle cx="12" cy="15" r="1.5" fill={color} />
+        </svg>
+      );
+    case "logout":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4" {...strokeProps} />
+          <path d="M10 17l-5-5 5-5M5 12h12" {...strokeProps} />
+        </svg>
+      );
+    case "bolt":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" {...strokeProps} />
+        </svg>
+      );
+    case "doc":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <path
+            d="M7 3 H15 L20 8 V20 a1 1 0 0 1 -1 1 H7 a1 1 0 0 1 -1 -1 V4 a1 1 0 0 1 1 -1z"
+            {...strokeProps}
+          />
+          <path d="M15 3 V8 H20" {...strokeProps} />
+        </svg>
+      );
+    case "search":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="7" {...strokeProps} />
+          <path d="M21 21l-4-4" {...strokeProps} />
+        </svg>
+      );
+    case "check-circle":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" {...strokeProps} />
+          <path d="M8 12l3 3 5-6" {...strokeProps} />
+        </svg>
+      );
+    case "circle":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" {...strokeProps} />
+        </svg>
+      );
+    case "plus":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <path d="M12 5v14M5 12h14" {...strokeProps} />
         </svg>
       );
     default:

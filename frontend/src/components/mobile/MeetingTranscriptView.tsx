@@ -36,8 +36,8 @@ import {
   gradientForAgentColor,
   type MockAiId,
   type MockHumanId,
-} from "./meeting-room/avatars";
-import MRIcon from "./meeting-room/MRIcon";
+} from "./shared/avatars";
+import MRIcon from "./shared/Icon";
 import { MR_COLORS } from "./meeting-room/styles";
 import ChapterDivider from "./meeting-room/ChapterDivider";
 import RoundMessage from "./meeting-room/RoundMessage";

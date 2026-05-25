@@ -56,7 +56,7 @@ import CompactContextBar, {
 import {
   MOCK_HUMANS,
   type MockHumanId,
-} from "@/components/mobile/meeting-room/avatars";
+} from "@/components/mobile/shared/avatars";
 import JumpToLatestFab from "@/components/mobile/meeting-room/JumpToLatestFab";
 import EndConfirm from "@/components/mobile/meeting-room/EndConfirm";
 import AskHostSheet from "@/components/mobile/meeting-room/AskHostSheet";

@@ -15,8 +15,8 @@ import type { ReactElement } from "react";
 import {
   MRAIAvatar,
   gradientForAgentColor,
-} from "./meeting-room/avatars";
-import MRIcon from "./meeting-room/MRIcon";
+} from "./shared/avatars";
+import MRIcon from "./shared/Icon";
 import { MR_COLORS, MR_FONT_FAMILY } from "./meeting-room/styles";
 
 export type SevereData = {

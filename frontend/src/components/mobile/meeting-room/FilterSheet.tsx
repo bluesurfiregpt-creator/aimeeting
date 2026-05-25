@@ -18,8 +18,8 @@ import {
   MRHostAvatar,
   MRHumanAvatar,
   type MockAiId,
-} from "./avatars";
-import MRIcon from "./MRIcon";
+} from "../shared/avatars";
+import MRIcon from "../shared/Icon";
 import Sheet from "./Sheet";
 import { MR_COLORS } from "./styles";
 

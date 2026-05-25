@@ -17,8 +17,8 @@ import { useState } from "react";
 import type { ReactElement } from "react";
 
 import { Dots, DemoBadge } from "../meeting-room/atoms";
-import { MOCK_AIS, MOCK_HUMANS, MRAIAvatar, MRHostAvatar } from "./avatars";
-import MRIcon from "./MRIcon";
+import { MOCK_AIS, MOCK_HUMANS, MRAIAvatar, MRHostAvatar } from "../shared/avatars";
+import MRIcon from "../shared/Icon";
 import { MR_COLORS } from "./styles";
 import type {
   MockRoundMessage,

@@ -25,8 +25,8 @@
 
 import type { ReactElement } from "react";
 
-import { MRHostAvatar } from "./meeting-room/avatars";
-import MRIcon, { type MRIconName } from "./meeting-room/MRIcon";
+import { MRHostAvatar } from "./shared/avatars";
+import MRIcon, { type MRIconName } from "./shared/Icon";
 import { MR_COLORS } from "./meeting-room/styles";
 
 type Props = {

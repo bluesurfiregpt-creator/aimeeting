@@ -1,86 +1,101 @@
 "use client";
 
 /**
- * v27.0-mobile · /m · 今日 v3.
+ * v1.3.0 · Saga · mobile-app-r4-A · /m today 大重写.
  *
- * 改动 (跟 v2 比):
- *   - 删问候 TopBar, 改 PageHeader (大标题 "今日" + segment)
- *   - 顶部 segment 切换两视角:
- *       [会议视角]  ← 默认, 沿用 v2 三段 (现在推进 + 等你处理 + AI智囊议题)
- *       [专家视角]  ← 工卡墙 (Phase 2 next 真做, 暂占位)
- *   - 字号台账: body 16, caption 14, h2 17, hero title 22+
- *   - 卡片间距 20px (space-y-5)
+ * 设计源 1:1: /tmp/claude-design-round4/aimeeting/project/mobile-today.jsx
+ * (705 行 — PM 这一轮 视觉骨架页, 最重要)
+ *
+ * 改动 (vs v27.0):
+ *   - bg ink-950 dark → #F2F2F7 light
+ *   - PageHeader 26px → 34px + subtitle (今天日期)
+ *   - 新增 5 段:
+ *       MiraDailyBrief (蓝紫渐变 hero)
+ *       LiveMeetingCard (浅色, 替代 HeroOngoingCard)
+ *       TodaySnapshot (4 stat 小卡)
+ *       MeetView (会议视角 segment):
+ *         - 等你处理 (浅色 TaskRow)
+ *         - 今天会议 (横滑 MeetingCardSmall)
+ *         - AI 智囊 (浅色 InsightCard)
+ *         - 今天的决策 (DecisionRow)
+ *       ExpertView (专家视角 segment, 手风琴, 默认展开 SHU)
+ *
+ * 数据接入策略:
+ *   - WorkbenchOut backend (ongoing/pending/todays_insights) — 真接
+ *   - MA_TODAY mock (greeting + brief) — Saga 后续接 Mira 引擎
+ *   - MA_MEETINGS mock (今天的会议横滑) — Saga 后续接 backend today_meetings
+ *   - MA_DECISIONS mock (今天的决策) — Saga 后续接 backend today_decisions
+ *   - MA_EXPERTS mock (专家视角) — Saga 后续接 backend AgentsWorkboardOut
+ *
+ * [TD-NEW: today_decisions / today_meetings backend 字段缺失] 见 mock.ts
  */
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+
 import { mutateCache, peekCache, useCachedFetch } from "@/lib/mobile/swrCache";
-import AgentWorkCard from "@/components/mobile/AgentWorkCard";
-import HeroOngoingCard from "@/components/mobile/HeroOngoingCard";
-import HeroEmptyCard from "@/components/mobile/HeroEmptyCard";
-import {
-  PendingMiniRow,
-  InsightTopicGroupRow,
-  groupInsightsByTopic,
-} from "@/components/mobile/MiniListRows";
 import PageHeader from "@/components/mobile/PageHeader";
 import SegmentControl from "@/components/mobile/SegmentControl";
+import MASection from "@/components/mobile/shared/MASection";
 import { mApi } from "@/lib/mobile/api";
-import type { AgentsWorkboardOut, WorkbenchOut } from "@/lib/mobile/types";
+import type { WorkbenchOut } from "@/lib/mobile/types";
 
-type View = "meeting" | "expert";
+import MiraDailyBrief from "./_components/today/MiraDailyBrief";
+import LiveMeetingCard from "./_components/today/LiveMeetingCard";
+import TodaySnapshot from "./_components/today/TodaySnapshot";
+import TaskRow from "./_components/today/TaskRow";
+import MeetingCardSmall from "./_components/today/MeetingCardSmall";
+import InsightCard from "./_components/today/InsightCard";
+import DecisionRow from "./_components/today/DecisionRow";
+import ExpertView from "./_components/today/ExpertView";
+import {
+  MA_TODAY,
+  MA_MEETINGS,
+  MA_DECISIONS,
+  formatTodayDate,
+  formatGreetingTime,
+} from "./_components/today/mock";
+
+type View = "meet" | "expert";
 
 function SkeletonHero() {
-  return <div className="h-64 animate-pulse rounded-2xl bg-ink-900" />;
-}
-function SkeletonRow() {
-  return <div className="h-16 animate-pulse rounded-xl bg-ink-900" />;
+  return (
+    <div
+      className="animate-pulse"
+      style={{
+        height: 180,
+        borderRadius: 18,
+        background: "rgba(60,60,67,0.06)",
+        margin: "0 16px",
+      }}
+    />
+  );
 }
 
-function SectionHeader({
-  title,
-  countLabel,
-  href,
-}: {
-  title: string;
-  countLabel?: string;
-  href?: string;
-}) {
+function SkeletonRow() {
   return (
-    <header className="flex items-baseline justify-between px-1">
-      <div className="flex items-baseline gap-2">
-        <h2 className="text-[17px] font-medium text-zinc-100">{title}</h2>
-        {countLabel ? (
-          <span className="text-[14px] text-zinc-500">· {countLabel}</span>
-        ) : null}
-      </div>
-      {href ? (
-        <Link
-          href={href}
-          className="text-[14px] text-accent-400 active:text-accent-300"
-        >
-          全部 →
-        </Link>
-      ) : null}
-    </header>
+    <div
+      className="animate-pulse"
+      style={{
+        height: 60,
+        borderRadius: 12,
+        background: "rgba(60,60,67,0.06)",
+        margin: "0 16px",
+      }}
+    />
   );
 }
 
 export default function MobileHomePage() {
-  const [view, setView] = useState<View>("meeting");
-  // P8 SWR: 切回首页时立刻显 cached, 后台 refresh.
+  const [view, setView] = useState<View>("meet");
+
   const { data, error, isRefreshing } = useCachedFetch<WorkbenchOut>(
     "m:workbench",
     () => mApi.getWorkbench(),
   );
-  // 兼容旧 loading flag — 仅首次 (无 cache) 时 loading
   const loading = !data && isRefreshing;
 
-  // P15 prefetch: 进 /m 时后台并行预拉其他 tab 数据.
-  // 修假死: 之前 mount 时同步起 3 个网络请求 + 主请求, 弱网下 hydration 跟
-  // 这堆 fetch 抢主线程, 用户体感"进入卡 1-3 秒". 用 requestIdleCallback
-  // (或 setTimeout 500ms fallback) 把 prefetch 推到主线程空闲, hydration
-  // 不被挤.
+  // prefetch 其他 tab — 保留旧行为
   useEffect(() => {
     const tasks: Array<[string, () => Promise<unknown>]> = [
       ["m:meetings", () => mApi.getMeetingsList()],
@@ -95,54 +110,94 @@ export default function MobileHomePage() {
           .catch(() => {});
       }
     };
-    // 推到 idle, 给 hydration 让路
-    const ric = (window as unknown as {
-      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-    }).requestIdleCallback;
+    const ric = (
+      window as unknown as {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      }
+    ).requestIdleCallback;
     const handle = ric
       ? ric(run, { timeout: 2000 })
       : (window.setTimeout(run, 500) as unknown as number);
     return () => {
-      const cic = (window as unknown as {
-        cancelIdleCallback?: (h: number) => void;
-      }).cancelIdleCallback;
+      const cic = (
+        window as unknown as { cancelIdleCallback?: (h: number) => void }
+      ).cancelIdleCallback;
       if (cic) cic(handle);
       else window.clearTimeout(handle);
     };
   }, []);
 
-  const insightTopics = useMemo(() => {
-    if (!data) return [];
-    return groupInsightsByTopic(data.todays_insights);
-  }, [data]);
+  // computed (用 hook 必须在 early return 前)
+  const today = useMemo(() => new Date(), []);
+  const subtitle = useMemo(
+    () => MA_TODAY.date || formatTodayDate(today),
+    [today],
+  );
+  const greetingTime = useMemo(
+    () => MA_TODAY.greetingTime || formatGreetingTime(today),
+    [today],
+  );
 
-  return (
-    <div>
-      <PageHeader title="今日">
-        <SegmentControl<View>
-          value={view}
-          onChange={setView}
-          items={[
-            { value: "meeting", label: "会议视角" },
-            { value: "expert", label: "专家视角" },
-          ]}
-        />
-      </PageHeader>
-
-      {loading ? (
-        <div className="space-y-5 px-4 pb-6">
-          <SkeletonHero />
-          <SkeletonRow />
-          <SkeletonRow />
+  // ── loading / error 早返回 ──
+  if (loading) {
+    return (
+      <div>
+        <PageHeader title="今日" subtitle={subtitle}>
+          <SegmentControl<View>
+            value={view}
+            onChange={setView}
+            items={[
+              { value: "meet", label: "会议视角" },
+              { value: "expert", label: "专家视角" },
+            ]}
+          />
+        </PageHeader>
+        <div style={{ paddingBottom: 100 }}>
+          <div style={{ padding: "0 16px" }}>
+            <SkeletonHero />
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <SkeletonRow />
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <SkeletonRow />
+          </div>
         </div>
-      ) : error || !data ? (
-        <div className="space-y-3 px-6 py-10 text-center">
-          <p className="text-[16px] text-zinc-200">未能加载</p>
-          <p className="text-[14px] text-zinc-600">{error}</p>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div>
+        <PageHeader title="今日" subtitle={subtitle} />
+        <div
+          style={{
+            padding: "40px 24px",
+            textAlign: "center",
+          }}
+        >
+          <p style={{ fontSize: 16, color: "#1C1C1E" }}>未能加载</p>
+          <p style={{ fontSize: 14, color: "#8E8E93", marginTop: 6 }}>
+            {error}
+          </p>
           {error?.includes("401") ? (
             <Link
               href="/login"
-              className="inline-flex h-12 items-center justify-center rounded-xl bg-accent-500 px-6 text-[15px] font-medium text-white"
+              style={{
+                display: "inline-flex",
+                marginTop: 18,
+                height: 48,
+                paddingLeft: 24,
+                paddingRight: 24,
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 12,
+                background: "#007AFF",
+                color: "#fff",
+                fontSize: 15,
+                fontWeight: 600,
+              }}
             >
               去登录
             </Link>
@@ -150,141 +205,343 @@ export default function MobileHomePage() {
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="inline-flex h-12 items-center justify-center rounded-xl border border-ink-700 px-6 text-[15px] text-zinc-200"
+              style={{
+                marginTop: 18,
+                height: 48,
+                paddingLeft: 24,
+                paddingRight: 24,
+                borderRadius: 12,
+                background: "#fff",
+                border: "0.5px solid rgba(60,60,67,0.16)",
+                color: "#1C1C1E",
+                fontSize: 15,
+                cursor: "pointer",
+              }}
             >
               重试
             </button>
           )}
         </div>
-      ) : view === "meeting" ? (
-        <MeetingView data={data} insightTopics={insightTopics} />
+      </div>
+    );
+  }
+
+  const { ongoing_meetings, pending, todays_insights } = data;
+  const liveBackend = ongoing_meetings[0]; // 取首个 ongoing
+
+  // 今天 meetings (混合: live = backend, 其他 = mock) — Saga A 简化方案
+  const todayMeetings = MA_MEETINGS;
+  const topInsights = todays_insights.slice(0, 3);
+  const todayDecisions = MA_DECISIONS;
+
+  return (
+    <div style={{ paddingBottom: 100 }}>
+      <PageHeader title="今日" subtitle={subtitle}>
+        <SegmentControl<View>
+          value={view}
+          onChange={setView}
+          items={[
+            { value: "meet", label: "会议视角" },
+            { value: "expert", label: "专家视角" },
+          ]}
+        />
+      </PageHeader>
+
+      {/* ── Mira 早间简报 ── */}
+      <div style={{ padding: "8px 16px 0" }}>
+        <MiraDailyBrief
+          userName="周凯"
+          greetingTime={greetingTime}
+          todayBrief={MA_TODAY.todayBrief}
+          meetingCount={todayMeetings.length}
+        />
+      </div>
+
+      {/* ── Live meeting (only if active) ── */}
+      {liveBackend ? (
+        <div style={{ padding: "12px 16px 0" }}>
+          <LiveMeetingCard
+            meetingId={liveBackend.meeting_id}
+            title={liveBackend.title}
+            sub="进行中"
+            topic={liveBackend.latest_insight?.content || ""}
+            elapsedMin={liveBackend.started_minutes_ago}
+            miraNote={
+              liveBackend.latest_insight
+                ? `Mira 提示: ${liveBackend.latest_insight.content.slice(0, 40)}...`
+                : undefined
+            }
+          />
+        </div>
       ) : (
-        <ExpertView />
+        <div style={{ padding: "12px 16px 0" }}>
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 18,
+              border: "0.5px dashed rgba(60,60,67,0.20)",
+              padding: "20px 16px",
+              textAlign: "center",
+            }}
+          >
+            <p
+              style={{
+                fontSize: 14,
+                color: "#3C3C43",
+                margin: 0,
+                fontWeight: 600,
+              }}
+            >
+              当前没有进行中的会议
+            </p>
+            <p
+              style={{
+                fontSize: 12,
+                color: "#8E8E93",
+                marginTop: 4,
+              }}
+            >
+              到 /m/meetings 查看 全部会议
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Today snapshot (4 stat) ── */}
+      <div style={{ padding: "14px 16px 0" }}>
+        <TodaySnapshot
+          stats={[
+            {
+              label: "场会议",
+              value: todayMeetings.length,
+              sub: liveBackend ? "1 进行中" : "今日",
+              tone: "blue",
+            },
+            {
+              label: "待处理",
+              value: pending.length,
+              sub: "需你拍板",
+              tone: "red",
+            },
+            {
+              label: "AI 洞察",
+              value: todays_insights.length,
+              sub: "今日新增",
+              tone: "purple",
+            },
+            {
+              label: "已决策",
+              value: todayDecisions.length,
+              sub: "今天敲定",
+              tone: "green",
+            },
+          ]}
+        />
+      </div>
+
+      {/* ── view segment 已在 PageHeader 里 ── */}
+
+      {view === "meet" ? (
+        <MeetView
+          todayMeetings={todayMeetings}
+          todoTasks={pending}
+          insights={topInsights}
+          decisions={todayDecisions}
+        />
+      ) : (
+        <div style={{ marginTop: 22 }}>
+          <ExpertView />
+        </div>
       )}
     </div>
   );
 }
 
-// ===== 会议视角 ==========================================================
-
-function MeetingView({
-  data,
-  insightTopics,
+function MeetView({
+  todayMeetings,
+  todoTasks,
+  insights,
+  decisions,
 }: {
-  data: WorkbenchOut;
-  insightTopics: ReturnType<typeof groupInsightsByTopic>;
+  todayMeetings: typeof MA_MEETINGS;
+  todoTasks: WorkbenchOut["pending"];
+  insights: WorkbenchOut["todays_insights"];
+  decisions: typeof MA_DECISIONS;
 }) {
-  const { ongoing_meetings, pending, todays_insights } = data;
   return (
-    <div className="space-y-6 px-4 pb-6">
-      {/* === Hero (主锚) === */}
-      <section>
-        {ongoing_meetings.length > 0 ? (
-          <HeroOngoingCard meetings={ongoing_meetings} />
-        ) : (
-          <HeroEmptyCard />
-        )}
-      </section>
-
-      {/* === 等你处理 === */}
-      <section className="space-y-3">
-        <SectionHeader
-          title="等你处理"
-          countLabel={pending.length > 0 ? `${pending.length} 件` : undefined}
-        />
-        {pending.length === 0 ? (
-          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] px-4 py-5 text-center text-[14px] text-emerald-300">
-            ✓ 今日待办全处理完
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {pending.map((p) => (
-              <PendingMiniRow key={`${p.kind}-${p.id}`} item={p} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* === AI 智囊 (按议题聚合) === */}
-      <section className="space-y-3">
-        <SectionHeader
-          title="AI 智囊"
-          countLabel={
-            todays_insights.length > 0
-              ? `${insightTopics.length} 议题 · ${todays_insights.length} 条`
-              : undefined
+    <>
+      {/* 等你处理 */}
+      <MASection
+        title="等你处理"
+        count={todoTasks.length}
+        action={todoTasks.length > 0 ? "全部任务" : undefined}
+        onAction={() => {
+          if (typeof window !== "undefined") {
+            window.location.href = "/m/tasks";
           }
-          href={todays_insights.length > 0 ? "/m/insights" : undefined}
-        />
-        {insightTopics.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-zinc-800 px-4 py-6 text-center">
-            <p className="text-[15px] text-zinc-300">今天 AI 还没给新判断</p>
-            <p className="mt-1.5 text-[13px] text-zinc-600">
-              进一场会议召唤专家加视角, 立刻有产出
-            </p>
+        }}
+        marginTop={22}
+      >
+        <div style={{ padding: "0 16px" }}>
+          {todoTasks.length === 0 ? (
+            <div
+              style={{
+                background: "rgba(52,199,89,0.08)",
+                borderRadius: 14,
+                border: "0.5px solid rgba(52,199,89,0.20)",
+                padding: "14px 16px",
+                fontSize: 14,
+                color: "#1F8A5B",
+                textAlign: "center",
+              }}
+            >
+              ✓ 今日待办全处理完
+            </div>
+          ) : (
+            <div
+              style={{
+                background: "#fff",
+                borderRadius: 14,
+                overflow: "hidden",
+                border: "0.5px solid rgba(60,60,67,0.10)",
+              }}
+            >
+              {todoTasks.map((t, i) => (
+                <TaskRow
+                  key={`${t.kind}-${t.id}`}
+                  t={t}
+                  last={i === todoTasks.length - 1}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </MASection>
+
+      {/* 今天的会议 */}
+      <MASection
+        title="今天的会议"
+        count={todayMeetings.length}
+        action="所有会议"
+        onAction={() => {
+          if (typeof window !== "undefined") {
+            window.location.href = "/m/meetings";
+          }
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            overflowX: "auto",
+            gap: 10,
+            padding: "0 16px 4px",
+            scrollSnapType: "x mandatory",
+            WebkitOverflowScrolling: "touch",
+          }}
+        >
+          {todayMeetings.map((m) => (
+            <MeetingCardSmall key={m.id} m={m} />
+          ))}
+        </div>
+      </MASection>
+
+      {/* AI 智囊 · 今日 */}
+      <MASection
+        title="AI 智囊 · 今日"
+        count={insights.length}
+        action={insights.length > 0 ? "全部洞察" : undefined}
+        onAction={() => {
+          if (typeof window !== "undefined") {
+            window.location.href = "/m/insights";
+          }
+        }}
+        sub="今天最值得你看的 AI 判断"
+      >
+        {insights.length === 0 ? (
+          <div style={{ padding: "0 16px" }}>
+            <div
+              style={{
+                background: "#fff",
+                borderRadius: 14,
+                border: "0.5px dashed rgba(60,60,67,0.20)",
+                padding: "20px 16px",
+                textAlign: "center",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: 14,
+                  color: "#3C3C43",
+                  margin: 0,
+                  fontWeight: 600,
+                }}
+              >
+                今天 AI 还没给新判断
+              </p>
+              <p
+                style={{
+                  fontSize: 12,
+                  color: "#8E8E93",
+                  marginTop: 4,
+                }}
+              >
+                进一场会议召唤专家加视角, 立刻有产出
+              </p>
+            </div>
           </div>
         ) : (
-          <div className="space-y-2">
-            {insightTopics.map((t) => (
-              <InsightTopicGroupRow key={t.key} topic={t} />
+          <div
+            style={{
+              padding: "0 16px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            {insights.map((it) => (
+              <InsightCard key={it.id} it={it} />
             ))}
           </div>
         )}
-      </section>
-    </div>
-  );
-}
+      </MASection>
 
-// ===== 专家视角 — 工卡墙 ================================================
-
-function ExpertView() {
-  const { data, error, isRefreshing } = useCachedFetch<AgentsWorkboardOut>(
-    "m:agents/workboard",
-    () => mApi.getAgentsWorkboard(),
-  );
-  const loading = !data && isRefreshing;
-
-  if (loading) {
-    return (
-      <div className="space-y-3 px-4 pb-6">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-32 animate-pulse rounded-2xl bg-ink-900" />
-        ))}
-      </div>
-    );
-  }
-
-  if (error || !data) {
-    return (
-      <div className="px-6 py-10 text-center">
-        <p className="text-[16px] text-zinc-200">未能加载专家</p>
-        <p className="mt-2 text-[14px] text-zinc-600">{error}</p>
-      </div>
-    );
-  }
-
-  if (data.agents.length === 0) {
-    return (
-      <div className="mx-4 rounded-2xl border border-dashed border-zinc-800 px-6 py-12 text-center">
-        <div className="text-3xl">🧠</div>
-        <p className="mt-4 text-[16px] text-zinc-200">还没添加 AI 专家</p>
-        <p className="mt-2 text-[13px] text-zinc-600">从桌面端添加 AI 专家</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3 px-4 pb-6">
-      <p className="px-1 text-[13px] text-zinc-500">
-        共 {data.agents.length} 位 AI 专家 · 按最近活跃排序
-      </p>
-      {data.agents.map((a) => (
-        <AgentWorkCard
-          key={a.agent_id}
-          agent={a}
-          href={`/m/agents/${a.agent_id}`}
-        />
-      ))}
-    </div>
+      {/* 今天的决策 */}
+      <MASection title="今天的决策" count={decisions.length}>
+        <div style={{ padding: "0 16px" }}>
+          {decisions.length === 0 ? (
+            <div
+              style={{
+                background: "#fff",
+                borderRadius: 14,
+                border: "0.5px dashed rgba(60,60,67,0.20)",
+                padding: "16px",
+                fontSize: 13,
+                color: "#8E8E93",
+                textAlign: "center",
+              }}
+            >
+              今天还没有敲定的决策
+            </div>
+          ) : (
+            <div
+              style={{
+                background: "#fff",
+                borderRadius: 14,
+                overflow: "hidden",
+                border: "0.5px solid rgba(60,60,67,0.10)",
+              }}
+            >
+              {decisions.map((d, i) => (
+                <DecisionRow
+                  key={d.id}
+                  d={d}
+                  last={i === decisions.length - 1}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </MASection>
+    </>
   );
 }
