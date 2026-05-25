@@ -354,6 +354,16 @@ async def init_db() -> None:
         #   manager → agent_owner         (PM 在 N1 拍板的命名, 跟 Agent.primary_user_id 概念呼应)
         # leader / admin / member 不动.
         # idempotent: 已 migrated 时 UPDATE 0 行.
+        #
+        # v1.3.1 P0.1 fix: 新值 'workspace_creator' 17 字符, 超 VARCHAR(16).
+        # 先 ALTER COLUMN 扩展到 VARCHAR(32) 容纳新值. ALTER COLUMN ... TYPE
+        # 在 Postgres 是 idempotent (相同类型为 no-op).
+        await conn.execute(text("""
+            ALTER TABLE workspace_membership ALTER COLUMN role TYPE VARCHAR(32)
+        """))
+        await conn.execute(text("""
+            ALTER TABLE workspace_invitation ALTER COLUMN role TYPE VARCHAR(32)
+        """))
         res = await conn.execute(text("""
             UPDATE workspace_membership SET role = 'workspace_creator' WHERE role = 'owner'
         """))

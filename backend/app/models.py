@@ -114,7 +114,8 @@ class WorkspaceMembership(Base):
     # 老 'expert' / 'manager' / 'owner' 字符串保留以兼容老数据查询, init_db
     # 自动 migrate 到新值 (owner → workspace_creator, manager → agent_owner,
     # expert 已 v26.5 → manager → 现 agent_owner).
-    role: Mapped[str] = mapped_column(String(16), default="member")
+    # v1.3.1 P0.1 fix: 'workspace_creator' 17 字符, 扩 String(16) → String(32) 容纳.
+    role: Mapped[str] = mapped_column(String(32), default="member")
     # v21: 老 expert 绑定的 AI. v1.3.1 后字段保留以兼容老数据, 但不再使用
     # (agent_owner 通过 Agent.primary_user_id 反向查管的 AI, 不用此字段).
     # ondelete=SET NULL — agent 被删时不连带踢人.
@@ -138,7 +139,8 @@ class WorkspaceInvitation(Base):
         PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
     )
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    role: Mapped[str] = mapped_column(String(16), default="member")
+    # v1.3.1 P0.1: 容纳 'workspace_creator' (17 char), 扩 String(16) → String(32).
+    role: Mapped[str] = mapped_column(String(32), default="member")
     token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
