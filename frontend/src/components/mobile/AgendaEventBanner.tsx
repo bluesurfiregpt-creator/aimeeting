@@ -1,26 +1,34 @@
 "use client";
 
 /**
- * v27.0-mobile P16 · 议程事件横幅 (方案 C: 全套主持人).
+ * v1.2.0 · Saga · meeting-room-v2 · inline HostMessage 卡 (3 级 drift-soft / drift / drift-strong).
  *
- * 来自 WebSocket 推送 6 种事件:
- *   - agenda_off_topic     (suspected/confirmed/severe 三档)
- *     - severe 在外层用 SevereOffTopicModal 全屏渲, 不走这个组件
- *   - agenda_time_warning  ⏰ 议程时间超 80%
- *   - agenda_stuck         🔄 议题卡住 (含 auto_summon_after_s 倒计时)
- *   - dissent_detected     🆚 检测到争议
- *   - agenda_decision_summary 🎯 该决策时主持人收口 (倒计时)
- *   - agenda_advance_suggested 🚀 建议推进议程 (controller-only)
+ * 设计源 1:1: meeting-room.jsx:701-902 (HostMessage).
  *
- * 设计:
- *   - 单 slot, 新覆盖旧
- *   - 主操作按钮: 召唤主持人 / 推进议程 等, 跟事件 kind 相关
- *   - 含 auto_summon_after_s 的事件: 倒计时显示, 0 时自动召
- *   - 可手动 × dismiss
- *   - 自动 60s 消失 (除非含倒计时)
+ * R1 mitigation — 6 类 WS event 1:1 映射到 inline 卡:
+ *   - off_topic (suspected/confirmed)   → drift-soft
+ *   - off_topic (severe → 实际走 modal, banner 兜底)  → drift-strong
+ *   - off_topic (其他)                  → drift
+ *   - time_warning                      → timer (橙)
+ *   - stuck                             → drift (橙) + body 含 stuck 提示
+ *   - dissent_detected                  → drift (改 title 含 parties)
+ *   - decision_summary                  → route (橙)
+ *   - advance_suggested                 → route (绿色变体) + 一键推进按钮
+ *
+ * 行为保留: autoSummonSec 倒计时 → 自动召唤 (跟旧版一致).
+ * 移除: sticky 定位. 改 inline (TD1 — 父级 page 把它放进 transcript feed 中).
  */
 
 import { useEffect, useRef, useState } from "react";
+import type { ReactElement } from "react";
+
+import {
+  MOCK_HOST,
+  MRHostAvatar,
+  gradientForAgentColor,
+} from "./meeting-room/avatars";
+import MRIcon, { type MRIconName } from "./meeting-room/MRIcon";
+import { MR_COLORS } from "./meeting-room/styles";
 
 export type BannerKind =
   | "off_topic"
@@ -32,11 +40,19 @@ export type BannerKind =
 
 export type BannerData = {
   kind: BannerKind;
+  /** drift-soft / drift / drift-strong / timer / route — 父级从 kind+severity 决定 */
+  tone: "drift-soft" | "drift" | "drift-strong" | "timer" | "route";
   title: string;
   body?: string;
+  /** ts 显示 (e.g. "23:14"), 父级用 mm:ss 实时算或 null */
+  t?: string;
+  /** drift-strong 强提醒倒计时 (议程剩余 mm:ss) */
+  countdown?: string | null;
   /** 召唤目标 agent. moderator 类事件 = moderator id. dissent = suggested expert. */
   agentId: string;
   agentName: string;
+  /** moderator agent_color (语义色名, 用于头像) */
+  agentColor?: string | null;
   /** 召唤 LLM 时传的 prompt — backend agenda_monitor 已生成 */
   invokeQuery?: string;
   /** 倒计时秒数 (stuck / decision_summary 有). null = 无倒计时 */
@@ -47,52 +63,21 @@ export type BannerData = {
   canAdvance?: boolean;
 };
 
-const TONE: Record<
-  BannerKind,
-  { emoji: string; bg: string; border: string; text: string; ctaColor: string }
+type Props = {
+  data: BannerData;
+  onDismiss: () => void;
+  onSummonAgent: (agentId: string, query?: string) => void;
+  /** advance_suggested 专用 */
+  onAdvanceAgenda?: () => void;
+};
+
+const TONE_META: Record<
+  Exclude<BannerData["tone"], "drift-soft" | "drift-strong">,
+  { icon: MRIconName; color: string; label: string }
 > = {
-  off_topic: {
-    emoji: "🧭",
-    bg: "bg-amber-500/10",
-    border: "border-amber-500/40",
-    text: "text-amber-100",
-    ctaColor: "bg-amber-500 active:bg-amber-600",
-  },
-  time_warning: {
-    emoji: "⏰",
-    bg: "bg-amber-500/10",
-    border: "border-amber-500/40",
-    text: "text-amber-100",
-    ctaColor: "bg-amber-500 active:bg-amber-600",
-  },
-  stuck: {
-    emoji: "🔄",
-    bg: "bg-orange-500/10",
-    border: "border-orange-500/40",
-    text: "text-orange-100",
-    ctaColor: "bg-orange-500 active:bg-orange-600",
-  },
-  dissent: {
-    emoji: "🆚",
-    bg: "bg-rose-500/10",
-    border: "border-rose-500/40",
-    text: "text-rose-100",
-    ctaColor: "bg-rose-500 active:bg-rose-600",
-  },
-  decision_summary: {
-    emoji: "🎯",
-    bg: "bg-violet-500/10",
-    border: "border-violet-500/40",
-    text: "text-violet-100",
-    ctaColor: "bg-violet-500 active:bg-violet-600",
-  },
-  advance_suggested: {
-    emoji: "🚀",
-    bg: "bg-emerald-500/10",
-    border: "border-emerald-500/40",
-    text: "text-emerald-100",
-    ctaColor: "bg-emerald-500 active:bg-emerald-600",
-  },
+  drift: { icon: "compass", color: MR_COLORS.systemOrange, label: "话题偏移 · 中度提醒" },
+  route: { icon: "route", color: MR_COLORS.systemOrange, label: "问题拆解" },
+  timer: { icon: "clock", color: MR_COLORS.systemOrange, label: "时间提醒" },
 };
 
 export default function AgendaEventBanner({
@@ -100,26 +85,18 @@ export default function AgendaEventBanner({
   onDismiss,
   onSummonAgent,
   onAdvanceAgenda,
-}: {
-  data: BannerData;
-  onDismiss: () => void;
-  onSummonAgent: (agentId: string, query?: string) => void;
-  /** advance_suggested 专用 */
-  onAdvanceAgenda?: () => void;
-}) {
+}: Props): ReactElement {
   const [remaining, setRemaining] = useState<number | null>(
     data.autoSummonSec ?? null,
   );
-  // 防 onSummonAgent / onDismiss 闭包不稳导致 effect re-run
   const summonRef = useRef(onSummonAgent);
   summonRef.current = onSummonAgent;
   const dismissRef = useRef(onDismiss);
   dismissRef.current = onDismiss;
 
-  // 含倒计时: 每 250ms tick, 0 时自动召唤
+  // 倒计时 — 含 autoSummonSec 时 250ms tick, 否则 60s 自动消失
   useEffect(() => {
     if (data.autoSummonSec === null || data.autoSummonSec === undefined) {
-      // 无倒计时, 60s 自动消失
       const t = setTimeout(() => dismissRef.current(), 60000);
       return () => clearTimeout(t);
     }
@@ -132,7 +109,6 @@ export default function AgendaEventBanner({
       setRemaining(left);
       if (left <= 0) {
         clearInterval(it);
-        // 自动召唤 + dismiss
         summonRef.current(data.agentId, data.invokeQuery);
         dismissRef.current();
       }
@@ -140,68 +116,546 @@ export default function AgendaEventBanner({
     return () => clearInterval(it);
   }, [data.autoSummonSec, data.agentId, data.invokeQuery]);
 
-  const tone = TONE[data.kind];
+  if (data.tone === "drift-soft") {
+    return (
+      <DriftSoft
+        body={data.body || data.title}
+        t={data.t}
+        onDismiss={onDismiss}
+      />
+    );
+  }
+  if (data.tone === "drift-strong") {
+    return (
+      <DriftStrong
+        data={data}
+        remaining={remaining}
+        onSummonAgent={onSummonAgent}
+        onDismiss={onDismiss}
+      />
+    );
+  }
+  return (
+    <DefaultLevel
+      data={data}
+      remaining={remaining}
+      onSummonAgent={onSummonAgent}
+      onAdvanceAgenda={onAdvanceAgenda}
+      onDismiss={onDismiss}
+    />
+  );
+}
 
-  // CTA 文案: advance_suggested 是推进议程, 其他都是召唤主持人
+// ─────── Level 1: drift-soft ───────
+
+function DriftSoft({
+  body,
+  t,
+  onDismiss,
+}: {
+  body: string;
+  t?: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      style={{ padding: "4px 16px" }}
+      data-testid="mobile-agenda-banner"
+      data-banner-kind="drift-soft"
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 10px",
+          background: MR_COLORS.hostBg,
+          borderLeft: "2px solid #FFB340",
+          borderRadius: "0 8px 8px 0",
+        }}
+      >
+        <MRHostAvatar size={16} />
+        <MRIcon name="compass" size={12} color="#B8860B" />
+        <span
+          style={{
+            fontSize: 12,
+            color: "#8B6914",
+            flex: 1,
+            lineHeight: 1.4,
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>{MOCK_HOST.name}</span> · {body}
+        </span>
+        {t ? (
+          <span style={{ fontSize: 10, color: "#B8860B" }}>{t}</span>
+        ) : null}
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="关闭"
+          style={{
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            color: "#B8860B",
+            fontSize: 14,
+            lineHeight: 1,
+          }}
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────── Level 3: drift-strong (红色 + 倒计时 + urgent pulse) ───────
+
+function DriftStrong({
+  data,
+  remaining,
+  onSummonAgent,
+  onDismiss,
+}: {
+  data: BannerData;
+  remaining: number | null;
+  onSummonAgent: (agentId: string, query?: string) => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      style={{ padding: "10px 16px" }}
+      data-testid="mobile-agenda-banner"
+      data-banner-kind="drift-strong"
+    >
+      <div
+        style={{
+          background: `linear-gradient(135deg, rgba(255,59,48,0.08), rgba(255,69,58,0.14))`,
+          borderRadius: 14,
+          border: `1px solid ${MR_COLORS.urgentBorder}`,
+          padding: "12px 14px 14px",
+          animation: "mr-urgentPulse 2.2s ease-in-out infinite",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <div style={{ position: "relative" }}>
+            <MRHostAvatar size={28} />
+            <span
+              style={{
+                position: "absolute",
+                right: -2,
+                bottom: -2,
+                width: 12,
+                height: 12,
+                borderRadius: "50%",
+                background: MR_COLORS.systemRed,
+                border: "1.5px solid #fff",
+              }}
+            />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: 6,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: MR_COLORS.textPrimary,
+                }}
+              >
+                {MOCK_HOST.name}
+              </span>
+              <span
+                style={{ fontSize: 11, color: MR_COLORS.textTertiary }}
+              >
+                主持人
+              </span>
+              {data.t ? (
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: MR_COLORS.textTertiary,
+                    marginLeft: "auto",
+                  }}
+                >
+                  {data.t}
+                </span>
+              ) : null}
+            </div>
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                marginTop: 2,
+              }}
+            >
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: MR_COLORS.systemRed,
+                  animation: "mr-livePulse 1.2s ease-in-out infinite",
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: MR_COLORS.systemRed,
+                  letterSpacing: 0.4,
+                }}
+              >
+                强提醒 · 需立即处理
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="关闭"
+            style={{
+              background: "none",
+              border: "none",
+              color: MR_COLORS.textTertiary,
+              fontSize: 18,
+              cursor: "pointer",
+              padding: 0,
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: 10,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          {data.countdown ? (
+            <div
+              style={{
+                flexShrink: 0,
+                width: 64,
+                background: MR_COLORS.bgWhite,
+                border: `1px solid ${MR_COLORS.urgentBorder}`,
+                borderRadius: 10,
+                padding: "6px 0",
+                textAlign: "center",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 10,
+                  color: MR_COLORS.textTertiary,
+                  fontWeight: 600,
+                  letterSpacing: 0.3,
+                }}
+              >
+                议程剩余
+              </div>
+              <div
+                style={{
+                  fontSize: 19,
+                  fontWeight: 700,
+                  color: MR_COLORS.systemRed,
+                  fontVariantNumeric: "tabular-nums",
+                  letterSpacing: -0.5,
+                  lineHeight: 1.1,
+                  marginTop: 1,
+                }}
+              >
+                {data.countdown}
+              </div>
+            </div>
+          ) : null}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: MR_COLORS.textPrimary,
+              }}
+            >
+              {data.title}
+            </div>
+            {data.body ? (
+              <div
+                style={{
+                  fontSize: 12.5,
+                  lineHeight: 1.45,
+                  color: MR_COLORS.textSecondary,
+                  marginTop: 2,
+                }}
+              >
+                {data.body}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {remaining !== null && remaining > 0 ? (
+          <div
+            style={{
+              marginTop: 10,
+              fontSize: 11,
+              color: MR_COLORS.textTertiary,
+              fontVariantNumeric: "tabular-nums",
+              textAlign: "center",
+            }}
+          >
+            {Math.ceil(remaining)} 秒后自动召唤 {data.agentName}
+          </div>
+        ) : null}
+
+        <div
+          style={{
+            marginTop: 12,
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              onSummonAgent(data.agentId, data.invokeQuery);
+              onDismiss();
+            }}
+            data-testid="mobile-banner-cta"
+            style={{
+              height: 38,
+              padding: "0 14px",
+              borderRadius: 10,
+              border: "none",
+              background: MR_COLORS.systemRed,
+              color: "#fff",
+              fontSize: 14,
+              fontWeight: 600,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              boxShadow: "0 2px 6px rgba(255,59,48,0.30)",
+            }}
+          >
+            立即召唤 {data.agentName}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────── Level 2: drift / route / timer ───────
+
+function DefaultLevel({
+  data,
+  remaining,
+  onSummonAgent,
+  onAdvanceAgenda,
+  onDismiss,
+}: {
+  data: BannerData;
+  remaining: number | null;
+  onSummonAgent: (agentId: string, query?: string) => void;
+  onAdvanceAgenda?: () => void;
+  onDismiss: () => void;
+}) {
+  const tone = data.tone as keyof typeof TONE_META;
+  const meta = TONE_META[tone];
+
   const isAdvance = data.kind === "advance_suggested";
-  const cta = isAdvance ? "立刻推进 →" : `召唤 ${data.agentName}`;
-  const ctaHidden = isAdvance && !data.canAdvance;
-
+  const ctaLabel = isAdvance
+    ? "立刻推进 →"
+    : `召唤 ${data.agentName}`;
+  const ctaHidden = isAdvance && data.canAdvance === false;
   const handleCta = () => {
     if (isAdvance && onAdvanceAgenda) {
       onAdvanceAgenda();
-      dismissRef.current();
+      onDismiss();
     } else {
-      summonRef.current(data.agentId, data.invokeQuery);
-      dismissRef.current();
+      onSummonAgent(data.agentId, data.invokeQuery);
+      onDismiss();
     }
   };
 
   return (
     <div
-      className={`sticky z-20 mx-4 mt-2 rounded-xl border ${tone.bg} ${tone.border}`}
-      style={{ top: 60 }}
-      role="status"
+      style={{ padding: "10px 16px" }}
       data-testid="mobile-agenda-banner"
       data-banner-kind={data.kind}
     >
-      <div className="flex items-start gap-3 px-4 py-3">
-        <span className="shrink-0 text-[20px]">{tone.emoji}</span>
-        <div className="min-w-0 flex-1">
-          <p className={`text-[15px] font-medium ${tone.text}`}>{data.title}</p>
-          {data.body ? (
-            <p className="mt-1 text-[13px] leading-snug text-zinc-300">
-              {data.body}
-            </p>
-          ) : null}
-          {remaining !== null && remaining > 0 ? (
-            <p className="mt-2 text-[12px] text-zinc-400 tabular-nums">
-              {Math.ceil(remaining)} 秒后自动召唤 {data.agentName}
-            </p>
-          ) : null}
-        </div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label="关闭横幅"
-          className="-mr-1 -mt-1 shrink-0 px-1 text-[20px] text-zinc-400 active:text-zinc-200"
-        >
-          ×
-        </button>
-      </div>
-      {/* CTA 按钮区 (advance + canAdvance 否则隐) */}
-      {!ctaHidden ? (
-        <div className="border-t border-white/5 px-4 py-2">
+      <div
+        style={{
+          background:
+            "linear-gradient(135deg, rgba(255,179,64,0.06), rgba(255,159,10,0.10))",
+          borderRadius: 14,
+          border: `0.5px solid ${MR_COLORS.hostBorder}`,
+          padding: "11px 14px 13px",
+          position: "relative",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <MRHostAvatar size={26} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: 6,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: MR_COLORS.textPrimary,
+                }}
+              >
+                {MOCK_HOST.name}
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  color: MR_COLORS.textTertiary,
+                }}
+              >
+                主持人
+              </span>
+              {data.t ? (
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: MR_COLORS.textTertiary,
+                    marginLeft: "auto",
+                  }}
+                >
+                  {data.t}
+                </span>
+              ) : null}
+            </div>
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                marginTop: 2,
+              }}
+            >
+              <MRIcon name={meta.icon} size={11} color={meta.color} />
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: meta.color,
+                  letterSpacing: 0.3,
+                }}
+              >
+                {meta.label}
+              </span>
+            </div>
+          </div>
           <button
             type="button"
-            onClick={handleCta}
-            className={`flex h-10 w-full items-center justify-center rounded-lg px-4 text-[14px] font-medium text-white shadow ${tone.ctaColor} active:scale-[0.98]`}
-            data-testid="mobile-banner-cta"
+            onClick={onDismiss}
+            aria-label="关闭"
+            style={{
+              background: "none",
+              border: "none",
+              color: MR_COLORS.textTertiary,
+              fontSize: 18,
+              cursor: "pointer",
+              padding: 0,
+              lineHeight: 1,
+            }}
           >
-            {cta}
+            ×
           </button>
         </div>
-      ) : null}
+
+        <div style={{ marginTop: 8 }}>
+          {data.title ? (
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: MR_COLORS.textPrimary,
+                marginBottom: 3,
+              }}
+            >
+              {data.title}
+            </div>
+          ) : null}
+          {data.body ? (
+            <div
+              style={{
+                fontSize: 13,
+                lineHeight: 1.5,
+                color: MR_COLORS.textSecondary,
+              }}
+            >
+              {data.body}
+            </div>
+          ) : null}
+        </div>
+
+        {remaining !== null && remaining > 0 ? (
+          <div
+            style={{
+              marginTop: 8,
+              fontSize: 11,
+              color: MR_COLORS.textTertiary,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {Math.ceil(remaining)} 秒后自动召唤 {data.agentName}
+          </div>
+        ) : null}
+
+        {!ctaHidden ? (
+          <div
+            style={{
+              marginTop: 10,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 6,
+            }}
+          >
+            <button
+              type="button"
+              onClick={handleCta}
+              data-testid="mobile-banner-cta"
+              style={{
+                height: 30,
+                padding: "0 12px",
+                borderRadius: 8,
+                border: "none",
+                background: MR_COLORS.systemOrange,
+                color: "#fff",
+                fontSize: 13,
+                fontWeight: 600,
+                fontFamily: "inherit",
+                cursor: "pointer",
+              }}
+            >
+              {ctaLabel}
+            </button>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
+
+// Re-export for backwards compat — agent color helper for parent to use
+export { gradientForAgentColor };

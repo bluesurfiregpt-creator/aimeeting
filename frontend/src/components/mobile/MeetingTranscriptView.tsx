@@ -1,25 +1,23 @@
 "use client";
 
 /**
- * v27.0-mobile · Phase 5B · 会议完整转录视图 + 实时推送.
+ * v1.2.0 · Saga · meeting-room-v2 · 浅色 transcript view.
  *
- * P5A 基础 + 加 WebSocket 实时叠加:
- *   - 进组件挂 WS, listens on transcript_persisted / agent_message_* 事件
- *   - 新真人发言 → append 列表底部
- *   - AI 发言: agent_message_start → 追加空 bubble (streaming=true)
- *             agent_message_chunk → 找该 agent 的最后 streaming bubble 追加文本
- *             agent_message_end → 用 server 给的最终 text 校正 (citations 也带上)
- *   - 议程事件 (off_topic / time_warning / stuck) → 不在转录里渲, 父组件接
+ * 设计源 1:1: meeting-room.jsx:551-700 (HumanMessage + AIMessage).
  *
- * 重连:
- *   - sttSocket 内置指数 backoff. 重连成功后静默 reload 一次拿可能错过的行.
+ * 重写浅色版:
+ *   - UserLine  → HumanMessage (头像 32px 个人色 + waveform + @mention 紫高亮)
+ *   - AgentLine → AIMessage (头像 26px 渐变方形 + 左 3px accent bar + data 块)
  *
- * UX:
- *   - 顶部 meta: count + 实时绿点 (WS 连接中) / 灰点 (重连中) + 刷新按钮
- *   - 新行进来时自动滚到底 (只在用户已经在底部时, 避免打断阅读)
+ * R9 — host card + mock round 也走 transcript view 渲染:
+ *   - props 新增 `hostCards` (TimelineHostItem[]) + `roundMessages` (mock round[])
+ *   - 内部 merge 渲染: user/agent lines + host cards + round messages
+ *
+ * WS 数据流 / IntersectionObserver autoscroll / streaming AI 保持不变.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactElement } from "react";
 import type { SttEvent } from "@/lib/sttSocket";
 import { mApi } from "@/lib/mobile/api";
 import {
@@ -29,21 +27,63 @@ import {
 } from "@/lib/mobile/meetingWsBus";
 import type { MobileTranscriptOut, TranscriptStreamLine } from "@/lib/mobile/types";
 
-const AGENT_COLOR_BG: Record<string, string> = {
-  violet: "bg-violet-500",
-  emerald: "bg-emerald-500",
-  amber: "bg-amber-500",
-  sky: "bg-sky-500",
-  rose: "bg-rose-500",
-  teal: "bg-teal-500",
-  blue: "bg-blue-500",
-  indigo: "bg-indigo-500",
+import { Dots, Waveform, DemoBadge } from "./meeting-room/atoms";
+import {
+  MOCK_AIS,
+  MOCK_HUMANS,
+  MRAIAvatar,
+  MRHumanAvatar,
+  gradientForAgentColor,
+  type MockAiId,
+  type MockHumanId,
+} from "./meeting-room/avatars";
+import MRIcon from "./meeting-room/MRIcon";
+import { MR_COLORS } from "./meeting-room/styles";
+import ChapterDivider from "./meeting-room/ChapterDivider";
+import RoundMessage from "./meeting-room/RoundMessage";
+import type { MockRoundMessage } from "./meeting-room/mock/roundtable";
+
+/** 内部行表征 — 带 streaming + key. */
+type LocalLine = TranscriptStreamLine & {
+  key: string;
+  streaming?: boolean;
 };
 
-function agentColorBg(c: string | null): string {
-  if (!c) return "bg-zinc-700";
-  return AGENT_COLOR_BG[c] || "bg-zinc-700";
-}
+/** 父级推下来的 host card 数据 (banner / chapter / strong-banner 等都走这个). */
+export type TimelineHostItem =
+  | {
+      kind: "host";
+      key: string;
+      /** 排序锚点 (分钟) */
+      at_minute: number;
+      tone: "drift-soft" | "drift" | "drift-strong" | "timer" | "route";
+      title?: string;
+      body?: string;
+      t?: string;
+      countdown?: string | null;
+      agentName: string;
+      agentColor?: string | null;
+      /** Render bridge — 父级提供原生 banner 组件 */
+      render: () => ReactElement;
+    }
+  | {
+      kind: "chapter";
+      key: string;
+      at_minute: number;
+      newAgendaNumber: number;
+      totalAgenda: number;
+      newAgendaTitle: string;
+      agendaMinutes: number | null;
+      t: string;
+    };
+
+/** 筛选: speaker key. */
+export type FilterSpeakerKey = string;
+
+/** 由父级控制的筛选状态. selected.size === 0 = 不筛. */
+export type FilterState = {
+  selected: Set<FilterSpeakerKey>;
+};
 
 const TRIGGER_LABEL: Record<string, string> = {
   manual: "召唤",
@@ -59,20 +99,37 @@ function fmtMinute(m: number): string {
   return `${h}h${rem ? rem + "m" : ""}`;
 }
 
-/** 内部行表征: 比 server 的 TranscriptStreamLine 多了 streaming + key 字段
- *  - streaming=true 时此 AI bubble 还在流式接收 (字一边接一边追加).
- *  - key 用 `${kind}-${id}` (server side id 唯一) — agent live 时用 `agent-live-${agent_id}` 临时 id.
- */
-type LocalLine = TranscriptStreamLine & {
-  key: string;
-  streaming?: boolean;
+/** speaker key — 真实 user line 用 speaker_name (或 fallback 'user-unknown') */
+function speakerKeyOfLine(l: LocalLine): string {
+  if (l.kind === "agent") return l.agent_id || "ai-unknown";
+  return l.speaker_name || "user-unknown";
+}
+
+type Props = {
+  meetingId: string;
+  /** 父级注入的 host cards + chapters (按 at_minute 排) */
+  hostCards?: TimelineHostItem[];
+  /** mock round messages (TD2 — 永久 1 张, 永远在末尾) */
+  roundMessages?: MockRoundMessage[];
+  /** 筛选 (selected set; size=0 = 不筛) */
+  filter?: FilterState;
+  /** 父级总匹配数回调 — 用于 FilterBanner 显 X/Y */
+  onMatchedCountChange?: (matched: number, total: number) => void;
+  /** 暴露 jumpTo 给父级 — 父级章节 sheet 用 */
+  onRegisterJump?: (jumpTo: (key: string) => void) => void;
+  /** 滚动到底时回调 (用于 FAB 隐藏) */
+  onScrollPosChange?: (isAtBottom: boolean) => void;
 };
 
 export default function MeetingTranscriptView({
   meetingId,
-}: {
-  meetingId: string;
-}) {
+  hostCards = [],
+  roundMessages = [],
+  filter,
+  onMatchedCountChange,
+  onRegisterJump,
+  onScrollPosChange,
+}: Props): ReactElement {
   const [lines, setLines] = useState<LocalLine[]>([]);
   const [meta, setMeta] = useState<Pick<MobileTranscriptOut, "total_user_lines" | "total_agent_lines"> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -80,10 +137,10 @@ export default function MeetingTranscriptView({
   const [refreshing, setRefreshing] = useState(false);
   const conn = useMeetingWsConn();
 
-  const listRef = useRef<HTMLOListElement | null>(null);
-  const autoScrollRef = useRef(true);  // 用户是否在列表底 (true=自动滚, false=用户上滑阅读历史)
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const autoScrollRef = useRef(true);
 
-  // 静态拉一次 (full snapshot)
+  // 静态拉一次
   const load = useCallback(
     async (isRefresh = false) => {
       if (isRefresh) setRefreshing(true);
@@ -113,7 +170,6 @@ export default function MeetingTranscriptView({
     void load(false);
   }, [load]);
 
-  // 重连成功后静默 reload 一次, 拿可能错过的行
   const prevConnRef = useRef<typeof conn>(conn);
   useEffect(() => {
     if (prevConnRef.current === "reconnecting" && conn === "connected") {
@@ -122,131 +178,118 @@ export default function MeetingTranscriptView({
     prevConnRef.current = conn;
   }, [conn, load]);
 
-  // WS 事件处理 — 订阅总线 (provider 在 page 级别开)
-  const handleEvent = useCallback(
-    (e: SttEvent) => {
-      switch (e.type) {
-        case "transcript_persisted": {
-          // 服务器现在带 text + speaker_name. 直接 append.
-          if (!e.text) break; // 没 text 就跳 (legacy / 老 server)
-          const at_min = e.start_ms !== null && e.start_ms !== undefined
+  // WS 事件
+  const handleEvent = useCallback((e: SttEvent) => {
+    switch (e.type) {
+      case "transcript_persisted": {
+        if (!e.text) break;
+        const at_min =
+          e.start_ms !== null && e.start_ms !== undefined
             ? Math.max(0, Math.floor(e.start_ms / 60000))
             : 0;
-          setLines((prev) => {
-            // 去重: 若已存在 (例如 reload 后又来一次), 跳
-            const key = `user-${e.line_id}`;
-            if (prev.some((l) => l.key === key)) return prev;
-            return [
-              ...prev,
-              {
-                key,
-                kind: "user",
-                id: e.line_id,
-                text: e.text!,
-                at_minute: at_min,
-                created_at: new Date().toISOString(),
-                speaker_name: e.speaker_name ?? null,
-                speaker_status: e.speaker_status ?? null,
-                agent_id: null,
-                agent_name: null,
-                agent_nickname: null,
-                agent_color: null,
-                trigger: null,
-                citations_count: 0,
-              },
-            ];
-          });
-          setMeta((m) =>
-            m ? { ...m, total_user_lines: m.total_user_lines + 1 } : m,
-          );
-          break;
-        }
-        case "agent_message_start": {
-          // 追加一个 streaming 空 bubble — 临时 key (server id 还没生成)
-          const at_min = 0; // 起点, 累积期间不准确, end 时也不更, 接受小偏差
-          setLines((prev) => [
+        setLines((prev) => {
+          const key = `user-${e.line_id}`;
+          if (prev.some((l) => l.key === key)) return prev;
+          return [
             ...prev,
             {
-              key: `agent-live-${e.agent_id}-${Date.now()}`,
-              kind: "agent",
-              id: 0,                          // 临时, end 时不替换 (没真 id)
-              text: "",
+              key,
+              kind: "user",
+              id: e.line_id,
+              text: e.text!,
               at_minute: at_min,
               created_at: new Date().toISOString(),
-              speaker_name: null,
-              speaker_status: null,
-              agent_id: e.agent_id,
-              agent_name: e.agent_name,
-              agent_nickname: e.agent_nickname ?? null,
-              agent_color: e.agent_color,
-              trigger: "manual",  // 默认; end 时不改
+              speaker_name: e.speaker_name ?? null,
+              speaker_status: e.speaker_status ?? null,
+              agent_id: null,
+              agent_name: null,
+              agent_nickname: null,
+              agent_color: null,
+              trigger: null,
               citations_count: 0,
-              streaming: true,
             },
-          ]);
-          break;
-        }
-        case "agent_message_chunk": {
-          // 找最后一个该 agent 的 streaming bubble, 追加 chunk
-          setLines((prev) => {
-            for (let i = prev.length - 1; i >= 0; i--) {
-              const l = prev[i];
-              if (
-                l.kind === "agent" &&
-                l.streaming &&
-                l.agent_id === e.agent_id
-              ) {
-                const next = [...prev];
-                next[i] = { ...l, text: l.text + e.chunk };
-                return next;
-              }
-            }
-            return prev;
-          });
-          break;
-        }
-        case "agent_message_end": {
-          // 用 server 最终 text 校正 (chunk 累积可能有未刷出的尾巴), 标 streaming=false.
-          // citations_count 用 e.citations?.length 给.
-          setLines((prev) => {
-            for (let i = prev.length - 1; i >= 0; i--) {
-              const l = prev[i];
-              if (
-                l.kind === "agent" &&
-                l.streaming &&
-                l.agent_id === e.agent_id
-              ) {
-                const next = [...prev];
-                next[i] = {
-                  ...l,
-                  text: e.text,
-                  streaming: false,
-                  citations_count: e.citations?.length ?? 0,
-                };
-                return next;
-              }
-            }
-            return prev;
-          });
-          setMeta((m) =>
-            m ? { ...m, total_agent_lines: m.total_agent_lines + 1 } : m,
-          );
-          break;
-        }
-        default:
-          // 其他事件 (agenda_*, dissent_*, speakers_updated 等) 不在这里处理
-          break;
+          ];
+        });
+        setMeta((m) =>
+          m ? { ...m, total_user_lines: m.total_user_lines + 1 } : m,
+        );
+        break;
       }
-    },
-    [],
-  );
+      case "agent_message_start": {
+        setLines((prev) => [
+          ...prev,
+          {
+            key: `agent-live-${e.agent_id}-${Date.now()}`,
+            kind: "agent",
+            id: 0,
+            text: "",
+            at_minute: 0,
+            created_at: new Date().toISOString(),
+            speaker_name: null,
+            speaker_status: null,
+            agent_id: e.agent_id,
+            agent_name: e.agent_name,
+            agent_nickname: e.agent_nickname ?? null,
+            agent_color: e.agent_color,
+            trigger: "manual",
+            citations_count: 0,
+            streaming: true,
+          },
+        ]);
+        break;
+      }
+      case "agent_message_chunk": {
+        setLines((prev) => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            const l = prev[i];
+            if (
+              l.kind === "agent" &&
+              l.streaming &&
+              l.agent_id === e.agent_id
+            ) {
+              const next = [...prev];
+              next[i] = { ...l, text: l.text + e.chunk };
+              return next;
+            }
+          }
+          return prev;
+        });
+        break;
+      }
+      case "agent_message_end": {
+        setLines((prev) => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            const l = prev[i];
+            if (
+              l.kind === "agent" &&
+              l.streaming &&
+              l.agent_id === e.agent_id
+            ) {
+              const next = [...prev];
+              next[i] = {
+                ...l,
+                text: e.text,
+                streaming: false,
+                citations_count: e.citations?.length ?? 0,
+              };
+              return next;
+            }
+          }
+          return prev;
+        });
+        setMeta((m) =>
+          m ? { ...m, total_agent_lines: m.total_agent_lines + 1 } : m,
+        );
+        break;
+      }
+      default:
+        break;
+    }
+  }, []);
 
-  // 订阅总线
   useMeetingWsEvent(handleEvent);
 
-  // P14: 用 IntersectionObserver 跟踪底部 anchor 可见 → autoScroll on
-  // 之前用 onScroll 监听 listRef.parentElement, 但 page 改 fixed inset-0 后
-  // 滚动容器是 main 而不是 inner div, onScroll 不触发. 改 IO 跟容器无关.
+  // IntersectionObserver: 跟踪 bottom anchor 可见性 (autoScroll on/off + FAB 隐显)
   const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const anchor = bottomAnchorRef.current;
@@ -254,17 +297,16 @@ export default function MeetingTranscriptView({
     const io = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          // 底部 anchor 在视野内 → 用户在底, 允许 auto scroll
           autoScrollRef.current = entry.isIntersecting;
+          onScrollPosChange?.(entry.isIntersecting);
         }
       },
       { threshold: 0.1 },
     );
     io.observe(anchor);
     return () => io.disconnect();
-  }, []);
+  }, [onScrollPosChange]);
 
-  // 自动滚到底 (仅当用户已经在底, 即 bottomAnchor 可见)
   useEffect(() => {
     if (!autoScrollRef.current) return;
     const anchor = bottomAnchorRef.current;
@@ -272,26 +314,133 @@ export default function MeetingTranscriptView({
     requestAnimationFrame(() => {
       anchor.scrollIntoView({ block: "end", behavior: "smooth" });
     });
-  }, [lines.length]);
+  }, [lines.length, hostCards.length]);
+
+  // 构建合并 timeline (lines + hostCards + roundMessages)
+  type TimelineEntry =
+    | { kind: "line"; line: LocalLine; sortAt: number }
+    | { kind: "host"; item: TimelineHostItem; sortAt: number }
+    | { kind: "round"; round: MockRoundMessage; sortAt: number };
+
+  const merged: TimelineEntry[] = [];
+  lines.forEach((l, i) => {
+    // 用 at_minute * 1000 + i 保证同 minute 内按到达顺序排
+    merged.push({
+      kind: "line",
+      line: l,
+      sortAt: l.at_minute * 1000 + i,
+    });
+  });
+  hostCards.forEach((h, i) => {
+    merged.push({
+      kind: "host",
+      item: h,
+      sortAt: h.at_minute * 1000 + 500 + i, // host card 排到同分钟末
+    });
+  });
+  roundMessages.forEach((r, i) => {
+    merged.push({
+      kind: "round",
+      round: r,
+      sortAt: r.at_minute_anchor * 1000 + 900 + i,
+    });
+  });
+  merged.sort((a, b) => a.sortAt - b.sortAt);
+
+  // 筛选 (基于父级 filter)
+  const passesFilter = (entry: TimelineEntry): boolean => {
+    if (!filter || filter.selected.size === 0) return true;
+    const sel = filter.selected;
+    if (entry.kind === "line") {
+      const k = speakerKeyOfLine(entry.line);
+      return sel.has(k);
+    }
+    if (entry.kind === "host") {
+      return sel.has("host");
+    }
+    // round: 显示当 host 或任一 expert 被选中
+    const r = entry.round;
+    const keys = ["host", ...r.experts.map((e) => `mock-${e.who}`)];
+    return keys.some((k) => sel.has(k));
+  };
+  const visible = merged.filter(passesFilter);
+
+  // 通知父级 matched 数
+  useEffect(() => {
+    if (!onMatchedCountChange) return;
+    onMatchedCountChange(visible.length, merged.length);
+  }, [visible.length, merged.length, onMatchedCountChange]);
+
+  // jumpTo
+  useEffect(() => {
+    if (!onRegisterJump) return;
+    const jump = (key: string) => {
+      const target = document.querySelector<HTMLElement>(
+        `[data-mr-key="${CSS.escape(key)}"]`,
+      );
+      if (!target) return;
+      target.scrollIntoView({ block: "center", behavior: "smooth" });
+      target.style.transition = "background 200ms ease";
+      target.style.background = "rgba(0,122,255,0.10)";
+      setTimeout(() => {
+        target.style.background = "transparent";
+      }, 1100);
+    };
+    onRegisterJump(jump);
+  }, [onRegisterJump]);
 
   if (loading && lines.length === 0) {
     return (
-      <div className="space-y-2 p-4">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="h-12 animate-pulse rounded-lg bg-ink-900" />
-        ))}
+      <div style={{ padding: 16 }}>
+        <div
+          style={{
+            height: 16,
+            background: MR_COLORS.bgWhite,
+            borderRadius: 8,
+            marginBottom: 8,
+            opacity: 0.6,
+          }}
+        />
+        <div
+          style={{
+            height: 64,
+            background: MR_COLORS.bgWhite,
+            borderRadius: 12,
+            marginBottom: 8,
+            opacity: 0.6,
+          }}
+        />
+        <div
+          style={{
+            height: 80,
+            background: MR_COLORS.bgWhite,
+            borderRadius: 12,
+            opacity: 0.6,
+          }}
+        />
       </div>
     );
   }
 
   if (error && lines.length === 0) {
     return (
-      <div className="p-4 text-center">
-        <p className="text-[14px] text-rose-300">{error}</p>
+      <div style={{ padding: 16, textAlign: "center" }}>
+        <p style={{ fontSize: 14, color: MR_COLORS.systemRed }}>{error}</p>
         <button
           type="button"
           onClick={() => load(true)}
-          className="mt-2 inline-flex h-10 items-center justify-center rounded-lg border border-zinc-700 px-4 text-[14px] text-zinc-200"
+          style={{
+            marginTop: 8,
+            height: 36,
+            padding: "0 16px",
+            borderRadius: 8,
+            border: `0.5px solid ${MR_COLORS.hairlineStrong}`,
+            background: MR_COLORS.bgWhite,
+            color: MR_COLORS.textPrimary,
+            fontSize: 14,
+            fontFamily: "inherit",
+            cursor: "pointer",
+          }}
         >
           重试
         </button>
@@ -300,157 +449,389 @@ export default function MeetingTranscriptView({
   }
 
   return (
-    <div className="px-4 pt-3 pb-4">
-      {/* 微缩 meta 行: WS 状态点 + 计数 (无刷新按钮 — WS 实时, 不需要)
-          仅在有内容时显示, 不占主屏黄金位 */}
+    <div
+      ref={listRef}
+      data-testid="mobile-transcript-list"
+      style={{ padding: "4px 0 8px" }}
+    >
       {meta && lines.length > 0 ? (
-        <div className="mb-2 flex items-center gap-1.5 text-[12px] text-zinc-500">
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "4px 16px 8px",
+            fontSize: 11,
+            color: MR_COLORS.textTertiary,
+          }}
+        >
           <ConnDot state={conn} />
-          <span className="tabular-nums">
+          <span style={{ fontVariantNumeric: "tabular-nums" }}>
             {meta.total_user_lines} 句真人 · {meta.total_agent_lines} 条 AI
           </span>
           {refreshing ? <span>· 刷新中…</span> : null}
         </div>
       ) : null}
 
-      {/* 主列表 */}
-      {lines.length === 0 ? (
-        <p className="mt-8 text-center text-[14px] text-zinc-500">
+      {visible.length === 0 && lines.length > 0 ? (
+        <div
+          style={{
+            padding: "60px 32px",
+            textAlign: "center",
+            color: MR_COLORS.textTertiary,
+            fontSize: 14,
+            lineHeight: 1.5,
+          }}
+        >
+          筛选后无发言
+          <br />
+          <span style={{ fontSize: 12, color: MR_COLORS.textQuaternary }}>
+            试试再勾选一些人
+          </span>
+        </div>
+      ) : visible.length === 0 ? (
+        <p
+          style={{
+            marginTop: 32,
+            textAlign: "center",
+            fontSize: 14,
+            color: MR_COLORS.textTertiary,
+          }}
+        >
           这场会议还没有任何发言
         </p>
       ) : (
-        <ol
-          ref={listRef}
-          className="space-y-2.5"
-          data-testid="mobile-transcript-list"
-        >
-          {lines.map((l) => (
-            <li key={l.key}>
-              {l.kind === "user" ? <UserLine line={l} /> : <AgentLine line={l} />}
-            </li>
-          ))}
-        </ol>
+        visible.map((entry, idx) => {
+          if (entry.kind === "line") {
+            const l = entry.line;
+            return (
+              <div
+                key={l.key}
+                data-mr-key={l.key}
+                data-testid={
+                  l.kind === "user"
+                    ? "transcript-user-line"
+                    : "transcript-agent-line"
+                }
+              >
+                {l.kind === "user" ? (
+                  <HumanMessage line={l} />
+                ) : (
+                  <AIMessage line={l} />
+                )}
+              </div>
+            );
+          }
+          if (entry.kind === "host") {
+            const h = entry.item;
+            return (
+              <div key={h.key} data-mr-key={h.key}>
+                {h.kind === "chapter" ? (
+                  <ChapterDivider
+                    data={{
+                      newAgendaNumber: h.newAgendaNumber,
+                      totalAgenda: h.totalAgenda,
+                      newAgendaTitle: h.newAgendaTitle,
+                      agendaMinutes: h.agendaMinutes,
+                      t: h.t,
+                    }}
+                  />
+                ) : (
+                  h.render()
+                )}
+              </div>
+            );
+          }
+          // round
+          const r = entry.round;
+          return (
+            <div key={r.key} data-mr-key={r.key}>
+              <RoundMessage round={r} />
+            </div>
+          );
+        })
       )}
 
-      {/* 底部 anchor — IntersectionObserver 跟踪是否可见, 决定 autoScroll 开关 */}
-      <div ref={bottomAnchorRef} className="h-1" aria-hidden="true" />
+      <div ref={bottomAnchorRef} style={{ height: 1 }} aria-hidden="true" />
     </div>
   );
 }
 
-// ===== 连接状态点 =========================================================
+// ─────── Conn dot ───────
 
 function ConnDot({ state }: { state: WsConnState }) {
-  if (state === "connected") {
-    return (
-      <span
-        className="inline-flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse"
-        title="实时已连接"
-        aria-label="实时已连接"
-      />
-    );
-  }
-  if (state === "reconnecting") {
-    return (
-      <span
-        className="inline-flex h-2 w-2 rounded-full bg-amber-400 animate-pulse"
-        title="重连中…"
-        aria-label="重连中"
-      />
-    );
-  }
-  if (state === "giving_up") {
-    return (
-      <span
-        className="inline-flex h-2 w-2 rounded-full bg-rose-500"
-        title="连接断开, 请刷新"
-        aria-label="连接断开"
-      />
-    );
-  }
-  if (state === "idle") {
-    return (
-      <span
-        className="inline-flex h-2 w-2 rounded-full bg-zinc-700"
-        title="未连接"
-      />
-    );
-  }
+  const c =
+    state === "connected"
+      ? MR_COLORS.systemGreen
+      : state === "reconnecting"
+        ? MR_COLORS.systemAmber
+        : state === "giving_up"
+          ? MR_COLORS.systemRed
+          : MR_COLORS.textTertiary;
   return (
     <span
-      className="inline-flex h-2 w-2 rounded-full bg-zinc-500"
-      title="连接中…"
+      style={{
+        display: "inline-flex",
+        width: 7,
+        height: 7,
+        borderRadius: "50%",
+        background: c,
+        animation:
+          state === "connected" || state === "reconnecting"
+            ? "mr-livePulse 1.4s ease-in-out infinite"
+            : "none",
+      }}
+      title={
+        state === "connected"
+          ? "实时已连接"
+          : state === "reconnecting"
+            ? "重连中"
+            : state === "giving_up"
+              ? "连接断开"
+              : "未连接"
+      }
     />
   );
 }
 
-// ===== 真人 + AI 行 =======================================================
+// ─────── Human / AI message renderers ───────
 
-function UserLine({ line }: { line: LocalLine }) {
+function HumanMessage({ line }: { line: LocalLine }) {
+  // 真实 backend 不给个人色 — 用名字 hash 到固定调色板
+  const name = line.speaker_name || "未识别";
+  const color = humanColorForName(name);
+  // 这里没 speaking 标记 (老 backend 不传) — 默认 false
   return (
     <div
-      className="flex items-baseline gap-2.5 rounded-lg bg-ink-900/40 px-3 py-2.5"
-      data-testid="transcript-user-line"
+      style={{
+        display: "flex",
+        gap: 10,
+        padding: "8px 16px",
+      }}
     >
-      <span className="shrink-0 text-[13px] tabular-nums text-zinc-500">
-        {fmtMinute(line.at_minute)}
-      </span>
-      {line.speaker_name ? (
-        <span className="shrink-0 text-[14px] font-medium text-zinc-300">
-          {line.speaker_name}
-        </span>
-      ) : (
-        <span className="shrink-0 text-[14px] text-zinc-500">未识别</span>
-      )}
-      <p className="min-w-0 flex-1 text-[15px] leading-snug text-zinc-100 whitespace-pre-wrap">
-        {line.text}
-      </p>
-    </div>
-  );
-}
-
-function AgentLine({ line }: { line: LocalLine }) {
-  const display = line.agent_nickname?.trim() || line.agent_name || "AI";
-  const triggerLabel = line.trigger ? TRIGGER_LABEL[line.trigger] : null;
-  return (
-    <div
-      className="rounded-lg border border-violet-500/25 bg-violet-500/[0.05] p-3"
-      data-testid="transcript-agent-line"
-    >
-      <header className="flex items-center gap-2">
-        <span
-          className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-medium text-white ${agentColorBg(line.agent_color)}`}
+      <MRHumanAvatar name={name} color={color} size={32} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            marginBottom: 3,
+          }}
         >
-          ◆
-        </span>
-        <span className="min-w-0 truncate text-[14px] font-medium text-zinc-100">
-          {display}
-        </span>
-        {triggerLabel ? (
-          <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 text-[12px] text-zinc-400">
-            {triggerLabel}
+          <span
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              color: MR_COLORS.textPrimary,
+            }}
+          >
+            {name}
           </span>
-        ) : null}
-        {line.streaming ? (
-          <span className="shrink-0 rounded bg-violet-500/20 px-1.5 py-0.5 text-[12px] text-violet-200">
-            正在打字…
+          <span style={{ fontSize: 11, color: MR_COLORS.textTertiary }}>
+            {fmtMinute(line.at_minute)}
           </span>
-        ) : null}
-        <span className="ml-auto shrink-0 text-[13px] tabular-nums text-zinc-500">
-          {fmtMinute(line.at_minute)}
-        </span>
-      </header>
-      <p className="mt-2 text-[15px] leading-relaxed text-zinc-100 whitespace-pre-wrap">
-        {line.text}
-        {line.streaming ? (
-          <span className="ml-0.5 inline-block h-[15px] w-[2px] animate-pulse bg-violet-300 align-middle" />
-        ) : null}
-      </p>
-      {line.citations_count > 0 ? (
-        <p className="mt-2 text-[12px] text-zinc-500">
-          📎 引用 {line.citations_count} 条 KB
-        </p>
-      ) : null}
+          {line.streaming ? <Waveform active /> : null}
+        </div>
+        <div
+          style={{
+            fontSize: 15,
+            lineHeight: 1.45,
+            color: MR_COLORS.textPrimary,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {renderTextWithMentions(line.text)}
+        </div>
+      </div>
     </div>
   );
 }
+
+function AIMessage({ line }: { line: LocalLine }) {
+  const display = line.agent_nickname?.trim() || line.agent_name || "AI";
+  const role = line.trigger ? TRIGGER_LABEL[line.trigger] || line.trigger : "";
+  const grad = gradientForAgentColor(line.agent_color);
+  return (
+    <div style={{ padding: "8px 16px" }}>
+      <div
+        style={{
+          background: MR_COLORS.bgWhite,
+          borderRadius: 14,
+          boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+          border: `0.5px solid ${MR_COLORS.hairline}`,
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 3,
+            background: `linear-gradient(180deg, ${grad[0]}, ${grad[1]})`,
+          }}
+        />
+        <div style={{ padding: "11px 13px 12px 14px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <MRAIAvatar agentColor={line.agent_color} size={26} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 5,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: MR_COLORS.textPrimary,
+                  }}
+                >
+                  {display}
+                </span>
+                {role ? (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: MR_COLORS.textTertiary,
+                    }}
+                  >
+                    {role}
+                  </span>
+                ) : null}
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: 11,
+                    color: MR_COLORS.textTertiary,
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {fmtMinute(line.at_minute)}
+                </span>
+              </div>
+              {line.streaming ? (
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: MR_COLORS.systemPurple,
+                    marginTop: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <MRIcon name="sparkle" size={9} color={MR_COLORS.systemPurple} />
+                  正在打字 <Dots />
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div
+            style={{
+              marginTop: 9,
+              fontSize: 14,
+              lineHeight: 1.5,
+              color: MR_COLORS.textPrimary,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {line.text}
+            {line.streaming ? (
+              <span
+                style={{
+                  marginLeft: 1,
+                  display: "inline-block",
+                  height: 15,
+                  width: 2,
+                  background: MR_COLORS.systemPurple,
+                  verticalAlign: "middle",
+                  animation: "mr-livePulse 0.9s ease-in-out infinite",
+                }}
+              />
+            ) : null}
+          </div>
+
+          {line.citations_count > 0 ? (
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 12,
+                color: MR_COLORS.textTertiary,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              <MRIcon name="note" size={11} color={MR_COLORS.textTertiary} />
+              引用 {line.citations_count} 条 KB
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function renderTextWithMentions(text: string): ReactElement {
+  // 高亮 @Name / @主持人
+  const parts = text.split(/(@\S+)/);
+  return (
+    <>
+      {parts.map((p, i) => {
+        if (p.startsWith("@")) {
+          return (
+            <span
+              key={i}
+              style={{
+                color: MR_COLORS.systemPurple,
+                fontWeight: 500,
+              }}
+            >
+              {p}
+            </span>
+          );
+        }
+        return <span key={i}>{p}</span>;
+      })}
+    </>
+  );
+}
+
+// 名字 → 调色板 (deterministic, 用 char code sum mod) ——
+// backend 没给 speaker_color, 这里给个浅色一致的 fallback.
+const PERSONAL_COLORS = [
+  "#FF9F0A",
+  "#34C759",
+  "#5E5CE6",
+  "#FF375F",
+  "#30B0C7",
+  "#FF6482",
+  "#5856D6",
+  "#AF52DE",
+];
+function humanColorForName(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) {
+    h = (h * 31 + name.charCodeAt(i)) & 0x7fffffff;
+  }
+  return PERSONAL_COLORS[h % PERSONAL_COLORS.length];
+}
+
+// Re-export 给 page.tsx
+export { MOCK_AIS, MOCK_HUMANS };
+export type { MockAiId, MockHumanId };

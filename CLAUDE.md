@@ -73,3 +73,30 @@
 - 生产:`https://aimeeting.zhzjpt.cn`
 - 部署命令:`bash deploy/rsync-up.sh --deploy`
 - SSH host:`root@47.245.92.62`(SSH 进生产读 logs 需用户授权)
+- SSH 注意:本机有 `aimeeting-new` host alias(`~/.ssh/config`),指向 `~/.ssh/aimeeting-new` 专用 key。如果默认 `~/.ssh/id_ed25519` 被服务器拒,用 `AIMEETING_HOST=aimeeting-new bash deploy/rsync-up.sh --deploy`
+
+## 风格守门协议(强制)
+
+任何代码改动前(包括 review 阶段小改、debug 修复、subagent 委派等),必须:
+
+1. **读 `docs/design/system/DESIGN_SYSTEM.md` 当前最新版**(如果存在)
+2. **检查**改动是否引入与 design system 冲突的视觉/交互
+3. **如冲突**:
+   - 优先按 design system 改
+   - 不能按 design system 改的:commit message 标 `[STYLE-DEVIATION: 具体原因]` 给 PM
+4. **如不冲突**:正常改
+
+### 为什么(防漂移)
+- review 阶段小改动最容易"借用现有代码风格" → 跟 design system 漂移
+- v1.2.0 P1.2 折叠态用 dark mode 是典型反例(当时本应浅色化,但借了 AttachmentsSection 原有 dark token)
+- 现有代码可能是**老风格**(浅色化前的),不要无脑借鉴
+
+### 约束
+- 不要因为"现有代码长这样"就照着写
+- 不要因为"scope 严守"跳过 design system check —— scope 是"改哪些文件",不是"按什么风格"
+- subagent 委派 prompt 必须 reference `docs/design/system/DESIGN_SYSTEM.md`
+
+### 触发时机(对 Claude 自己)
+- 任何 `Edit` / `Write` 涉及 `*.tsx` / `*.css` / `*.ts` (UI 相关) → 先读 design system
+- subagent prompt 必须明确"按 DESIGN_SYSTEM 实施"
+- review 阶段我自己做小改动时:在 commit message 里 reference 用了 design system 的哪一节

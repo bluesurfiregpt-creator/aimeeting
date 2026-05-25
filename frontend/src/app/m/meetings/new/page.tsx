@@ -21,7 +21,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import AttachmentsSection from "@/components/mobile/AttachmentsSection";
+import { MaterialsInline } from "@/components/mobile/meeting-room/materials";
 import Toast from "@/components/mobile/Toast";
 import { mApi } from "@/lib/mobile/api";
 import { invalidateCache } from "@/lib/mobile/swrCache";
@@ -409,11 +409,15 @@ export default function NewMeetingPage() {
           ) : null}
         </section>
 
-        {/* === v27.0-mobile P19-B: 参考资料 === */}
-        <AttachmentsSection
-          draftId={draftIdRef.current}
-          onAttachmentsChange={setAttachmentCount}
-        />
+        {/* === v1.2.0 Saga: 参考资料 — 用 round-3 风格 inline (MaterialsInline)
+             替代 旧 AttachmentsSection. 三页面 视觉 统一 在 round-3. === */}
+        <section>
+          <MaterialsInline
+            draftId={draftIdRef.current}
+            mode="edit"
+            onAttachmentsChange={setAttachmentCount}
+          />
+        </section>
 
         {/* === 议程 === */}
         <section>

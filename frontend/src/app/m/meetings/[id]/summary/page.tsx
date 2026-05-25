@@ -22,7 +22,7 @@ import { useCallback, useEffect, useRef, useState, use } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import AttachmentsSection from "@/components/mobile/AttachmentsSection";
+import { MaterialsInline } from "@/components/mobile/meeting-room/materials";
 import Toast from "@/components/mobile/Toast";
 import { mApi } from "@/lib/mobile/api";
 import { invalidateCache } from "@/lib/mobile/swrCache";
@@ -246,9 +246,10 @@ export default function MeetingSummaryPage({
           </div>
         </section>
 
-        {/* === v27.0-mobile P19.1 / Phase B.3: 会议参考资料 ===
-            总结页 只读 — 让 用户 回看 时 知道 AI 基于哪些资料. 0 附件时 不显. */}
-        <AttachmentsSection meetingId={id} readOnly />
+        {/* === v1.2.0 Saga: 会议参考资料 — 用 round-3 风格 readonly inline
+             (MaterialsInline) 替代 旧 AttachmentsSection. 总结页 只读 —
+             让用户 回看时 知道 AI 基于哪些资料. 0 附件时 自动不显. === */}
+        <MaterialsInline meetingId={id} mode="readonly" />
 
         {/* === 待办列表 — pending === */}
         {pendingActions.length > 0 ? (
