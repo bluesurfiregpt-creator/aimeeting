@@ -4,19 +4,22 @@
  * v1.2.0 · Saga · meeting-room-v2 · 会议室 (浅色 iOS 风全重写).
  *
  * 设计源: docs/design/handoffs/2026-05-25-meeting-room/project/meeting-room.jsx
- * Changelist: docs/design/specs/SAGA-meeting-room-v2-changelist.md
+ * round-2 设计源 (PM 优化): Claude Design handoff
+ *   https://api.anthropic.com/v1/design/h/iJXetu7lfxK03t94tx9MOw
+ *   主要 delta: CompactContextBar + 单行 dock + 结束按钮独立大红
  *
  * Saga 边界: 只动这一页 + 它的专用 mobile 组件. 不动跨页共享 (Toast / MobileShell
  * / globals.css / tailwind config / lib / backend).
  *
  * 顶层结构 (上 → 下):
- *   1. MRHeader     — ← 历史 / 标题+实时红点+timer / 章节 / 筛选 (R10)
- *   2. AgendaStrip  — 议程 X/N · title · 剩余分钟 + segmented progress
- *   3. ParticipantsStrip — 横滑参会人头像
+ *   1. MRHeader      — ← 历史 / 标题+实时红点+timer / 章节 / 筛选 (R10)
+ *   2. CompactContextBar (40px) — round-2 — 绿点 · 议程 X/N · 资料数 · 头像叠 · ⌄
+ *   3. ContextExpandable (peek-then-tuck) — 包 AgendaStrip + AttachmentsSection +
+ *      ParticipantsStrip (默认展开 2.5s 自收, 滚动 transcript >24px 也自收)
  *   4. FilterBanner — sticky (筛选激活时)
  *   5. transcript view — user/agent line + inline host card + mock round (R9)
  *   6. JumpToLatestFab — 滚离底时显
- *   7. Dock (Row1 大紫色 @AI 专家 + 大琥珀色 问主持人 / Row2 6 控制按钮)
+ *   7. Dock (round-2 — 单行: AI pill · Mira pill · mic · video · more  +  独立大红 结束)
  *   8. 5 sheets (Summon/AskHost/More/Filter/Highlights) + EndConfirm + Leave + SevereModal + Toast
  */
 
@@ -40,6 +43,13 @@ import SevereOffTopicModal, {
 import Toast from "@/components/mobile/Toast";
 import MRHeader from "@/components/mobile/meeting-room/MRHeader";
 import ParticipantsStrip from "@/components/mobile/meeting-room/ParticipantsStrip";
+import CompactContextBar, {
+  CompactContextExpandable,
+} from "@/components/mobile/meeting-room/CompactContextBar";
+import {
+  MOCK_HUMANS,
+  type MockHumanId,
+} from "@/components/mobile/meeting-room/avatars";
 import JumpToLatestFab from "@/components/mobile/meeting-room/JumpToLatestFab";
 import EndConfirm from "@/components/mobile/meeting-room/EndConfirm";
 import AskHostSheet from "@/components/mobile/meeting-room/AskHostSheet";
@@ -116,6 +126,28 @@ function MeetingDetailInner({ id }: { id: string }) {
   const [matchedCount, setMatchedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const jumpToRef = useRef<((key: string) => void) | null>(null);
+
+  // round-2: 紧凑上下文条 (40px) 折叠 state.
+  //   - 默认 expanded = true (mount peek)
+  //   - 2.5s 后自动 collapse (除非用户手动 toggle 过)
+  //   - 滚动 transcript > 24px 时也自动 collapse
+  //   - 用户手动 toggle 后, 不再自动 collapse (尊重用户意图)
+  const [ctxExpanded, setCtxExpanded] = useState(true);
+  const ctxUserToggledRef = useRef(false);
+  // 资料 count + 是否有新文件 (由 AttachmentsSection 通过 onAttachmentsChange 回调写)
+  const [materialsCount, setMaterialsCount] = useState(0);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (!ctxUserToggledRef.current) setCtxExpanded(false);
+    }, 2500);
+    return () => clearTimeout(t);
+  }, []);
+
+  const toggleCtxBar = useCallback(() => {
+    ctxUserToggledRef.current = true;
+    setCtxExpanded((p) => !p);
+  }, []);
 
   // host cards (inline) — 由 WS event 推进 + agenda_advanced 出 chapter
   const [hostCards, setHostCards] = useState<TimelineHostItem[]>([]);
@@ -744,15 +776,38 @@ function MeetingDetailInner({ id }: { id: string }) {
         onFilter={() => setFilterOpen(true)}
       />
 
-      {/* ===== Agenda strip =============================== */}
-      <StageChipsRow
-        items={data.agenda_items}
-        currentIdx={data.current_agenda_idx}
-        isComplete={data.is_agenda_complete}
+      {/* ===== round-2: 紧凑上下文条 (40px 触发) =========== */}
+      <CompactContextBar
+        agendaItems={data.agenda_items}
+        currentAgendaIdx={data.current_agenda_idx}
+        isAgendaComplete={data.is_agenda_complete}
+        materialsCount={materialsCount}
+        materialsHasNew={false}
+        participantHumans={(Object.keys(MOCK_HUMANS) as MockHumanId[]).map(
+          (id) => ({
+            id,
+            color: MOCK_HUMANS[id].color,
+            name: MOCK_HUMANS[id].name,
+          }),
+        )}
+        aiCount={stripAgents.length}
+        isLive={liveState === "live"}
+        expanded={ctxExpanded}
+        onToggle={toggleCtxBar}
       />
 
-      {/* ===== Participants strip ========================= */}
-      <ParticipantsStrip agents={stripAgents} />
+      {/* ===== round-2: 折叠区 (peek-then-tuck) ============ */}
+      <CompactContextExpandable expanded={ctxExpanded}>
+        {/* ===== Agenda strip =============================== */}
+        <StageChipsRow
+          items={data.agenda_items}
+          currentIdx={data.current_agenda_idx}
+          isComplete={data.is_agenda_complete}
+        />
+
+        {/* ===== Participants strip ========================= */}
+        <ParticipantsStrip agents={stripAgents} />
+      </CompactContextExpandable>
 
       {/* ===== scheduled 状态 (开始会议兜底卡) ============ */}
       {data.status === "scheduled" ? (
@@ -868,18 +923,27 @@ function MeetingDetailInner({ id }: { id: string }) {
             <NativeMeetingEntry meetingId={id} />
           ) : null}
 
-          {/* 附件区 (复用旧组件, 不动) */}
+          {/* 附件区 (复用旧组件 + round-2: 把 count 上报给 CompactContextBar) */}
           <div style={{ margin: "10px 16px 0" }}>
             <AttachmentsSection
               meetingId={id}
               readOnly={data.status !== "ongoing"}
               defaultCollapsed={data.status === "ongoing"}
+              onAttachmentsChange={setMaterialsCount}
             />
           </div>
 
           {/* ===== 主滚动区 (transcript + host cards + round) ===== */}
           <main
             data-testid="mobile-im-flow"
+            onScroll={(e) => {
+              // round-2: 滚动 > 24px 时 自动收起紧凑上下文条
+              // (沿用 round-2 设计 — 始终自动收, 用户想看再点条手动展)
+              const el = e.currentTarget;
+              if (ctxExpanded && el.scrollTop > 24) {
+                setCtxExpanded(false);
+              }
+            }}
             style={{
               flex: 1,
               overflow: "auto",
@@ -972,6 +1036,10 @@ function MeetingDetailInner({ id }: { id: string }) {
         onAction={(k) => {
           setToast({ kind: "success", text: `${k}: 该功能后续上线` });
         }}
+        hand={hand}
+        setHand={setHand}
+        cc={cc}
+        setCC={setCC}
       />
       <FilterSheet
         open={filterOpen}
