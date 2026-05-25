@@ -34,6 +34,9 @@ type Props = {
   /** v27.0-mobile P19.1 / Phase B.3: 只读 模式 — 隐 + 添加文件 / 微信 picker / 删除 按钮.
    *  用于 finished/processed 会议详情 + 总结页 (用户只看 不改). 0 附件时 整个 section 不显. */
   readOnly?: boolean;
+  /** v1.2.0 P1.2: 默认折叠态 (会议室 ongoing 场景占空间小, 点击展开看完整 UI).
+   *  其他场景 (创建页 / 总结页) 不传, 默认展开. */
+  defaultCollapsed?: boolean;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -79,10 +82,12 @@ export default function AttachmentsSection({
   meetingId,
   onAttachmentsChange,
   readOnly = false,
+  defaultCollapsed = false,
 }: Props) {
   const [attachments, setAttachments] = useState<MeetingAttachmentOut[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const inputRef = useRef<HTMLInputElement>(null);
   const inMp = isInMiniprogram();
 
@@ -212,6 +217,36 @@ export default function AttachmentsSection({
     return null;
   }
 
+  // v1.2.0 P1.2: 折叠态 — 一行展示文件缩略, 点击展开看完整 UI.
+  // 仅 !readOnly 启用折叠 (readOnly 已经无 +添加按钮 + 删除按钮, 本身紧凑).
+  if (!readOnly && collapsed) {
+    return (
+      <section data-testid="attachments-section">
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="flex w-full items-center justify-between rounded-xl bg-ink-900 px-4 py-3 text-left active:bg-ink-800"
+          data-testid="attachments-collapsed-toggle"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="text-[14px] font-medium text-zinc-300">
+              📎{" "}
+              {attachments.length > 0
+                ? `参考资料 · ${attachments.length} 份`
+                : "添加参考资料"}
+            </div>
+            {attachments.length > 0 ? (
+              <div className="mt-1 truncate text-[12px] text-zinc-500">
+                {attachments.map((a) => a.filename).join(" · ")}
+              </div>
+            ) : null}
+          </div>
+          <span className="ml-2 text-[16px] text-zinc-500">⌄</span>
+        </button>
+      </section>
+    );
+  }
+
   return (
     <section data-testid="attachments-section">
       <div className="flex items-baseline justify-between">
@@ -225,9 +260,22 @@ export default function AttachmentsSection({
             <span className="text-[12px] text-zinc-500">· 选填</span>
           )}
         </h2>
-        {readOnly ? null : (
-          <span className="text-[11px] text-zinc-500">≤ 50MB / 份</span>
-        )}
+        <div className="flex items-center gap-2">
+          {readOnly ? null : (
+            <span className="text-[11px] text-zinc-500">≤ 50MB / 份</span>
+          )}
+          {!readOnly && defaultCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setCollapsed(true)}
+              className="text-[16px] text-zinc-500 active:text-zinc-300"
+              aria-label="收起参考资料"
+              data-testid="attachments-collapse-button"
+            >
+              ⌃
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {/* 文件列表 */}

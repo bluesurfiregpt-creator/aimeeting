@@ -873,6 +873,7 @@ function MeetingDetailInner({ id }: { id: string }) {
             <AttachmentsSection
               meetingId={id}
               readOnly={data.status !== "ongoing"}
+              defaultCollapsed={data.status === "ongoing"}
             />
           </div>
 
