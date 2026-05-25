@@ -1,36 +1,31 @@
 "use client";
 
 /**
- * v27.0-mobile · Phase 4.2 · 召 AI 弹层 sheet.
+ * v1.2.0 · Saga · meeting-room-v2 · 召 AI sheet (浅色 iOS).
  *
- * 行为:
- *   - 半屏 sheet 从底部弹起 (iOS 风)
- *   - 列已邀请的 AI 专家, 一项一行 (色块 + nickname + domain)
- *   - 选一个 → 高亮 → 点底部 "派他发言" 按钮 → 调 summon API → toast → sheet 收
- *   - 选好后还能改选, 没选不能 submit
- *   - 顶部有可选 "提示给 AI 一句话" 输入框 (空就用默认 prompt)
+ * 设计源 1:1: meeting-room.jsx:1090-1147 (SummonSheet).
  *
- * 不依赖第三方 sheet 库 — 用 fixed + transition 自己撸.
+ * 改造: dark `bg-ink-950` 圆角 24px → 浅色 `#F2F2F7` 圆角 14px + 顶部把手
+ * 36×5px. agent 行用 MRAIAvatar 渐变方形头像. props 不变 (open / agents
+ * / busy / onClose / onSubmit). 默认 onClick 是直接选 + submit (单选, 跟
+ * bundle 一致 — 立即派出, 不用先选后确认).
  */
 
 import { useEffect, useState } from "react";
+import type { ReactElement } from "react";
 import type { AgentMini } from "@/lib/mobile/types";
 
-const COLOR_DOT: Record<string, string> = {
-  violet: "bg-violet-500",
-  emerald: "bg-emerald-500",
-  amber: "bg-amber-500",
-  sky: "bg-sky-500",
-  rose: "bg-rose-500",
-  teal: "bg-teal-500",
-  blue: "bg-blue-500",
-  indigo: "bg-indigo-500",
-};
+import { MRAIAvatar } from "./meeting-room/avatars";
+import MRIcon from "./meeting-room/MRIcon";
+import { MR_COLORS, MR_FONT_FAMILY } from "./meeting-room/styles";
 
-function colorDot(c: string | null): string {
-  if (!c) return "bg-zinc-700";
-  return COLOR_DOT[c] || "bg-zinc-700";
-}
+type Props = {
+  open: boolean;
+  agents: AgentMini[];
+  busy?: boolean;
+  onClose: () => void;
+  onSubmit: (agentId: string, query: string) => void;
+};
 
 export default function SummonAgentSheet({
   open,
@@ -38,17 +33,10 @@ export default function SummonAgentSheet({
   busy = false,
   onClose,
   onSubmit,
-}: {
-  open: boolean;
-  agents: AgentMini[];
-  busy?: boolean;
-  onClose: () => void;
-  onSubmit: (agentId: string, query: string) => void;
-}) {
+}: Props): ReactElement | null {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState<string>("");
 
-  // 关 sheet 时清空选择
   useEffect(() => {
     if (!open) {
       setSelectedId(null);
@@ -62,123 +50,300 @@ export default function SummonAgentSheet({
   const canSubmit = !!selectedId && !busy;
 
   return (
-    <div className="fixed inset-0 z-50" data-testid="mobile-summon-sheet">
-      {/* 背景遮罩 */}
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 80,
+        fontFamily: MR_FONT_FAMILY,
+      }}
+      data-testid="mobile-summon-sheet"
+    >
+      {/* 遮罩 */}
       <button
         type="button"
         aria-label="关闭"
         onClick={onClose}
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        disabled={busy}
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "rgba(0,0,0,0.32)",
+          border: "none",
+          cursor: busy ? "default" : "pointer",
+          animation: "mr-fadeIn 180ms ease",
+        }}
       />
-
       {/* sheet 主体 */}
       <div
-        className="absolute inset-x-0 bottom-0 max-h-[80vh] overflow-hidden rounded-t-3xl border-t border-ink-800 bg-ink-950 shadow-2xl"
         role="dialog"
         aria-modal="true"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: MR_COLORS.bgGroupedPrimary,
+          borderTopLeftRadius: 14,
+          borderTopRightRadius: 14,
+          zIndex: 81,
+          paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)",
+          animation: "mr-slideUp 240ms cubic-bezier(.22,.61,.36,1)",
+          maxHeight: "84%",
+          display: "flex",
+          flexDirection: "column",
+        }}
       >
-        {/* 顶部把手 + 标题 */}
-        <div className="flex flex-col items-center pt-3 pb-2">
-          <div className="h-1 w-10 rounded-full bg-zinc-700" />
-          <h2 className="mt-3 text-[17px] font-semibold text-zinc-50">
-            召唤专家发言
-          </h2>
-          <p className="mt-1 text-[13px] text-zinc-400">
-            选一位, 立刻基于刚才的讨论给出意见
-          </p>
+        <div
+          style={{ display: "flex", justifyContent: "center", paddingTop: 6 }}
+        >
+          <div
+            style={{
+              width: 36,
+              height: 5,
+              borderRadius: 3,
+              background: MR_COLORS.separator,
+            }}
+          />
         </div>
-
-        {/* AI 列表 (滚动区) */}
-        <div className="max-h-[40vh] overflow-y-auto px-4 py-2">
-          {agents.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-[14px] text-zinc-400">
-              这个会议室还没邀请 AI 专家.
-              <br />
-              请桌面端先添加.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {agents.map((a) => {
-                const display = a.nickname?.trim() || a.name;
-                const isSel = a.agent_id === selectedId;
-                return (
-                  <li key={a.agent_id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(a.agent_id)}
-                      disabled={busy}
-                      className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition active:scale-[0.99] disabled:opacity-60 ${
-                        isSel
-                          ? "border-accent-500/60 bg-accent-500/10"
-                          : "border-ink-800 bg-ink-900 active:bg-ink-800"
-                      }`}
-                    >
-                      <span
-                        className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[15px] font-medium text-white ${colorDot(
-                          a.color,
-                        )}`}
-                      >
-                        ◆
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[16px] font-medium text-zinc-50">
-                          {display}
-                        </p>
-                        {a.domain ? (
-                          <p className="mt-0.5 truncate text-[13px] text-zinc-400">
-                            {a.domain}
-                          </p>
-                        ) : null}
-                      </div>
-                      {isSel ? (
-                        <span className="text-[18px] text-accent-300">✓</span>
-                      ) : null}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-
-        {/* 可选 query 输入 */}
-        {agents.length > 0 ? (
-          <div className="px-4 pb-2">
-            <textarea
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              disabled={busy}
-              placeholder="(可选) 给 AI 一句话提示, 不写走默认"
-              rows={2}
-              className="w-full resize-none rounded-xl border border-ink-800 bg-ink-900 px-3 py-2.5 text-[14px] text-zinc-100 placeholder:text-zinc-600 focus:border-accent-500/60 focus:outline-none disabled:opacity-60"
-            />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 16px 8px",
+          }}
+        >
+          <div style={{ width: 50 }} />
+          <div
+            style={{
+              fontSize: 16,
+              fontWeight: 600,
+              color: MR_COLORS.textPrimary,
+            }}
+          >
+            唤醒 AI 专家
           </div>
-        ) : null}
-
-        {/* 底部 actions */}
-        <div className="flex gap-2 border-t border-ink-800 bg-ink-950 px-4 pt-3 pb-4">
           <button
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="flex h-12 flex-1 items-center justify-center rounded-xl border border-zinc-700 px-4 text-[15px] text-zinc-200 active:scale-[0.98] disabled:opacity-50"
+            style={{
+              background: "none",
+              border: "none",
+              color: MR_COLORS.systemBlue,
+              fontSize: 16,
+              fontWeight: 600,
+              fontFamily: "inherit",
+              cursor: busy ? "default" : "pointer",
+            }}
+          >
+            完成
+          </button>
+        </div>
+
+        <div
+          style={{ padding: "4px 16px 0", overflow: "auto", minHeight: 0 }}
+        >
+          {agents.length === 0 ? (
+            <div
+              style={{
+                background: MR_COLORS.bgWhite,
+                borderRadius: 12,
+                padding: "24px 16px",
+                textAlign: "center",
+                fontSize: 14,
+                color: MR_COLORS.textTertiary,
+                lineHeight: 1.5,
+                border: `1px dashed ${MR_COLORS.separator}`,
+              }}
+            >
+              这个会议室还没邀请 AI 专家.
+              <br />
+              请桌面端先添加.
+            </div>
+          ) : (
+            <div
+              style={{
+                background: MR_COLORS.bgWhite,
+                borderRadius: 12,
+                padding: "4px 0",
+              }}
+            >
+              {agents.map((a, i) => {
+                const display = a.nickname?.trim() || a.name;
+                const isSel = a.agent_id === selectedId;
+                return (
+                  <button
+                    type="button"
+                    key={a.agent_id}
+                    onClick={() => setSelectedId(a.agent_id)}
+                    disabled={busy}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      padding: "10px 14px",
+                      borderTop:
+                        i === 0
+                          ? "none"
+                          : `0.5px solid ${MR_COLORS.hairline}`,
+                      cursor: busy ? "default" : "pointer",
+                      background: isSel
+                        ? "rgba(0,122,255,0.08)"
+                        : "transparent",
+                      border: "none",
+                      borderRadius: 0,
+                      fontFamily: "inherit",
+                      textAlign: "left",
+                    }}
+                  >
+                    <MRAIAvatar agentColor={a.color} size={36} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 15,
+                          fontWeight: 600,
+                          color: MR_COLORS.textPrimary,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {display}
+                      </div>
+                      {a.domain ? (
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: MR_COLORS.textTertiary,
+                            marginTop: 1,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {a.domain}
+                        </div>
+                      ) : null}
+                    </div>
+                    {isSel ? (
+                      <MRIcon
+                        name="check"
+                        size={18}
+                        color={MR_COLORS.systemBlue}
+                      />
+                    ) : (
+                      <MRIcon
+                        name="chev"
+                        size={16}
+                        color={MR_COLORS.textQuaternary}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {agents.length > 0 ? (
+            <div
+              style={{
+                marginTop: 12,
+                background: MR_COLORS.bgWhite,
+                borderRadius: 12,
+                padding: 12,
+              }}
+            >
+              <textarea
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                disabled={busy}
+                rows={2}
+                placeholder="(可选) 给 AI 一句话提示, 不写走默认"
+                style={{
+                  width: "100%",
+                  border: "none",
+                  outline: "none",
+                  resize: "none",
+                  fontFamily: "inherit",
+                  fontSize: 14,
+                  lineHeight: 1.45,
+                  color: MR_COLORS.textPrimary,
+                  background: "transparent",
+                  minHeight: 50,
+                }}
+              />
+            </div>
+          ) : null}
+
+          <div
+            style={{
+              marginTop: 14,
+              fontSize: 12,
+              color: MR_COLORS.textTertiary,
+              padding: "0 4px",
+              lineHeight: 1.5,
+            }}
+          >
+            提示: 也可以直接说「@Aria, …」或「@主持人, 帮我问 Lex …」, 系统会自动识别并路由.
+          </div>
+
+          <div style={{ height: 12 }} />
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            padding: "10px 16px 0",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            style={{
+              flex: 1,
+              height: 44,
+              borderRadius: 12,
+              border: "none",
+              background: MR_COLORS.bgWhite,
+              color: MR_COLORS.systemBlue,
+              fontSize: 15,
+              fontWeight: 500,
+              fontFamily: "inherit",
+              cursor: busy ? "default" : "pointer",
+            }}
           >
             取消
           </button>
           <button
             type="button"
             disabled={!canSubmit}
-            onClick={() =>
-              selectedId && onSubmit(selectedId, query.trim())
-            }
-            className="flex h-12 flex-[2] items-center justify-center rounded-xl bg-accent-500 px-4 text-[15px] font-medium text-white shadow-lg shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={() => selectedId && onSubmit(selectedId, query.trim())}
+            style={{
+              flex: 2,
+              height: 44,
+              borderRadius: 12,
+              border: "none",
+              background: canSubmit
+                ? "linear-gradient(135deg, #AF52DE 0%, #5E5CE6 100%)"
+                : MR_COLORS.separatorLight,
+              color: canSubmit ? "#fff" : MR_COLORS.textTertiary,
+              fontSize: 15,
+              fontWeight: 600,
+              fontFamily: "inherit",
+              cursor: canSubmit ? "pointer" : "not-allowed",
+              boxShadow: canSubmit ? "0 2px 6px rgba(94,92,230,0.25)" : "none",
+            }}
           >
             {busy
               ? "派发中…"
               : selected
-              ? `召唤 ${selected.nickname?.trim() || selected.name}`
-              : "选一位专家"}
+                ? `召唤 ${selected.nickname?.trim() || selected.name}`
+                : "选一位专家"}
           </button>
         </div>
       </div>

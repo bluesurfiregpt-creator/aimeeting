@@ -1,7 +1,11 @@
 "use client";
 
 /**
- * v27.0-mobile · 会议室当前议题主卡.
+ * @deprecated v1.2.0 Saga · meeting-room-v2: 已被新 MeetingTranscriptView + Dock
+ *   替代. page.tsx 不再 import 这个文件. 保留作为 dead code 不删 (TD6 —
+ *   PM 决策保守 scope, 下个 Saga 一并清).
+ *
+ * v27.0-mobile · 会议室当前议题主卡 (历史).
  *
  * 整屏最重信息块. 三段视觉:
  *   1. 议题 header — title + 时长

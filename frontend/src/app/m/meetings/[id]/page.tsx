@@ -1,30 +1,35 @@
 "use client";
 
 /**
- * v27.0-mobile · /m/meetings/[id] · 会议室内推进视图.
+ * v1.2.0 · Saga · meeting-room-v2 · 会议室 (浅色 iOS 风全重写).
  *
- * 整屏结构 (上 → 下):
- *   1. TopBar — ← 返 / 标题 / ⋮ (复用 mobile 主 layout TopBar 的替换 — 见下)
- *   2. StageChipsRow — sticky 议程 5 阶段 chip (横滑)
- *   3. 当前议题主卡 (CurrentTopicCard) — 含 AI 智囊突出块 + 真人 list
- *   4. 折叠其他议题 / 实时转录 (Phase 2 展开)
- *   5. StickyActionBar — 底部 sticky next action
+ * 设计源: docs/design/handoffs/2026-05-25-meeting-room/project/meeting-room.jsx
+ * Changelist: docs/design/specs/SAGA-meeting-room-v2-changelist.md
  *
- * Phase 1 MVP — 决策操作 onClick 仅 alert 占位, Phase 2 接 in-card decision
- * + advance + summon-ai 实操作 API.
+ * Saga 边界: 只动这一页 + 它的专用 mobile 组件. 不动跨页共享 (Toast / MobileShell
+ * / globals.css / tailwind config / lib / backend).
+ *
+ * 顶层结构 (上 → 下):
+ *   1. MRHeader     — ← 历史 / 标题+实时红点+timer / 章节 / 筛选 (R10)
+ *   2. AgendaStrip  — 议程 X/N · title · 剩余分钟 + segmented progress
+ *   3. ParticipantsStrip — 横滑参会人头像
+ *   4. FilterBanner — sticky (筛选激活时)
+ *   5. transcript view — user/agent line + inline host card + mock round (R9)
+ *   6. JumpToLatestFab — 滚离底时显
+ *   7. Dock (Row1 大紫色 @AI 专家 + 大琥珀色 问主持人 / Row2 6 控制按钮)
+ *   8. 5 sheets (Summon/AskHost/More/Filter/Highlights) + EndConfirm + Leave + SevereModal + Toast
  */
 
-import { useCallback, useEffect, useRef, useState, use } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, use } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import AttachmentsSection from "@/components/mobile/AttachmentsSection";
 import NativeMeetingEntry from "@/components/mobile/NativeMeetingEntry";
 import StageChipsRow from "@/components/mobile/StageChipsRow";
 import StickyActionBar from "@/components/mobile/StickyActionBar";
 import SummonAgentSheet from "@/components/mobile/SummonAgentSheet";
-import ConfirmDialog from "@/components/mobile/ConfirmDialog";
-import MeetingTranscriptView from "@/components/mobile/MeetingTranscriptView";
-import MeetingRecorderControl from "@/components/mobile/MeetingRecorderControl";
+import MeetingTranscriptView, {
+  type TimelineHostItem,
+} from "@/components/mobile/MeetingTranscriptView";
 import LeaveMeetingSheet from "@/components/mobile/LeaveMeetingSheet";
 import AgendaEventBanner, {
   type BannerData,
@@ -33,17 +38,35 @@ import SevereOffTopicModal, {
   type SevereData,
 } from "@/components/mobile/SevereOffTopicModal";
 import Toast from "@/components/mobile/Toast";
+import MRHeader from "@/components/mobile/meeting-room/MRHeader";
+import ParticipantsStrip from "@/components/mobile/meeting-room/ParticipantsStrip";
+import JumpToLatestFab from "@/components/mobile/meeting-room/JumpToLatestFab";
+import EndConfirm from "@/components/mobile/meeting-room/EndConfirm";
+import AskHostSheet from "@/components/mobile/meeting-room/AskHostSheet";
+import MoreSheet from "@/components/mobile/meeting-room/MoreSheet";
+import HighlightsSheet, {
+  type HighlightItem,
+} from "@/components/mobile/meeting-room/HighlightsSheet";
+import FilterSheet, {
+  type FilterSpeaker,
+  mockAisAsSpeakers,
+  mockHostAsSpeaker,
+} from "@/components/mobile/meeting-room/FilterSheet";
+import FilterBanner from "@/components/mobile/meeting-room/FilterBanner";
+import {
+  MR_COLORS,
+  MR_FONT_FAMILY,
+  useInjectAnimations,
+} from "@/components/mobile/meeting-room/styles";
+import { MOCK_ROUND_MESSAGES } from "@/components/mobile/meeting-room/mock/roundtable";
 import { mApi } from "@/lib/mobile/api";
 import {
   MeetingWsProvider,
+  useMeetingWsConn,
   useMeetingWsEvent,
   useMeetingWsSend,
 } from "@/lib/mobile/meetingWsBus";
 import type { MobileMeetingDetail } from "@/lib/mobile/types";
-
-function isRiskInsight(insights: { type: string }[]): boolean {
-  return insights.some((i) => i.type === "风险");
-}
 
 export default function MobileMeetingDetailPage({
   params,
@@ -59,26 +82,67 @@ export default function MobileMeetingDetailPage({
 }
 
 function MeetingDetailInner({ id }: { id: string }) {
+  // 注入本 Saga 动画 keyframes
+  useInjectAnimations();
   const router = useRouter();
+  const conn = useMeetingWsConn();
+
   const [data, setData] = useState<MobileMeetingDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [advancing, setAdvancing] = useState(false);
   const [starting, setStarting] = useState(false);
-  // P4.2: 召 AI sheet + 结束会议 dialog
+
+  // sheets / modals
   const [summonOpen, setSummonOpen] = useState(false);
   const [summoning, setSummoning] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
   const [ending, setEnding] = useState(false);
-  // P14.2 退出会议室 sheet (ongoing 时点 ← 弹)
   const [leaveOpen, setLeaveOpen] = useState(false);
-  // P5B → P16: 议程事件 banner (6 类), 单 slot 新覆盖旧
-  const [banner, setBanner] = useState<BannerData | null>(null);
-  // P16: severe off_topic 全屏 modal 独立 slot
+  const [askHostOpen, setAskHostOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [chaptersOpen, setChaptersOpen] = useState(false);
+
+  // dock controls (TD5 — 录音状态合进 mic CtrlBtn; mic toggle 仅 UI, recording 也仅 UI)
+  const [muted, setMuted] = useState(false);
+  const [video, setVideo] = useState(false);
+  const [hand, setHand] = useState(false);
+  const [cc, setCC] = useState(true);
+
+  // FAB / 筛选
+  const [showJump, setShowJump] = useState(false);
+  const [filterSelected, setFilterSelected] = useState<Set<string>>(new Set());
+  const [matchedCount, setMatchedCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+  const jumpToRef = useRef<((key: string) => void) | null>(null);
+
+  // host cards (inline) — 由 WS event 推进 + agenda_advanced 出 chapter
+  const [hostCards, setHostCards] = useState<TimelineHostItem[]>([]);
   const [severeOffTopic, setSevereOffTopic] = useState<SevereData | null>(null);
-  // P16: 事件去重 — 10s 内同 kind 重复事件 skip
+
+  // 事件去重 — 10s 内同 kind skip
   const lastEventTsRef = useRef<Map<string, number>>(new Map());
   const DEDUP_WINDOW_MS = 10_000;
+
+  // timer (mm:ss)
+  const [timerText, setTimerText] = useState("00:00");
+  useEffect(() => {
+    if (!data || data.status !== "ongoing") return;
+    const baseSec = data.started_minutes_ago * 60;
+    const startAt = Date.now();
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - startAt) / 1000);
+      const total = baseSec + elapsed;
+      const mm = String(Math.floor(total / 60)).padStart(2, "0");
+      const ss = String(total % 60).padStart(2, "0");
+      setTimerText(`${mm}:${ss}`);
+    };
+    tick();
+    const it = setInterval(tick, 1000);
+    return () => clearInterval(it);
+  }, [data]);
+
   const [toast, setToast] = useState<{
     kind: "success" | "error";
     text: string;
@@ -109,7 +173,6 @@ function MeetingDetailInner({ id }: { id: string }) {
     }
   }, [advancing, id, reload]);
 
-  /** P9: scheduled → ongoing — 把还在预约的会议正式开始 */
   const handleStart = useCallback(async () => {
     if (starting) return;
     setStarting(true);
@@ -125,10 +188,6 @@ function MeetingDetailInner({ id }: { id: string }) {
     }
   }, [starting, id, reload]);
 
-  /** 召 AI: 弹 sheet 选 agent → submit → 调 API → toast.
-   *  P5B: 不再 setTimeout reload — WS 自动推 agent_message_chunk 实时 streaming
-   *  显示在转录区. 用户展开转录折叠即可看 AI 打字.
-   */
   const handleSummonSubmit = useCallback(
     async (agentId: string, query: string) => {
       if (summoning) return;
@@ -150,16 +209,12 @@ function MeetingDetailInner({ id }: { id: string }) {
     [summoning, id],
   );
 
-  /** 结束会议: 弹 confirm → 确认 → 调 finalize → 跳总结页 (不是首页) */
   const handleEndConfirm = useCallback(async () => {
     if (ending) return;
     setEnding(true);
     try {
       await mApi.finalizeMeeting(id);
       setEndOpen(false);
-      // P17: 跳总结页 /m/meetings/<id>/summary 看 AI 纪要 + 抽出的待办,
-      // 而不是直接回首页 (用户反馈: 回首页太迷茫, 不知道刚开完会的结果在哪).
-      // 总结页内有 "回工作台" 按钮让用户决定下一步.
       router.push(`/m/meetings/${id}/summary`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -168,7 +223,6 @@ function MeetingDetailInner({ id }: { id: string }) {
     }
   }, [ending, id, router]);
 
-  // P16 召唤主持人 — banner / modal CTA 共用. 直接走 WS sendJson invoke_agent
   const { sendJson } = useMeetingWsSend();
   const handleSummonAgent = useCallback(
     (agentId: string, query?: string) => {
@@ -182,25 +236,20 @@ function MeetingDetailInner({ id }: { id: string }) {
     [sendJson],
   );
 
-  // P16 advance_suggested 一键推进 — 复用 handleAdvance
-  // (在文件下方定义, 这里 forward declaration via late binding)
-
-  // P5B → P16: WS 订阅. 6 类议程事件 + severe modal + dedup.
+  // ─── WS event mapping (R1: 6 类 → 3 级 + chapter) ───
   const handleWsEvent = useCallback(
     (e: import("@/lib/sttSocket").SttEvent) => {
-      // P18 守卫: 非 ongoing 会议忽略议程类事件 (finished 还会收到延迟事件,
-      // 但 user 已经不在 actively 推进, 不该弹 banner / 召唤按钮).
-      // transcript_persisted / agent_message_* 仍允许 (查看历史也合理).
-      const isAgendaEvt = e.type.startsWith("agenda_") || e.type === "dissent_detected";
+      // P18 守卫: 非 ongoing 会议忽略议程类事件
+      const isAgendaEvt =
+        e.type.startsWith("agenda_") || e.type === "dissent_detected";
       if (isAgendaEvt && data?.status !== "ongoing") {
         return;
       }
 
-      // 去重: 同 type 10s 内重复 skip
       const dedupKey = e.type;
       const lastTs = lastEventTsRef.current.get(dedupKey) ?? 0;
       const now = Date.now();
-      const isDedupableType = [
+      const isDedupable = [
         "agenda_off_topic",
         "agenda_time_warning",
         "agenda_stuck",
@@ -208,21 +257,40 @@ function MeetingDetailInner({ id }: { id: string }) {
         "agenda_decision_summary",
         "agenda_advance_suggested",
       ].includes(e.type);
-      if (isDedupableType && now - lastTs < DEDUP_WINDOW_MS) {
-        return;
-      }
-      if (isDedupableType) lastEventTsRef.current.set(dedupKey, now);
+      if (isDedupable && now - lastTs < DEDUP_WINDOW_MS) return;
+      if (isDedupable) lastEventTsRef.current.set(dedupKey, now);
+
+      const tNow = nowAtMinute();
+      const tLabel = formatT(timerText);
 
       switch (e.type) {
-        case "agenda_advanced":
-          void reload();
+        case "agenda_advanced": {
+          // 加 chapter divider 到 host cards
           if (e.is_complete) {
             setToast({ kind: "success", text: "议程已全部走完" });
           }
+          void reload();
+          // 把 chapter 也加进 timeline 中 (R4 — 用 event 字段, 不解析文本)
+          const items = data?.agenda_items || [];
+          const newItem = items[e.to_idx];
+          if (newItem) {
+            const chapter: TimelineHostItem = {
+              kind: "chapter",
+              key: `chapter-${e.to_idx}-${now}`,
+              at_minute: tNow,
+              newAgendaNumber: e.to_idx + 1,
+              totalAgenda: items.length,
+              newAgendaTitle: newItem.title,
+              agendaMinutes: newItem.time_budget_min,
+              t: tLabel,
+            };
+            setHostCards((prev) => [...prev, chapter]);
+          }
           break;
-        case "agenda_off_topic":
-          // severity=severe 走全屏 modal, 否则普通 banner
+        }
+        case "agenda_off_topic": {
           if (e.off_topic_severity === "severe") {
+            // severe → 全屏 modal (TD4 — 仍保留 modal)
             setSevereOffTopic({
               offTopicSummary: e.off_topic_summary,
               currentAgendaItem: e.current_agenda_item,
@@ -230,91 +298,170 @@ function MeetingDetailInner({ id }: { id: string }) {
               moderatorAgentId: e.moderator_agent_id,
               moderatorAgentName:
                 e.moderator_agent_nickname || e.moderator_agent_name,
+              moderatorAgentColor: e.moderator_agent_color,
               invokeQuery: e.reason,
               autoSummonAfterSec: e.auto_summon_after_s ?? 30,
             });
-          } else {
-            setBanner({
+            // 同时 inline 一张 drift-strong 红卡到 transcript
+            const banner: BannerData = {
               kind: "off_topic",
-              title: "议题似乎跑偏了",
+              tone: "drift-strong",
+              title: "议题严重偏离 · 需立即处理",
+              body: e.off_topic_summary,
+              t: tLabel,
+              agentId: e.moderator_agent_id,
+              agentName:
+                e.moderator_agent_nickname || e.moderator_agent_name,
+              agentColor: e.moderator_agent_color,
+              invokeQuery: e.reason,
+              countdown: null,
+              autoSummonSec: null,
+            };
+            pushBanner(banner, tNow);
+          } else {
+            // suspected/confirmed → drift-soft / drift
+            const tone: BannerData["tone"] =
+              e.off_topic_severity === "suspected" ? "drift-soft" : "drift";
+            const banner: BannerData = {
+              kind: "off_topic",
+              tone,
+              title:
+                tone === "drift-soft"
+                  ? "话题似乎偏移 · 持续观察中"
+                  : "话题偏移 · 中度提醒",
               body:
                 e.off_topic_summary ||
                 `当前议题: ${e.current_agenda_item || "(未指定)"}`,
+              t: tLabel,
               agentId: e.moderator_agent_id,
-              agentName: e.moderator_agent_nickname || e.moderator_agent_name,
+              agentName:
+                e.moderator_agent_nickname || e.moderator_agent_name,
+              agentColor: e.moderator_agent_color,
               invokeQuery: e.reason,
               autoSummonSec: null,
-            });
+            };
+            pushBanner(banner, tNow);
           }
           break;
-        case "agenda_time_warning":
-          setBanner({
+        }
+        case "agenda_time_warning": {
+          const banner: BannerData = {
             kind: "time_warning",
+            tone: "timer",
             title: `时间快用完 (已 ${e.elapsed_min} 分钟)`,
             body: e.time_warning_text,
+            t: tLabel,
             agentId: e.moderator_agent_id,
             agentName: e.moderator_agent_nickname || e.moderator_agent_name,
+            agentColor: e.moderator_agent_color,
             invokeQuery: e.reason,
             autoSummonSec: null,
-          });
+          };
+          pushBanner(banner, tNow);
           break;
-        case "agenda_stuck":
-          setBanner({
+        }
+        case "agenda_stuck": {
+          const banner: BannerData = {
             kind: "stuck",
+            tone: "drift",
             title: "议题卡住了",
             body: e.stuck_summary,
+            t: tLabel,
             agentId: e.moderator_agent_id,
             agentName: e.moderator_agent_nickname || e.moderator_agent_name,
+            agentColor: e.moderator_agent_color,
             invokeQuery: e.reason,
             autoSummonSec: e.auto_summon_after_s,
-          });
+          };
+          pushBanner(banner, tNow);
           break;
-        case "dissent_detected":
-          // 用 suggested_agent (一般是某专家), 不是 moderator
-          setBanner({
+        }
+        case "dissent_detected": {
+          const banner: BannerData = {
             kind: "dissent",
+            tone: "drift",
             title: `${e.parties.join(" vs ")} 出现分歧`,
             body: `${e.topic} — ${e.reason}`,
+            t: tLabel,
             agentId: e.suggested_agent_id,
-            agentName:
-              e.suggested_agent_nickname || e.suggested_agent_name,
+            agentName: e.suggested_agent_nickname || e.suggested_agent_name,
+            agentColor: e.suggested_agent_color,
             invokeQuery: e.reason,
             autoSummonSec: null,
-          });
+          };
+          pushBanner(banner, tNow);
           break;
-        case "agenda_decision_summary":
-          setBanner({
+        }
+        case "agenda_decision_summary": {
+          const banner: BannerData = {
             kind: "decision_summary",
+            tone: "route",
             title: "该收口决策了",
             body: e.decision_brief,
+            t: tLabel,
             agentId: e.moderator_agent_id,
             agentName: e.moderator_agent_nickname || e.moderator_agent_name,
+            agentColor: e.moderator_agent_color,
             invokeQuery: e.decision_summary_query,
             autoSummonSec: e.auto_summon_after_s,
-          });
+          };
+          pushBanner(banner, tNow);
           break;
-        case "agenda_advance_suggested":
-          // 不召唤 agent, 是推进议程提示. canAdvance 由 page 状态判
-          setBanner({
+        }
+        case "agenda_advance_suggested": {
+          const banner: BannerData = {
             kind: "advance_suggested",
+            tone: "route",
             title: "AI 建议推进议程",
             body: e.advance_reason,
+            t: tLabel,
             agentId: e.moderator_agent_id,
             agentName: e.moderator_agent_nickname || e.moderator_agent_name,
+            agentColor: e.moderator_agent_color,
             invokeQuery: e.reason,
-            autoSummonSec: null,
             advanceTargetIdx: e.next_agenda_idx,
             canAdvance: data?.can_control ?? false,
-          });
+            autoSummonSec: null,
+          };
+          pushBanner(banner, tNow);
           break;
+        }
         default:
-          // 其他事件 (transcript_persisted / agent_message_*) 由 TranscriptView 处理
           break;
       }
     },
-    [reload, data?.can_control],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [reload, data?.can_control, data?.status, timerText],
   );
   useMeetingWsEvent(handleWsEvent);
+
+  // 把 banner 转成 TimelineHostItem 并 push 进 hostCards
+  const pushBanner = useCallback((banner: BannerData, atMinute: number) => {
+    const key = `host-banner-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const item: TimelineHostItem = {
+      kind: "host",
+      key,
+      at_minute: atMinute,
+      tone: banner.tone,
+      title: banner.title,
+      body: banner.body,
+      t: banner.t,
+      countdown: banner.countdown,
+      agentName: banner.agentName,
+      agentColor: banner.agentColor,
+      render: () => (
+        <AgendaEventBanner
+          data={banner}
+          onDismiss={() =>
+            setHostCards((prev) => prev.filter((h) => h.key !== key))
+          }
+          onSummonAgent={handleSummonAgent}
+          onAdvanceAgenda={handleAdvance}
+        />
+      ),
+    };
+    setHostCards((prev) => [...prev, item]);
+  }, [handleAdvance, handleSummonAgent]);
 
   useEffect(() => {
     let alive = true;
@@ -337,227 +484,475 @@ function MeetingDetailInner({ id }: { id: string }) {
     };
   }, [id]);
 
+  // ─── speaker 集合 (filter sheet 用) ───
+  const filterSpeakers = useMemo<{
+    hosts: FilterSpeaker[];
+    humans: FilterSpeaker[];
+    ais: FilterSpeaker[];
+  }>(() => {
+    const hosts: FilterSpeaker[] = [mockHostAsSpeaker()];
+    // 真实 attending_agents (后端) — 用 agent_id 作 key
+    const ais: FilterSpeaker[] = (data?.attending_agents || []).map((a) => ({
+      key: a.agent_id,
+      name: a.nickname?.trim() || a.name,
+      sub: a.domain || a.role,
+      kind: "ai" as const,
+      agentColor: a.color,
+    }));
+    // 加 mock 6 AI 作 demo
+    mockAisAsSpeakers().forEach((sp) => {
+      if (!ais.some((x) => x.key === sp.key)) ais.push(sp);
+    });
+    // humans — 暂没真实 attendee_user_ids API; 用 mock 5 人作 demo
+    // TD9: mock 真人仅显示在筛选 sheet (好让用户看到 UI), 不影响真实 transcript
+    const humans: FilterSpeaker[] = [];
+    return { hosts, humans, ais };
+  }, [data?.attending_agents]);
+
+  const speakerByKey = useMemo(() => {
+    const m = new Map<string, FilterSpeaker>();
+    [
+      ...filterSpeakers.hosts,
+      ...filterSpeakers.humans,
+      ...filterSpeakers.ais,
+    ].forEach((sp) => m.set(sp.key, sp));
+    return m;
+  }, [filterSpeakers]);
+
+  // ─── speaker 发言计数 (mock 因没接真实 transcript, 用近似值) ───
+  const filterCounts: Record<string, number> = useMemo(() => {
+    const c: Record<string, number> = {};
+    c["host"] = hostCards.length;
+    // mock round 给每个 expert + host 各 +1
+    MOCK_ROUND_MESSAGES.forEach((r) => {
+      c["host"] = (c["host"] || 0) + 1;
+      r.experts.forEach((e) => {
+        c[`mock-${e.who}`] = (c[`mock-${e.who}`] || 0) + 1;
+      });
+    });
+    return c;
+  }, [hostCards.length]);
+
+  // ─── highlights (mock + host cards + round) ───
+  const highlights = useMemo<HighlightItem[]>(() => {
+    const hl: HighlightItem[] = [];
+    hostCards.forEach((h) => {
+      if (h.kind === "chapter") {
+        hl.push({
+          jumpKey: h.key,
+          type: "agenda",
+          icon: "check",
+          color: MR_COLORS.systemGreen,
+          label: "议程切换",
+          title: h.newAgendaTitle,
+          t: h.t,
+        });
+      } else if (h.tone === "drift-strong") {
+        hl.push({
+          jumpKey: h.key,
+          type: "strong",
+          icon: "compass",
+          color: MR_COLORS.systemRed,
+          label: "强提醒",
+          title: h.title || "议题严重偏离",
+          t: h.t || "",
+        });
+      } else if (h.tone === "drift" || h.tone === "drift-soft") {
+        hl.push({
+          jumpKey: h.key,
+          type: "drift",
+          icon: "compass",
+          color: MR_COLORS.systemOrange,
+          label: "偏离提醒",
+          title: h.title || "话题偏移",
+          t: h.t || "",
+        });
+      } else if (h.tone === "route") {
+        hl.push({
+          jumpKey: h.key,
+          type: "route",
+          icon: "route",
+          color: MR_COLORS.systemOrange,
+          label: "问题路由",
+          title: h.title || "问题拆解",
+          t: h.t || "",
+        });
+      } else if (h.tone === "timer") {
+        hl.push({
+          jumpKey: h.key,
+          type: "decision",
+          icon: "clock",
+          color: MR_COLORS.systemOrange,
+          label: "时间提醒",
+          title: h.title || "时间提醒",
+          t: h.t || "",
+        });
+      }
+    });
+    MOCK_ROUND_MESSAGES.forEach((r) => {
+      hl.push({
+        jumpKey: r.key,
+        type: "round",
+        icon: "sparkle",
+        color: MR_COLORS.systemPurple,
+        label: `AI 圆桌 · ${r.experts.length} 位`,
+        title: r.topic,
+        t: r.t,
+      });
+    });
+    return hl;
+  }, [hostCards]);
+
+  // ─── 主持人 (用 attending_agents 里第一个 role='moderator' 的, 否则 fallback 第一个 AI) ───
+  const moderatorId = useMemo<string | null>(() => {
+    const agents = data?.attending_agents || [];
+    const mod = agents.find((a) => (a.role || "").toLowerCase() === "moderator");
+    return mod ? mod.agent_id : (agents[0]?.agent_id ?? null);
+  }, [data?.attending_agents]);
+
+  // ─── live 状态 ───
+  const liveState: "live" | "reconnecting" | "lost" | "idle" =
+    conn === "connected"
+      ? "live"
+      : conn === "reconnecting"
+        ? "reconnecting"
+        : conn === "giving_up"
+          ? "lost"
+          : "idle";
+
+  // ─── loading / error ───
   if (loading) {
     return (
-      <div className="space-y-4 p-4">
-        <div className="h-16 animate-pulse rounded-xl bg-ink-900" />
-        <div className="h-64 animate-pulse rounded-2xl bg-ink-900" />
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: MR_COLORS.bgGroupedPrimary,
+          padding: 16,
+          fontFamily: MR_FONT_FAMILY,
+        }}
+      >
+        <div
+          style={{
+            height: 50,
+            background: MR_COLORS.bgWhite,
+            borderRadius: 12,
+            marginBottom: 8,
+            opacity: 0.6,
+          }}
+        />
+        <div
+          style={{
+            height: 80,
+            background: MR_COLORS.bgWhite,
+            borderRadius: 12,
+            opacity: 0.6,
+          }}
+        />
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="space-y-3 p-6 text-center">
-        <p className="text-[15px] text-zinc-300">未能加载会议</p>
-        <p className="text-[13px] text-zinc-600">{error}</p>
-        <Link
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          padding: 24,
+          textAlign: "center",
+          background: MR_COLORS.bgGroupedPrimary,
+          color: MR_COLORS.textPrimary,
+          fontFamily: MR_FONT_FAMILY,
+        }}
+      >
+        <p style={{ fontSize: 15, marginTop: 40 }}>未能加载会议</p>
+        <p
+          style={{
+            fontSize: 13,
+            marginTop: 8,
+            color: MR_COLORS.textTertiary,
+          }}
+        >
+          {error}
+        </p>
+        <a
           href="/m"
-          className="inline-flex h-12 items-center justify-center rounded-xl border border-ink-700 px-6 text-[15px] text-zinc-200"
+          style={{
+            display: "inline-flex",
+            marginTop: 24,
+            height: 44,
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 12,
+            padding: "0 24px",
+            background: MR_COLORS.bgWhite,
+            border: `0.5px solid ${MR_COLORS.hairline}`,
+            color: MR_COLORS.systemBlue,
+            fontSize: 15,
+            textDecoration: "none",
+          }}
         >
           回工作台
-        </Link>
+        </a>
       </div>
     );
   }
 
-  const hasRisk = isRiskInsight(data.current_topic_insights);
+  const handleBack = () => {
+    if (data.status === "ongoing") setLeaveOpen(true);
+    else router.push("/m");
+  };
+  const handleAskHostSend = (query: string) => {
+    if (!moderatorId) {
+      setToast({ kind: "error", text: "找不到主持人 AI, 请先邀请" });
+      return;
+    }
+    handleSummonAgent(moderatorId, query);
+  };
+
+  // 参会人头像列 — 真实 attending_agents
+  const stripAgents = (data.attending_agents || []).map((a) => ({
+    agent_id: a.agent_id,
+    display: a.nickname?.trim() || a.name,
+    role: a.domain || a.role,
+    color: a.color,
+  }));
 
   return (
-    /* P13 fix: fixed inset-0 接管整个 viewport, 不嵌 layout 的 main scroll.
-       避免 scrollIntoView 滚错层级把底部 sticky 推走.
-       覆盖 BottomNav (用户在会议室内不需要切别的 tab, 沉浸式). */
-    <div className="fixed inset-0 z-30 flex flex-col bg-ink-950 text-zinc-100">
-      {/* ===== 会议 head — 返 + title + 状态 ===================== */}
-      <div
-        className="border-b border-ink-800 bg-ink-950/80 px-4 pb-3 backdrop-blur"
-        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
-      >
-        <div className="flex items-center gap-3">
-          {/* P14.2: ongoing 会议时 点 ← 不直接返, 弹 sheet 让用户选
-              "仅离开 / 结束会议 / 取消". finished/scheduled 直接返 */}
-          {data.status === "ongoing" ? (
-            <button
-              type="button"
-              onClick={() => setLeaveOpen(true)}
-              className="flex h-10 w-10 items-center justify-center -ml-2 text-zinc-400 active:text-zinc-200"
-              aria-label="退出会议室"
-            >
-              <span className="text-xl leading-none">←</span>
-            </button>
-          ) : (
-            <Link
-              href="/m"
-              className="flex h-10 w-10 items-center justify-center -ml-2 text-zinc-400 active:text-zinc-200"
-              aria-label="返回"
-            >
-              <span className="text-xl leading-none">←</span>
-            </Link>
-          )}
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-[18px] font-semibold text-zinc-50">
-              {data.title}
-            </h1>
-            <p className="mt-0.5 text-[13px] text-zinc-400">
-              {data.status === "ongoing" ? (
-                <>
-                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400 align-middle animate-pulse" />
-                  <span className="ml-1.5 text-emerald-300">进行中</span>
-                  <span className="ml-2 text-zinc-400">· 已 {data.started_minutes_ago} min</span>
-                </>
-              ) : (
-                <span>{data.status}</span>
-              )}
-              <span className="ml-2 text-zinc-500">· {data.transcript_total} 句实录</span>
-            </p>
-          </div>
-        </div>
-      </div>
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 30,
+        background: MR_COLORS.bgGroupedPrimary,
+        color: MR_COLORS.textPrimary,
+        fontFamily: MR_FONT_FAMILY,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      {/* ===== Header ===================================== */}
+      <MRHeader
+        title={data.title}
+        timerText={timerText}
+        liveState={liveState}
+        filterActive={filterSelected.size > 0}
+        onBack={handleBack}
+        onChapters={() => setChaptersOpen(true)}
+        onFilter={() => setFilterOpen(true)}
+      />
 
-      {/* ===== Stage chips (sticky) ============================== */}
+      {/* ===== Agenda strip =============================== */}
       <StageChipsRow
         items={data.agenda_items}
         currentIdx={data.current_agenda_idx}
         isComplete={data.is_agenda_complete}
       />
 
-      {/* ===== P16: WS 议程事件 banner (6 类) ==================== */}
-      {banner ? (
-        <AgendaEventBanner
-          data={banner}
-          onDismiss={() => setBanner(null)}
-          onSummonAgent={handleSummonAgent}
-          onAdvanceAgenda={handleAdvance}
-        />
-      ) : null}
+      {/* ===== Participants strip ========================= */}
+      <ParticipantsStrip agents={stripAgents} />
 
-      {/* ===== P16: severe 跑题全屏 modal ======================= */}
-      <SevereOffTopicModal
-        data={severeOffTopic}
-        onSummon={handleSummonAgent}
-        onDismiss={() => setSevereOffTopic(null)}
-      />
-
-      {/* ===== scheduled 状态: 仅显 "开始会议" 兜底卡 ============== */}
+      {/* ===== scheduled 状态 (开始会议兜底卡) ============ */}
       {data.status === "scheduled" ? (
-        <main className="flex-1 p-4">
-          <div className="rounded-2xl border border-accent-500/40 bg-accent-500/[0.08] p-5 text-center">
-            <p className="text-[16px] font-medium text-accent-200">
+        <main style={{ flex: 1, padding: 16, overflow: "auto" }}>
+          <div
+            style={{
+              borderRadius: 16,
+              border: `1px solid ${MR_COLORS.hostBorder}`,
+              background: MR_COLORS.hostBg,
+              padding: 20,
+              textAlign: "center",
+            }}
+          >
+            <p
+              style={{
+                fontSize: 16,
+                fontWeight: 500,
+                color: "#8B6914",
+              }}
+            >
               会议还没开始
             </p>
-            <p className="mt-2 text-[14px] text-zinc-400 leading-relaxed">
+            <p
+              style={{
+                marginTop: 8,
+                fontSize: 14,
+                color: MR_COLORS.textSecondary,
+                lineHeight: 1.5,
+              }}
+            >
               点下方按钮把会议状态切到「进行中」, AI 召唤 / 议程推进 等功能就能用了.
             </p>
             <button
               type="button"
               onClick={handleStart}
               disabled={starting}
-              className="mt-4 flex h-12 w-full items-center justify-center rounded-xl bg-accent-500 px-4 text-[15px] font-medium text-white shadow-lg shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 disabled:opacity-60"
               data-testid="mobile-start-meeting"
+              style={{
+                marginTop: 16,
+                height: 48,
+                width: "100%",
+                borderRadius: 12,
+                border: "none",
+                background: MR_COLORS.systemOrange,
+                color: "#fff",
+                fontSize: 15,
+                fontWeight: 500,
+                fontFamily: "inherit",
+                cursor: starting ? "default" : "pointer",
+                opacity: starting ? 0.6 : 1,
+              }}
             >
               {starting ? "开始中…" : "开始会议"}
             </button>
           </div>
         </main>
       ) : (
-        /* ===== ongoing / finished: IM 风格主区域 =============== */
         <>
-          {/* 当前议题 thin sticky bar — 比 CurrentTopicCard 轻很多, 不挡屏 */}
-          {data.current_topic_title ? (
+          {/* finished / processed 提示 + 看总结链接 */}
+          {data.status === "finished" || data.status === "processed" ? (
             <div
-              className="border-b border-ink-800 bg-ink-950/85 px-4 py-2 text-[13px] backdrop-blur"
-              data-testid="mobile-current-topic-strip"
+              style={{
+                margin: "12px 16px 0",
+                padding: 14,
+                borderRadius: 14,
+                background: "rgba(52,199,89,0.10)",
+                border: "0.5px solid rgba(52,199,89,0.30)",
+              }}
             >
-              <span className="text-zinc-400">议题 </span>
-              <span className="font-medium text-zinc-100">
-                {data.current_agenda_idx !== null
-                  ? `${data.current_agenda_idx + 1}/${data.agenda_items.length}`
-                  : ""}
-              </span>
-              <span className="text-zinc-500"> · </span>
-              <span className="text-zinc-100">{data.current_topic_title}</span>
-              {data.current_topic_elapsed_min !== null ? (
-                <span className="ml-2 text-zinc-500 tabular-nums">
-                  已议 {data.current_topic_elapsed_min}m
-                </span>
-              ) : null}
+              <p
+                style={{
+                  fontSize: 14,
+                  fontWeight: 500,
+                  color: "#1A6B2A",
+                }}
+              >
+                ✓ 会议已结束
+              </p>
+              <p
+                style={{
+                  marginTop: 4,
+                  fontSize: 12,
+                  color: MR_COLORS.textSecondary,
+                  lineHeight: 1.5,
+                }}
+              >
+                以下是过程数据 (转录 + 议程). 想看 AI 纪要 + 抽出的待办, 进总结页.
+              </p>
+              <a
+                href={`/m/meetings/${id}/summary`}
+                data-testid="mobile-view-summary-link"
+                style={{
+                  display: "flex",
+                  marginTop: 10,
+                  height: 40,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: 10,
+                  background: MR_COLORS.systemGreen,
+                  color: "#fff",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  textDecoration: "none",
+                }}
+              >
+                看会议总结 →
+              </a>
             </div>
-          ) : data.is_agenda_complete ? (
-            <div className="border-b border-emerald-500/30 bg-emerald-500/[0.08] px-4 py-2 text-center text-[13px] text-emerald-200">
-              ✓ 议程已全部完成 — 点底部 "结束会议" 进入沉淀
-            </div>
-          ) : (
-            <div className="border-b border-ink-800 bg-ink-950/60 px-4 py-2 text-[13px] text-zinc-500">
-              议程还没开始 — 点 "推进议程" 进入第一项
-            </div>
-          )}
+          ) : null}
 
-          {/* v27.0-mobile P21 N-1 第 6 刀: ongoing 会议在小程序 webview 内显
-              "试用原生会议室" 入口. 普通浏览器看不到 (自身组件检测 miniprogram 环境). */}
-          {data.status === "ongoing" ? <NativeMeetingEntry meetingId={id} /> : null}
+          {/* native entry (小程序 webview 才显) */}
+          {data.status === "ongoing" ? (
+            <NativeMeetingEntry meetingId={id} />
+          ) : null}
 
-          {/* v27.0-mobile P19.1 / Phase B.3: 会议参考资料 — 在 transcript 之上 显.
-              ongoing: 可 加新文件 / 删除; finished/processed: readOnly (0 附件时 整段不显). */}
-          <div className="mx-4 mt-3">
+          {/* 附件区 (复用旧组件, 不动) */}
+          <div style={{ margin: "10px 16px 0" }}>
             <AttachmentsSection
               meetingId={id}
               readOnly={data.status !== "ongoing"}
             />
           </div>
 
-          {/* P18: finished/processed 加 "看总结" 入口 + 只读提示 */}
-          {data.status === "finished" || data.status === "processed" ? (
-            <div className="mx-4 mt-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4">
-              <p className="text-[15px] font-medium text-emerald-200">
-                ✓ 会议已结束
-              </p>
-              <p className="mt-1 text-[13px] text-zinc-400 leading-snug">
-                以下是会议过程数据 (转录 / 议程). 想看 AI 纪要 + 抽出的待办, 进总结页.
-              </p>
-              <Link
-                href={`/m/meetings/${id}/summary`}
-                className="mt-3 flex h-11 w-full items-center justify-center rounded-xl bg-emerald-500 px-4 text-[14px] font-medium text-white active:scale-[0.98]"
-                data-testid="mobile-view-summary-link"
-              >
-                看会议总结 →
-              </Link>
-            </div>
-          ) : null}
-
-          {/* IM 主区域: transcript 一直占满, 自动滚 */}
-          <main className="flex-1 overflow-y-auto" data-testid="mobile-im-flow">
-            <MeetingTranscriptView meetingId={id} />
+          {/* ===== 主滚动区 (transcript + host cards + round) ===== */}
+          <main
+            data-testid="mobile-im-flow"
+            style={{
+              flex: 1,
+              overflow: "auto",
+              paddingBottom: 200,
+              position: "relative",
+            }}
+          >
+            <FilterBanner
+              selected={filterSelected}
+              speakerByKey={speakerByKey}
+              matched={matchedCount}
+              total={totalCount}
+              onChange={setFilterSelected}
+              onOpen={() => setFilterOpen(true)}
+            />
+            <MeetingTranscriptView
+              meetingId={id}
+              hostCards={hostCards}
+              roundMessages={MOCK_ROUND_MESSAGES}
+              filter={{ selected: filterSelected }}
+              onMatchedCountChange={(matched, total) => {
+                setMatchedCount(matched);
+                setTotalCount(total);
+              }}
+              onRegisterJump={(jump) => {
+                jumpToRef.current = jump;
+              }}
+              onScrollPosChange={(atBottom) => setShowJump(!atBottom)}
+            />
           </main>
 
-          {/* sticky 录音控制 (ongoing 时显) */}
+          <JumpToLatestFab
+            visible={showJump}
+            alert={false}
+            onClick={() => {
+              // 滚到 main 底部
+              const mainEl = document.querySelector<HTMLElement>(
+                '[data-testid="mobile-im-flow"]',
+              );
+              mainEl?.scrollTo({
+                top: mainEl.scrollHeight,
+                behavior: "smooth",
+              });
+            }}
+          />
+
+          {/* ===== Dock (sticky 底部 controls) ===== */}
           {data.status === "ongoing" ? (
-            <div className="border-t border-ink-800 bg-ink-950/95 px-4 py-2 backdrop-blur">
-              <MeetingRecorderControl
-                meetingOngoing={data.status === "ongoing"}
-              />
-            </div>
+            <StickyActionBar
+              canControl={data.can_control}
+              isAgendaComplete={data.is_agenda_complete}
+              currentTopicTitle={data.current_topic_title}
+              hasRiskInsight={false}
+              advancing={advancing}
+              onAdvance={handleAdvance}
+              onSummonAi={() => setSummonOpen(true)}
+              onAskHost={() => setAskHostOpen(true)}
+              onMore={() => setMoreOpen(true)}
+              onEndMeeting={() => setEndOpen(true)}
+              muted={muted}
+              setMuted={setMuted}
+              video={video}
+              setVideo={setVideo}
+              hand={hand}
+              setHand={setHand}
+              cc={cc}
+              setCC={setCC}
+              recording={false}
+            />
           ) : null}
         </>
       )}
 
-      {/* ===== Sticky 底部 next action ===========================
-        P18 修: 仅 ongoing 状态显. finished / processed / scheduled 都不显 —
-        召唤专家 / 推进议程 / 结束会议 都是过程中才有的操作.
-        finished 会议: 主区域有"看总结"入口替代. */}
-      {data.status === "ongoing" ? (
-        <StickyActionBar
-          canControl={data.can_control}
-          isAgendaComplete={data.is_agenda_complete}
-          currentTopicTitle={data.current_topic_title}
-          hasRiskInsight={hasRisk}
-          advancing={advancing}
-          onAdvance={handleAdvance}
-          onSummonAi={() => setSummonOpen(true)}
-          onEndMeeting={() => setEndOpen(true)}
-        />
-      ) : null}
-
-      {/* ===== P4.2 召 AI sheet =================================== */}
+      {/* ===== Sheets / Modals / Toast ============== */}
       <SummonAgentSheet
         open={summonOpen}
         agents={data.attending_agents}
@@ -565,21 +960,45 @@ function MeetingDetailInner({ id }: { id: string }) {
         onClose={() => setSummonOpen(false)}
         onSubmit={handleSummonSubmit}
       />
-
-      {/* ===== P4.2 结束会议 confirm ============================= */}
-      <ConfirmDialog
+      <AskHostSheet
+        open={askHostOpen}
+        onClose={() => setAskHostOpen(false)}
+        onSendToHost={handleAskHostSend}
+      />
+      <MoreSheet
+        open={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        onAction={(k) => {
+          setToast({ kind: "success", text: `${k}: 该功能后续上线` });
+        }}
+      />
+      <FilterSheet
+        open={filterOpen}
+        selected={filterSelected}
+        counts={filterCounts}
+        speakers={filterSpeakers}
+        onChange={setFilterSelected}
+        onClose={() => setFilterOpen(false)}
+      />
+      <HighlightsSheet
+        open={chaptersOpen}
+        highlights={highlights}
+        onClose={() => setChaptersOpen(false)}
+        onJump={(k) => {
+          jumpToRef.current?.(k);
+        }}
+      />
+      <EndConfirm
         open={endOpen}
-        title="结束这场会议?"
-        body="结束后 AI 会自动生成会议纪要 + 抽待办 + 提候选记忆. 这一步不可撤销."
-        confirmLabel="结束"
-        cancelLabel="再开一会"
-        danger
         busy={ending}
         onConfirm={handleEndConfirm}
         onCancel={() => setEndOpen(false)}
       />
-
-      {/* ===== P14.2 退出会议室 sheet =========================== */}
+      <SevereOffTopicModal
+        data={severeOffTopic}
+        onSummon={handleSummonAgent}
+        onDismiss={() => setSevereOffTopic(null)}
+      />
       <LeaveMeetingSheet
         open={leaveOpen}
         meetingTitle={data.title}
@@ -589,15 +1008,29 @@ function MeetingDetailInner({ id }: { id: string }) {
           router.push("/m");
         }}
         onEndMeeting={() => {
-          // 复用 handleEndConfirm — 它 调 finalize + toast + router push /m
           void handleEndConfirm();
         }}
         onCancel={() => setLeaveOpen(false)}
       />
-
       {toast ? (
-        <Toast kind={toast.kind} text={toast.text} onClose={() => setToast(null)} />
+        <Toast
+          kind={toast.kind}
+          text={toast.text}
+          onClose={() => setToast(null)}
+        />
       ) : null}
     </div>
   );
+}
+
+// ─── small utils ───
+
+function nowAtMinute(): number {
+  // 当前时间转分钟 (用 Date.now() 不精确, 但用于排序足够)
+  return Math.floor(Date.now() / 60000);
+}
+
+function formatT(mmss: string): string {
+  // mmss "23:14" → return as-is. 后续接 backend timestamp 时再扩展.
+  return mmss;
 }
