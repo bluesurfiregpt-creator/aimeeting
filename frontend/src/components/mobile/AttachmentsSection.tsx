@@ -47,12 +47,13 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "✗ 失败",
 };
 
+// v1.2.0 P1.3: 浅色化 — 跟 v2 主页面 iOS 系统色对齐 (DESIGN_SYSTEM.md).
 const STATUS_TONE: Record<string, string> = {
-  pending: "bg-zinc-700 text-zinc-300",
-  extracting: "bg-violet-500/15 text-violet-300",
-  ready: "bg-emerald-500/15 text-emerald-300",
-  skipped: "bg-zinc-700 text-zinc-400",
-  failed: "bg-rose-500/15 text-rose-300",
+  pending: "bg-zinc-200 text-zinc-700",
+  extracting: "bg-violet-100 text-violet-700",
+  ready: "bg-emerald-100 text-emerald-700",
+  skipped: "bg-zinc-200 text-zinc-500",
+  failed: "bg-rose-100 text-rose-700",
 };
 
 const ACCEPT_ATTR =
@@ -218,30 +219,30 @@ export default function AttachmentsSection({
   }
 
   // v1.2.0 P1.2: 折叠态 — 一行展示文件缩略, 点击展开看完整 UI.
-  // 仅 !readOnly 启用折叠 (readOnly 已经无 +添加按钮 + 删除按钮, 本身紧凑).
+  // v1.2.0 P1.3: 浅色化 — 白卡 + iOS 系统色, 跟 DESIGN_SYSTEM.md 一致.
   if (!readOnly && collapsed) {
     return (
       <section data-testid="attachments-section">
         <button
           type="button"
           onClick={() => setCollapsed(false)}
-          className="flex w-full items-center justify-between rounded-xl bg-ink-900 px-4 py-3 text-left active:bg-ink-800"
+          className="flex w-full items-center justify-between rounded-xl border border-[rgba(60,60,67,0.12)] bg-white px-4 py-3 text-left active:bg-zinc-50"
           data-testid="attachments-collapsed-toggle"
         >
           <div className="min-w-0 flex-1">
-            <div className="text-[14px] font-medium text-zinc-300">
+            <div className="text-[14px] font-medium text-[#1C1C1E]">
               📎{" "}
               {attachments.length > 0
                 ? `参考资料 · ${attachments.length} 份`
                 : "添加参考资料"}
             </div>
             {attachments.length > 0 ? (
-              <div className="mt-1 truncate text-[12px] text-zinc-500">
+              <div className="mt-1 truncate text-[12px] text-[#8E8E93]">
                 {attachments.map((a) => a.filename).join(" · ")}
               </div>
             ) : null}
           </div>
-          <span className="ml-2 text-[16px] text-zinc-500">⌄</span>
+          <span className="ml-2 text-[16px] text-[#007AFF]">⌄</span>
         </button>
       </section>
     );
@@ -250,25 +251,25 @@ export default function AttachmentsSection({
   return (
     <section data-testid="attachments-section">
       <div className="flex items-baseline justify-between">
-        <h2 className="text-[14px] font-medium text-zinc-300">
+        <h2 className="text-[14px] font-medium text-[#1C1C1E]">
           参考资料{" "}
           {attachments.length > 0 ? (
-            <span className="text-[13px] text-zinc-500">
+            <span className="text-[13px] text-[#8E8E93]">
               · {attachments.length}
             </span>
           ) : (
-            <span className="text-[12px] text-zinc-500">· 选填</span>
+            <span className="text-[12px] text-[#8E8E93]">· 选填</span>
           )}
         </h2>
         <div className="flex items-center gap-2">
           {readOnly ? null : (
-            <span className="text-[11px] text-zinc-500">≤ 50MB / 份</span>
+            <span className="text-[11px] text-[#8E8E93]">≤ 50MB / 份</span>
           )}
           {!readOnly && defaultCollapsed ? (
             <button
               type="button"
               onClick={() => setCollapsed(true)}
-              className="text-[16px] text-zinc-500 active:text-zinc-300"
+              className="text-[16px] text-[#007AFF] active:opacity-60"
               aria-label="收起参考资料"
               data-testid="attachments-collapse-button"
             >
@@ -284,17 +285,17 @@ export default function AttachmentsSection({
           {attachments.map((att) => (
             <li
               key={att.id}
-              className="rounded-xl border border-ink-800 bg-ink-900 p-3"
+              className="rounded-xl border border-[rgba(60,60,67,0.12)] bg-white p-3"
             >
               <div className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
                   <p
-                    className="truncate text-[14px] font-medium text-zinc-100"
+                    className="truncate text-[14px] font-medium text-[#1C1C1E]"
                     title={att.filename}
                   >
                     {att.filename}
                   </p>
-                  <p className="mt-0.5 flex items-center gap-2 text-[12px] text-zinc-500">
+                  <p className="mt-0.5 flex items-center gap-2 text-[12px] text-[#8E8E93]">
                     <span className="tabular-nums">
                       {formatSize(att.size_bytes)}
                     </span>
@@ -308,7 +309,7 @@ export default function AttachmentsSection({
                     </span>
                   </p>
                   {att.extract_status === "failed" && att.last_error ? (
-                    <p className="mt-1 text-[11px] text-rose-400">
+                    <p className="mt-1 text-[11px] text-[#FF3B30]">
                       {att.last_error.slice(0, 100)}
                     </p>
                   ) : null}
@@ -317,7 +318,7 @@ export default function AttachmentsSection({
                   <button
                     type="button"
                     onClick={() => void handleDelete(att.id, att.filename)}
-                    className="shrink-0 px-2 text-[18px] text-zinc-500 active:text-rose-400"
+                    className="shrink-0 px-2 text-[18px] text-[#8E8E93] active:text-[#FF3B30]"
                     aria-label={`删除 ${att.filename}`}
                   >
                     ×
@@ -337,11 +338,11 @@ export default function AttachmentsSection({
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={uploading}
-              className="inline-flex items-center gap-1.5 rounded-full bg-ink-800 px-4 py-2 text-[13px] font-medium text-zinc-200 active:scale-[0.97] active:bg-ink-700 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-full border border-[rgba(60,60,67,0.18)] bg-white px-4 py-2 text-[13px] font-medium text-[#007AFF] active:scale-[0.97] active:bg-zinc-50 disabled:opacity-50"
             >
               {uploading ? (
                 <>
-                  <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-zinc-400/40 border-t-zinc-300" />
+                  <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-zinc-300/50 border-t-[#007AFF]" />
                   上传中…
                 </>
               ) : (
@@ -353,7 +354,7 @@ export default function AttachmentsSection({
               <button
                 type="button"
                 onClick={handlePickFromWechat}
-                className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-4 py-2 text-[13px] font-medium text-emerald-300 active:scale-[0.97] active:bg-emerald-500/25"
+                className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(7,193,96,0.10)] px-4 py-2 text-[13px] font-medium text-[#07C160] active:scale-[0.97] active:bg-[rgba(7,193,96,0.20)]"
                 data-testid="attachments-wechat-picker"
               >
                 💬 从 微信聊天记录 选
@@ -371,7 +372,7 @@ export default function AttachmentsSection({
           />
 
           {/* 提示文案 */}
-          <p className="mt-2 text-[12px] leading-snug text-zinc-500">
+          <p className="mt-2 text-[12px] leading-snug text-[#8E8E93]">
             支持 PDF / Word / Excel / PPT / 文本 / 图片 (图片走 OCR). AI 拆议程 +
             自主讨论 会读取这些内容.
             {inMp
@@ -382,7 +383,7 @@ export default function AttachmentsSection({
       )}
 
       {error ? (
-        <p className="mt-2 text-[12px] text-rose-400">{error}</p>
+        <p className="mt-2 text-[12px] text-[#FF3B30]">{error}</p>
       ) : null}
     </section>
   );
