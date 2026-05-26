@@ -40,7 +40,8 @@ export type WIconName =
   | "moon"
   | "sun"
   | "x"
-  | "menu";
+  | "menu"
+  | "back";
 
 export function WIcon({
   name,
@@ -98,6 +99,7 @@ export function WIcon({
     case "sun":      return <svg {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>;
     case "x":        return <svg {...p}><path d="M6 6l12 12M18 6L6 18"/></svg>;
     case "menu":     return <svg {...p}><path d="M3 6h18M3 12h18M3 18h18"/></svg>;
+    case "back":     return <svg {...p}><path d="M19 12H5M12 5l-7 7 7 7"/></svg>;
     default:         return <svg {...p}><circle cx="12" cy="12" r="9"/></svg>;
   }
 }
