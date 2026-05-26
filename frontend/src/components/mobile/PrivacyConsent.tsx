@@ -85,63 +85,71 @@ export default function PrivacyConsent() {
 
   if (!open) return null;
 
+  // v1.4.0 Saga F+D 补 (PM 真机反馈): 弹窗 整体 浅色化, 跟 MR_COLORS + Saga D 二级页一致.
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/40 backdrop-blur-sm sm:items-center"
       role="dialog"
       aria-modal="true"
       aria-labelledby="privacy-title"
       data-testid="mobile-privacy-consent"
     >
       <div
-        className="w-full max-w-md rounded-t-2xl bg-ink-900 p-5 sm:rounded-2xl"
+        className="w-full max-w-md rounded-t-2xl bg-white p-5 sm:rounded-2xl"
         style={{
           paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)",
+          boxShadow: "0 -8px 24px rgba(0,0,0,0.08)",
         }}
       >
-        <h2 id="privacy-title" className="text-[18px] font-semibold text-zinc-50">
+        <h2 id="privacy-title" className="text-[18px] font-semibold text-[#1C1C1E]">
           欢迎使用 智囊团
         </h2>
-        <p className="mt-2 text-[14px] leading-relaxed text-zinc-300">
+        <p className="mt-2 text-[14px] leading-relaxed text-[#3C3C43]">
           在使用本产品前, 请仔细阅读{" "}
           <Link
             href="/m/privacy"
-            className="text-violet-300 underline underline-offset-2"
+            className="text-[#007AFF] underline underline-offset-2"
           >
             《隐私保护指引》
           </Link>{" "}
           全文. 你需 知悉:
         </p>
 
-        <ul className="mt-3 space-y-1.5 text-[13px] leading-snug text-zinc-300">
+        <ul className="mt-3 space-y-1.5 text-[13px] leading-snug text-[#3C3C43]">
           <li className="flex gap-2">
-            <span className="text-violet-300">●</span>
+            <span className="text-[#007AFF]">●</span>
             为 提供 实时转录 / 说话人识别, 需 在 你 主动开启 会议时 调用
             麦克风, 退会即停.
           </li>
           <li className="flex gap-2">
-            <span className="text-violet-300">●</span>
+            <span className="text-[#007AFF]">●</span>
             为 提供 AI 议程拆解 + 纪要, 你的 会议内容 / 上传附件 会 发送 给
             阿里云 DashScope (通义千问) 处理.
           </li>
           <li className="flex gap-2">
-            <span className="text-violet-300">●</span>
+            <span className="text-[#007AFF]">●</span>
             为 提供 一键登录 体验, 你 主动 点击 "微信手机号 一键登录"
             时, 我们会 读取 你的 微信注册手机号 (仅用于 匹配 系统账号, 不
             外发).
           </li>
           <li className="flex gap-2">
-            <span className="text-violet-300">●</span>
+            <span className="text-[#007AFF]">●</span>
             所有 数据 存储 在 中国境内, 不跨境 不出售 不广告投放.
           </li>
           <li className="flex gap-2">
-            <span className="text-violet-300">●</span>
+            <span className="text-[#007AFF]">●</span>
             你 可随时 在 "我的 / 设置" 撤回 单项授权 或 注销账号.
           </li>
         </ul>
 
         {showDeclinedHint ? (
-          <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-[13px] text-amber-200">
+          <p
+            className="mt-3 rounded-lg px-3 py-2 text-[13px]"
+            style={{
+              backgroundColor: "rgba(255,159,10,0.10)",
+              color: "#FF9500",
+            }}
+          >
             未同意 暂时 无法 使用 本产品. 如有疑问 请 联系 工作区 管理员.
             若 不再 使用, 直接 关闭 本页 即可.
           </p>
@@ -151,7 +159,7 @@ export default function PrivacyConsent() {
           <button
             type="button"
             onClick={handleDecline}
-            className="flex h-12 flex-1 items-center justify-center rounded-xl bg-ink-800 text-[15px] font-medium text-zinc-300 active:scale-[0.98]"
+            className="flex h-12 flex-1 items-center justify-center rounded-xl border border-[rgba(60,60,67,0.18)] bg-white text-[15px] font-medium text-[#1C1C1E] active:scale-[0.98] active:bg-[#F2F2F7]"
             data-testid="mobile-privacy-decline"
           >
             暂不使用
@@ -160,14 +168,15 @@ export default function PrivacyConsent() {
             type="button"
             onClick={handleAccept}
             disabled={pending}
-            className="flex h-12 flex-[1.5] items-center justify-center rounded-xl bg-violet-500 text-[15px] font-medium text-white shadow-lg shadow-violet-500/20 active:scale-[0.98] active:bg-violet-600 disabled:opacity-50"
+            className="flex h-12 flex-[1.5] items-center justify-center rounded-xl bg-[#007AFF] text-[15px] font-medium text-white active:scale-[0.98] active:bg-[#0051D5] disabled:opacity-50"
+            style={{ boxShadow: "0 4px 12px rgba(0,122,255,0.20)" }}
             data-testid="mobile-privacy-accept"
           >
             同意并继续
           </button>
         </div>
 
-        <p className="mt-3 text-center text-[12px] text-zinc-500">
+        <p className="mt-3 text-center text-[12px] text-[#8E8E93]">
           点 "同意并继续" 即表示 你已阅读 并 同意《隐私保护指引》全部内容.
         </p>
       </div>
