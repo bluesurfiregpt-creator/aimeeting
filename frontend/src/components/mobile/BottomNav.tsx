@@ -13,6 +13,8 @@
  *   - inactive color: zinc-500 → #8E8E93 (iOS systemGray)
  *   - label font 11px → 10.5px, letterSpacing 0.3
  *
+ * Saga M8 (v1.4.0): hairline 0.20 → 0.10 (跟 SCHEMA-mobile-v2 §2.3 + 设计稿 1:1).
+ *
  * 保留:
  *   - 4 个 tab + matcher 逻辑
  *   - TOP_LEVEL_PATHS 限制 (二三级页不显)
@@ -78,7 +80,7 @@ export default function BottomNav() {
         background: "rgba(255,255,255,0.88)",
         backdropFilter: "blur(24px) saturate(180%)",
         WebkitBackdropFilter: "blur(24px) saturate(180%)",
-        borderTop: "0.5px solid rgba(60,60,67,0.20)",
+        borderTop: "0.5px solid rgba(60,60,67,0.10)",
         paddingBottom: "env(safe-area-inset-bottom, 0)",
       }}
     >

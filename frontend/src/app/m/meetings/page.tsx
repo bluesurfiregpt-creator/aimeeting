@@ -1,342 +1,324 @@
 "use client";
 
 /**
- * v27.0-mobile · /m/meetings v3.
+ * v1.4.0 · Saga M3 · /m/meetings v2 全面升级.
  *
- * 改动 (跟 v2 比):
- *   - PageHeader 大标题 "会议"
- *   - 顶部 segment 切状态: [进行中(N)] [即将开始(N)] [已结束(N)]
- *     一次只看一组, 去折叠 ▾
- *   - 字号 / 间距 升级
+ * 设计源 1:1: /tmp/aimeeting-design-research/aimeeting/project/mobile-screens.jsx:13-95
+ * (MeetingsView) + /tmp/aimeeting-design-research/design-shots/meetings.png.
  *
- * v1.4.0 Saga K · 浅色化 (跟 /m today + /m/me 一致, iOS 浅色).
+ * 改动 (vs Saga K):
+ *   - top bar 加 subtitle "本周 N 场 · 进行中 M"
+ *   - 加 MiraPulseNotice (本周脉络 inline notice, 调 /api/v2/meetings/week-pulse)
+ *   - 旧蓝虚线 + 按钮 → 紫渐变 56px 大 CTA (sparkle + "新建会议 · 描述需求 · Mira 配 AI 阵容")
+ *   - segmented [进行中 / 即将开始 / 已结束] (1:1 设计)
+ *   - 旧 MeetingRow → MeetingFullCard (avatar stack + AI badges + 状态变体 + 决策计数)
+ *   - 数据源 旧 /api/m/meetings → 新 /api/v2/meetings (mock 写死)
+ *
+ * 保留 (Saga D-K 老路径不动):
+ *   - 旧 /api/m/* 跟其他 page 共用, 不破坏
+ *   - PageHeader (已有 subtitle 支持) 复用
+ *   - 链接 href=/m/meetings/[id] 不变
+ *
+ * 风格守门: 严格按 docs/design/system/DESIGN_SYSTEM.md § 0.3.2 (Mobile MR_COLORS
+ * 浅 iOS 单 theme), 无 dark token / 无 violet-2/3 数字 token.
  */
 
-import { useMemo, useState } from "react";
-import { useCachedFetch } from "@/lib/mobile/swrCache";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/mobile/PageHeader";
-import SegmentControl from "@/components/mobile/SegmentControl";
-import { mApi } from "@/lib/mobile/api";
-import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
-import type {
-  MobileMeetingListRow,
-  MobileMeetingsListOut,
-} from "@/lib/mobile/types";
+import {
+  MASegmented,
+  MAIcon,
+  MAEmpty,
+  MiraPulseNotice,
+  MeetingFullCard,
+  Sparkle,
+  type V2MeetingItem,
+  type V2MeetingsListResponse,
+  type V2WeekPulseResponse,
+} from "@/components/mobile/v2";
 
-type Tab = "ongoing" | "upcoming" | "finished";
+type Tab = "live" | "upcoming" | "finished";
 
-// ----- 状态视觉 ---------------------------------------------------------
-
-const STATUS_STYLE: Record<
-  string,
-  { label: string; chipBg: string; chipFg: string }
-> = {
-  ongoing: {
-    label: "进行中",
-    chipBg: "rgba(52,199,89,0.12)",
-    chipFg: MR_COLORS.systemGreen,
-  },
-  scheduled: {
-    label: "未开始",
-    chipBg: "rgba(0,122,255,0.10)",
-    chipFg: MR_COLORS.systemBlue,
-  },
-  finished: {
-    label: "已结束",
-    chipBg: "rgba(60,60,67,0.08)",
-    chipFg: MR_COLORS.textTertiary,
-  },
-  processed: {
-    label: "已沉淀",
-    chipBg: "rgba(60,60,67,0.08)",
-    chipFg: MR_COLORS.textTertiary,
-  },
-};
-
-function MiniProgress({ cur, total }: { cur: number | null; total: number }) {
-  if (total === 0) return null;
-  const idx = cur ?? 0;
-  return (
-    <div className="flex items-center gap-1">
-      {Array.from({ length: Math.min(total, 6) }).map((_, i) => {
-        const done = i < idx;
-        const active = i === idx;
-        return (
-          <span
-            key={i}
-            className="h-1 w-3 rounded-full"
-            style={{
-              background: done
-                ? MR_COLORS.systemGreen
-                : active
-                ? MR_COLORS.systemBlue
-                : MR_COLORS.separatorLight,
-            }}
-          />
-        );
-      })}
-      {total > 6 ? (
-        <span
-          className="text-[13px]"
-          style={{ color: MR_COLORS.textTertiary }}
-        >
-          +{total - 6}
-        </span>
-      ) : null}
-    </div>
-  );
+// 简单 fetch — v2 mock endpoint 不带 auth, 不用 mApi.
+async function jget<T>(path: string): Promise<T> {
+  const r = await fetch(path, {
+    credentials: "include",
+    headers: { accept: "application/json" },
+  });
+  if (!r.ok) throw new Error(`${path} → ${r.status}`);
+  return (await r.json()) as T;
 }
 
-function timeAgo(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const min = Math.floor((Date.now() - d.getTime()) / 60000);
-  if (min < 60) return `${min} 分钟前`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `${h} 小时前`;
-  return `${Math.floor(h / 24)} 天前`;
+// inject pulse 动画 keyframe (跟 MAPill 配套).
+const PULSE_KEYFRAME = `
+@keyframes v2Pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(0.85); }
 }
+`;
 
-function MeetingRow({ m }: { m: MobileMeetingListRow }) {
-  const s = STATUS_STYLE[m.status] || STATUS_STYLE.finished;
-  const isOngoing = m.status === "ongoing";
-
-  // 时长展示: 实际 / 计划 — overshoot 时实际数飘红
-  const planned = m.planned_minutes;
-  const actual = m.minutes_total;
-  let timeText = "";
-  let timeOver = false;
-  if (isOngoing && actual !== null) {
-    if (planned !== null) {
-      timeOver = actual > planned;
-      timeText = `已 ${actual} / 计划 ${planned} min`;
-    } else {
-      timeText = `已 ${actual} min`;
-    }
-  } else if (m.status === "scheduled") {
-    if (planned !== null) timeText = `计划 ${planned} min`;
-    else if (m.started_at) timeText = timeAgo(m.started_at);
-  } else if (m.ended_at) {
-    const base = `${timeAgo(m.ended_at)} · 用时 ${actual ?? "-"} min`;
-    if (planned !== null && actual !== null) {
-      timeOver = actual > planned;
-      timeText = `${base} / 计划 ${planned}`;
-    } else {
-      timeText = base;
-    }
-  }
-
-  return (
-    <Link
-      href={`/m/meetings/${m.meeting_id}`}
-      className="block rounded-2xl p-4 active:scale-[0.99] transition"
-      style={{
-        background: MR_COLORS.bgWhite,
-        border: `0.5px solid ${MR_COLORS.hairline}`,
-        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-      }}
-      data-testid="mobile-meeting-row"
-    >
-      <header className="flex items-center gap-2">
-        <span
-          className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[13px] font-medium"
-          style={{ background: s.chipBg, color: s.chipFg }}
-        >
-          {isOngoing ? (
-            <span
-              className="inline-flex h-1.5 w-1.5 rounded-full animate-pulse"
-              style={{ background: MR_COLORS.systemGreen }}
-            />
-          ) : null}
-          <span>{s.label}</span>
-        </span>
-        {timeText ? (
-          <span
-            className="truncate text-[14px]"
-            style={{
-              color: timeOver
-                ? MR_COLORS.systemOrange
-                : MR_COLORS.textTertiary,
-            }}
-          >
-            · {timeText}
-          </span>
-        ) : null}
-      </header>
-      <p
-        className="mt-2.5 text-[17px] font-semibold leading-snug line-clamp-2"
-        style={{ color: MR_COLORS.textPrimary }}
-      >
-        {m.title}
-      </p>
-
-      <footer
-        className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[14px]"
-        style={{ color: MR_COLORS.textTertiary }}
-      >
-        {m.agenda_total > 0 ? (
-          <span className="flex items-center gap-1.5">
-            <MiniProgress cur={m.current_agenda_idx} total={m.agenda_total} />
-            {isOngoing && m.current_agenda_idx !== null ? (
-              <span>议程 {m.current_agenda_idx + 1}/{m.agenda_total}</span>
-            ) : (
-              <span>{m.agenda_total} 议题</span>
-            )}
-          </span>
-        ) : null}
-        {m.users_count > 0 ? (
-          <span className="flex items-center gap-1">
-            <span>👤</span>
-            <span className="tabular-nums">{m.users_count}</span>
-          </span>
-        ) : null}
-        {m.agents_count > 0 ? (
-          <span
-            className="flex items-center gap-1"
-            style={{ color: MR_COLORS.systemPurple }}
-          >
-            <span>🤖</span>
-            <span className="tabular-nums">{m.agents_count}</span>
-          </span>
-        ) : null}
-        {m.insights_count > 0 ? (
-          <span style={{ color: MR_COLORS.systemPurple }}>
-            💡 {m.insights_count}
-          </span>
-        ) : null}
-        {m.actions_count > 0 ? <span>📌 {m.actions_count}</span> : null}
-      </footer>
-    </Link>
-  );
+function injectKeyframes(): void {
+  if (typeof window === "undefined") return;
+  const STYLE_ID = "v2-pulse-keyframes";
+  if (document.getElementById(STYLE_ID)) return;
+  const s = document.createElement("style");
+  s.id = STYLE_ID;
+  s.textContent = PULSE_KEYFRAME;
+  document.head.appendChild(s);
 }
 
 export default function MobileMeetingsPage() {
-  const [tab, setTab] = useState<Tab>("ongoing");
-  // P8 SWR cache: 切回 立即显 stale 数据 + 后台 refresh
-  const { data, error, isRefreshing } = useCachedFetch<MobileMeetingsListOut>(
-    "m:meetings",
-    () => mApi.getMeetingsList(),
-  );
-  const loading = !data && isRefreshing;
+  const [tab, setTab] = useState<Tab>("live");
+  const [pulse, setPulse] = useState<V2WeekPulseResponse | null>(null);
+  const [meetings, setMeetings] = useState<V2MeetingItem[] | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    injectKeyframes();
+  }, []);
+
+  // 拉 week-pulse + meetings 并发
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      jget<V2WeekPulseResponse>("/api/v2/meetings/week-pulse"),
+      jget<V2MeetingsListResponse>("/api/v2/meetings"),
+    ])
+      .then(([p, m]) => {
+        if (!alive) return;
+        setPulse(p);
+        setMeetings(m.items);
+        setLoading(false);
+      })
+      .catch((e: Error) => {
+        if (!alive) return;
+        setError(e.message);
+        setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const groups = useMemo(() => {
-    if (!data) return { ongoing: [], upcoming: [], finished: [] };
+    if (!meetings) return { live: [], upcoming: [], finished: [] };
     return {
-      ongoing: data.items.filter((m) => m.status === "ongoing"),
-      upcoming: data.items.filter((m) => m.status === "scheduled"),
-      finished: data.items.filter(
+      live: meetings.filter((m) => m.status === "live"),
+      upcoming: meetings.filter((m) => m.status === "upcoming"),
+      finished: meetings.filter(
         (m) => m.status === "finished" || m.status === "processed",
       ),
     };
-  }, [data]);
+  }, [meetings]);
 
   const current = groups[tab] || [];
+  // 本周计数走 week-pulse (语义: 本周相关会议), 而非全部 mock list (含上周历史).
+  const weekCount = pulse?.meeting_count ?? meetings?.length ?? 0;
+  const liveCount = groups.live.length;
 
   return (
-    <div>
-      <PageHeader title="会议">
-        <SegmentControl<Tab>
-          value={tab}
-          onChange={setTab}
-          items={[
-            { value: "ongoing", label: "进行中", count: groups.ongoing.length },
-            { value: "upcoming", label: "即将开始", count: groups.upcoming.length },
-            { value: "finished", label: "已结束", count: groups.finished.length },
+    <div style={{ paddingBottom: 100 }}>
+      <PageHeader
+        title="会议"
+        subtitle={
+          weekCount > 0
+            ? `本周 ${weekCount} 场 · 进行中 ${liveCount}`
+            : "本周 0 场"
+        }
+      />
+
+      {/* segmented (16px 左右 padding, 跟设计稿) */}
+      <div style={{ padding: "0 16px" }}>
+        <MASegmented
+          active={tab}
+          onChange={(id) => setTab(id as Tab)}
+          tabs={[
+            { id: "live", label: "进行中", count: groups.live.length },
+            { id: "upcoming", label: "即将开始", count: groups.upcoming.length },
+            { id: "finished", label: "已结束", count: groups.finished.length },
           ]}
         />
-      </PageHeader>
+      </div>
 
-      {/* P9: 新建会议入口 — sticky 在列表上方, 始终能点 */}
-      <div className="px-4 pt-2">
+      {/* Mira 本周脉络 inline notice */}
+      {pulse ? (
+        <div style={{ padding: "14px 16px 0" }}>
+          <MiraPulseNotice data={pulse} />
+        </div>
+      ) : null}
+
+      {/* 紫渐变 新建会议 大 CTA (56px) */}
+      <div style={{ padding: "14px 16px 0" }}>
         <Link
           href="/m/meetings/new"
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-medium active:scale-[0.99]"
           style={{
-            background: "rgba(0,122,255,0.08)",
-            border: "0.5px solid rgba(0,122,255,0.30)",
-            color: MR_COLORS.systemBlue,
+            width: "100%",
+            height: 56,
+            borderRadius: 14,
+            background:
+              "linear-gradient(135deg, #5E5CE6 0%, #7A5AF0 50%, #AF52DE 100%)",
+            color: "#fff",
+            textDecoration: "none",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 9,
+            boxShadow:
+              "0 8px 28px rgba(94,92,230,0.32), inset 0 0 0 0.5px rgba(255,255,255,0.10)",
+            position: "relative",
+            overflow: "hidden",
+            fontFamily: "inherit",
           }}
           data-testid="mobile-new-meeting-link"
         >
-          <span className="text-[18px]">+</span>
-          <span>新建会议</span>
+          {/* sparkles */}
+          <Sparkle top={8} right={42} size={10} opacity={0.85} />
+          <Sparkle top={28} right={20} size={6} opacity={0.55} />
+          <Sparkle top={14} left={48} size={6} opacity={0.5} />
+          <span
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 9,
+              background: "rgba(255,255,255,0.20)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "inset 0 0 0 0.5px rgba(255,255,255,0.22)",
+              flexShrink: 0,
+            }}
+          >
+            <MAIcon name="plus" size={18} color="#fff" strokeWidth={2.4} />
+          </span>
+          <div style={{ textAlign: "left", lineHeight: 1.2 }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>新建会议</div>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                color: "rgba(255,255,255,0.78)",
+                marginTop: 1,
+                letterSpacing: 0.2,
+              }}
+            >
+              描述需求 · Mira 配 AI 阵容
+            </div>
+          </div>
         </Link>
       </div>
 
-      {loading ? (
-        <div className="space-y-3 px-4 pb-6 pt-3">
-          {[1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className="h-28 animate-pulse rounded-2xl"
-              style={{ background: "rgba(60,60,67,0.04)" }}
+      {/* 列表 */}
+      <div
+        style={{
+          padding: "14px 16px 0",
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+        }}
+      >
+        {loading ? (
+          <SkeletonList />
+        ) : error ? (
+          <ErrorPanel error={error} />
+        ) : current.length === 0 ? (
+          <MAEmpty
+            icon="cal"
+            title={emptyTitle(tab)}
+            body={emptyBody(tab)}
+          />
+        ) : (
+          current.map((m) => (
+            <MeetingFullCard
+              key={m.id}
+              meeting={m}
+              href={`/m/meetings/${m.id}`}
             />
-          ))}
-        </div>
-      ) : error || !data ? (
-        <div className="space-y-3 px-6 py-10 text-center">
-          <p
-            className="text-[16px]"
-            style={{ color: MR_COLORS.textPrimary }}
-          >
-            未能加载
-          </p>
-          <p
-            className="text-[14px]"
-            style={{ color: MR_COLORS.textTertiary }}
-          >
-            {error}
-          </p>
-          {error?.includes("401") ? (
-            <Link
-              href="/login"
-              className="inline-flex h-12 items-center justify-center rounded-xl px-6 text-[15px] font-medium text-white"
-              style={{ background: MR_COLORS.systemBlue }}
-            >
-              去登录
-            </Link>
-          ) : (
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="inline-flex h-12 items-center justify-center rounded-xl px-6 text-[15px]"
-              style={{
-                background: MR_COLORS.bgWhite,
-                border: `0.5px solid ${MR_COLORS.hairlineStrong}`,
-                color: MR_COLORS.textPrimary,
-              }}
-            >
-              重试
-            </button>
-          )}
-        </div>
-      ) : current.length === 0 ? (
-        <div
-          className="mx-4 mt-3 rounded-2xl px-6 py-12 text-center"
-          style={{
-            background: MR_COLORS.bgWhite,
-            border: `0.5px dashed ${MR_COLORS.hairlineStrong}`,
-          }}
-        >
-          <p
-            className="text-[16px]"
-            style={{ color: MR_COLORS.textSecondary }}
-          >
-            {tab === "ongoing"
-              ? "现在没有进行中的会议"
-              : tab === "upcoming"
-              ? "近期没有计划中的会议"
-              : "最近 30 天没有已结束的会议"}
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3 px-4 pb-6 pt-3">
-          {current.map((m) => (
-            <MeetingRow key={m.meeting_id} m={m} />
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
     </div>
   );
 }
+
+function emptyTitle(t: Tab): string {
+  return t === "live"
+    ? "当前没有进行中的会议"
+    : t === "upcoming"
+    ? "今天没有更多会议"
+    : "暂无已结束的会议";
+}
+
+function emptyBody(t: Tab): string | undefined {
+  if (t === "live") return "从「即将开始」加入下一场, 或新建一场";
+  if (t === "upcoming") return "可以休息一下 ☕";
+  return undefined;
+}
+
+function SkeletonList(): ReactElement {
+  return (
+    <>
+      {[1, 2, 3].map((i) => (
+        <div
+          key={i}
+          style={{
+            height: 112,
+            borderRadius: 14,
+            background: "rgba(60,60,67,0.04)",
+            animation: "v2Pulse 1.6s ease-in-out infinite",
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
+function ErrorPanel({ error }: { error: string }): ReactElement {
+  return (
+    <div
+      style={{
+        background: "#fff",
+        border: "0.5px solid rgba(60,60,67,0.10)",
+        borderRadius: 14,
+        padding: "32px 24px",
+        textAlign: "center",
+        boxShadow: "0 1px 0 rgba(60,60,67,0.04)",
+      }}
+    >
+      <p style={{ fontSize: 16, color: "#1C1C1E", margin: 0 }}>未能加载</p>
+      <p
+        style={{
+          fontSize: 12.5,
+          color: "#8E8E93",
+          marginTop: 8,
+          marginBottom: 0,
+        }}
+      >
+        {error}
+      </p>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        style={{
+          marginTop: 16,
+          height: 36,
+          padding: "0 18px",
+          borderRadius: 9,
+          background: "#fff",
+          border: "0.5px solid rgba(60,60,67,0.18)",
+          color: "#1C1C1E",
+          fontSize: 13,
+          fontWeight: 600,
+          fontFamily: "inherit",
+          cursor: "pointer",
+        }}
+      >
+        重试
+      </button>
+    </div>
+  );
+}
+

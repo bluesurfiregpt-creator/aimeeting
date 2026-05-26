@@ -42,6 +42,7 @@ from .routers import lineage as lineage_router  # v26.5-Lineage P2
 from .routers import me as me_router
 from .routers import memory_drafts as memory_drafts_router  # v26.5-Lineage
 from .routers import mobile as mobile_router  # v27.0-mobile
+from .routers import v2_meetings as v2_meetings_router  # v1.4.0 Saga M · mobile v2 mock
 from .routers import reports as reports_router
 from .routers import meetings as meetings_router
 from .routers import meeting_attachments as meeting_attachments_router  # v27.0-mobile P19-B
@@ -170,6 +171,7 @@ app.include_router(super_router.router)  # v26.4 Platform Admin
 app.include_router(kb_sedimentation_router.router)  # v26.5-02c
 app.include_router(memory_drafts_router.router)  # v26.5-Lineage
 app.include_router(mobile_router.router)  # v27.0-mobile
+app.include_router(v2_meetings_router.router)  # v1.4.0 Saga M · /api/v2/meetings mock
 app.include_router(lineage_router.router)  # v26.5-Lineage P2
 app.include_router(agent_templates_router.router)  # v26.6-01 AI 模板生成器
 app.include_router(chat_router.router)  # v26.13.1 AI 私聊 调试模式
