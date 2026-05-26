@@ -14,7 +14,9 @@ export const viewport: Viewport = {
   // 让 H5 内容延伸至 iPhone 全面屏的 notch / home indicator 区域,
   // 配合 env(safe-area-inset-*) padding 在各元素上避免被遮挡.
   viewportFit: "cover",
-  themeColor: "#0a0a0c",
+  // v1.4.0 Saga F 配套: H5 内容已全浅色, 顶部状态栏 (Safari / 微信 webview / Android)
+  // 必须跟 page bg 一致 (#F2F2F7 = iOS 系统灰), 否则用户感觉 "顶部黑底" 误以为没变.
+  themeColor: "#F2F2F7",
 };
 
 export default function MobileLayout({
