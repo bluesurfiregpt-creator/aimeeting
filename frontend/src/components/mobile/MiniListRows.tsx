@@ -9,6 +9,8 @@
  * 两类行:
  *   PendingMiniRow         — 等你处理一条
  *   InsightTopicGroupRow   — AI 智囊按议题聚合一条 (核心 — 立 "多视角辩论" 感)
+ *
+ * v1.4.0 Saga K · 浅色化 (跟 /m today + /m/me 一致, iOS 浅色).
  */
 
 import Link from "next/link";
@@ -16,32 +18,39 @@ import type {
   AIInsightFull,
   WorkbenchPendingTask,
 } from "@/lib/mobile/types";
+import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
 
 // ---------- Pending mini row ---------------------------------------------
 
 const PENDING_STYLES: Record<
   WorkbenchPendingTask["kind"],
-  { icon: string; label: string; chipBg: string; chipText: string; href: (id: string) => string }
+  {
+    icon: string;
+    label: string;
+    chipBg: string;
+    chipFg: string;
+    href: (id: string) => string;
+  }
 > = {
   confirm: {
     icon: "⏳",
     label: "待确认",
-    chipBg: "bg-amber-500/15",
-    chipText: "text-amber-200",
+    chipBg: "rgba(255,159,10,0.12)",
+    chipFg: MR_COLORS.systemOrange,
     href: (id) => `/m/tasks/${id}`,
   },
   approve_draft: {
     icon: "📝",
     label: "待审",
-    chipBg: "bg-accent-500/15",
-    chipText: "text-accent-200",
+    chipBg: "rgba(0,122,255,0.10)",
+    chipFg: MR_COLORS.systemBlue,
     href: () => `/m/insights`,
   },
   blocked: {
     icon: "🚨",
     label: "阻塞",
-    chipBg: "bg-rose-500/15",
-    chipText: "text-rose-200",
+    chipBg: "rgba(255,59,48,0.10)",
+    chipFg: MR_COLORS.systemRed,
     href: (id) => `/m/tasks/${id}`,
   },
 };
@@ -57,22 +66,42 @@ export function PendingMiniRow({ item }: { item: WorkbenchPendingTask }) {
   return (
     <Link
       href={s.href(item.id)}
-      className="flex min-h-[56px] items-center gap-3 rounded-xl border border-ink-700 bg-ink-900 px-4 py-3 active:scale-[0.99] transition"
+      className="flex min-h-[56px] items-center gap-3 rounded-xl px-4 py-3 active:scale-[0.99] transition"
+      style={{
+        background: MR_COLORS.bgWhite,
+        border: `0.5px solid ${MR_COLORS.hairline}`,
+      }}
       data-testid={`mobile-pending-row-${item.kind}`}
     >
       <span
-        className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[13px] font-medium ${s.chipBg} ${s.chipText}`}
+        className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[13px] font-medium"
+        style={{ background: s.chipBg, color: s.chipFg }}
       >
         <span>{s.icon}</span>
         <span>{s.label}</span>
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[16px] text-zinc-50">{item.title}</p>
+        <p
+          className="truncate text-[16px]"
+          style={{ color: MR_COLORS.textPrimary }}
+        >
+          {item.title}
+        </p>
         {aiHint ? (
-          <p className="mt-1 truncate text-[13px] text-zinc-400">{aiHint}</p>
+          <p
+            className="mt-1 truncate text-[13px]"
+            style={{ color: MR_COLORS.textTertiary }}
+          >
+            {aiHint}
+          </p>
         ) : null}
       </div>
-      <span className="shrink-0 text-[18px] text-zinc-500">›</span>
+      <span
+        className="shrink-0 text-[18px]"
+        style={{ color: MR_COLORS.textQuaternary }}
+      >
+        ›
+      </span>
     </Link>
   );
 }
@@ -133,20 +162,51 @@ export function InsightTopicGroupRow({ topic }: { topic: Topic }) {
   return (
     <Link
       href={`/m/insights?by_meeting=${topic.meeting_id}`}
-      className="flex min-h-[56px] items-center gap-3 rounded-xl border border-ink-700 bg-ink-900 px-4 py-3 active:scale-[0.99] transition"
+      className="flex min-h-[56px] items-center gap-3 rounded-xl px-4 py-3 active:scale-[0.99] transition"
+      style={{
+        background: MR_COLORS.bgWhite,
+        border: `0.5px solid ${MR_COLORS.hairline}`,
+      }}
       data-testid="mobile-insight-topic-row"
     >
-      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-300">
+      <span
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+        style={{
+          background: "rgba(94,92,230,0.10)",
+          color: MR_COLORS.systemPurple,
+        }}
+      >
         💡
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[16px] text-zinc-50">{titleLine}</p>
-        <p className="mt-1 truncate text-[13px] text-zinc-400">{subtitle}</p>
+        <p
+          className="truncate text-[16px]"
+          style={{ color: MR_COLORS.textPrimary }}
+        >
+          {titleLine}
+        </p>
+        <p
+          className="mt-1 truncate text-[13px]"
+          style={{ color: MR_COLORS.textTertiary }}
+        >
+          {subtitle}
+        </p>
       </div>
-      <span className="shrink-0 rounded-md bg-violet-500/15 px-2 py-1 text-[13px] font-medium text-violet-300 tabular-nums">
+      <span
+        className="shrink-0 rounded-md px-2 py-1 text-[13px] font-medium tabular-nums"
+        style={{
+          background: "rgba(94,92,230,0.10)",
+          color: MR_COLORS.systemPurple,
+        }}
+      >
         {n}
       </span>
-      <span className="shrink-0 text-[18px] text-zinc-500">›</span>
+      <span
+        className="shrink-0 text-[18px]"
+        style={{ color: MR_COLORS.textQuaternary }}
+      >
+        ›
+      </span>
     </Link>
   );
 }

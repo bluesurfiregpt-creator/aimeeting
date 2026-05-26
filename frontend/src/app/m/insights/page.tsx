@@ -18,6 +18,8 @@
  *   记忆库 tab  → mApi.getMemories()                     long_term_memory
  *
  * task draft (任务草稿) 不再在本模块出现 — 移到会议总结页 /m/meetings/[id]/summary.
+ *
+ * v1.4.0 Saga K · 浅色化 (跟 /m today + /m/me 一致, iOS 浅色).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -31,6 +33,7 @@ import {
   groupInsightsByTopic,
 } from "@/components/mobile/MiniListRows";
 import Toast from "@/components/mobile/Toast";
+import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
 import { mApi } from "@/lib/mobile/api";
 import type { AIInsightFull, MemoryOut } from "@/lib/mobile/types";
 
@@ -284,8 +287,11 @@ function SnapshotsTab({
     );
   }
   return (
-    <div className="space-y-2 pt-1">
-      <p className="px-1 text-[13px] text-zinc-500">
+    <div className="space-y-2 pt-2">
+      <p
+        className="px-1 text-[13px]"
+        style={{ color: MR_COLORS.textTertiary }}
+      >
         {topics.length} 议题 · {insights.length} 条
       </p>
       {topics.map((t) => (
@@ -324,8 +330,11 @@ function ReviewTab({
     );
   }
   return (
-    <div className="space-y-3 pt-1">
-      <p className="px-1 text-[13px] text-zinc-500">
+    <div className="space-y-3 pt-2">
+      <p
+        className="px-1 text-[13px]"
+        style={{ color: MR_COLORS.textTertiary }}
+      >
         {pending.length} 条 AI 推荐入记忆 · 你来拍板
       </p>
       {pending.map((insight) => (
@@ -364,8 +373,11 @@ function LibraryTab({
     );
   }
   return (
-    <div className="space-y-3 pt-1">
-      <p className="px-1 text-[13px] text-zinc-500">
+    <div className="space-y-3 pt-2">
+      <p
+        className="px-1 text-[13px]"
+        style={{ color: MR_COLORS.textTertiary }}
+      >
         {memories.length} 条 长期记忆
       </p>
       {memories.map((m) => (
@@ -379,9 +391,13 @@ function LibraryTab({
 
 function SkeletonList() {
   return (
-    <div className="space-y-2 pt-2">
+    <div className="space-y-2 pt-3">
       {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="h-20 animate-pulse rounded-xl bg-ink-900" />
+        <div
+          key={i}
+          className="h-20 animate-pulse rounded-xl"
+          style={{ background: "rgba(60,60,67,0.04)" }}
+        />
       ))}
     </div>
   );
@@ -390,12 +406,23 @@ function SkeletonList() {
 function ErrorState({ text }: { text: string }) {
   return (
     <div className="space-y-3 px-6 py-10 text-center">
-      <p className="text-[16px] text-zinc-200">未能加载</p>
-      <p className="text-[14px] text-zinc-500">{text}</p>
+      <p
+        className="text-[16px]"
+        style={{ color: MR_COLORS.textPrimary }}
+      >
+        未能加载
+      </p>
+      <p
+        className="text-[14px]"
+        style={{ color: MR_COLORS.textTertiary }}
+      >
+        {text}
+      </p>
       {text.includes("401") ? (
         <Link
           href="/login"
-          className="inline-flex h-12 items-center justify-center rounded-xl bg-accent-500 px-6 text-[15px] font-medium text-white"
+          className="inline-flex h-12 items-center justify-center rounded-xl px-6 text-[15px] font-medium text-white"
+          style={{ background: MR_COLORS.systemBlue }}
         >
           去登录
         </Link>
@@ -403,7 +430,12 @@ function ErrorState({ text }: { text: string }) {
         <button
           type="button"
           onClick={() => window.location.reload()}
-          className="inline-flex h-12 items-center justify-center rounded-xl border border-zinc-700 px-6 text-[15px] text-zinc-200"
+          className="inline-flex h-12 items-center justify-center rounded-xl px-6 text-[15px]"
+          style={{
+            background: MR_COLORS.bgWhite,
+            border: `0.5px solid ${MR_COLORS.hairlineStrong}`,
+            color: MR_COLORS.textPrimary,
+          }}
         >
           重试
         </button>
@@ -422,10 +454,26 @@ function EmptyState({
   body: string;
 }) {
   return (
-    <div className="mx-1 mt-4 rounded-2xl border border-dashed border-zinc-800 px-6 py-12 text-center">
+    <div
+      className="mx-1 mt-4 rounded-2xl px-6 py-12 text-center"
+      style={{
+        background: MR_COLORS.bgWhite,
+        border: `0.5px dashed ${MR_COLORS.hairlineStrong}`,
+      }}
+    >
       <div className="text-3xl">{emoji}</div>
-      <p className="mt-4 text-[16px] text-zinc-200">{title}</p>
-      <p className="mt-2 text-[14px] leading-relaxed text-zinc-500">{body}</p>
+      <p
+        className="mt-4 text-[16px]"
+        style={{ color: MR_COLORS.textSecondary }}
+      >
+        {title}
+      </p>
+      <p
+        className="mt-2 text-[14px] leading-relaxed"
+        style={{ color: MR_COLORS.textTertiary }}
+      >
+        {body}
+      </p>
     </div>
   );
 }

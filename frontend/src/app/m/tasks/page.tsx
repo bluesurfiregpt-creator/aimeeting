@@ -8,6 +8,8 @@
  *   - 顶部 segment 切状态: [等你处理(N)] [跟踪中(N)] [已完成(N)]
  *     去折叠 ▾, 一次只看一组
  *   - 字号 / 间距 升级
+ *
+ * v1.4.0 Saga K · 浅色化 (跟 /m today + /m/me 一致, iOS 浅色).
  */
 
 import { useCallback, useMemo, useState } from "react";
@@ -17,6 +19,7 @@ import SegmentControl from "@/components/mobile/SegmentControl";
 import RejectFeedbackSheet from "@/components/mobile/RejectFeedbackSheet";
 import Toast from "@/components/mobile/Toast";
 import { TaskCardFull, TaskRowCompact } from "@/components/mobile/TaskCard";
+import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
 import { mApi } from "@/lib/mobile/api";
 import { mutateCache, useCachedFetch } from "@/lib/mobile/swrCache";
 import type { MobileTaskItem, MobileTasksOut } from "@/lib/mobile/types";
@@ -145,18 +148,35 @@ export default function MobileTasksPage() {
       </PageHeader>
 
       {loading ? (
-        <div className="space-y-3 px-4 pb-6">
-          <div className="h-48 animate-pulse rounded-2xl bg-ink-900" />
-          <div className="h-48 animate-pulse rounded-2xl bg-ink-900" />
+        <div className="space-y-3 px-4 pb-6 pt-3">
+          <div
+            className="h-48 animate-pulse rounded-2xl"
+            style={{ background: "rgba(60,60,67,0.04)" }}
+          />
+          <div
+            className="h-48 animate-pulse rounded-2xl"
+            style={{ background: "rgba(60,60,67,0.04)" }}
+          />
         </div>
       ) : error || !data ? (
         <div className="space-y-3 px-6 py-10 text-center">
-          <p className="text-[16px] text-zinc-200">未能加载</p>
-          <p className="text-[14px] text-zinc-600">{error}</p>
+          <p
+            className="text-[16px]"
+            style={{ color: MR_COLORS.textPrimary }}
+          >
+            未能加载
+          </p>
+          <p
+            className="text-[14px]"
+            style={{ color: MR_COLORS.textTertiary }}
+          >
+            {error}
+          </p>
           {error?.includes("401") ? (
             <Link
               href="/login"
-              className="inline-flex h-12 items-center justify-center rounded-xl bg-accent-500 px-6 text-[15px] font-medium text-white"
+              className="inline-flex h-12 items-center justify-center rounded-xl px-6 text-[15px] font-medium text-white"
+              style={{ background: MR_COLORS.systemBlue }}
             >
               去登录
             </Link>
@@ -164,15 +184,29 @@ export default function MobileTasksPage() {
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="inline-flex h-12 items-center justify-center rounded-xl border border-ink-700 px-6 text-[15px] text-zinc-200"
+              className="inline-flex h-12 items-center justify-center rounded-xl px-6 text-[15px]"
+              style={{
+                background: MR_COLORS.bgWhite,
+                border: `0.5px solid ${MR_COLORS.hairlineStrong}`,
+                color: MR_COLORS.textPrimary,
+              }}
             >
               重试
             </button>
           )}
         </div>
       ) : current.length === 0 ? (
-        <div className="mx-4 mt-2 rounded-2xl border border-dashed border-zinc-800 px-6 py-12 text-center">
-          <p className="text-[16px] text-zinc-300">
+        <div
+          className="mx-4 mt-3 rounded-2xl px-6 py-12 text-center"
+          style={{
+            background: MR_COLORS.bgWhite,
+            border: `0.5px dashed ${MR_COLORS.hairlineStrong}`,
+          }}
+        >
+          <p
+            className="text-[16px]"
+            style={{ color: MR_COLORS.textSecondary }}
+          >
             {tab === "pending"
               ? "✓ 待办全处理完"
               : tab === "tracking"
@@ -180,13 +214,16 @@ export default function MobileTasksPage() {
               : "还没有已完成的任务"}
           </p>
           {tab === "pending" ? (
-            <p className="mt-2 text-[13px] text-zinc-600">
+            <p
+              className="mt-2 text-[13px]"
+              style={{ color: MR_COLORS.textTertiary }}
+            >
               会议结束后, AI 抽出的待办会出现在这里
             </p>
           ) : null}
         </div>
       ) : tab === "pending" ? (
-        <div className="space-y-3 px-4 pb-6">
+        <div className="space-y-3 px-4 pb-6 pt-3">
           {current.map((it) => {
             const rowKey = `${it.kind}-${it.id}`;
             const isBusy = busyId === rowKey;
@@ -206,7 +243,7 @@ export default function MobileTasksPage() {
           })}
         </div>
       ) : (
-        <div className="space-y-2 px-4 pb-6">
+        <div className="space-y-2 px-4 pb-6 pt-3">
           {current.map((it) => (
             <TaskRowCompact key={`${it.kind}-${it.id}`} item={it} />
           ))}

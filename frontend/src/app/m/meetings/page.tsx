@@ -8,6 +8,8 @@
  *   - 顶部 segment 切状态: [进行中(N)] [即将开始(N)] [已结束(N)]
  *     一次只看一组, 去折叠 ▾
  *   - 字号 / 间距 升级
+ *
+ * v1.4.0 Saga K · 浅色化 (跟 /m today + /m/me 一致, iOS 浅色).
  */
 
 import { useMemo, useState } from "react";
@@ -16,6 +18,7 @@ import Link from "next/link";
 import PageHeader from "@/components/mobile/PageHeader";
 import SegmentControl from "@/components/mobile/SegmentControl";
 import { mApi } from "@/lib/mobile/api";
+import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
 import type {
   MobileMeetingListRow,
   MobileMeetingsListOut,
@@ -25,11 +28,30 @@ type Tab = "ongoing" | "upcoming" | "finished";
 
 // ----- 状态视觉 ---------------------------------------------------------
 
-const STATUS_STYLE: Record<string, { label: string; chipBg: string; chipText: string }> = {
-  ongoing: { label: "进行中", chipBg: "bg-emerald-500/15", chipText: "text-emerald-300" },
-  scheduled: { label: "未开始", chipBg: "bg-accent-500/15", chipText: "text-accent-200" },
-  finished: { label: "已结束", chipBg: "bg-zinc-800", chipText: "text-zinc-400" },
-  processed: { label: "已沉淀", chipBg: "bg-zinc-800", chipText: "text-zinc-400" },
+const STATUS_STYLE: Record<
+  string,
+  { label: string; chipBg: string; chipFg: string }
+> = {
+  ongoing: {
+    label: "进行中",
+    chipBg: "rgba(52,199,89,0.12)",
+    chipFg: MR_COLORS.systemGreen,
+  },
+  scheduled: {
+    label: "未开始",
+    chipBg: "rgba(0,122,255,0.10)",
+    chipFg: MR_COLORS.systemBlue,
+  },
+  finished: {
+    label: "已结束",
+    chipBg: "rgba(60,60,67,0.08)",
+    chipFg: MR_COLORS.textTertiary,
+  },
+  processed: {
+    label: "已沉淀",
+    chipBg: "rgba(60,60,67,0.08)",
+    chipFg: MR_COLORS.textTertiary,
+  },
 };
 
 function MiniProgress({ cur, total }: { cur: number | null; total: number }) {
@@ -43,13 +65,25 @@ function MiniProgress({ cur, total }: { cur: number | null; total: number }) {
         return (
           <span
             key={i}
-            className={`h-1 w-3 rounded-full ${
-              done ? "bg-emerald-500/70" : active ? "bg-accent-400" : "bg-zinc-700"
-            }`}
+            className="h-1 w-3 rounded-full"
+            style={{
+              background: done
+                ? MR_COLORS.systemGreen
+                : active
+                ? MR_COLORS.systemBlue
+                : MR_COLORS.separatorLight,
+            }}
           />
         );
       })}
-      {total > 6 ? <span className="text-[13px] text-zinc-500">+{total - 6}</span> : null}
+      {total > 6 ? (
+        <span
+          className="text-[13px]"
+          style={{ color: MR_COLORS.textTertiary }}
+        >
+          +{total - 6}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -96,33 +130,51 @@ function MeetingRow({ m }: { m: MobileMeetingListRow }) {
   return (
     <Link
       href={`/m/meetings/${m.meeting_id}`}
-      className="block rounded-2xl bg-ink-900 p-4 active:scale-[0.99] transition"
+      className="block rounded-2xl p-4 active:scale-[0.99] transition"
+      style={{
+        background: MR_COLORS.bgWhite,
+        border: `0.5px solid ${MR_COLORS.hairline}`,
+        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+      }}
       data-testid="mobile-meeting-row"
     >
       <header className="flex items-center gap-2">
         <span
-          className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[13px] font-medium ${s.chipBg} ${s.chipText}`}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[13px] font-medium"
+          style={{ background: s.chipBg, color: s.chipFg }}
         >
           {isOngoing ? (
-            <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span
+              className="inline-flex h-1.5 w-1.5 rounded-full animate-pulse"
+              style={{ background: MR_COLORS.systemGreen }}
+            />
           ) : null}
           <span>{s.label}</span>
         </span>
         {timeText ? (
           <span
-            className={`truncate text-[14px] ${
-              timeOver ? "text-amber-300/90" : "text-zinc-400"
-            }`}
+            className="truncate text-[14px]"
+            style={{
+              color: timeOver
+                ? MR_COLORS.systemOrange
+                : MR_COLORS.textTertiary,
+            }}
           >
             · {timeText}
           </span>
         ) : null}
       </header>
-      <p className="mt-2.5 text-[17px] font-semibold leading-snug text-zinc-50 line-clamp-2">
+      <p
+        className="mt-2.5 text-[17px] font-semibold leading-snug line-clamp-2"
+        style={{ color: MR_COLORS.textPrimary }}
+      >
         {m.title}
       </p>
 
-      <footer className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[14px] text-zinc-400">
+      <footer
+        className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[14px]"
+        style={{ color: MR_COLORS.textTertiary }}
+      >
         {m.agenda_total > 0 ? (
           <span className="flex items-center gap-1.5">
             <MiniProgress cur={m.current_agenda_idx} total={m.agenda_total} />
@@ -140,13 +192,18 @@ function MeetingRow({ m }: { m: MobileMeetingListRow }) {
           </span>
         ) : null}
         {m.agents_count > 0 ? (
-          <span className="flex items-center gap-1 text-violet-300/80">
+          <span
+            className="flex items-center gap-1"
+            style={{ color: MR_COLORS.systemPurple }}
+          >
             <span>🤖</span>
             <span className="tabular-nums">{m.agents_count}</span>
           </span>
         ) : null}
         {m.insights_count > 0 ? (
-          <span className="text-violet-300/80">💡 {m.insights_count}</span>
+          <span style={{ color: MR_COLORS.systemPurple }}>
+            💡 {m.insights_count}
+          </span>
         ) : null}
         {m.actions_count > 0 ? <span>📌 {m.actions_count}</span> : null}
       </footer>
@@ -194,7 +251,12 @@ export default function MobileMeetingsPage() {
       <div className="px-4 pt-2">
         <Link
           href="/m/meetings/new"
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-accent-500/30 bg-accent-500/[0.08] text-[15px] font-medium text-accent-300 active:scale-[0.99] active:bg-accent-500/[0.15]"
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-medium active:scale-[0.99]"
+          style={{
+            background: "rgba(0,122,255,0.08)",
+            border: "0.5px solid rgba(0,122,255,0.30)",
+            color: MR_COLORS.systemBlue,
+          }}
           data-testid="mobile-new-meeting-link"
         >
           <span className="text-[18px]">+</span>
@@ -203,19 +265,34 @@ export default function MobileMeetingsPage() {
       </div>
 
       {loading ? (
-        <div className="space-y-3 px-4 pb-6">
+        <div className="space-y-3 px-4 pb-6 pt-3">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-28 animate-pulse rounded-2xl bg-ink-900" />
+            <div
+              key={i}
+              className="h-28 animate-pulse rounded-2xl"
+              style={{ background: "rgba(60,60,67,0.04)" }}
+            />
           ))}
         </div>
       ) : error || !data ? (
         <div className="space-y-3 px-6 py-10 text-center">
-          <p className="text-[16px] text-zinc-200">未能加载</p>
-          <p className="text-[14px] text-zinc-600">{error}</p>
+          <p
+            className="text-[16px]"
+            style={{ color: MR_COLORS.textPrimary }}
+          >
+            未能加载
+          </p>
+          <p
+            className="text-[14px]"
+            style={{ color: MR_COLORS.textTertiary }}
+          >
+            {error}
+          </p>
           {error?.includes("401") ? (
             <Link
               href="/login"
-              className="inline-flex h-12 items-center justify-center rounded-xl bg-accent-500 px-6 text-[15px] font-medium text-white"
+              className="inline-flex h-12 items-center justify-center rounded-xl px-6 text-[15px] font-medium text-white"
+              style={{ background: MR_COLORS.systemBlue }}
             >
               去登录
             </Link>
@@ -223,15 +300,29 @@ export default function MobileMeetingsPage() {
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="inline-flex h-12 items-center justify-center rounded-xl border border-ink-700 px-6 text-[15px] text-zinc-200"
+              className="inline-flex h-12 items-center justify-center rounded-xl px-6 text-[15px]"
+              style={{
+                background: MR_COLORS.bgWhite,
+                border: `0.5px solid ${MR_COLORS.hairlineStrong}`,
+                color: MR_COLORS.textPrimary,
+              }}
             >
               重试
             </button>
           )}
         </div>
       ) : current.length === 0 ? (
-        <div className="mx-4 mt-2 rounded-2xl border border-dashed border-zinc-800 px-6 py-12 text-center">
-          <p className="text-[16px] text-zinc-300">
+        <div
+          className="mx-4 mt-3 rounded-2xl px-6 py-12 text-center"
+          style={{
+            background: MR_COLORS.bgWhite,
+            border: `0.5px dashed ${MR_COLORS.hairlineStrong}`,
+          }}
+        >
+          <p
+            className="text-[16px]"
+            style={{ color: MR_COLORS.textSecondary }}
+          >
             {tab === "ongoing"
               ? "现在没有进行中的会议"
               : tab === "upcoming"
@@ -240,7 +331,7 @@ export default function MobileMeetingsPage() {
           </p>
         </div>
       ) : (
-        <div className="space-y-3 px-4 pb-6">
+        <div className="space-y-3 px-4 pb-6 pt-3">
           {current.map((m) => (
             <MeetingRow key={m.meeting_id} m={m} />
           ))}
