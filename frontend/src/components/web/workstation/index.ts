@@ -10,5 +10,16 @@ export { PaneHeader } from "./PaneHeader";
 export { PlaceholderPane } from "./PlaceholderPane";
 export { MentalModelPane } from "./MentalModelPane";
 export { MeetingHistoryPane } from "./MeetingHistoryPane";
+// R5.C 辅助 pane
+export { BoardPane } from "./BoardPane";
+export { TasksPane } from "./TasksPane";
+export { NewMeetingPane } from "./NewMeetingPane";
+export { AgentsPane } from "./AgentsPane";
+export { BrowsePane } from "./BrowsePane";
+export { KbPane } from "./KbPane";
+export { MemoryPane } from "./MemoryPane";
+export { ApprovePane } from "./ApprovePane";
+export { AdminPane } from "./AdminPane";
+export { ProfilePane } from "./ProfilePane";
 export { WS_SECTIONS, WS_VALID_SLUGS } from "./sidebarConfig";
 export type { WSSidebarItem, WSSection } from "./sidebarConfig";
