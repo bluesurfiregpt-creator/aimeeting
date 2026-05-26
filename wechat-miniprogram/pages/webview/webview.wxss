@@ -1,14 +1,16 @@
+/* pages/webview/webview.wxss — v1.4.0 Saga F (iOS 浅色) */
+
 page {
-  background: #0a0a0c;
+  background: #F2F2F7;
 }
 
 .root {
   width: 100vw;
   height: 100vh;
-  background: #0a0a0c;
+  background: #F2F2F7;
 }
 
-/* web-view 容器 默认 白底 — 强制深色, 避免加载瞬间 / 进度条位置露出白线 */
+/* web-view 容器 默认 白底 — 跟 page bg 一致避免加载瞬间断层 */
 web-view {
-  background: #0a0a0c;
+  background: #F2F2F7;
 }

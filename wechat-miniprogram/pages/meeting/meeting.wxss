@@ -1,10 +1,10 @@
-/* pages/meeting/meeting.wxss — N-1 第 1 刀 骨架 */
+/* pages/meeting/meeting.wxss — v1.4.0 Saga F (iOS 浅色) */
 
 page {
-  background: #0a0a0c;
-  color: #e4e4e7;
+  background: #F2F2F7;
+  color: #1C1C1E;
   font-size: 28rpx;
-  font-family: -apple-system, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  font-family: -apple-system, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
 }
 
 .container {
@@ -30,31 +30,31 @@ page {
 .state-title {
   font-size: 36rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   margin-bottom: 16rpx;
 }
 
 .state-text {
   font-size: 30rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
 }
 
 .state-body {
   margin: 16rpx 0 32rpx;
   font-size: 26rpx;
   line-height: 1.6;
-  color: #71717a;
+  color: #8E8E93;
   text-align: left;
   padding: 24rpx;
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 16rpx;
 }
 
 .state-error {
   margin-top: 24rpx;
   padding: 16rpx 24rpx;
-  background: rgba(244, 63, 94, 0.12);
-  color: #fda4af;
+  background: rgba(255, 59, 48, 0.10);
+  color: #C9302C;
   border-radius: 12rpx;
   font-size: 26rpx;
 }
@@ -63,17 +63,17 @@ page {
   margin: 48rpx 0 24rpx;
   text-align: center;
   font-size: 22rpx;
-  color: #52525b;
+  color: #C7C7CC;
 }
 
 .dev-input {
   width: 100%;
   min-height: 160rpx;
   padding: 20rpx;
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
   border-radius: 16rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   font-size: 24rpx;
   font-family: ui-monospace, "SF Mono", monospace;
   margin-bottom: 16rpx;
@@ -84,10 +84,10 @@ page {
   width: 100%;
   height: 80rpx;
   padding: 0 20rpx;
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
   border-radius: 16rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   font-size: 24rpx;
   margin-bottom: 24rpx;
   box-sizing: border-box;
@@ -99,7 +99,7 @@ page {
   width: 100%;
   height: 88rpx;
   line-height: 88rpx;
-  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  background: #007AFF;
   color: #fff;
   font-size: 30rpx;
   font-weight: 500;
@@ -111,9 +111,9 @@ page {
 .btn-secondary {
   height: 80rpx;
   line-height: 80rpx;
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
-  color: #e4e4e7;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
+  color: #1C1C1E;
   font-size: 28rpx;
   border-radius: 16rpx;
   text-align: center;
@@ -121,7 +121,7 @@ page {
 
 .btn-text {
   background: transparent;
-  color: #71717a;
+  color: #8E8E93;
   font-size: 26rpx;
   line-height: 80rpx;
   margin-top: 16rpx;
@@ -138,23 +138,23 @@ page {
 .status-bar {
   padding: 16rpx 32rpx;
   font-size: 26rpx;
-  border-bottom: 1rpx solid #27272a;
-  background: #18181b;
+  border-bottom: 1rpx solid rgba(60, 60, 67, 0.12);
+  background: #FFFFFF;
 }
 
 .status-ongoing {
-  background: rgba(16, 185, 129, 0.08);
-  color: #6ee7b7;
+  background: rgba(52, 199, 89, 0.08);
+  color: #0F9D58;
 }
 
 .status-finished, .status-processed {
-  background: rgba(115, 115, 130, 0.08);
-  color: #a1a1aa;
+  background: #F7F7F9;
+  color: #3C3C43;
 }
 
 .status-scheduled {
-  background: rgba(245, 158, 11, 0.08);
-  color: #fcd34d;
+  background: rgba(255, 159, 10, 0.10);
+  color: #8B6914;
 }
 
 /* 议程 chip 行 */
@@ -170,8 +170,8 @@ page {
   align-items: center;
   gap: 8rpx;
   padding: 12rpx 20rpx;
-  background: #18181b;
-  border: 2rpx solid #27272a;
+  background: #FFFFFF;
+  border: 2rpx solid #E5E5EA;
   border-radius: 20rpx;
   margin-right: 16rpx;
   font-size: 26rpx;
@@ -179,10 +179,10 @@ page {
   max-width: 60vw;
 }
 
-.chip-pending { color: #71717a; }
-.chip-active { color: #93c5fd; background: rgba(59, 130, 246, 0.08); border-color: rgba(59, 130, 246, 0.3); }
-.chip-done { color: #86efac; }
-.chip-highlight { box-shadow: 0 0 0 4rpx rgba(139, 92, 246, 0.3); }
+.chip-pending  { color: #8E8E93; }
+.chip-active   { color: #007AFF; background: rgba(0, 122, 255, 0.08); border-color: rgba(0, 122, 255, 0.30); }
+.chip-done     { color: #0F9D58; }
+.chip-highlight { box-shadow: 0 0 0 4rpx rgba(94, 92, 230, 0.25); }
 
 .chip-icon {
   font-size: 24rpx;
@@ -199,7 +199,7 @@ page {
 
 .chip-meta {
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
   flex-shrink: 0;
 }
 
@@ -207,40 +207,41 @@ page {
 .current-topic {
   margin: 24rpx 32rpx 0;
   padding: 24rpx;
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
-  border-left: 6rpx solid #8b5cf6;
+  border-left: 6rpx solid #5E5CE6;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 
 .topic-label {
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
   margin-bottom: 8rpx;
 }
 
 .topic-title {
   font-size: 32rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   margin-bottom: 8rpx;
 }
 
 .topic-meta {
   font-size: 24rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
 }
 
 /* AI 快照 mini 列表 */
 .insights-mini {
   margin-top: 20rpx;
   padding-top: 20rpx;
-  border-top: 1rpx solid #27272a;
+  border-top: 1rpx solid rgba(60, 60, 67, 0.12);
 }
 
 .insights-label {
   display: block;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
   margin-bottom: 12rpx;
 }
 
@@ -254,8 +255,8 @@ page {
 .insight-type {
   flex-shrink: 0;
   padding: 2rpx 10rpx;
-  background: rgba(139, 92, 246, 0.15);
-  color: #c4b5fd;
+  background: rgba(94, 92, 230, 0.12);
+  color: #5E5CE6;
   border-radius: 8rpx;
   font-size: 22rpx;
   align-self: flex-start;
@@ -263,7 +264,7 @@ page {
 
 .insight-content {
   flex: 1;
-  color: #e4e4e7;
+  color: #1C1C1E;
   line-height: 1.5;
 }
 
@@ -271,13 +272,14 @@ page {
 .agents-bar {
   margin: 24rpx 32rpx 0;
   padding: 20rpx;
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 16rpx;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 
 .agents-label {
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
   margin-bottom: 12rpx;
   display: block;
 }
@@ -290,20 +292,21 @@ page {
 
 .agent-tag {
   padding: 6rpx 16rpx;
-  background: rgba(139, 92, 246, 0.12);
-  color: #c4b5fd;
+  background: rgba(94, 92, 230, 0.10);
+  color: #5E5CE6;
   border-radius: 999rpx;
   font-size: 24rpx;
 }
 
-/* ===== 实时转录区 (第 2 刀) ===== */
+/* ===== 实时转录区 ===== */
 
 .transcript-block {
   position: relative;
   margin: 24rpx 32rpx 0;
   padding: 24rpx;
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 
 .transcript-header {
@@ -322,37 +325,37 @@ page {
 .th-title {
   font-size: 28rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
 }
 
 .th-count {
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 /* WS 连接状态 */
 .ws-state-ready {
   font-size: 22rpx;
-  color: #6ee7b7;
+  color: #0F9D58;
 }
 
 .ws-state-connected,
 .ws-state-connecting,
 .ws-state-reconnecting {
   font-size: 22rpx;
-  color: #fcd34d;
+  color: #8B6914;
 }
 
 .ws-state-closed,
 .ws-state-idle {
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 /* scroll-view */
 .transcript-scroll {
-  height: 800rpx;          /* 固定高度让 scroll-view 工作; 后续刀可调 */
-  background: #0f0f12;
+  height: 800rpx;
+  background: #F7F7F9;
   border-radius: 16rpx;
   padding: 16rpx 20rpx;
   box-sizing: border-box;
@@ -361,7 +364,7 @@ page {
 .transcript-empty {
   text-align: center;
   padding: 80rpx 0;
-  color: #71717a;
+  color: #8E8E93;
   font-size: 26rpx;
 }
 
@@ -380,12 +383,12 @@ page {
 .tl-speaker {
   font-size: 24rpx;
   font-weight: 600;
-  color: #a1a1aa;
+  color: #3C3C43;
 }
 
 .tl-time {
   font-size: 22rpx;
-  color: #52525b;
+  color: #C7C7CC;
   font-variant-numeric: tabular-nums;
 }
 
@@ -393,41 +396,41 @@ page {
   padding: 1rpx 8rpx;
   border-radius: 6rpx;
   font-size: 20rpx;
-  background: rgba(115, 115, 130, 0.15);
-  color: #a1a1aa;
+  background: #E5E5EA;
+  color: #3C3C43;
 }
 
 .tl-tag-auto {
-  background: rgba(16, 185, 129, 0.12);
-  color: #6ee7b7;
+  background: rgba(52, 199, 89, 0.10);
+  color: #0F9D58;
 }
 
 .tl-text {
   font-size: 28rpx;
   line-height: 1.55;
-  color: #e4e4e7;
+  color: #1C1C1E;
   word-break: break-word;
 }
 
-/* ===== AI 气泡 (第 4 刀) ===== */
+/* ===== AI 气泡 ===== */
 
 .agent-bubble {
   margin: 0 0 20rpx;
   padding: 16rpx 20rpx;
-  background: rgba(139, 92, 246, 0.08);
-  border-left: 4rpx solid #8b5cf6;
+  background: rgba(94, 92, 230, 0.06);
+  border-left: 4rpx solid #5E5CE6;
   border-radius: 12rpx;
 }
 
-/* agent color 变体 — 左边色条 + 微妙 tint */
-.agent-color-violet { border-left-color: #8b5cf6; background: rgba(139, 92, 246, 0.08); }
-.agent-color-emerald { border-left-color: #10b981; background: rgba(16, 185, 129, 0.08); }
-.agent-color-amber { border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.08); }
-.agent-color-sky { border-left-color: #0ea5e9; background: rgba(14, 165, 233, 0.08); }
-.agent-color-rose { border-left-color: #f43f5e; background: rgba(244, 63, 94, 0.08); }
-.agent-color-teal { border-left-color: #14b8a6; background: rgba(20, 184, 166, 0.08); }
-.agent-color-blue { border-left-color: #3b82f6; background: rgba(59, 130, 246, 0.08); }
-.agent-color-indigo { border-left-color: #6366f1; background: rgba(99, 102, 241, 0.08); }
+/* agent color 变体 — iOS 系统色 + 浅 tint */
+.agent-color-violet  { border-left-color: #5E5CE6; background: rgba(94, 92, 230, 0.06); }
+.agent-color-emerald { border-left-color: #34C759; background: rgba(52, 199, 89, 0.06); }
+.agent-color-amber   { border-left-color: #FF9F0A; background: rgba(255, 159, 10, 0.06); }
+.agent-color-sky     { border-left-color: #007AFF; background: rgba(0, 122, 255, 0.06); }
+.agent-color-rose    { border-left-color: #FF375F; background: rgba(255, 55, 95, 0.06); }
+.agent-color-teal    { border-left-color: #30B0C7; background: rgba(48, 176, 199, 0.06); }
+.agent-color-blue    { border-left-color: #007AFF; background: rgba(0, 122, 255, 0.06); }
+.agent-color-indigo  { border-left-color: #5E5CE6; background: rgba(94, 92, 230, 0.06); }
 
 .ab-head {
   display: flex;
@@ -443,19 +446,19 @@ page {
   flex-shrink: 0;
 }
 
-.agent-bg-violet { background: #8b5cf6; }
-.agent-bg-emerald { background: #10b981; }
-.agent-bg-amber { background: #f59e0b; }
-.agent-bg-sky { background: #0ea5e9; }
-.agent-bg-rose { background: #f43f5e; }
-.agent-bg-teal { background: #14b8a6; }
-.agent-bg-blue { background: #3b82f6; }
-.agent-bg-indigo { background: #6366f1; }
+.agent-bg-violet  { background: #5E5CE6; }
+.agent-bg-emerald { background: #34C759; }
+.agent-bg-amber   { background: #FF9F0A; }
+.agent-bg-sky     { background: #007AFF; }
+.agent-bg-rose    { background: #FF375F; }
+.agent-bg-teal    { background: #30B0C7; }
+.agent-bg-blue    { background: #007AFF; }
+.agent-bg-indigo  { background: #5E5CE6; }
 
 .ab-name {
   font-size: 24rpx;
   font-weight: 600;
-  color: #c4b5fd;
+  color: #5E5CE6;
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -465,9 +468,9 @@ page {
 
 .ab-typing {
   font-size: 22rpx;
-  color: #a78bfa;
+  color: #5E5CE6;
   padding: 1rpx 10rpx;
-  background: rgba(139, 92, 246, 0.18);
+  background: rgba(94, 92, 230, 0.16);
   border-radius: 8rpx;
   flex-shrink: 0;
   animation: typingPulse 1.4s ease-in-out infinite;
@@ -480,20 +483,20 @@ page {
 
 .ab-citations {
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
   flex-shrink: 0;
 }
 
 .ab-text {
   font-size: 28rpx;
   line-height: 1.6;
-  color: #f4f4f5;
+  color: #1C1C1E;
   word-break: break-word;
 }
 
 .ab-cursor {
   display: inline-block;
-  color: #a78bfa;
+  color: #5E5CE6;
   margin-left: 4rpx;
   animation: cursorBlink 1s steps(2, end) infinite;
 }
@@ -503,7 +506,7 @@ page {
   50.01%, 100% { opacity: 0; }
 }
 
-/* ===== 议程 banner (第 4 刀) ===== */
+/* ===== 议程 banner ===== */
 
 .banner {
   display: flex;
@@ -517,28 +520,28 @@ page {
 }
 
 .banner-info {
-  background: rgba(59, 130, 246, 0.08);
-  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(0, 122, 255, 0.06);
+  border-color: rgba(0, 122, 255, 0.30);
 }
-.banner-info .banner-title { color: #93c5fd; }
+.banner-info .banner-title { color: #007AFF; }
 
 .banner-warning {
-  background: rgba(245, 158, 11, 0.10);
-  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(255, 159, 10, 0.08);
+  border-color: rgba(255, 159, 10, 0.35);
 }
-.banner-warning .banner-title { color: #fcd34d; }
+.banner-warning .banner-title { color: #8B6914; }
 
 .banner-severe {
-  background: rgba(244, 63, 94, 0.12);
-  border-color: rgba(244, 63, 94, 0.4);
+  background: rgba(255, 59, 48, 0.08);
+  border-color: rgba(255, 59, 48, 0.40);
 }
-.banner-severe .banner-title { color: #fda4af; }
+.banner-severe .banner-title { color: #C9302C; }
 
 .banner-success {
-  background: rgba(16, 185, 129, 0.10);
-  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(52, 199, 89, 0.08);
+  border-color: rgba(52, 199, 89, 0.35);
 }
-.banner-success .banner-title { color: #6ee7b7; }
+.banner-success .banner-title { color: #0F9D58; }
 
 .banner-emoji {
   font-size: 44rpx;
@@ -565,22 +568,22 @@ page {
   font-size: 22rpx;
   font-weight: 500;
   padding: 2rpx 10rpx;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(60, 60, 67, 0.10);
   border-radius: 8rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   font-variant-numeric: tabular-nums;
 }
 
 .banner-text {
   font-size: 26rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   line-height: 1.5;
   word-break: break-word;
 }
 
 .banner-sub {
   font-size: 24rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
   margin-top: 6rpx;
 }
 
@@ -591,15 +594,15 @@ page {
   line-height: 48rpx;
   text-align: center;
   font-size: 36rpx;
-  color: #71717a;
+  color: #8E8E93;
   border-radius: 50%;
 }
 
 .banner-close:active {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(60, 60, 67, 0.08);
 }
 
-/* banner "立刻召唤" 按钮 (第 5 刀) */
+/* banner "立刻召唤" 按钮 */
 .banner-actions {
   margin-top: 12rpx;
 }
@@ -609,7 +612,7 @@ page {
   height: 60rpx;
   line-height: 60rpx;
   padding: 0 24rpx;
-  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  background: #5E5CE6;
   color: #fff;
   font-size: 26rpx;
   font-weight: 500;
@@ -621,29 +624,29 @@ page {
   border: none;
 }
 
-/* ===== Footer 召唤入口 — 紫色按钮 (第 5 刀) ===== */
+/* ===== Footer 召唤入口 — iOS blue ===== */
 
 .btn-primary-inline {
   flex: 1;
   height: 80rpx;
   line-height: 80rpx;
-  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  background: #007AFF;
   color: #fff;
   font-size: 28rpx;
   font-weight: 500;
   border-radius: 16rpx;
   margin: 0;
-  box-shadow: 0 4rpx 12rpx rgba(139, 92, 246, 0.3);
+  box-shadow: 0 3rpx 8rpx rgba(0, 122, 255, 0.20);
 }
 
 .btn-primary-inline::after { border: none; }
 
-/* ===== 召唤 sheet (第 5 刀) ===== */
+/* ===== 召唤 sheet ===== */
 
 .sheet-mask {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.35);
   z-index: 100;
   backdrop-filter: blur(4rpx);
 }
@@ -654,7 +657,7 @@ page {
   right: 0;
   bottom: 0;
   z-index: 101;
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 32rpx 32rpx 0 0;
   max-height: 80vh;
   transform: translateY(100%);
@@ -673,13 +676,13 @@ page {
   align-items: center;
   justify-content: space-between;
   padding: 24rpx 32rpx 16rpx;
-  border-bottom: 1rpx solid #27272a;
+  border-bottom: 1rpx solid rgba(60, 60, 67, 0.12);
 }
 
 .sheet-title {
   font-size: 32rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
 }
 
 .sheet-close {
@@ -688,12 +691,12 @@ page {
   line-height: 60rpx;
   text-align: center;
   font-size: 40rpx;
-  color: #71717a;
+  color: #8E8E93;
   border-radius: 50%;
 }
 
 .sheet-close:active {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(60, 60, 67, 0.08);
 }
 
 .sheet-body {
@@ -710,7 +713,7 @@ page {
 .sheet-section-title {
   padding: 12rpx 32rpx 8rpx;
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
   font-weight: 500;
 }
 
@@ -723,7 +726,7 @@ page {
 }
 
 .agent-row:active {
-  background: rgba(255, 255, 255, 0.04);
+  background: #F7F7F9;
 }
 
 .ar-dot {
@@ -740,7 +743,7 @@ page {
 
 .ar-name {
   font-size: 30rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -753,28 +756,28 @@ page {
   gap: 12rpx;
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 .ar-role-moderator {
   padding: 1rpx 8rpx;
-  background: rgba(245, 158, 11, 0.15);
-  color: #fcd34d;
+  background: rgba(255, 159, 10, 0.12);
+  color: #8B6914;
   border-radius: 6rpx;
   font-size: 20rpx;
 }
 
 .ar-role-not-invited {
   padding: 1rpx 8rpx;
-  background: rgba(115, 115, 130, 0.15);
-  color: #a1a1aa;
+  background: #E5E5EA;
+  color: #3C3C43;
   border-radius: 6rpx;
   font-size: 20rpx;
 }
 
 .ar-action {
   font-size: 24rpx;
-  color: #a78bfa;
+  color: #007AFF;
   flex-shrink: 0;
 }
 
@@ -784,11 +787,11 @@ page {
   padding: 40rpx 32rpx;
   text-align: center;
   font-size: 26rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 .sheet-error {
-  color: #fda4af;
+  color: #C9302C;
 }
 
 /* 跳到底部 fab */
@@ -798,15 +801,15 @@ page {
   bottom: 88rpx;
   transform: translateX(-50%);
   padding: 12rpx 24rpx;
-  background: rgba(139, 92, 246, 0.95);
+  background: rgba(0, 122, 255, 0.95);
   color: #fff;
   font-size: 24rpx;
   border-radius: 999rpx;
-  box-shadow: 0 8rpx 24rpx rgba(139, 92, 246, 0.4);
+  box-shadow: 0 6rpx 16rpx rgba(0, 122, 255, 0.30);
   z-index: 10;
 }
 
-/* ===== 录音控制条 (第 3 刀) — 固定底部, ongoing 时显 ===== */
+/* ===== 录音控制条 — 固定底部, ongoing 时显 ===== */
 
 .mic-bar {
   position: fixed;
@@ -819,8 +822,8 @@ page {
   justify-content: space-between;
   gap: 20rpx;
   padding: 20rpx 32rpx;
-  background: rgba(15, 15, 18, 0.96);
-  border-top: 1rpx solid #27272a;
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1rpx solid rgba(60, 60, 67, 0.12);
   backdrop-filter: blur(8rpx);
 }
 
@@ -837,24 +840,24 @@ page {
   height: 20rpx;
   border-radius: 50%;
   flex-shrink: 0;
-  background: #52525b;
+  background: #C7C7CC;
 }
 
-.mic-dot-idle { background: #52525b; }
+.mic-dot-idle { background: #C7C7CC; }
 .mic-dot-starting,
 .mic-dot-stopping {
-  background: #fcd34d;
+  background: #FF9F0A;
   animation: micPulse 1.2s ease-in-out infinite;
 }
 .mic-dot-recording {
-  background: #f43f5e;
+  background: #FF3B30;
   animation: micPulse 1.0s ease-in-out infinite;
-  box-shadow: 0 0 12rpx rgba(244, 63, 94, 0.6);
+  box-shadow: 0 0 12rpx rgba(255, 59, 48, 0.50);
 }
 .mic-dot-paused {
-  background: #a78bfa;
+  background: #5E5CE6;
 }
-.mic-dot-error { background: #f43f5e; }
+.mic-dot-error { background: #FF3B30; }
 
 @keyframes micPulse {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -863,14 +866,14 @@ page {
 
 .mic-text {
   font-size: 26rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mic-text-err { color: #fda4af; }
+.mic-text-err { color: #C9302C; }
 
 .mic-actions {
   display: flex;
@@ -893,7 +896,7 @@ page {
 }
 
 .btn-mic-start {
-  background: linear-gradient(135deg, #10b981, #059669);
+  background: #34C759;
   color: #fff;
 }
 
@@ -902,15 +905,15 @@ page {
 }
 
 .btn-mic-stop {
-  background: linear-gradient(135deg, #f43f5e, #e11d48);
+  background: #FF3B30;
   color: #fff;
 }
 
 .btn-mic-mute,
 .btn-mic-resume {
-  background: #27272a;
-  color: #e4e4e7;
-  border: 1rpx solid #3f3f46;
+  background: #F7F7F9;
+  color: #1C1C1E;
+  border: 1rpx solid #D1D1D6;
 }
 
 /* 微信 button 默认有 border + padding, 去掉 */

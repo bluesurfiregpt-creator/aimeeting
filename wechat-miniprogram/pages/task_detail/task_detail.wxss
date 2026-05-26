@@ -1,8 +1,8 @@
-/* pages/task_detail/task_detail.wxss — v27.2 任务详情 */
+/* pages/task_detail/task_detail.wxss — v1.4.0 Saga F 任务详情 (iOS 浅色) */
 
 page {
-  background: #0a0a0c;
-  color: #e4e4e7;
+  background: #F2F2F7;
+  color: #1C1C1E;
   font-size: 28rpx;
   height: 100vh;
 }
@@ -16,7 +16,7 @@ page {
 
 /* ============ Skeleton / Error ============ */
 .sk {
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   margin: 0 32rpx 16rpx;
   animation: sk-pulse 1.4s ease-in-out infinite;
@@ -32,16 +32,16 @@ page {
   padding: 100rpx 48rpx;
   text-align: center;
 }
-.centered-title { font-size: 32rpx; color: #fafafa; }
-.centered-body { margin-top: 12rpx; font-size: 26rpx; color: #a1a1aa; }
+.centered-title { font-size: 32rpx; color: #1C1C1E; }
+.centered-body { margin-top: 12rpx; font-size: 26rpx; color: #8E8E93; }
 .btn-ghost {
   margin-top: 32rpx;
   display: inline-block;
   padding: 20rpx 48rpx;
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
   border-radius: 24rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   font-size: 28rpx;
 }
 
@@ -56,21 +56,22 @@ page {
   margin: 28rpx 4rpx 12rpx;
   font-size: 26rpx;
   font-weight: 500;
-  color: #d4d4d8;
+  color: #3C3C43;
 }
 
 /* ============ 通用卡 ============ */
 .card {
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   padding: 28rpx;
   margin-bottom: 12rpx;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 
 /* ============ Header ============ */
 .task-content {
   font-size: 32rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   line-height: 1.5;
 }
 .chip-row {
@@ -82,13 +83,13 @@ page {
 .source-link {
   margin-top: 20rpx;
   font-size: 24rpx;
-  color: #a78bfa;
+  color: #007AFF;
 }
 .source-link-hover {
   opacity: 0.6;
 }
 
-/* ============ Badge ============ */
+/* ============ Badge (iOS 浅色 tinted) ============ */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -97,13 +98,13 @@ page {
   font-size: 22rpx;
   font-weight: 500;
 }
-.tone-violet  { background: rgba(139, 92, 246, 0.15); color: #c4b5fd; }
-.tone-amber   { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
-.tone-rose    { background: rgba(244, 63, 94, 0.15); color: #fda4af; }
-.tone-cyan    { background: rgba(6, 182, 212, 0.15); color: #67e8f9; }
-.tone-emerald { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
-.tone-sky     { background: rgba(14, 165, 233, 0.15); color: #7dd3fc; }
-.tone-zinc    { background: #27272a; color: #a1a1aa; }
+.tone-violet  { background: rgba(94, 92, 230, 0.12);  color: #5E5CE6; }
+.tone-amber   { background: rgba(255, 159, 10, 0.12); color: #8B6914; }
+.tone-rose    { background: rgba(255, 59, 48, 0.10);  color: #C9302C; }
+.tone-cyan    { background: rgba(48, 176, 199, 0.12); color: #0E7C8E; }
+.tone-emerald { background: rgba(52, 199, 89, 0.12);  color: #0F9D58; }
+.tone-sky     { background: rgba(0, 122, 255, 0.10);  color: #007AFF; }
+.tone-zinc    { background: #E5E5EA; color: #3C3C43; }
 
 /* ============ Insight 卡 ============ */
 .insight-head {
@@ -113,38 +114,38 @@ page {
 }
 .insight-agent {
   font-size: 24rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
 }
 .insight-content {
   margin-top: 14rpx;
   font-size: 28rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   line-height: 1.55;
 }
 .insight-evidence {
   margin-top: 14rpx;
   padding: 16rpx 20rpx;
-  background: rgba(255, 255, 255, 0.03);
-  border-left: 4rpx solid #3f3f46;
+  background: #F7F7F9;
+  border-left: 4rpx solid #D1D1D6;
   border-radius: 12rpx;
   font-size: 24rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
   line-height: 1.5;
 }
 
 /* ============ 实录依据 ============ */
 .evidence-quote {
-  border-left: 6rpx solid #52525b;
+  border-left: 6rpx solid #C7C7CC;
   padding-left: 20rpx;
   font-size: 28rpx;
   font-style: italic;
-  color: #e4e4e7;
+  color: #1C1C1E;
   line-height: 1.6;
 }
 .evidence-lines {
   margin-top: 20rpx;
   padding-top: 20rpx;
-  border-top: 2rpx solid #27272a;
+  border-top: 2rpx solid #E5E5EA;
 }
 .ev-line {
   margin-bottom: 16rpx;
@@ -155,30 +156,30 @@ page {
 .ev-min {
   flex-shrink: 0;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
   font-variant-numeric: tabular-nums;
 }
 .ev-speaker {
   flex-shrink: 0;
   font-size: 24rpx;
   font-weight: 500;
-  color: #a1a1aa;
+  color: #3C3C43;
 }
 .ev-text {
   flex: 1;
   font-size: 26rpx;
-  color: #d4d4d8;
+  color: #1C1C1E;
   line-height: 1.5;
 }
 
 /* ============ 评论 ============ */
 .comment-empty {
-  border: 2rpx dashed #3f3f46;
+  border: 2rpx dashed #D1D1D6;
   border-radius: 16rpx;
   padding: 36rpx 0;
   text-align: center;
   font-size: 26rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 .comment-card {
   padding: 24rpx 28rpx;
@@ -196,21 +197,21 @@ page {
 .comment-author {
   font-size: 26rpx;
   font-weight: 500;
-  color: #fafafa;
+  color: #1C1C1E;
 }
 .comment-when {
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 .comment-del {
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
   padding: 4rpx 8rpx;
 }
 .comment-content {
   margin-top: 12rpx;
   font-size: 28rpx;
-  color: #d4d4d8;
+  color: #3C3C43;
   line-height: 1.6;
   white-space: pre-wrap;
 }
@@ -224,22 +225,22 @@ page {
   align-items: flex-end;
   gap: 16rpx;
   padding: 16rpx 32rpx;
-  background: #0e0e10;
-  border-top: 2rpx solid #1f1f23;
+  background: #FFFFFF;
+  border-top: 1rpx solid rgba(60, 60, 67, 0.12);
 }
 .comment-input {
   flex: 1;
   min-height: 64rpx;
   max-height: 200rpx;
   padding: 16rpx 20rpx;
-  background: #18181b;
-  border: 2rpx solid #27272a;
+  background: #F7F7F9;
+  border: 2rpx solid #E5E5EA;
   border-radius: 18rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   font-size: 28rpx;
   box-sizing: border-box;
 }
-.ph { color: #52525b; }
+.ph { color: #C7C7CC; }
 .comment-send {
   flex-shrink: 0;
   height: 72rpx;
@@ -247,13 +248,13 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  background: #007AFF;
   color: #fff;
   font-size: 28rpx;
   font-weight: 500;
   border-radius: 18rpx;
 }
 .comment-send-off {
-  background: #27272a;
-  color: #52525b;
+  background: #E5E5EA;
+  color: #C7C7CC;
 }

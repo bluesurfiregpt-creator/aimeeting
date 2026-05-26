@@ -1,10 +1,9 @@
-/* custom-tab-bar/index.wxss — v27.2 自定义 tabBar
-   配色对齐各页 navbar: bg 跟 page bg #0a0a0c 一致 (无白线), active 浅紫 */
+/* custom-tab-bar/index.wxss — v1.4.0 Saga F 自定义 tabBar (iOS 浅色)
+   配色对齐 MR_COLORS: bg 跟 page #F2F2F7 一致, active iOS blue */
 
 .tabbar {
   display: flex;
-  background: #0a0a0c;
-  /* 无 border-top — 之前用户反馈那是"白色缝隙", bg 跟页面一致即可 */
+  background: #F2F2F7;
   padding-top: 6rpx;
 }
 
@@ -15,7 +14,7 @@
   align-items: center;
   justify-content: center;
   padding: 8rpx 0 10rpx;
-  color: #71717a;
+  color: #8E8E93;
   transition: color 0.18s ease;
 }
 
@@ -37,7 +36,7 @@
 }
 
 .tab-on {
-  color: #c4b5fd;
+  color: #007AFF;
 }
 .tab-on .tab-emoji {
   opacity: 1;

@@ -1,8 +1,8 @@
-/* pages/insights/insights.wxss — v27.0-mobile S4 */
+/* pages/insights/insights.wxss — v1.4.0 Saga F (iOS 浅色) */
 
 page {
-  background: #0a0a0c;
-  color: #e4e4e7;
+  background: #F2F2F7;
+  color: #1C1C1E;
   font-size: 28rpx;
   height: 100vh;
 }
@@ -22,14 +22,14 @@ page {
 .hd-title {
   font-size: 52rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   line-height: 1;
   letter-spacing: -0.5rpx;
 }
 .hd-segment {
   margin-top: 32rpx;
   display: flex;
-  background: rgba(24, 24, 27, 0.6);
+  background: #E5E5EA;
   border-radius: 24rpx;
   padding: 8rpx;
 }
@@ -41,24 +41,24 @@ page {
   justify-content: center;
   gap: 8rpx;
   border-radius: 18rpx;
-  color: #d4d4d8;
+  color: #3C3C43;
   transition: background 0.2s ease, color 0.2s ease;
 }
 .seg-label { font-size: 28rpx; }
 .seg-count {
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
   font-variant-numeric: tabular-nums;
 }
-.seg-count-warn { color: #fcd34d; }
+.seg-count-warn { color: #B8860B; }
 .seg-on {
-  background: #3f3f46;
-  color: #fafafa;
+  background: #FFFFFF;
+  color: #1C1C1E;
   font-weight: 500;
-  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.2);
+  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.06);
 }
-.seg-on .seg-count { color: #d4d4d8; }
-.seg-on .seg-count-warn { color: #fcd34d; }
+.seg-on .seg-count { color: #3C3C43; }
+.seg-on .seg-count-warn { color: #B8860B; }
 
 /* ============ Body ============ */
 .body {
@@ -70,12 +70,12 @@ page {
 .sub-hint {
   padding: 0 4rpx 16rpx;
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 /* ============ Skeleton ============ */
 .sk {
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   margin-bottom: 16rpx;
   animation: sk-pulse 1.4s ease-in-out infinite;
@@ -91,7 +91,7 @@ page {
 .empty-card {
   margin-top: 32rpx;
   padding: 80rpx 32rpx;
-  border: 2rpx dashed #3f3f46;
+  border: 2rpx dashed #D1D1D6;
   border-radius: 24rpx;
   text-align: center;
 }
@@ -99,12 +99,12 @@ page {
 .empty-title {
   margin-top: 24rpx;
   font-size: 30rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
 }
 .empty-body {
   margin-top: 12rpx;
   font-size: 26rpx;
-  color: #71717a;
+  color: #8E8E93;
   line-height: 1.6;
   padding: 0 8rpx;
 }
@@ -112,23 +112,23 @@ page {
   padding: 80rpx 32rpx;
   text-align: center;
 }
-.centered-title { font-size: 32rpx; color: #fafafa; }
-.centered-body { margin-top: 12rpx; font-size: 26rpx; color: #a1a1aa; }
+.centered-title { font-size: 32rpx; color: #1C1C1E; }
+.centered-body { margin-top: 12rpx; font-size: 26rpx; color: #8E8E93; }
 .btn-ghost {
   margin-top: 32rpx;
   display: inline-block;
   padding: 20rpx 48rpx;
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
   border-radius: 24rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   font-size: 28rpx;
 }
 
 /* ============ Snapshot row (议题聚合) ============ */
 .topic-row {
-  background: #18181b;
-  border: 2rpx solid #27272a;
+  background: #FFFFFF;
+  border: 2rpx solid #E5E5EA;
   border-radius: 20rpx;
   padding: 24rpx 28rpx;
   margin-bottom: 12rpx;
@@ -136,13 +136,13 @@ page {
 }
 .row-hover {
   transform: scale(0.985);
-  background: #1f1f23;
+  background: #F7F7F9;
 }
 .topic-head { display: flex; align-items: center; }
 .topic-title {
   flex: 1;
   font-size: 28rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -151,12 +151,12 @@ page {
 .topic-meta {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 .topic-preview {
   margin-top: 10rpx;
   font-size: 26rpx;
-  color: #d4d4d8;
+  color: #3C3C43;
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -166,10 +166,11 @@ page {
 
 /* ============ Review card (full) ============ */
 .review-card {
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   padding: 28rpx;
   margin-bottom: 16rpx;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 .review-head {
   display: flex;
@@ -179,41 +180,41 @@ page {
 }
 .review-agent {
   font-size: 24rpx;
-  color: #d4d4d8;
+  color: #3C3C43;
 }
 .review-when {
   margin-left: auto;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 .review-content {
   margin-top: 16rpx;
   font-size: 30rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   line-height: 1.5;
 }
 .review-evidence {
   margin-top: 16rpx;
   padding: 16rpx 20rpx;
-  background: rgba(255, 255, 255, 0.03);
-  border-left: 4rpx solid #3f3f46;
+  background: #F7F7F9;
+  border-left: 4rpx solid #D1D1D6;
   border-radius: 12rpx;
 }
 .ev-label {
   display: block;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
   margin-bottom: 6rpx;
 }
 .ev-text {
   font-size: 24rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
   line-height: 1.5;
 }
 .review-source {
   margin-top: 14rpx;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 .review-cta {
   margin-top: 24rpx;
@@ -235,22 +236,22 @@ page {
 }
 .cta-btn::after { border: none; }
 .cta-primary {
-  background: linear-gradient(135deg, #10b981, #059669);
+  background: #34C759;
   color: #fff;
-  box-shadow: 0 6rpx 16rpx rgba(16, 185, 129, 0.25);
+  box-shadow: 0 4rpx 12rpx rgba(52, 199, 89, 0.20);
 }
 .cta-primary-hover {
   transform: scale(0.97);
-  box-shadow: 0 2rpx 8rpx rgba(16, 185, 129, 0.15);
+  box-shadow: 0 1rpx 4rpx rgba(52, 199, 89, 0.15);
 }
 .cta-secondary {
-  background: #27272a;
-  color: #d4d4d8;
-  border: 2rpx solid #3f3f46;
+  background: #FFFFFF;
+  color: #1C1C1E;
+  border: 2rpx solid #D1D1D6;
 }
 .cta-secondary-hover {
   transform: scale(0.97);
-  background: #1f1f23;
+  background: #F7F7F9;
 }
 .cta-busy {
   opacity: 0.55;
@@ -259,11 +260,12 @@ page {
 
 /* ============ Memory card ============ */
 .memory-card {
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   padding: 24rpx 28rpx;
   margin-bottom: 12rpx;
   transition: transform 0.15s ease, background 0.15s ease;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 .memory-head {
   display: flex;
@@ -271,18 +273,18 @@ page {
 }
 .mem-stars {
   font-size: 22rpx;
-  color: #fcd34d;
+  color: #FF9F0A;
   letter-spacing: 2rpx;
 }
 .mem-when {
   margin-left: auto;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 .memory-content {
   margin-top: 12rpx;
   font-size: 28rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   line-height: 1.55;
   display: -webkit-box;
   -webkit-line-clamp: 4;
@@ -292,15 +294,15 @@ page {
 .memory-agents {
   margin-top: 12rpx;
   font-size: 22rpx;
-  color: rgba(196, 181, 253, 0.85);
+  color: #5E5CE6;
 }
 .memory-source {
   margin-top: 12rpx;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
-/* ============ Badge ============ */
+/* ============ Badge (iOS 浅色 tinted) ============ */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -309,12 +311,12 @@ page {
   font-size: 22rpx;
   font-weight: 500;
 }
-.tone-violet  { background: rgba(139, 92, 246, 0.15); color: #c4b5fd; }
-.tone-amber   { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
-.tone-rose    { background: rgba(244, 63, 94, 0.15); color: #fda4af; }
-.tone-cyan    { background: rgba(6, 182, 212, 0.15); color: #67e8f9; }
-.tone-emerald { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
-.tone-zinc    { background: #27272a; color: #a1a1aa; }
+.tone-violet  { background: rgba(94, 92, 230, 0.12);  color: #5E5CE6; }
+.tone-amber   { background: rgba(255, 159, 10, 0.12); color: #8B6914; }
+.tone-rose    { background: rgba(255, 59, 48, 0.10);  color: #C9302C; }
+.tone-cyan    { background: rgba(48, 176, 199, 0.12); color: #0E7C8E; }
+.tone-emerald { background: rgba(52, 199, 89, 0.12);  color: #0F9D58; }
+.tone-zinc    { background: #E5E5EA; color: #3C3C43; }
 
 .bottom-pad { height: 80rpx; }
 
@@ -322,7 +324,7 @@ page {
 .navbar {
   flex-shrink: 0;
   display: flex;
-  background: #0a0a0c;
+  background: #F2F2F7;
   padding: 6rpx 0 0;
 }
 .nav-item {
@@ -332,7 +334,7 @@ page {
   align-items: center;
   justify-content: center;
   padding: 8rpx 0 10rpx;
-  color: #71717a;
+  color: #8E8E93;
   transition: color 0.2s ease;
 }
 .nav-emoji {
@@ -342,7 +344,7 @@ page {
   transition: opacity 0.2s ease;
 }
 .nav-label { margin-top: 6rpx; font-size: 22rpx; font-weight: 500; }
-.nav-on { color: #c4b5fd; }
+.nav-on { color: #007AFF; }
 .nav-on .nav-emoji { opacity: 1; }
 
 /* ============ 入场动效 ============ */

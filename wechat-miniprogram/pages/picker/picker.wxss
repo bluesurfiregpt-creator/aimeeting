@@ -1,8 +1,8 @@
-/* pages/picker/picker.wxss — v27.0-mobile P19-B */
+/* pages/picker/picker.wxss — v1.4.0 Saga F (iOS 浅色) */
 
 page {
-  background: #0a0a0c;
-  color: #e4e4e7;
+  background: #F2F2F7;
+  color: #1C1C1E;
   font-size: 28rpx;
 }
 
@@ -26,13 +26,13 @@ page {
 .hero-title {
   font-size: 40rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   margin-bottom: 16rpx;
 }
 
 .hero-body {
   font-size: 28rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
   line-height: 1.6;
   padding: 0 32rpx;
 }
@@ -40,8 +40,8 @@ page {
 .error {
   margin: 0 0 24rpx;
   padding: 16rpx 24rpx;
-  background: rgba(244, 63, 94, 0.12);
-  color: #fda4af;
+  background: rgba(255, 59, 48, 0.10);
+  color: #C9302C;
   border-radius: 16rpx;
   font-size: 26rpx;
 }
@@ -50,13 +50,13 @@ page {
   width: 100%;
   height: 96rpx;
   line-height: 96rpx;
-  background: linear-gradient(135deg, #10b981, #059669);
+  background: #34C759;
   color: #fff;
   font-size: 32rpx;
   font-weight: 500;
   border-radius: 24rpx;
   text-align: center;
-  box-shadow: 0 8rpx 24rpx rgba(16, 185, 129, 0.25);
+  box-shadow: 0 6rpx 16rpx rgba(52, 199, 89, 0.20);
 }
 
 .btn-primary[disabled] {
@@ -69,9 +69,9 @@ page {
   width: 100%;
   height: 96rpx;
   line-height: 96rpx;
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
-  color: #e4e4e7;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
+  color: #1C1C1E;
   font-size: 32rpx;
   border-radius: 24rpx;
   text-align: center;
@@ -83,7 +83,7 @@ page {
 
 .list-title {
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
   margin-bottom: 16rpx;
 }
 
@@ -92,15 +92,16 @@ page {
   align-items: center;
   justify-content: space-between;
   padding: 20rpx 24rpx;
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 16rpx;
   margin-bottom: 12rpx;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 
 .item-name {
   flex: 1;
   font-size: 28rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -109,7 +110,7 @@ page {
 
 .item-meta {
   font-size: 24rpx;
-  color: #6ee7b7;
+  color: #0F9D58;
   flex-shrink: 0;
 }
 
@@ -117,6 +118,6 @@ page {
   margin-top: 56rpx;
   text-align: center;
   font-size: 24rpx;
-  color: #6b7280;
+  color: #8E8E93;
   line-height: 1.6;
 }

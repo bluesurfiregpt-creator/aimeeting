@@ -1,10 +1,10 @@
-/* pages/create/create.wxss — N-3 第 1 刀 骨架 */
+/* pages/create/create.wxss — v1.4.0 Saga F (iOS 浅色) */
 
 page {
-  background: #0a0a0c;
-  color: #e4e4e7;
+  background: #F2F2F7;
+  color: #1C1C1E;
   font-size: 28rpx;
-  font-family: -apple-system, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  font-family: -apple-system, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
 }
 
 .container {
@@ -27,15 +27,15 @@ page {
 .state-title {
   font-size: 36rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   margin-bottom: 16rpx;
 }
 
 .state-body {
   font-size: 26rpx;
   line-height: 1.6;
-  color: #71717a;
-  background: #18181b;
+  color: #8E8E93;
+  background: #FFFFFF;
   padding: 24rpx;
   border-radius: 16rpx;
   margin-bottom: 24rpx;
@@ -46,10 +46,10 @@ page {
   width: 100%;
   min-height: 160rpx;
   padding: 20rpx;
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
   border-radius: 16rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   font-size: 24rpx;
   font-family: ui-monospace, monospace;
   margin-bottom: 16rpx;
@@ -60,10 +60,10 @@ page {
   width: 100%;
   height: 80rpx;
   padding: 0 20rpx;
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
   border-radius: 16rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   font-size: 24rpx;
   margin-bottom: 24rpx;
   box-sizing: border-box;
@@ -73,13 +73,13 @@ page {
   margin: 48rpx 0 24rpx;
   text-align: center;
   font-size: 22rpx;
-  color: #52525b;
+  color: #C7C7CC;
 }
 
 /* ===== 通用按钮 ===== */
 
 .btn-primary {
-  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  background: #007AFF;
   color: #fff;
   border-radius: 16rpx;
   font-weight: 500;
@@ -93,9 +93,9 @@ page {
 }
 
 .btn-secondary {
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
-  color: #e4e4e7;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
+  color: #1C1C1E;
   border-radius: 16rpx;
   font-size: 28rpx;
 }
@@ -120,24 +120,24 @@ page {
 
 .section-label {
   font-size: 26rpx;
-  color: #d4d4d8;
+  color: #3C3C43;
   font-weight: 500;
   margin-bottom: 12rpx;
 }
 
 .section-hint {
   font-size: 22rpx;
-  color: #c4b5fd;
+  color: #007AFF;
   margin-left: 8rpx;
 }
 
 .section-hint-mute {
-  color: #71717a;
+  color: #8E8E93;
 }
 
 .section-action {
   font-size: 26rpx;
-  color: #a78bfa;
+  color: #007AFF;
   font-weight: 500;
 }
 
@@ -151,25 +151,25 @@ page {
   width: 100%;
   height: 88rpx;
   padding: 0 24rpx;
-  background: #18181b;
-  border: 2rpx solid #27272a;
+  background: #FFFFFF;
+  border: 2rpx solid #E5E5EA;
   border-radius: 16rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   font-size: 30rpx;
   box-sizing: border-box;
 }
 
 .input-line:focus {
-  border-color: rgba(139, 92, 246, 0.5);
+  border-color: #007AFF;
 }
 
 .textarea {
   width: 100%;
   padding: 20rpx 24rpx;
-  background: #18181b;
-  border: 2rpx solid #27272a;
+  background: #FFFFFF;
+  border: 2rpx solid #E5E5EA;
   border-radius: 16rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   font-size: 28rpx;
   line-height: 1.55;
   box-sizing: border-box;
@@ -177,14 +177,14 @@ page {
 }
 
 .textarea-highlight {
-  border-color: rgba(139, 92, 246, 0.4);
+  border-color: rgba(0, 122, 255, 0.4);
 }
 
 .char-counter {
   text-align: right;
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: #52525b;
+  color: #C7C7CC;
   font-variant-numeric: tabular-nums;
 }
 
@@ -201,24 +201,24 @@ page {
   align-items: flex-start;
   gap: 16rpx;
   padding: 20rpx;
-  background: #18181b;
-  border: 2rpx solid #27272a;
+  background: #FFFFFF;
+  border: 2rpx solid #E5E5EA;
   border-radius: 16rpx;
 }
 
 .mode-row:active {
-  background: #20202a;
+  background: #F7F7F9;
 }
 
 .mode-row-active {
-  border-color: rgba(139, 92, 246, 0.5);
-  background: rgba(139, 92, 246, 0.08);
+  border-color: #007AFF;
+  background: rgba(0, 122, 255, 0.06);
 }
 
 .mode-radio {
   width: 40rpx;
   height: 40rpx;
-  border: 4rpx solid #52525b;
+  border: 4rpx solid #C7C7CC;
   border-radius: 50%;
   flex-shrink: 0;
   margin-top: 4rpx;
@@ -228,13 +228,13 @@ page {
 }
 
 .mode-row-active .mode-radio {
-  border-color: #a78bfa;
+  border-color: #007AFF;
 }
 
 .mode-radio-inner {
   width: 20rpx;
   height: 20rpx;
-  background: #a78bfa;
+  background: #007AFF;
   border-radius: 50%;
 }
 
@@ -245,14 +245,14 @@ page {
 
 .mode-title {
   font-size: 30rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   font-weight: 500;
   margin-bottom: 6rpx;
 }
 
 .mode-body {
   font-size: 24rpx;
-  color: #a1a1aa;
+  color: #8E8E93;
   line-height: 1.55;
 }
 
@@ -266,8 +266,8 @@ page {
 
 .agenda-row {
   padding: 16rpx 20rpx;
-  background: #18181b;
-  border: 2rpx solid #27272a;
+  background: #FFFFFF;
+  border: 2rpx solid #E5E5EA;
   border-radius: 16rpx;
 }
 
@@ -279,7 +279,7 @@ page {
 
 .ar-idx {
   font-size: 26rpx;
-  color: #71717a;
+  color: #8E8E93;
   font-weight: 500;
   flex-shrink: 0;
   width: 40rpx;
@@ -289,7 +289,7 @@ page {
   flex: 1;
   height: 64rpx;
   background: transparent;
-  color: #fafafa;
+  color: #1C1C1E;
   font-size: 28rpx;
   border: none;
 }
@@ -301,13 +301,13 @@ page {
   line-height: 56rpx;
   text-align: center;
   font-size: 36rpx;
-  color: #71717a;
+  color: #8E8E93;
   border-radius: 50%;
 }
 
 .ar-remove:active {
-  background: rgba(244, 63, 94, 0.15);
-  color: #fda4af;
+  background: rgba(255, 59, 48, 0.10);
+  color: #FF3B30;
 }
 
 .ar-bottom {
@@ -317,26 +317,26 @@ page {
 
 .ar-duration {
   font-size: 24rpx;
-  color: #a1a1aa;
+  color: #8E8E93;
   padding: 6rpx 0;
 }
 
 .ar-duration:active {
-  color: #c4b5fd;
+  color: #007AFF;
 }
 
 /* ===== 占位 section (留后续刀) ===== */
 
 .section-placeholder {
   padding: 24rpx;
-  background: #18181b;
-  border: 2rpx dashed #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx dashed #D1D1D6;
   border-radius: 16rpx;
 }
 
 .placeholder-text {
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
   font-style: italic;
 }
 
@@ -346,16 +346,15 @@ page {
   margin-top: 16rpx;
 }
 
-/* v27.2: AI 拆议程 按钮 — 一直显, 改全宽 更醒目 (之前 inline 小药丸 不好找) */
 .btn-ai-decompose {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
   height: 84rpx;
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.22), rgba(99, 102, 241, 0.14));
-  border: 2rpx solid rgba(139, 92, 246, 0.45);
-  color: #c4b5fd;
+  background: rgba(94, 92, 230, 0.10);
+  border: 2rpx solid rgba(94, 92, 230, 0.35);
+  color: #5E5CE6;
   font-size: 28rpx;
   font-weight: 500;
   border-radius: 20rpx;
@@ -365,21 +364,20 @@ page {
 
 .btn-ai-decompose::after { border: none; }
 
-/* brief 不够 10 字 — 灰置 */
 .btn-ai-disabled {
-  background: #18181b;
-  border-color: #27272a;
-  color: #52525b;
+  background: #F7F7F9;
+  border-color: #E5E5EA;
+  color: #C7C7CC;
 }
 
 .btn-ai-decompose[disabled] {
-  opacity: 1;  /* 用 .btn-ai-disabled 控制 灰, 不靠 opacity */
+  opacity: 1;
 }
 
 .ai-decompose-hint {
   margin-top: 10rpx;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
   line-height: 1.5;
 }
 
@@ -388,11 +386,11 @@ page {
 .ar-note-toggle {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 .ar-note-toggle:active {
-  color: #a78bfa;
+  color: #007AFF;
 }
 
 .ar-note-block {
@@ -408,26 +406,26 @@ page {
 
 .ar-note-label {
   font-size: 22rpx;
-  color: #a1a1aa;
+  color: #8E8E93;
 }
 
 .ar-note-collapse {
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 .ar-note-collapse:active {
-  color: #fda4af;
+  color: #FF3B30;
 }
 
 .ar-note-textarea {
   width: 100%;
   min-height: 80rpx;
   padding: 12rpx 16rpx;
-  background: #0f0f12;
-  border: 1rpx solid #27272a;
+  background: #F7F7F9;
+  border: 1rpx solid #E5E5EA;
   border-radius: 12rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   font-size: 24rpx;
   line-height: 1.5;
   box-sizing: border-box;
@@ -437,13 +435,13 @@ page {
 
 .section-loading {
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
   padding: 8rpx 0;
 }
 
 .section-hint-line {
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
   padding: 4rpx 0;
   line-height: 1.5;
 }
@@ -460,23 +458,23 @@ page {
   align-items: center;
   gap: 8rpx;
   padding: 10rpx 18rpx;
-  background: #18181b;
-  border: 2rpx solid #27272a;
+  background: #FFFFFF;
+  border: 2rpx solid #E5E5EA;
   border-radius: 999rpx;
   font-size: 26rpx;
 }
 
 .chip:active {
-  background: #20202a;
+  background: #F7F7F9;
 }
 
 .chip-active {
-  border-color: rgba(139, 92, 246, 0.5);
-  background: rgba(139, 92, 246, 0.15);
+  border-color: #007AFF;
+  background: rgba(0, 122, 255, 0.08);
 }
 
 .chip-label {
-  color: #e4e4e7;
+  color: #1C1C1E;
   max-width: 200rpx;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -484,17 +482,17 @@ page {
 }
 
 .chip-active .chip-label {
-  color: #fafafa;
+  color: #1C1C1E;
 }
 
 .chip-sub {
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 .chip-check {
   font-size: 22rpx;
-  color: #a78bfa;
+  color: #007AFF;
   font-weight: 600;
 }
 
@@ -507,21 +505,21 @@ page {
 
 .chip-tag {
   padding: 1rpx 8rpx;
-  background: rgba(245, 158, 11, 0.15);
-  color: #fcd34d;
+  background: rgba(255, 159, 10, 0.12);
+  color: #8B6914;
   border-radius: 6rpx;
   font-size: 20rpx;
 }
 
-/* agent color 圆点 (跟 meeting 页保持一致) */
-.agent-bg-violet { background: #8b5cf6; }
-.agent-bg-emerald { background: #10b981; }
-.agent-bg-amber { background: #f59e0b; }
-.agent-bg-sky { background: #0ea5e9; }
-.agent-bg-rose { background: #f43f5e; }
-.agent-bg-teal { background: #14b8a6; }
-.agent-bg-blue { background: #3b82f6; }
-.agent-bg-indigo { background: #6366f1; }
+/* agent color 圆点 — iOS 系统色 */
+.agent-bg-violet  { background: #5E5CE6; }
+.agent-bg-emerald { background: #34C759; }
+.agent-bg-amber   { background: #FF9F0A; }
+.agent-bg-sky     { background: #007AFF; }
+.agent-bg-rose    { background: #FF375F; }
+.agent-bg-teal    { background: #30B0C7; }
+.agent-bg-blue    { background: #007AFF; }
+.agent-bg-indigo  { background: #5E5CE6; }
 
 /* ===== 第 3 刀: 附件 ===== */
 
@@ -547,20 +545,20 @@ page {
 }
 
 .btn-att-wechat {
-  background: rgba(16, 185, 129, 0.15);
-  color: #6ee7b7;
+  background: rgba(7, 193, 96, 0.10);
+  color: #07C160;
 }
 
 .btn-att-album {
-  background: rgba(59, 130, 246, 0.15);
-  color: #93c5fd;
+  background: rgba(0, 122, 255, 0.10);
+  color: #007AFF;
 }
 
 .att-uploading {
   margin-top: 8rpx;
   padding: 12rpx 16rpx;
-  background: rgba(139, 92, 246, 0.10);
-  color: #c4b5fd;
+  background: rgba(94, 92, 230, 0.10);
+  color: #5E5CE6;
   font-size: 24rpx;
   border-radius: 12rpx;
   text-align: center;
@@ -569,8 +567,8 @@ page {
 .att-error {
   margin-top: 8rpx;
   padding: 12rpx 16rpx;
-  background: rgba(244, 63, 94, 0.12);
-  color: #fda4af;
+  background: rgba(255, 59, 48, 0.10);
+  color: #C9302C;
   font-size: 24rpx;
   border-radius: 12rpx;
 }
@@ -587,8 +585,8 @@ page {
   align-items: flex-start;
   gap: 16rpx;
   padding: 16rpx;
-  background: #18181b;
-  border: 2rpx solid #27272a;
+  background: #FFFFFF;
+  border: 2rpx solid #E5E5EA;
   border-radius: 16rpx;
 }
 
@@ -606,7 +604,7 @@ page {
 
 .att-name {
   font-size: 26rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -622,7 +620,7 @@ page {
 }
 
 .att-size {
-  color: #71717a;
+  color: #8E8E93;
   font-variant-numeric: tabular-nums;
 }
 
@@ -633,24 +631,24 @@ page {
 }
 
 .att-tone-ready {
-  background: rgba(16, 185, 129, 0.15);
-  color: #6ee7b7;
+  background: rgba(52, 199, 89, 0.12);
+  color: #0F9D58;
 }
 
 .att-tone-extracting,
 .att-tone-pending {
-  background: rgba(139, 92, 246, 0.15);
-  color: #c4b5fd;
+  background: rgba(94, 92, 230, 0.12);
+  color: #5E5CE6;
 }
 
 .att-tone-skipped {
-  background: rgba(115, 115, 130, 0.15);
-  color: #a1a1aa;
+  background: #E5E5EA;
+  color: #3C3C43;
 }
 
 .att-tone-failed {
-  background: rgba(244, 63, 94, 0.15);
-  color: #fda4af;
+  background: rgba(255, 59, 48, 0.10);
+  color: #C9302C;
 }
 
 .att-delete {
@@ -659,20 +657,20 @@ page {
   line-height: 56rpx;
   text-align: center;
   font-size: 36rpx;
-  color: #71717a;
+  color: #8E8E93;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
 .att-delete:active {
-  background: rgba(244, 63, 94, 0.15);
-  color: #fda4af;
+  background: rgba(255, 59, 48, 0.10);
+  color: #FF3B30;
 }
 
 .att-hint {
   margin-top: 12rpx;
   font-size: 22rpx;
-  color: #52525b;
+  color: #C7C7CC;
   line-height: 1.55;
 }
 
@@ -681,8 +679,8 @@ page {
 .error-block {
   margin: 16rpx 0;
   padding: 16rpx 24rpx;
-  background: rgba(244, 63, 94, 0.12);
-  color: #fda4af;
+  background: rgba(255, 59, 48, 0.10);
+  color: #C9302C;
   border-radius: 12rpx;
   font-size: 26rpx;
 }
@@ -698,8 +696,8 @@ page {
   display: flex;
   gap: 16rpx;
   padding: 20rpx 32rpx;
-  background: rgba(15, 15, 18, 0.96);
-  border-top: 1rpx solid #27272a;
+  background: rgba(242, 242, 247, 0.96);
+  border-top: 1rpx solid rgba(60, 60, 67, 0.12);
   backdrop-filter: blur(8rpx);
 }
 

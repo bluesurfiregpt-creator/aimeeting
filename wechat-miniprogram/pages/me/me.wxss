@@ -1,8 +1,8 @@
-/* pages/me/me.wxss — v27.2 「我的」原生页 */
+/* pages/me/me.wxss — v1.4.0 Saga F「我的」原生页 (iOS 浅色) */
 
 page {
-  background: #0a0a0c;
-  color: #e4e4e7;
+  background: #F2F2F7;
+  color: #1C1C1E;
   font-size: 28rpx;
 }
 
@@ -17,7 +17,7 @@ page {
 
 /* ============ Skeleton ============ */
 .sk {
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   margin: 0 32rpx 24rpx;
   animation: sk-pulse 1.4s ease-in-out infinite;
@@ -35,16 +35,16 @@ page {
   padding: 100rpx 48rpx;
   text-align: center;
 }
-.centered-title { font-size: 32rpx; color: #fafafa; }
-.centered-body { margin-top: 12rpx; font-size: 26rpx; color: #a1a1aa; }
+.centered-title { font-size: 32rpx; color: #1C1C1E; }
+.centered-body { margin-top: 12rpx; font-size: 26rpx; color: #8E8E93; }
 .btn-ghost {
   margin-top: 32rpx;
   display: inline-block;
   padding: 20rpx 48rpx;
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
   border-radius: 24rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   font-size: 28rpx;
 }
 
@@ -53,16 +53,17 @@ page {
   display: flex;
   align-items: center;
   gap: 28rpx;
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 28rpx;
   padding: 36rpx 32rpx;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 .avatar {
   width: 112rpx;
   height: 112rpx;
   flex-shrink: 0;
   border-radius: 50%;
-  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  background: linear-gradient(135deg, #5E5CE6, #007AFF);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -77,7 +78,7 @@ page {
 .profile-name {
   font-size: 40rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -90,7 +91,7 @@ page {
 }
 .profile-account {
   font-size: 26rpx;
-  color: #a1a1aa;
+  color: #8E8E93;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -99,40 +100,41 @@ page {
 /* ============ 信息卡 ============ */
 .info-card {
   margin-top: 24rpx;
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   padding: 0 32rpx;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 .info-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 28rpx 0;
-  border-bottom: 2rpx solid #27272a;
+  border-bottom: 1rpx solid rgba(60, 60, 67, 0.12);
 }
 .info-row:last-child {
   border-bottom: none;
 }
 .info-row-hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: #F7F7F9;
 }
 .info-label {
   font-size: 28rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
 }
 .info-value {
   font-size: 28rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .info-arrow {
-  color: #71717a;
+  color: #C7C7CC;
 }
 
-/* ============ Badge ============ */
+/* ============ Badge (iOS 浅色 tinted) ============ */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -142,11 +144,11 @@ page {
   font-weight: 500;
   flex-shrink: 0;
 }
-.tone-violet  { background: rgba(139, 92, 246, 0.15); color: #c4b5fd; }
-.tone-amber   { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
-.tone-sky     { background: rgba(14, 165, 233, 0.15); color: #7dd3fc; }
-.tone-emerald { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
-.tone-zinc    { background: #27272a; color: #a1a1aa; }
+.tone-violet  { background: rgba(94, 92, 230, 0.12);  color: #5E5CE6; }
+.tone-amber   { background: rgba(255, 159, 10, 0.12); color: #8B6914; }
+.tone-sky     { background: rgba(0, 122, 255, 0.10);  color: #007AFF; }
+.tone-emerald { background: rgba(52, 199, 89, 0.12);  color: #0F9D58; }
+.tone-zinc    { background: #E5E5EA; color: #3C3C43; }
 
 /* ============ 退出登录 ============ */
 .logout-btn {
@@ -154,9 +156,9 @@ page {
   height: 96rpx;
   line-height: 96rpx;
   text-align: center;
-  border: 2rpx solid rgba(244, 63, 94, 0.3);
-  background: rgba(244, 63, 94, 0.06);
-  color: #fda4af;
+  border: 2rpx solid rgba(255, 59, 48, 0.30);
+  background: rgba(255, 59, 48, 0.06);
+  color: #FF3B30;
   font-size: 30rpx;
   font-weight: 500;
   border-radius: 24rpx;
@@ -164,12 +166,12 @@ page {
 }
 .logout-btn-hover {
   transform: scale(0.98);
-  background: rgba(244, 63, 94, 0.12);
+  background: rgba(255, 59, 48, 0.12);
 }
 
 .version {
   margin-top: 32rpx;
   text-align: center;
   font-size: 24rpx;
-  color: #52525b;
+  color: #C7C7CC;
 }

@@ -1,7 +1,8 @@
 {
   "navigationStyle": "custom",
   "navigationBarTitleText": "声纹库",
-  "backgroundColor": "#0a0a0c",
+  "backgroundColor": "#F2F2F7",
+  "backgroundTextStyle": "dark",
   "enablePullDownRefresh": false,
   "usingComponents": {}
 }

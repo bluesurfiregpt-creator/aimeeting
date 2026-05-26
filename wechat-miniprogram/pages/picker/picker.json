@@ -1,6 +1,7 @@
 {
   "navigationBarTitleText": "选会议资料",
-  "navigationBarBackgroundColor": "#0a0a0c",
-  "navigationBarTextStyle": "white",
-  "backgroundColor": "#0a0a0c"
+  "navigationBarBackgroundColor": "#FFFFFF",
+  "navigationBarTextStyle": "black",
+  "backgroundColor": "#F2F2F7",
+  "backgroundTextStyle": "dark"
 }

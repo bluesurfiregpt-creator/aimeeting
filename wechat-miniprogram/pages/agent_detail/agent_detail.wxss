@@ -1,8 +1,8 @@
-/* pages/agent_detail/agent_detail.wxss — v27.2 专家详情 */
+/* pages/agent_detail/agent_detail.wxss — v1.4.0 Saga F 专家详情 (iOS 浅色) */
 
 page {
-  background: #0a0a0c;
-  color: #e4e4e7;
+  background: #F2F2F7;
+  color: #1C1C1E;
   font-size: 28rpx;
   height: 100vh;
 }
@@ -16,7 +16,7 @@ page {
 
 /* ============ Skeleton / Error ============ */
 .sk {
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   margin: 0 32rpx 16rpx;
   animation: sk-pulse 1.4s ease-in-out infinite;
@@ -32,16 +32,16 @@ page {
   padding: 100rpx 48rpx;
   text-align: center;
 }
-.centered-title { font-size: 32rpx; color: #fafafa; }
-.centered-body { margin-top: 12rpx; font-size: 26rpx; color: #a1a1aa; }
+.centered-title { font-size: 32rpx; color: #1C1C1E; }
+.centered-body { margin-top: 12rpx; font-size: 26rpx; color: #8E8E93; }
 .btn-ghost {
   margin-top: 32rpx;
   display: inline-block;
   padding: 20rpx 48rpx;
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
   border-radius: 24rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   font-size: 28rpx;
 }
 
@@ -55,23 +55,25 @@ page {
 /* ============ 档案区 ============ */
 .profile {
   display: flex;
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   overflow: hidden;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 .profile-bar {
   width: 8rpx;
   flex-shrink: 0;
 }
-.bar-violet { background: #8b5cf6; }
-.bar-emerald { background: #10b981; }
-.bar-amber { background: #f59e0b; }
-.bar-sky { background: #0ea5e9; }
-.bar-rose { background: #f43f5e; }
-.bar-teal { background: #14b8a6; }
-.bar-blue { background: #3b82f6; }
-.bar-indigo { background: #6366f1; }
-.bar-zinc { background: #3f3f46; }
+/* AI 专家个人色 — iOS 系统色版 (bundle 渐变只取主色) */
+.bar-violet  { background: #5E5CE6; }
+.bar-emerald { background: #34C759; }
+.bar-amber   { background: #FF9F0A; }
+.bar-sky     { background: #007AFF; }
+.bar-rose    { background: #FF375F; }
+.bar-teal    { background: #30B0C7; }
+.bar-blue    { background: #007AFF; }
+.bar-indigo  { background: #5E5CE6; }
+.bar-zinc    { background: #C7C7CC; }
 
 .profile-body {
   flex: 1;
@@ -80,7 +82,7 @@ page {
 }
 .profile-sub {
   font-size: 26rpx;
-  color: #a1a1aa;
+  color: #8E8E93;
   margin-bottom: 16rpx;
 }
 .profile-stats {
@@ -95,24 +97,24 @@ page {
 .stat-num {
   font-size: 40rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   font-variant-numeric: tabular-nums;
 }
 .stat-label {
   font-size: 24rpx;
-  color: #a1a1aa;
+  color: #8E8E93;
 }
 .profile-active {
   margin-top: 16rpx;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 /* ============ Segment ============ */
 .segment {
   margin: 24rpx 0 16rpx;
   display: flex;
-  background: rgba(24, 24, 27, 0.6);
+  background: #E5E5EA;
   border-radius: 24rpx;
   padding: 8rpx;
 }
@@ -123,15 +125,15 @@ page {
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
-  color: #d4d4d8;
+  color: #3C3C43;
   border-radius: 18rpx;
   transition: background 0.2s ease, color 0.2s ease;
 }
 .seg-on {
-  background: #3f3f46;
-  color: #fafafa;
+  background: #FFFFFF;
+  color: #1C1C1E;
   font-weight: 500;
-  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.2);
+  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.06);
 }
 
 /* ============ 列表 / 卡片 ============ */
@@ -139,18 +141,19 @@ page {
   margin: 24rpx 4rpx 10rpx;
   font-size: 24rpx;
   font-weight: 500;
-  color: #a1a1aa;
+  color: #8E8E93;
 }
 .card {
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 20rpx;
   padding: 24rpx 28rpx;
   margin-bottom: 12rpx;
   transition: transform 0.15s ease, background 0.15s ease;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 .card-hover {
   transform: scale(0.985);
-  background: #1f1f23;
+  background: #F7F7F9;
 }
 .card-muted {
   opacity: 0.6;
@@ -164,47 +167,47 @@ page {
 }
 .row-date {
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 .row-title {
   margin-top: 12rpx;
   font-size: 30rpx;
   font-weight: 500;
-  color: #fafafa;
+  color: #1C1C1E;
   line-height: 1.45;
 }
 .row-title-muted {
-  color: #a1a1aa;
+  color: #8E8E93;
   text-decoration: line-through;
 }
 .row-extra {
   margin-top: 10rpx;
   font-size: 24rpx;
-  color: #c4b5fd;
+  color: #007AFF;
 }
 .row-extra-mute {
-  color: #71717a;
+  color: #8E8E93;
 }
 
 /* Insight 内容 */
 .insight-content {
   margin-top: 14rpx;
   font-size: 28rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   line-height: 1.55;
 }
 .insight-evidence {
   margin-top: 14rpx;
   padding: 16rpx 20rpx;
-  background: rgba(255, 255, 255, 0.03);
-  border-left: 4rpx solid #3f3f46;
+  background: #F7F7F9;
+  border-left: 4rpx solid #D1D1D6;
   border-radius: 12rpx;
   font-size: 24rpx;
-  color: #a1a1aa;
+  color: #8E8E93;
   line-height: 1.5;
 }
 
-/* ============ Badge ============ */
+/* ============ Badge (iOS 浅色 tinted) ============ */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -213,23 +216,23 @@ page {
   font-size: 22rpx;
   font-weight: 500;
 }
-.tone-violet  { background: rgba(139, 92, 246, 0.15); color: #c4b5fd; }
-.tone-amber   { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
-.tone-rose    { background: rgba(244, 63, 94, 0.15); color: #fda4af; }
-.tone-cyan    { background: rgba(6, 182, 212, 0.15); color: #67e8f9; }
-.tone-emerald { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
-.tone-sky     { background: rgba(14, 165, 233, 0.15); color: #7dd3fc; }
-.tone-zinc    { background: #27272a; color: #a1a1aa; }
+.tone-violet  { background: rgba(94, 92, 230, 0.12);  color: #5E5CE6; }
+.tone-amber   { background: rgba(255, 159, 10, 0.12); color: #8B6914; }
+.tone-rose    { background: rgba(255, 59, 48, 0.10);  color: #C9302C; }
+.tone-cyan    { background: rgba(48, 176, 199, 0.12); color: #0E7C8E; }
+.tone-emerald { background: rgba(52, 199, 89, 0.12);  color: #0F9D58; }
+.tone-sky     { background: rgba(0, 122, 255, 0.10);  color: #007AFF; }
+.tone-zinc    { background: #E5E5EA; color: #3C3C43; }
 
 /* ============ Empty ============ */
 .empty-hint {
   margin-top: 12rpx;
-  border: 2rpx dashed #3f3f46;
+  border: 2rpx dashed #D1D1D6;
   border-radius: 20rpx;
   padding: 48rpx 0;
   text-align: center;
   font-size: 26rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 .bottom-pad {

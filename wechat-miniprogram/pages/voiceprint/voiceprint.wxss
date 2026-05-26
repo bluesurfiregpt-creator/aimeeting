@@ -1,8 +1,8 @@
-/* pages/voiceprint/voiceprint.wxss — v27.2 声纹库 (workspace 共享) */
+/* pages/voiceprint/voiceprint.wxss — v1.4.0 Saga F 声纹库 (workspace 共享, iOS 浅色) */
 
 page {
-  background: #0a0a0c;
-  color: #e4e4e7;
+  background: #F2F2F7;
+  color: #1C1C1E;
   font-size: 28rpx;
   height: 100vh;
 }
@@ -16,7 +16,7 @@ page {
 
 /* ============ Skeleton ============ */
 .sk {
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   margin: 0 32rpx 16rpx;
   animation: sk-pulse 1.4s ease-in-out infinite;
@@ -33,16 +33,16 @@ page {
   padding: 100rpx 48rpx;
   text-align: center;
 }
-.centered-title { font-size: 32rpx; color: #fafafa; }
-.centered-body { margin-top: 12rpx; font-size: 26rpx; color: #a1a1aa; }
+.centered-title { font-size: 32rpx; color: #1C1C1E; }
+.centered-body { margin-top: 12rpx; font-size: 26rpx; color: #8E8E93; }
 .btn-ghost {
   margin-top: 32rpx;
   display: inline-block;
   padding: 20rpx 48rpx;
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
   border-radius: 24rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   font-size: 28rpx;
 }
 
@@ -55,21 +55,22 @@ page {
 
 /* ============ 概览 ============ */
 .summary {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.14), rgba(99, 102, 241, 0.05));
-  border: 2rpx solid rgba(139, 92, 246, 0.22);
+  background: #FFFFFF;
+  border: 2rpx solid rgba(94, 92, 230, 0.20);
   border-radius: 28rpx;
   padding: 32rpx;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 .summary-num {
   font-size: 56rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   font-variant-numeric: tabular-nums;
 }
 .summary-text {
   margin-top: 12rpx;
   font-size: 24rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
   line-height: 1.6;
 }
 
@@ -81,17 +82,17 @@ page {
   align-items: center;
   justify-content: center;
   gap: 12rpx;
-  background: rgba(139, 92, 246, 0.1);
-  border: 2rpx solid rgba(139, 92, 246, 0.35);
+  background: rgba(0, 122, 255, 0.06);
+  border: 2rpx solid rgba(0, 122, 255, 0.30);
   border-radius: 24rpx;
-  color: #c4b5fd;
+  color: #007AFF;
   font-size: 30rpx;
   font-weight: 500;
   transition: transform 0.15s ease, background 0.15s ease;
 }
 .add-new-hover {
   transform: scale(0.985);
-  background: rgba(139, 92, 246, 0.18);
+  background: rgba(0, 122, 255, 0.14);
 }
 .add-new-plus {
   font-size: 40rpx;
@@ -101,10 +102,10 @@ page {
 .member-hint {
   margin-top: 24rpx;
   padding: 20rpx 24rpx;
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 16rpx;
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
   line-height: 1.6;
 }
 
@@ -112,17 +113,18 @@ page {
 .list-label {
   margin: 32rpx 0 12rpx 4rpx;
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 .user-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16rpx;
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 20rpx;
   padding: 24rpx 28rpx;
   margin-bottom: 12rpx;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 .user-meta {
   flex: 1;
@@ -131,7 +133,7 @@ page {
 .user-name {
   font-size: 30rpx;
   font-weight: 500;
-  color: #fafafa;
+  color: #1C1C1E;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -140,8 +142,8 @@ page {
   margin-top: 6rpx;
   font-size: 22rpx;
 }
-.status-on  { color: #6ee7b7; }
-.status-off { color: #71717a; }
+.status-on  { color: #0F9D58; }
+.status-off { color: #8E8E93; }
 
 .user-actions {
   display: flex;
@@ -155,12 +157,13 @@ page {
   font-weight: 500;
 }
 .row-btn-primary {
-  background: rgba(139, 92, 246, 0.16);
-  color: #c4b5fd;
+  background: rgba(0, 122, 255, 0.10);
+  color: #007AFF;
 }
 .row-btn-ghost {
-  background: #27272a;
-  color: #a1a1aa;
+  background: #F7F7F9;
+  color: #3C3C43;
+  border: 2rpx solid #E5E5EA;
 }
 
 .bottom-pad {
@@ -172,7 +175,7 @@ page {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -183,7 +186,7 @@ page {
 /* ============ 输姓名 dialog ============ */
 .dialog {
   width: 100%;
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 28rpx;
   padding: 36rpx 32rpx;
   box-sizing: border-box;
@@ -191,26 +194,26 @@ page {
 .dialog-title {
   font-size: 34rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
 }
 .dialog-body {
   margin-top: 12rpx;
   font-size: 26rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
   line-height: 1.6;
 }
 .dialog-input {
   margin-top: 24rpx;
   height: 88rpx;
   padding: 0 24rpx;
-  background: #0a0a0c;
-  border: 2rpx solid #3f3f46;
+  background: #F7F7F9;
+  border: 2rpx solid #E5E5EA;
   border-radius: 16rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   font-size: 30rpx;
   box-sizing: border-box;
 }
-.ph { color: #52525b; }
+.ph { color: #C7C7CC; }
 .dialog-actions {
   margin-top: 28rpx;
   display: flex;
@@ -226,18 +229,19 @@ page {
   font-weight: 500;
 }
 .dialog-btn-ghost {
-  background: #27272a;
-  color: #d4d4d8;
+  background: #F7F7F9;
+  color: #1C1C1E;
+  border: 2rpx solid #E5E5EA;
 }
 .dialog-btn-primary {
-  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  background: #007AFF;
   color: #fff;
 }
 
 /* ============ 录音 sheet ============ */
 .record-sheet {
   width: 100%;
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 28rpx;
   padding: 32rpx;
   box-sizing: border-box;
@@ -250,7 +254,7 @@ page {
 .record-title {
   font-size: 32rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
 }
 .record-close {
   width: 56rpx;
@@ -258,7 +262,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #71717a;
+  color: #8E8E93;
   font-size: 32rpx;
 }
 
@@ -266,24 +270,24 @@ page {
 .script-box {
   margin-top: 24rpx;
   padding: 24rpx;
-  background: #0a0a0c;
+  background: #F7F7F9;
   border-radius: 20rpx;
 }
 .script-label {
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 .script-switch {
-  color: #a78bfa;
+  color: #007AFF;
   font-size: 22rpx;
 }
 .script-text {
   margin-top: 12rpx;
   font-size: 28rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   line-height: 1.7;
 }
 
@@ -297,19 +301,19 @@ page {
 .rec-progress-bar {
   flex: 1;
   height: 14rpx;
-  background: #27272a;
+  background: #E5E5EA;
   border-radius: 999rpx;
   overflow: hidden;
 }
 .rec-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #8b5cf6, #06b6d4);
+  background: #007AFF;
   border-radius: 999rpx;
   transition: width 0.2s linear;
 }
 .rec-seconds {
   font-size: 26rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
   font-variant-numeric: tabular-nums;
   min-width: 96rpx;
   text-align: right;
@@ -326,21 +330,21 @@ page {
   font-weight: 500;
 }
 .rec-btn-start {
-  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  background: #007AFF;
   color: #fff;
 }
 .rec-btn-stop {
-  background: linear-gradient(135deg, #10b981, #059669);
+  background: #34C759;
   color: #fff;
 }
 .rec-btn-disabled {
-  background: #27272a;
-  color: #71717a;
+  background: #E5E5EA;
+  color: #8E8E93;
 }
 
 .rec-tip {
   margin-top: 16rpx;
   text-align: center;
   font-size: 22rpx;
-  color: #52525b;
+  color: #C7C7CC;
 }

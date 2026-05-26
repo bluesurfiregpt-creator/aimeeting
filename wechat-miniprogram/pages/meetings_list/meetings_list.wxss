@@ -1,8 +1,8 @@
-/* pages/meetings_list/meetings_list.wxss — v27.0-mobile S2 */
+/* pages/meetings_list/meetings_list.wxss — v1.4.0 Saga F (iOS 浅色) */
 
 page {
-  background: #0a0a0c;
-  color: #e4e4e7;
+  background: #F2F2F7;
+  color: #1C1C1E;
   font-size: 28rpx;
   height: 100vh;
 }
@@ -20,18 +20,18 @@ page {
   padding: 40rpx 32rpx 24rpx;
 }
 .hd-title {
-  font-size: 52rpx;          /* H5 text-[26px] */
+  font-size: 52rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   line-height: 1;
   letter-spacing: -0.5rpx;
 }
 .hd-segment {
   margin-top: 32rpx;
   display: flex;
-  background: rgba(24, 24, 27, 0.6);   /* ink-900/60 */
+  background: #E5E5EA;
   border-radius: 24rpx;
-  padding: 8rpx;                       /* p-1 */
+  padding: 8rpx;
 }
 .seg-item {
   flex: 1;
@@ -41,25 +41,25 @@ page {
   justify-content: center;
   gap: 8rpx;
   border-radius: 18rpx;
-  color: #d4d4d8;                      /* zinc-300 */
+  color: #3C3C43;
   transition: background 0.2s ease, color 0.2s ease;
 }
 .seg-label {
-  font-size: 28rpx;                    /* H5 text-[15px] */
+  font-size: 28rpx;
 }
 .seg-count {
-  font-size: 24rpx;                    /* H5 text-[13px] */
-  color: #71717a;                      /* zinc-500 */
+  font-size: 24rpx;
+  color: #8E8E93;
   font-variant-numeric: tabular-nums;
 }
 .seg-on {
-  background: #3f3f46;                 /* zinc-700, 跟 H5 一致 */
-  color: #fafafa;
+  background: #FFFFFF;
+  color: #1C1C1E;
   font-weight: 500;
-  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.2);
+  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.06);
 }
 .seg-on .seg-count {
-  color: #d4d4d8;                      /* zinc-300 */
+  color: #3C3C43;
 }
 
 /* ============ Body ============ */
@@ -80,17 +80,17 @@ page {
   align-items: center;
   justify-content: center;
   gap: 12rpx;
-  background: rgba(139, 92, 246, 0.08);
-  border: 2rpx solid rgba(139, 92, 246, 0.3);
+  background: rgba(0, 122, 255, 0.06);
+  border: 2rpx solid rgba(0, 122, 255, 0.30);
   border-radius: 24rpx;
-  color: #c4b5fd;
+  color: #007AFF;
   font-size: 30rpx;
   font-weight: 500;
   transition: transform 0.15s ease, background 0.15s ease;
 }
 .new-btn-hover {
   transform: scale(0.985);
-  background: rgba(139, 92, 246, 0.15);
+  background: rgba(0, 122, 255, 0.12);
 }
 .new-btn-plus {
   font-size: 38rpx;
@@ -102,7 +102,7 @@ page {
 
 /* ============ Skeleton ============ */
 .sk {
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   margin-bottom: 16rpx;
   animation: sk-pulse 1.4s ease-in-out infinite;
@@ -117,11 +117,11 @@ page {
 .empty-card {
   margin-top: 24rpx;
   padding: 80rpx 32rpx;
-  border: 2rpx dashed #3f3f46;
+  border: 2rpx dashed #D1D1D6;
   border-radius: 24rpx;
   text-align: center;
   font-size: 28rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 .centered {
   padding: 80rpx 32rpx;
@@ -129,36 +129,37 @@ page {
 }
 .centered-title {
   font-size: 32rpx;
-  color: #fafafa;
+  color: #1C1C1E;
 }
 .centered-body {
   margin-top: 12rpx;
   font-size: 26rpx;
-  color: #a1a1aa;
+  color: #8E8E93;
   line-height: 1.6;
 }
 .btn-ghost {
   margin-top: 32rpx;
   display: inline-block;
   padding: 20rpx 48rpx;
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
   border-radius: 24rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   font-size: 28rpx;
 }
 
 /* ============ Meeting card ============ */
 .meeting-card {
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   padding: 28rpx 28rpx 24rpx;
   margin-bottom: 16rpx;
   transition: transform 0.15s ease, background 0.15s ease;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 .meeting-hover {
   transform: scale(0.985);
-  background: #1f1f23;
+  background: #F7F7F9;
 }
 
 .meeting-head {
@@ -169,20 +170,20 @@ page {
 .meeting-time {
   flex: 1;
   font-size: 24rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .time-over {
-  color: #fcd34d;
+  color: #8B6914;
 }
 
 .meeting-title {
   margin-top: 16rpx;
   font-size: 32rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   line-height: 1.35;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -197,7 +198,7 @@ page {
   align-items: center;
   gap: 24rpx 28rpx;
   font-size: 26rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
 }
 .meta-item {
   display: flex;
@@ -213,13 +214,13 @@ page {
 .meta-label {
   margin-left: 4rpx;
   font-size: 24rpx;
-  color: #a1a1aa;
+  color: #8E8E93;
 }
 .meta-violet {
-  color: rgba(196, 181, 253, 0.85);
+  color: #5E5CE6;
 }
 
-/* ============ Badge ============ */
+/* ============ Badge (iOS 浅色 tinted) ============ */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -229,15 +230,15 @@ page {
   font-size: 22rpx;
   font-weight: 500;
 }
-.tone-violet  { background: rgba(139, 92, 246, 0.15); color: #c4b5fd; }
-.tone-emerald { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
-.tone-zinc    { background: #27272a; color: #a1a1aa; }
+.tone-violet  { background: rgba(94, 92, 230, 0.12); color: #5E5CE6; }
+.tone-emerald { background: rgba(52, 199, 89, 0.12); color: #0F9D58; }
+.tone-zinc    { background: #E5E5EA; color: #3C3C43; }
 
 .live-dot {
   width: 12rpx;
   height: 12rpx;
   border-radius: 50%;
-  background: #34d399;
+  background: #34C759;
   animation: live-pulse 1.8s ease-in-out infinite;
 }
 @keyframes live-pulse {
@@ -256,13 +257,13 @@ page {
   height: 8rpx;
   border-radius: 4rpx;
 }
-.p-done    { background: rgba(16, 185, 129, 0.7); }
-.p-active  { background: #a78bfa; }
-.p-pending { background: #3f3f46; }
+.p-done    { background: rgba(52, 199, 89, 0.70); }
+.p-active  { background: #5E5CE6; }
+.p-pending { background: #D1D1D6; }
 .p-more {
   margin-left: 4rpx;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 /* ============ Bottom pad ============ */
@@ -274,7 +275,7 @@ page {
 .navbar {
   flex-shrink: 0;
   display: flex;
-  background: #0a0a0c;
+  background: #F2F2F7;
   padding: 6rpx 0 0;
 }
 .nav-item {
@@ -284,7 +285,7 @@ page {
   align-items: center;
   justify-content: center;
   padding: 8rpx 0 10rpx;
-  color: #71717a;
+  color: #8E8E93;
   transition: color 0.2s ease;
 }
 .nav-emoji {
@@ -299,7 +300,7 @@ page {
   font-weight: 500;
 }
 .nav-on {
-  color: #c4b5fd;
+  color: #007AFF;
 }
 .nav-on .nav-emoji {
   opacity: 1;

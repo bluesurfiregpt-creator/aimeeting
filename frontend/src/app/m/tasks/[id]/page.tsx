@@ -19,12 +19,19 @@
  *   AI 智囊    insights 列表 (AIInsightCard)
  *   实录依据   evidence_quote 灰块 + 几条 transcript 原文行
  *   评论       时间线 + 底部 textarea + 发送
+ *
+ * v1.4.0 Saga D · 浅色化 (round-6).
+ *   - 跟 Mobile MR_COLORS / round-3 会议室 一致 (iOS 浅色)
+ *   - bg ink-950/900 → MR_COLORS.bgGroupedPrimary / bgWhite
+ *   - 主蓝 accent → systemBlue (#007AFF); 紫 violet → systemPurple
+ *   - chip 色板按 iOS 系统色 重映射
  */
 
 import { useCallback, useEffect, use, useMemo, useState } from "react";
 import Link from "next/link";
 import { AIInsightCard } from "@/components/mobile/AIInsightCard";
 import Toast from "@/components/mobile/Toast";
+import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
 import { mApi } from "@/lib/mobile/api";
 import type {
   TaskDetailComment,
@@ -51,46 +58,50 @@ function fmtDueDate(iso: string): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-// 任务 8-state 中文 + 配色
+// 任务 8-state 中文 + 配色 (浅色 iOS — chipBg/chipText 用 rgba/系统色)
 const STATUS_MAP: Record<
   string,
   { label: string; chipBg: string; chipText: string }
 > = {
-  open: { label: "待派", chipBg: "bg-amber-500/15", chipText: "text-amber-300" },
+  open: {
+    label: "待派",
+    chipBg: "rgba(255,159,10,0.12)",
+    chipText: MR_COLORS.systemOrange,
+  },
   dispatched: {
     label: "已派",
-    chipBg: "bg-sky-500/15",
-    chipText: "text-sky-300",
+    chipBg: "rgba(0,122,255,0.10)",
+    chipText: MR_COLORS.systemBlue,
   },
   accepted: {
     label: "已接",
-    chipBg: "bg-sky-500/15",
-    chipText: "text-sky-300",
+    chipBg: "rgba(0,122,255,0.10)",
+    chipText: MR_COLORS.systemBlue,
   },
   in_progress: {
     label: "进行中",
-    chipBg: "bg-accent-500/15",
-    chipText: "text-accent-300",
+    chipBg: "rgba(0,122,255,0.10)",
+    chipText: MR_COLORS.systemBlue,
   },
   submitted: {
     label: "待审",
-    chipBg: "bg-violet-500/15",
-    chipText: "text-violet-300",
+    chipBg: "rgba(94,92,230,0.10)",
+    chipText: MR_COLORS.systemPurple,
   },
   done: {
     label: "已完成",
-    chipBg: "bg-emerald-500/15",
-    chipText: "text-emerald-300",
+    chipBg: "rgba(52,199,89,0.12)",
+    chipText: MR_COLORS.systemGreen,
   },
   archived: {
     label: "归档",
-    chipBg: "bg-zinc-700",
-    chipText: "text-zinc-300",
+    chipBg: MR_COLORS.bgInputFill,
+    chipText: MR_COLORS.textSecondary,
   },
   cancelled: {
     label: "已取消",
-    chipBg: "bg-zinc-800",
-    chipText: "text-zinc-400",
+    chipBg: MR_COLORS.bgInputFill,
+    chipText: MR_COLORS.textTertiary,
   },
 };
 
@@ -178,24 +189,50 @@ export default function MobileTaskDetailPage({
     [data, reload],
   );
 
+  const containerStyle = useMemo<React.CSSProperties>(
+    () => ({
+      background: MR_COLORS.bgGroupedPrimary,
+      minHeight: "100%",
+    }),
+    [],
+  );
+
   if (loading) {
     return (
-      <div className="space-y-4 p-4">
-        <div className="h-24 animate-pulse rounded-2xl bg-ink-900" />
-        <div className="h-32 animate-pulse rounded-2xl bg-ink-900" />
-        <div className="h-20 animate-pulse rounded-2xl bg-ink-900" />
+      <div style={containerStyle} className="space-y-4 p-4">
+        <div
+          className="h-24 animate-pulse rounded-2xl"
+          style={{ background: "rgba(60,60,67,0.06)" }}
+        />
+        <div
+          className="h-32 animate-pulse rounded-2xl"
+          style={{ background: "rgba(60,60,67,0.06)" }}
+        />
+        <div
+          className="h-20 animate-pulse rounded-2xl"
+          style={{ background: "rgba(60,60,67,0.06)" }}
+        />
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="space-y-3 p-6 text-center">
-        <p className="text-[16px] text-zinc-200">未能加载任务</p>
-        <p className="text-[14px] text-zinc-500">{error}</p>
+      <div style={containerStyle} className="space-y-3 p-6 text-center">
+        <p className="text-[16px]" style={{ color: MR_COLORS.textPrimary }}>
+          未能加载任务
+        </p>
+        <p className="text-[14px]" style={{ color: MR_COLORS.textTertiary }}>
+          {error}
+        </p>
         <Link
           href="/m/tasks"
-          className="inline-flex h-12 items-center justify-center rounded-xl border border-zinc-700 px-6 text-[15px] text-zinc-200"
+          className="inline-flex h-12 items-center justify-center rounded-xl px-6 text-[15px]"
+          style={{
+            border: `0.5px solid ${MR_COLORS.hairline}`,
+            background: MR_COLORS.bgWhite,
+            color: MR_COLORS.textPrimary,
+          }}
         >
           回任务列表
         </Link>
@@ -216,21 +253,29 @@ export default function MobileTaskDetailPage({
     : null;
 
   return (
-    <div className="flex min-h-full flex-col">
+    <div style={containerStyle} className="flex min-h-full flex-col">
       {/* ===== TopBar ============================================ */}
       <div
-        className="sticky top-0 z-30 border-b border-ink-800 bg-ink-950/85 px-4 pb-3 backdrop-blur"
-        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
+        className="sticky top-0 z-30 px-4 pb-3 backdrop-blur"
+        style={{
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+          background: "rgba(242,242,247,0.92)",
+          borderBottom: `0.5px solid ${MR_COLORS.hairline}`,
+        }}
       >
         <div className="flex items-center gap-3">
           <Link
             href="/m/tasks"
-            className="-ml-2 flex h-10 w-10 items-center justify-center text-zinc-300 active:text-zinc-50"
+            className="-ml-2 flex h-10 w-10 items-center justify-center"
+            style={{ color: MR_COLORS.systemBlue }}
             aria-label="返回任务列表"
           >
             <span className="text-2xl leading-none">←</span>
           </Link>
-          <h1 className="flex-1 truncate text-[17px] font-semibold text-zinc-50">
+          <h1
+            className="flex-1 truncate text-[17px] font-semibold"
+            style={{ color: MR_COLORS.textPrimary }}
+          >
             任务详情
           </h1>
         </div>
@@ -239,25 +284,37 @@ export default function MobileTaskDetailPage({
       <main className="space-y-5 p-4 pb-6">
         {/* ===== Header: 任务全文 + chip 行 ========================= */}
         <section
-          className="rounded-2xl bg-ink-900 p-4"
+          className="rounded-2xl p-4"
+          style={{
+            background: MR_COLORS.bgWhite,
+            border: `0.5px solid ${MR_COLORS.hairline}`,
+          }}
           data-testid="mobile-task-detail-header"
         >
-          <p className="text-[16px] leading-snug text-zinc-50">
+          <p
+            className="text-[16px] leading-snug"
+            style={{ color: MR_COLORS.textPrimary }}
+          >
             {data.content}
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <span
-              className={`inline-flex shrink-0 items-center rounded-md px-2 py-1 text-[13px] font-medium ${status.chipBg} ${status.chipText}`}
+              className="inline-flex shrink-0 items-center rounded-md px-2 py-1 text-[13px] font-medium"
+              style={{ background: status.chipBg, color: status.chipText }}
             >
               {status.label}
             </span>
             {data.due_at ? (
               <span
-                className={`inline-flex shrink-0 items-center rounded-md px-2 py-1 text-[13px] font-medium ${
-                  data.is_overdue
-                    ? "bg-rose-500/15 text-rose-300"
-                    : "bg-zinc-800 text-zinc-300"
-                }`}
+                className="inline-flex shrink-0 items-center rounded-md px-2 py-1 text-[13px] font-medium"
+                style={{
+                  background: data.is_overdue
+                    ? "rgba(255,59,48,0.12)"
+                    : MR_COLORS.bgInputFill,
+                  color: data.is_overdue
+                    ? MR_COLORS.systemRed
+                    : MR_COLORS.textSecondary,
+                }}
               >
                 截止 {fmtDueDate(data.due_at)}
                 {data.is_overdue ? " · 超期" : ""}
@@ -265,13 +322,23 @@ export default function MobileTaskDetailPage({
             ) : null}
             {assigneeChip ? (
               <span
-                className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[13px] font-medium ${
+                className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[13px] font-medium"
+                style={
                   assigneeChip.kind === "ai"
-                    ? "bg-violet-500/15 text-violet-300"
+                    ? {
+                        background: "rgba(94,92,230,0.10)",
+                        color: MR_COLORS.systemPurple,
+                      }
                     : assigneeChip.kind === "human"
-                    ? "bg-emerald-500/15 text-emerald-300"
-                    : "bg-zinc-800 text-zinc-400"
-                }`}
+                    ? {
+                        background: "rgba(52,199,89,0.12)",
+                        color: MR_COLORS.systemGreen,
+                      }
+                    : {
+                        background: MR_COLORS.bgInputFill,
+                        color: MR_COLORS.textTertiary,
+                      }
+                }
               >
                 {assigneeChip.kind === "ai" ? "🤖" : assigneeChip.kind === "human" ? "👤" : "?"}
                 {assigneeChip.text}
@@ -281,7 +348,8 @@ export default function MobileTaskDetailPage({
           {data.source_meeting_id && data.source_meeting_title ? (
             <Link
               href={`/m/meetings/${data.source_meeting_id}`}
-              className="mt-3 block truncate text-[13px] text-accent-400 active:text-accent-300"
+              className="mt-3 block truncate text-[13px]"
+              style={{ color: MR_COLORS.systemBlue }}
             >
               来自 {data.source_meeting_title} →
             </Link>
@@ -291,16 +359,22 @@ export default function MobileTaskDetailPage({
         {/* ===== AI 智囊依据 ==================================== */}
         {data.insights.length > 0 ? (
           <section>
-            <h2 className="px-1 text-[14px] font-medium text-zinc-300">
+            <h2
+              className="px-1 text-[14px] font-medium"
+              style={{ color: MR_COLORS.textSecondary }}
+            >
               💡 AI 智囊依据{" "}
-              <span className="text-[13px] text-zinc-500">
+              <span
+                className="text-[13px]"
+                style={{ color: MR_COLORS.textTertiary }}
+              >
                 · {data.insights.length} 条
               </span>
             </h2>
             <ul className="mt-2 space-y-2">
               {data.insights.map((ins) => (
                 <li key={ins.id}>
-                  <AIInsightCard insight={ins} />
+                  <AIInsightCard insight={ins} light />
                 </li>
               ))}
             </ul>
@@ -310,20 +384,38 @@ export default function MobileTaskDetailPage({
         {/* ===== 实录依据 ====================================== */}
         {data.evidence_quote || data.evidence_lines.length > 0 ? (
           <section>
-            <h2 className="px-1 text-[14px] font-medium text-zinc-300">
+            <h2
+              className="px-1 text-[14px] font-medium"
+              style={{ color: MR_COLORS.textSecondary }}
+            >
               📝 实录依据
             </h2>
-            <div className="mt-2 rounded-2xl border border-zinc-800 bg-ink-900 p-4">
+            <div
+              className="mt-2 rounded-2xl p-4"
+              style={{
+                background: MR_COLORS.bgWhite,
+                border: `0.5px solid ${MR_COLORS.hairline}`,
+              }}
+            >
               {data.evidence_quote ? (
-                <blockquote className="border-l-[3px] border-zinc-600 pl-3 text-[15px] italic text-zinc-200">
+                <blockquote
+                  className="pl-3 text-[15px] italic"
+                  style={{
+                    borderLeft: `3px solid ${MR_COLORS.separator}`,
+                    color: MR_COLORS.textSecondary,
+                  }}
+                >
                   {data.evidence_quote}
                 </blockquote>
               ) : null}
               {data.evidence_lines.length > 0 ? (
                 <ul
-                  className={`${
-                    data.evidence_quote ? "mt-3 border-t border-ink-800 pt-3" : ""
-                  } space-y-2.5`}
+                  className={`${data.evidence_quote ? "mt-3 pt-3" : ""} space-y-2.5`}
+                  style={
+                    data.evidence_quote
+                      ? { borderTop: `0.5px solid ${MR_COLORS.hairline}` }
+                      : undefined
+                  }
                 >
                   {data.evidence_lines.map((l) => (
                     <EvidenceLineRow key={l.line_id} line={l} />
@@ -333,7 +425,8 @@ export default function MobileTaskDetailPage({
               {data.source_meeting_id ? (
                 <Link
                   href={`/m/meetings/${data.source_meeting_id}`}
-                  className="mt-3 block text-[13px] font-medium text-accent-400 active:text-accent-300"
+                  className="mt-3 block text-[13px] font-medium"
+                  style={{ color: MR_COLORS.systemBlue }}
                 >
                   → 看完整会议实录
                 </Link>
@@ -344,14 +437,26 @@ export default function MobileTaskDetailPage({
 
         {/* ===== 评论时间线 ===================================== */}
         <section>
-          <h2 className="px-1 text-[14px] font-medium text-zinc-300">
+          <h2
+            className="px-1 text-[14px] font-medium"
+            style={{ color: MR_COLORS.textSecondary }}
+          >
             💬 评论{" "}
-            <span className="text-[13px] text-zinc-500">
+            <span
+              className="text-[13px]"
+              style={{ color: MR_COLORS.textTertiary }}
+            >
               · {data.comments.length}
             </span>
           </h2>
           {data.comments.length === 0 ? (
-            <p className="mt-2 rounded-xl border border-dashed border-zinc-800 px-4 py-6 text-center text-[14px] text-zinc-400">
+            <p
+              className="mt-2 rounded-xl px-4 py-6 text-center text-[14px]"
+              style={{
+                border: `1px dashed ${MR_COLORS.hairlineStrong}`,
+                color: MR_COLORS.textTertiary,
+              }}
+            >
               还没人评论, 你来开个头
             </p>
           ) : (
@@ -367,7 +472,13 @@ export default function MobileTaskDetailPage({
           )}
 
           {/* 发评论 box */}
-          <div className="mt-3 rounded-2xl border border-ink-800 bg-ink-900 p-3">
+          <div
+            className="mt-3 rounded-2xl p-3"
+            style={{
+              background: MR_COLORS.bgWhite,
+              border: `0.5px solid ${MR_COLORS.hairline}`,
+            }}
+          >
             <textarea
               value={commentText}
               onChange={(e) => setCommentText(e.target.value)}
@@ -375,17 +486,28 @@ export default function MobileTaskDetailPage({
               placeholder="写点进展、问题或反馈..."
               rows={3}
               maxLength={2000}
-              className="w-full resize-none rounded-lg bg-ink-950 px-3 py-2.5 text-[15px] text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-accent-500/40 disabled:opacity-60"
+              className="w-full resize-none rounded-lg px-3 py-2.5 text-[15px] focus:outline-none disabled:opacity-60"
+              style={{
+                background: MR_COLORS.bgInputFill,
+                color: MR_COLORS.textPrimary,
+              }}
             />
             <div className="mt-2 flex items-center justify-between">
-              <span className="text-[13px] text-zinc-500 tabular-nums">
+              <span
+                className="text-[13px] tabular-nums"
+                style={{ color: MR_COLORS.textTertiary }}
+              >
                 {commentText.length}/2000
               </span>
               <button
                 type="button"
                 disabled={!commentText.trim() || posting}
                 onClick={handlePostComment}
-                className="flex h-10 items-center justify-center rounded-lg bg-accent-500 px-4 text-[14px] font-medium text-white shadow-md shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex h-10 items-center justify-center rounded-lg px-4 text-[14px] font-medium text-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                style={{
+                  background: MR_COLORS.systemBlue,
+                  boxShadow: "0 2px 8px rgba(0,122,255,0.20)",
+                }}
               >
                 {posting ? "发送中…" : "发送"}
               </button>
@@ -406,17 +528,30 @@ export default function MobileTaskDetailPage({
 function EvidenceLineRow({ line }: { line: TaskDetailEvidenceLine }) {
   return (
     <li className="flex items-baseline gap-2 text-[14px] leading-snug">
-      <span className="shrink-0 text-zinc-500 tabular-nums">
+      <span
+        className="shrink-0 tabular-nums"
+        style={{ color: MR_COLORS.textTertiary }}
+      >
         {String(line.at_minute).padStart(2, "0")}m
       </span>
       {line.speaker_name ? (
-        <span className="shrink-0 font-medium text-zinc-300">
+        <span
+          className="shrink-0 font-medium"
+          style={{ color: MR_COLORS.textSecondary }}
+        >
           {line.speaker_name}
         </span>
       ) : (
-        <span className="shrink-0 text-zinc-500">未识别</span>
+        <span
+          className="shrink-0"
+          style={{ color: MR_COLORS.textTertiary }}
+        >
+          未识别
+        </span>
       )}
-      <span className="min-w-0 text-zinc-200">{line.text}</span>
+      <span className="min-w-0" style={{ color: MR_COLORS.textPrimary }}>
+        {line.text}
+      </span>
     </li>
   );
 }
@@ -430,15 +565,25 @@ function CommentRow({
 }) {
   return (
     <li
-      className="rounded-xl bg-ink-900 p-4"
+      className="rounded-xl p-4"
+      style={{
+        background: MR_COLORS.bgWhite,
+        border: `0.5px solid ${MR_COLORS.hairline}`,
+      }}
       data-testid="mobile-task-comment"
     >
       <header className="flex items-baseline justify-between gap-2">
         <div className="flex items-baseline gap-2">
-          <span className="text-[14px] font-medium text-zinc-100">
+          <span
+            className="text-[14px] font-medium"
+            style={{ color: MR_COLORS.textPrimary }}
+          >
             {comment.author_name}
           </span>
-          <span className="text-[13px] text-zinc-500">
+          <span
+            className="text-[13px]"
+            style={{ color: MR_COLORS.textTertiary }}
+          >
             {fmtDate(comment.created_at)}
           </span>
         </div>
@@ -446,13 +591,17 @@ function CommentRow({
           <button
             type="button"
             onClick={onDelete}
-            className="text-[13px] text-zinc-500 active:text-rose-400"
+            className="text-[13px]"
+            style={{ color: MR_COLORS.systemRed }}
           >
             删除
           </button>
         ) : null}
       </header>
-      <p className="mt-2 whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-200">
+      <p
+        className="mt-2 whitespace-pre-wrap text-[15px] leading-relaxed"
+        style={{ color: MR_COLORS.textSecondary }}
+      >
         {comment.content}
       </p>
     </li>

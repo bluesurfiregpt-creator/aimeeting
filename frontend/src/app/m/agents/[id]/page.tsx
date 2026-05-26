@@ -12,12 +12,18 @@
  *   档案区    色块条 + nickname + name + domain + 累计统计
  *   Segment   会议 / 任务 / 智囊  (三 tab 切, 一次显一段)
  *   主区域    按 tab 渲对应列表
+ *
+ * v1.4.0 Saga D · 浅色化 (round-6).
+ *   - bg ink-950/900 → MR_COLORS.bgGroupedPrimary / bgWhite
+ *   - chip 色: tailwind dark-emerald/sky/violet/amber → 浅色 iOS 系统色
+ *   - AIInsightCard 走 light prop
  */
 
 import { useEffect, useState, use, useMemo } from "react";
 import Link from "next/link";
 import SegmentControl from "@/components/mobile/SegmentControl";
 import { AIInsightCard } from "@/components/mobile/AIInsightCard";
+import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
 import { mApi } from "@/lib/mobile/api";
 import type {
   AgentDetailMeetingItem,
@@ -27,7 +33,7 @@ import type {
 
 type Tab = "meetings" | "tasks" | "insights";
 
-// agent.color → 色块条
+// agent.color → 色块条 (基础 tailwind 色不依赖深浅 theme)
 const COLOR_BAR: Record<string, string> = {
   violet: "bg-violet-500",
   emerald: "bg-emerald-500",
@@ -40,8 +46,8 @@ const COLOR_BAR: Record<string, string> = {
 };
 
 function colorBar(color: string | null): string {
-  if (!color) return "bg-zinc-700";
-  return COLOR_BAR[color] || "bg-zinc-700";
+  if (!color) return "bg-zinc-400";
+  return COLOR_BAR[color] || "bg-zinc-400";
 }
 
 function timeAgo(iso: string | null): string {
@@ -96,24 +102,50 @@ export default function MobileAgentDetailPage({
     };
   }, [id]);
 
+  const containerStyle = useMemo<React.CSSProperties>(
+    () => ({
+      background: MR_COLORS.bgGroupedPrimary,
+      minHeight: "100%",
+    }),
+    [],
+  );
+
   if (loading) {
     return (
-      <div className="space-y-4 p-4">
-        <div className="h-24 animate-pulse rounded-2xl bg-ink-900" />
-        <div className="h-12 animate-pulse rounded-xl bg-ink-900" />
-        <div className="h-32 animate-pulse rounded-2xl bg-ink-900" />
+      <div style={containerStyle} className="space-y-4 p-4">
+        <div
+          className="h-24 animate-pulse rounded-2xl"
+          style={{ background: "rgba(60,60,67,0.06)" }}
+        />
+        <div
+          className="h-12 animate-pulse rounded-xl"
+          style={{ background: "rgba(60,60,67,0.06)" }}
+        />
+        <div
+          className="h-32 animate-pulse rounded-2xl"
+          style={{ background: "rgba(60,60,67,0.06)" }}
+        />
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="space-y-3 px-6 py-10 text-center">
-        <p className="text-[16px] text-zinc-200">未能加载专家详情</p>
-        <p className="text-[14px] text-zinc-500">{error}</p>
+      <div style={containerStyle} className="space-y-3 px-6 py-10 text-center">
+        <p className="text-[16px]" style={{ color: MR_COLORS.textPrimary }}>
+          未能加载专家详情
+        </p>
+        <p className="text-[14px]" style={{ color: MR_COLORS.textTertiary }}>
+          {error}
+        </p>
         <Link
           href="/m"
-          className="inline-flex h-12 items-center justify-center rounded-xl border border-ink-700 px-6 text-[15px] text-zinc-200"
+          className="inline-flex h-12 items-center justify-center rounded-xl px-6 text-[15px]"
+          style={{
+            border: `0.5px solid ${MR_COLORS.hairline}`,
+            background: MR_COLORS.bgWhite,
+            color: MR_COLORS.textPrimary,
+          }}
         >
           返回今日
         </Link>
@@ -127,29 +159,43 @@ export default function MobileAgentDetailPage({
   );
 
   return (
-    <div>
+    <div style={containerStyle}>
       {/* ===== TopBar — 返回 / 专家名 ====================================== */}
       <div
-        className="sticky top-0 z-30 border-b border-ink-800 bg-ink-950/85 px-4 pb-3 backdrop-blur"
-        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
+        className="sticky top-0 z-30 px-4 pb-3 backdrop-blur"
+        style={{
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+          background: "rgba(242,242,247,0.92)",
+          borderBottom: `0.5px solid ${MR_COLORS.hairline}`,
+        }}
       >
         <div className="flex items-center gap-3">
           <Link
             href="/m"
-            className="-ml-2 flex h-10 w-10 items-center justify-center text-zinc-300 active:text-zinc-50"
+            className="-ml-2 flex h-10 w-10 items-center justify-center"
+            style={{ color: MR_COLORS.systemBlue }}
             aria-label="返回"
           >
             <span className="text-2xl leading-none">←</span>
           </Link>
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-[18px] font-semibold text-zinc-50">
+            <h1
+              className="truncate text-[18px] font-semibold"
+              style={{ color: MR_COLORS.textPrimary }}
+            >
               {display}
             </h1>
             {data.domain ? (
-              <p className="mt-0.5 truncate text-[13px] text-zinc-400">
+              <p
+                className="mt-0.5 truncate text-[13px]"
+                style={{ color: MR_COLORS.textSecondary }}
+              >
                 {data.domain}
                 {hasNickname ? (
-                  <span className="text-zinc-500"> · {data.name}</span>
+                  <span style={{ color: MR_COLORS.textTertiary }}>
+                    {" "}
+                    · {data.name}
+                  </span>
                 ) : null}
               </p>
             ) : null}
@@ -160,7 +206,11 @@ export default function MobileAgentDetailPage({
       <main className="space-y-4 p-4 pb-6">
         {/* ===== 档案区 — 色块条 + 累计 ================================== */}
         <section
-          className="overflow-hidden rounded-2xl bg-ink-900"
+          className="overflow-hidden rounded-2xl"
+          style={{
+            background: MR_COLORS.bgWhite,
+            border: `0.5px solid ${MR_COLORS.hairline}`,
+          }}
           data-testid="agent-profile"
         >
           <div className="flex">
@@ -168,25 +218,52 @@ export default function MobileAgentDetailPage({
             <div className="flex-1 p-4">
               <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2">
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-[20px] font-semibold text-zinc-100 tabular-nums">
+                  <span
+                    className="text-[20px] font-semibold tabular-nums"
+                    style={{ color: MR_COLORS.textPrimary }}
+                  >
                     {data.total_meetings}
                   </span>
-                  <span className="text-[14px] text-zinc-400">场会议</span>
+                  <span
+                    className="text-[14px]"
+                    style={{ color: MR_COLORS.textSecondary }}
+                  >
+                    场会议
+                  </span>
                 </div>
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-[20px] font-semibold text-zinc-100 tabular-nums">
+                  <span
+                    className="text-[20px] font-semibold tabular-nums"
+                    style={{ color: MR_COLORS.textPrimary }}
+                  >
                     {data.total_insights}
                   </span>
-                  <span className="text-[14px] text-zinc-400">条智囊</span>
+                  <span
+                    className="text-[14px]"
+                    style={{ color: MR_COLORS.textSecondary }}
+                  >
+                    条智囊
+                  </span>
                 </div>
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-[20px] font-semibold text-zinc-100 tabular-nums">
+                  <span
+                    className="text-[20px] font-semibold tabular-nums"
+                    style={{ color: MR_COLORS.textPrimary }}
+                  >
                     {data.tasks.length}
                   </span>
-                  <span className="text-[14px] text-zinc-400">项任务</span>
+                  <span
+                    className="text-[14px]"
+                    style={{ color: MR_COLORS.textSecondary }}
+                  >
+                    项任务
+                  </span>
                 </div>
               </div>
-              <p className="mt-2 text-[13px] text-zinc-500">
+              <p
+                className="mt-2 text-[13px]"
+                style={{ color: MR_COLORS.textTertiary }}
+              >
                 {data.last_active
                   ? `最近活跃 ${timeAgo(data.last_active)}`
                   : "暂未激活"}
@@ -231,22 +308,35 @@ function MeetingsTab({ items }: { items: AgentDetailMeetingItem[] }) {
         <li key={m.meeting_id}>
           <Link
             href={`/m/meetings/${m.meeting_id}`}
-            className="block rounded-xl bg-ink-900 p-4 transition active:scale-[0.99]"
+            className="block rounded-xl p-4 transition active:scale-[0.99]"
+            style={{
+              background: MR_COLORS.bgWhite,
+              border: `0.5px solid ${MR_COLORS.hairline}`,
+            }}
             data-testid="agent-detail-meeting-row"
           >
             <header className="flex items-baseline gap-2">
               <StatusChipMeeting status={m.status} />
               {m.started_at ? (
-                <span className="text-[13px] text-zinc-500 tabular-nums">
+                <span
+                  className="text-[13px] tabular-nums"
+                  style={{ color: MR_COLORS.textTertiary }}
+                >
                   {meetingDate(m.started_at)} · {timeAgo(m.started_at)}
                 </span>
               ) : null}
             </header>
-            <p className="mt-2 text-[16px] font-medium leading-snug text-zinc-50">
+            <p
+              className="mt-2 text-[16px] font-medium leading-snug"
+              style={{ color: MR_COLORS.textPrimary }}
+            >
               {m.title}
             </p>
             {m.insights_count > 0 ? (
-              <p className="mt-2 text-[13px] text-violet-300">
+              <p
+                className="mt-2 text-[13px]"
+                style={{ color: MR_COLORS.systemPurple }}
+              >
                 💡 该专家在此会产出 {m.insights_count} 条智囊
               </p>
             ) : null}
@@ -306,9 +396,17 @@ function TaskGroup({
 }) {
   return (
     <section>
-      <h3 className="px-1 text-[14px] font-medium text-zinc-300">
+      <h3
+        className="px-1 text-[14px] font-medium"
+        style={{ color: MR_COLORS.textSecondary }}
+      >
         {title}{" "}
-        <span className="text-[13px] text-zinc-500">· {items.length}</span>
+        <span
+          className="text-[13px]"
+          style={{ color: MR_COLORS.textTertiary }}
+        >
+          · {items.length}
+        </span>
       </h3>
       <ul className="mt-2 space-y-2">
         {items.map((t) => {
@@ -317,52 +415,81 @@ function TaskGroup({
               <header className="flex items-baseline gap-2">
                 <StatusChipTask status={t.status} />
                 {t.is_overdue ? (
-                  <span className="rounded bg-rose-500/15 px-2 py-0.5 text-[13px] font-medium text-rose-300">
+                  <span
+                    className="rounded px-2 py-0.5 text-[13px] font-medium"
+                    style={{
+                      background: "rgba(255,59,48,0.12)",
+                      color: MR_COLORS.systemRed,
+                    }}
+                  >
                     超期
                   </span>
                 ) : null}
                 {t.due_at ? (
                   <span
-                    className={`text-[13px] tabular-nums ${
-                      t.is_overdue ? "text-rose-300" : "text-zinc-500"
-                    }`}
+                    className="text-[13px] tabular-nums"
+                    style={{
+                      color: t.is_overdue
+                        ? MR_COLORS.systemRed
+                        : MR_COLORS.textTertiary,
+                    }}
                   >
                     截止 {meetingDate(t.due_at)}
                   </span>
                 ) : null}
                 {t.action_item_id ? (
-                  <span className="ml-auto shrink-0 text-[16px] text-zinc-500">›</span>
+                  <span
+                    className="ml-auto shrink-0 text-[16px]"
+                    style={{ color: MR_COLORS.textTertiary }}
+                  >
+                    ›
+                  </span>
                 ) : null}
               </header>
               <p
-                className={`mt-2 text-[15px] leading-snug ${
-                  muted ? "text-zinc-400 line-through" : "text-zinc-100"
-                }`}
+                className="mt-2 text-[15px] leading-snug"
+                style={{
+                  color: muted ? MR_COLORS.textTertiary : MR_COLORS.textPrimary,
+                  textDecoration: muted ? "line-through" : undefined,
+                }}
               >
                 {t.title}
               </p>
               {t.source_meeting_title ? (
-                <p className="mt-1.5 truncate text-[13px] text-zinc-500">
+                <p
+                  className="mt-1.5 truncate text-[13px]"
+                  style={{ color: MR_COLORS.textTertiary }}
+                >
                   来自 {t.source_meeting_title}
                 </p>
               ) : null}
             </>
           );
-          const cls = `block rounded-xl bg-ink-900 p-4 ${
-            muted ? "opacity-60" : ""
-          } ${highlight && t.is_overdue ? "border border-rose-500/40" : ""}`;
+          const cardStyle: React.CSSProperties = {
+            background: MR_COLORS.bgWhite,
+            border:
+              highlight && t.is_overdue
+                ? `0.5px solid ${MR_COLORS.urgentBorder}`
+                : `0.5px solid ${MR_COLORS.hairline}`,
+            opacity: muted ? 0.6 : 1,
+          };
           return (
             <li key={t.task_id}>
               {t.action_item_id ? (
                 <Link
                   href={`/m/tasks/${t.action_item_id}`}
-                  className={`${cls} transition active:scale-[0.99]`}
+                  className="block rounded-xl p-4 transition active:scale-[0.99]"
+                  style={cardStyle}
                   data-testid="agent-detail-task-row"
                 >
                   {inner}
                 </Link>
               ) : (
-                <div className={cls} data-testid="agent-detail-task-row">
+                <div
+                  className="block rounded-xl p-4"
+                  style={cardStyle}
+                  data-testid="agent-detail-task-row"
+                >
                   {inner}
                 </div>
               )}
@@ -386,7 +513,7 @@ function InsightsTab({
     <ul className="space-y-2">
       {items.map((ins) => (
         <li key={ins.id}>
-          <AIInsightCard insight={ins} />
+          <AIInsightCard insight={ins} light />
         </li>
       ))}
     </ul>
@@ -397,7 +524,13 @@ function InsightsTab({
 
 function EmptyHint({ text }: { text: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-zinc-800 px-4 py-8 text-center text-[14px] text-zinc-400">
+    <div
+      className="rounded-xl px-4 py-8 text-center text-[14px]"
+      style={{
+        border: `1px dashed ${MR_COLORS.hairlineStrong}`,
+        color: MR_COLORS.textTertiary,
+      }}
+    >
       {text}
     </div>
   );
@@ -409,23 +542,23 @@ const MEETING_STATUS: Record<
 > = {
   ongoing: {
     label: "进行中",
-    chipBg: "bg-emerald-500/15",
-    chipText: "text-emerald-300",
+    chipBg: "rgba(52,199,89,0.12)",
+    chipText: MR_COLORS.systemGreen,
   },
   scheduled: {
     label: "未开始",
-    chipBg: "bg-sky-500/15",
-    chipText: "text-sky-300",
+    chipBg: "rgba(0,122,255,0.10)",
+    chipText: MR_COLORS.systemBlue,
   },
   finished: {
     label: "已结束",
-    chipBg: "bg-zinc-700",
-    chipText: "text-zinc-300",
+    chipBg: MR_COLORS.bgInputFill,
+    chipText: MR_COLORS.textSecondary,
   },
   processed: {
     label: "已沉淀",
-    chipBg: "bg-violet-500/15",
-    chipText: "text-violet-300",
+    chipBg: "rgba(94,92,230,0.10)",
+    chipText: MR_COLORS.systemPurple,
   },
 };
 
@@ -433,7 +566,8 @@ function StatusChipMeeting({ status }: { status: string }) {
   const s = MEETING_STATUS[status] || MEETING_STATUS.finished;
   return (
     <span
-      className={`inline-flex shrink-0 items-center rounded-md px-2 py-1 text-[13px] font-medium ${s.chipBg} ${s.chipText}`}
+      className="inline-flex shrink-0 items-center rounded-md px-2 py-1 text-[13px] font-medium"
+      style={{ background: s.chipBg, color: s.chipText }}
     >
       {s.label}
     </span>
@@ -446,43 +580,43 @@ const TASK_STATUS: Record<
 > = {
   open: {
     label: "待派",
-    chipBg: "bg-amber-500/15",
-    chipText: "text-amber-300",
+    chipBg: "rgba(255,159,10,0.12)",
+    chipText: MR_COLORS.systemOrange,
   },
   dispatched: {
     label: "已派",
-    chipBg: "bg-sky-500/15",
-    chipText: "text-sky-300",
+    chipBg: "rgba(0,122,255,0.10)",
+    chipText: MR_COLORS.systemBlue,
   },
   accepted: {
     label: "已接",
-    chipBg: "bg-sky-500/15",
-    chipText: "text-sky-300",
+    chipBg: "rgba(0,122,255,0.10)",
+    chipText: MR_COLORS.systemBlue,
   },
   in_progress: {
     label: "进行中",
-    chipBg: "bg-accent-500/15",
-    chipText: "text-accent-300",
+    chipBg: "rgba(0,122,255,0.10)",
+    chipText: MR_COLORS.systemBlue,
   },
   submitted: {
     label: "待审",
-    chipBg: "bg-violet-500/15",
-    chipText: "text-violet-300",
+    chipBg: "rgba(94,92,230,0.10)",
+    chipText: MR_COLORS.systemPurple,
   },
   done: {
     label: "完成",
-    chipBg: "bg-emerald-500/15",
-    chipText: "text-emerald-300",
+    chipBg: "rgba(52,199,89,0.12)",
+    chipText: MR_COLORS.systemGreen,
   },
   archived: {
     label: "归档",
-    chipBg: "bg-zinc-700",
-    chipText: "text-zinc-300",
+    chipBg: MR_COLORS.bgInputFill,
+    chipText: MR_COLORS.textSecondary,
   },
   cancelled: {
     label: "已取消",
-    chipBg: "bg-zinc-800",
-    chipText: "text-zinc-400",
+    chipBg: MR_COLORS.bgInputFill,
+    chipText: MR_COLORS.textTertiary,
   },
 };
 
@@ -490,7 +624,8 @@ function StatusChipTask({ status }: { status: string }) {
   const s = TASK_STATUS[status] || TASK_STATUS.open;
   return (
     <span
-      className={`inline-flex shrink-0 items-center rounded-md px-2 py-1 text-[13px] font-medium ${s.chipBg} ${s.chipText}`}
+      className="inline-flex shrink-0 items-center rounded-md px-2 py-1 text-[13px] font-medium"
+      style={{ background: s.chipBg, color: s.chipText }}
     >
       {s.label}
     </span>

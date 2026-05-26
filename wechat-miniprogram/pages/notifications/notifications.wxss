@@ -1,8 +1,8 @@
-/* pages/notifications/notifications.wxss — v27.2 「通知」原生页 */
+/* pages/notifications/notifications.wxss — v1.4.0 Saga F「通知」原生页 (iOS 浅色) */
 
 page {
-  background: #0a0a0c;
-  color: #e4e4e7;
+  background: #F2F2F7;
+  color: #1C1C1E;
   font-size: 28rpx;
   height: 100vh;
 }
@@ -24,20 +24,20 @@ page {
 }
 .topbar-count {
   font-size: 26rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
 }
 .mark-all {
   padding: 12rpx 28rpx;
-  background: rgba(139, 92, 246, 0.12);
-  border: 2rpx solid rgba(139, 92, 246, 0.3);
+  background: rgba(0, 122, 255, 0.10);
+  border: 2rpx solid rgba(0, 122, 255, 0.30);
   border-radius: 999rpx;
-  color: #c4b5fd;
+  color: #007AFF;
   font-size: 24rpx;
   transition: transform 0.15s ease, background 0.15s ease;
 }
 .mark-all-hover {
   transform: scale(0.96);
-  background: rgba(139, 92, 246, 0.2);
+  background: rgba(0, 122, 255, 0.18);
 }
 .mark-all-busy {
   opacity: 0.55;
@@ -52,7 +52,7 @@ page {
 
 /* ============ Skeleton ============ */
 .sk {
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   margin-bottom: 16rpx;
   animation: sk-pulse 1.4s ease-in-out infinite;
@@ -68,7 +68,7 @@ page {
 .empty-card {
   margin-top: 64rpx;
   padding: 72rpx 32rpx;
-  border: 2rpx dashed #3f3f46;
+  border: 2rpx dashed #D1D1D6;
   border-radius: 24rpx;
   text-align: center;
 }
@@ -76,28 +76,28 @@ page {
 .empty-title {
   margin-top: 24rpx;
   font-size: 30rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
 }
 .empty-body {
   margin-top: 12rpx;
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
   line-height: 1.6;
 }
 .centered {
   padding: 100rpx 32rpx;
   text-align: center;
 }
-.centered-title { font-size: 32rpx; color: #fafafa; }
-.centered-body { margin-top: 12rpx; font-size: 26rpx; color: #a1a1aa; }
+.centered-title { font-size: 32rpx; color: #1C1C1E; }
+.centered-body { margin-top: 12rpx; font-size: 26rpx; color: #8E8E93; }
 .btn-ghost {
   margin-top: 32rpx;
   display: inline-block;
   padding: 20rpx 48rpx;
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
   border-radius: 24rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   font-size: 28rpx;
 }
 
@@ -106,18 +106,19 @@ page {
   display: flex;
   align-items: flex-start;
   gap: 8rpx;
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 20rpx;
   padding: 24rpx 24rpx 24rpx 8rpx;
   margin-bottom: 12rpx;
   transition: transform 0.15s ease, background 0.15s ease;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 .notif-hover {
   transform: scale(0.99);
-  background: #1f1f23;
+  background: #F7F7F9;
 }
 .notif-unread {
-  background: rgba(139, 92, 246, 0.06);
+  background: rgba(0, 122, 255, 0.04);
 }
 
 .notif-dot-col {
@@ -132,10 +133,10 @@ page {
   height: 14rpx;
   border-radius: 50%;
 }
-.dot-zinc   { background: #71717a; }
-.dot-amber  { background: #fbbf24; }
-.dot-rose   { background: #f43f5e; }
-.dot-violet { background: #8b5cf6; }
+.dot-zinc   { background: #8E8E93; }
+.dot-amber  { background: #FF9F0A; }
+.dot-rose   { background: #FF3B30; }
+.dot-violet { background: #5E5CE6; }
 
 .notif-emoji {
   flex-shrink: 0;
@@ -157,17 +158,17 @@ page {
 .notif-kind {
   font-size: 28rpx;
   font-weight: 500;
-  color: #fafafa;
+  color: #1C1C1E;
 }
 .notif-when {
   flex-shrink: 0;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 .notif-title {
   margin-top: 8rpx;
   font-size: 26rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;

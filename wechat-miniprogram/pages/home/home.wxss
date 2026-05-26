@@ -1,9 +1,9 @@
-/* pages/home/home.wxss — v27.0-mobile S1 第 1 刀
-   配色对齐 H5 globals.css (ink-950 #0a0a0c 等). rpx 已 / 2 算成桌面 px. */
+/* pages/home/home.wxss — v1.4.0 Saga F (iOS 浅色)
+   配色对齐 Mobile MR_COLORS (frontend/src/components/mobile/meeting-room/styles.ts). */
 
 page {
-  background: #0a0a0c;
-  color: #e4e4e7;
+  background: #F2F2F7;
+  color: #1C1C1E;
   font-size: 28rpx;
   height: 100vh;
 }
@@ -21,16 +21,16 @@ page {
   padding: 40rpx 32rpx 24rpx;
 }
 .hd-title {
-  font-size: 52rpx;          /* H5 text-[26px] */
+  font-size: 52rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   line-height: 1;
   letter-spacing: -0.5rpx;
 }
 .hd-segment {
   margin-top: 32rpx;
   display: flex;
-  background: rgba(24, 24, 27, 0.6);
+  background: #E5E5EA;
   border-radius: 24rpx;
   padding: 8rpx;
   width: 380rpx;
@@ -42,15 +42,15 @@ page {
   align-items: center;
   justify-content: center;
   font-size: 28rpx;
-  color: #d4d4d8;
+  color: #3C3C43;
   border-radius: 18rpx;
   transition: background 0.2s ease, color 0.2s ease;
 }
 .seg-on {
-  background: #3f3f46;       /* zinc-700, 跟 H5 一致 */
-  color: #fafafa;
+  background: #FFFFFF;
+  color: #1C1C1E;
   font-weight: 500;
-  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.2);
+  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.06);
 }
 
 /* ============ Body (scroll) ============ */
@@ -62,7 +62,7 @@ page {
 
 /* ============ Skeleton ============ */
 .sk {
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   margin-bottom: 24rpx;
   animation: sk-pulse 1.4s ease-in-out infinite;
@@ -86,17 +86,17 @@ page {
 .sec-title {
   font-size: 34rpx;
   font-weight: 500;
-  color: #fafafa;
+  color: #1C1C1E;
 }
 .sec-count {
   margin-left: 12rpx;
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 .sec-link {
   margin-left: auto;
   font-size: 24rpx;
-  color: #a78bfa;
+  color: #007AFF;
   padding: 8rpx 0 8rpx 24rpx;
 }
 
@@ -105,19 +105,20 @@ page {
   margin-top: 16rpx;
 }
 .hero-card {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(99, 102, 241, 0.04));
-  border: 2rpx solid rgba(139, 92, 246, 0.25);
+  background: #FFFFFF;
+  border: 2rpx solid rgba(94, 92, 230, 0.20);
   border-radius: 32rpx;
   padding: 32rpx;
   margin-bottom: 16rpx;
   transition: transform 0.15s ease;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04);
 }
 .hero-hover {
   transform: scale(0.98);
 }
 .hero-tag {
   font-size: 22rpx;
-  color: #c4b5fd;
+  color: #5E5CE6;
   letter-spacing: 0.5rpx;
   font-weight: 500;
 }
@@ -125,24 +126,24 @@ page {
   margin-top: 12rpx;
   font-size: 36rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   line-height: 1.3;
 }
 .hero-meta {
   margin-top: 12rpx;
   font-size: 24rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
 }
 .hero-meta .dot {
   margin: 0 12rpx;
-  color: #52525b;
+  color: #C7C7CC;
 }
 .hero-insight {
   margin-top: 24rpx;
   padding: 20rpx;
-  background: rgba(0, 0, 0, 0.25);
+  background: #F7F7F9;
   border-radius: 20rpx;
-  border-left: 4rpx solid #8b5cf6;
+  border-left: 4rpx solid #5E5CE6;
 }
 .hero-insight-head {
   display: flex;
@@ -152,25 +153,25 @@ page {
 .hero-insight-agent {
   margin-left: 12rpx;
   font-size: 22rpx;
-  color: #a1a1aa;
+  color: #8E8E93;
 }
 .hero-insight-text {
   font-size: 26rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   line-height: 1.5;
 }
 .hero-cta {
   margin-top: 24rpx;
   font-size: 26rpx;
-  color: #a78bfa;
+  color: #007AFF;
   font-weight: 500;
   text-align: right;
 }
 
 /* 空 hero */
 .hero-empty {
-  background: #18181b;
-  border: 2rpx dashed #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx dashed #D1D1D6;
   border-radius: 32rpx;
   padding: 56rpx 32rpx;
   text-align: center;
@@ -182,18 +183,18 @@ page {
 .hero-empty-title {
   margin-top: 20rpx;
   font-size: 30rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
 }
 .hero-empty-body {
   margin-top: 8rpx;
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 /* ============ Row card (pending / insight topic) ============ */
 .row-card {
-  background: #18181b;
-  border: 2rpx solid #27272a;
+  background: #FFFFFF;
+  border: 2rpx solid #E5E5EA;
   border-radius: 20rpx;
   padding: 24rpx 28rpx;
   margin-bottom: 12rpx;
@@ -201,7 +202,7 @@ page {
 }
 .row-hover {
   transform: scale(0.98);
-  background: #1f1f23;
+  background: #F7F7F9;
 }
 .row-head {
   display: flex;
@@ -209,7 +210,7 @@ page {
 }
 .row-title {
   font-size: 28rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   font-weight: 500;
   flex: 1;
   margin-left: 12rpx;
@@ -220,22 +221,22 @@ page {
 .row-meta {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 .row-preview {
   margin-top: 10rpx;
   font-size: 26rpx;
-  color: #d4d4d8;
+  color: #3C3C43;
   line-height: 1.5;
 }
 .row-cta {
   margin-top: 12rpx;
   font-size: 24rpx;
-  color: #a78bfa;
+  color: #007AFF;
   text-align: right;
 }
 
-/* ============ Badge (kind / insight type 等) ============ */
+/* ============ Badge (iOS 浅色 tinted) ============ */
 .badge {
   display: inline-block;
   padding: 6rpx 14rpx;
@@ -244,32 +245,32 @@ page {
   font-weight: 500;
 }
 .tone-violet {
-  background: rgba(139, 92, 246, 0.15);
-  color: #c4b5fd;
+  background: rgba(94, 92, 230, 0.12);
+  color: #5E5CE6;
 }
 .tone-amber {
-  background: rgba(245, 158, 11, 0.15);
-  color: #fcd34d;
+  background: rgba(255, 159, 10, 0.12);
+  color: #8B6914;
 }
 .tone-rose {
-  background: rgba(244, 63, 94, 0.15);
-  color: #fda4af;
+  background: rgba(255, 59, 48, 0.10);
+  color: #C9302C;
 }
 .tone-cyan {
-  background: rgba(6, 182, 212, 0.15);
-  color: #67e8f9;
+  background: rgba(48, 176, 199, 0.12);
+  color: #0E7C8E;
 }
 .tone-zinc {
-  background: #27272a;
-  color: #a1a1aa;
+  background: #E5E5EA;
+  color: #3C3C43;
 }
 
 /* ============ Empty thin (pending 0 / insight 0) ============ */
 .empty-thin {
-  border: 2rpx dashed #3f3f46;
-  background: rgba(16, 185, 129, 0.04);
-  border-color: rgba(16, 185, 129, 0.2);
-  color: #6ee7b7;
+  border: 2rpx dashed #D1D1D6;
+  background: rgba(52, 199, 89, 0.05);
+  border-color: rgba(52, 199, 89, 0.30);
+  color: #0F9D58;
   border-radius: 20rpx;
   text-align: center;
   padding: 28rpx 0;
@@ -288,22 +289,22 @@ page {
 .centered-title {
   margin-top: 24rpx;
   font-size: 32rpx;
-  color: #fafafa;
+  color: #1C1C1E;
 }
 .centered-body {
   margin-top: 12rpx;
   font-size: 26rpx;
-  color: #a1a1aa;
+  color: #8E8E93;
   line-height: 1.6;
 }
 .btn-ghost {
   margin-top: 32rpx;
   display: inline-block;
   padding: 20rpx 48rpx;
-  background: #18181b;
-  border: 2rpx solid #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx solid #D1D1D6;
   border-radius: 24rpx;
-  color: #e4e4e7;
+  color: #1C1C1E;
   font-size: 28rpx;
 }
 
@@ -315,14 +316,14 @@ page {
 .expert-count {
   margin: 8rpx 8rpx 16rpx;
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 .empty-experts {
   margin: 64rpx 0;
   padding: 64rpx 32rpx;
-  background: #18181b;
-  border: 2rpx dashed #3f3f46;
+  background: #FFFFFF;
+  border: 2rpx dashed #D1D1D6;
   border-radius: 32rpx;
   text-align: center;
 }
@@ -333,45 +334,46 @@ page {
 .empty-experts-title {
   margin-top: 24rpx;
   font-size: 30rpx;
-  color: #fafafa;
+  color: #1C1C1E;
 }
 .empty-experts-body {
   margin-top: 12rpx;
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 /* —— 工卡 —— */
 .agent-card {
-  background: #18181b;
+  background: #FFFFFF;
   border-radius: 24rpx;
   margin-bottom: 16rpx;
   overflow: hidden;
   transition: transform 0.15s ease, background 0.15s ease;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.04);
 }
 .agent-hover {
   transform: scale(0.985);
-  background: #1f1f23;
+  background: #F7F7F9;
 }
 .agent-row {
   display: flex;
   align-items: stretch;
 }
 
-/* 色条 */
+/* 色条 — iOS 系统色 */
 .agent-bar {
   width: 8rpx;
   flex-shrink: 0;
 }
-.bar-violet  { background: #8b5cf6; }
-.bar-emerald { background: #10b981; }
-.bar-amber   { background: #f59e0b; }
-.bar-sky     { background: #0ea5e9; }
-.bar-rose    { background: #f43f5e; }
-.bar-teal    { background: #14b8a6; }
-.bar-blue    { background: #3b82f6; }
-.bar-indigo  { background: #6366f1; }
-.bar-zinc    { background: #3f3f46; }
+.bar-violet  { background: #5E5CE6; }
+.bar-emerald { background: #34C759; }
+.bar-amber   { background: #FF9F0A; }
+.bar-sky     { background: #007AFF; }
+.bar-rose    { background: #FF375F; }
+.bar-teal    { background: #30B0C7; }
+.bar-blue    { background: #007AFF; }
+.bar-indigo  { background: #5E5CE6; }
+.bar-zinc    { background: #C7C7CC; }
 
 .agent-body {
   flex: 1;
@@ -392,7 +394,7 @@ page {
 .agent-name {
   font-size: 34rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -401,18 +403,18 @@ page {
 .agent-domain {
   margin-top: 8rpx;
   font-size: 26rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .muted {
-  color: #71717a;
+  color: #8E8E93;
 }
 .agent-summary {
   margin-top: 8rpx;
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -425,12 +427,12 @@ page {
 }
 .agent-active {
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 .agent-inactive {
   font-size: 22rpx;
-  color: #a1a1aa;
-  background: #27272a;
+  color: #3C3C43;
+  background: #E5E5EA;
   padding: 6rpx 16rpx;
   border-radius: 999rpx;
 }
@@ -443,13 +445,13 @@ page {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: #27272a;
-  color: #a1a1aa;
+  background: #E5E5EA;
+  color: #3C3C43;
   font-size: 18rpx;
   transition: transform 0.2s ease, background 0.15s ease;
 }
 .chevron-btn:active {
-  background: #3f3f46;
+  background: #D1D1D6;
   transform: scale(0.92);
 }
 .chevron-open {
@@ -461,7 +463,7 @@ page {
   margin-top: 32rpx;
 }
 .sec-block-border {
-  border-top: 2rpx solid #27272a;
+  border-top: 2rpx solid #E5E5EA;
   padding-top: 24rpx;
 }
 .sec-block-head {
@@ -472,16 +474,16 @@ page {
 .sec-block-title {
   font-size: 26rpx;
   font-weight: 500;
-  color: #d4d4d8;
+  color: #3C3C43;
 }
 .sec-block-count {
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 .sec-block-empty {
   margin-top: 12rpx;
   font-size: 26rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 /* 最近会议 list */
@@ -497,13 +499,13 @@ page {
 .meeting-date {
   flex-shrink: 0;
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
   font-variant-numeric: tabular-nums;
 }
 .meeting-title {
   flex: 1;
   font-size: 28rpx;
-  color: #d4d4d8;
+  color: #3C3C43;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -524,26 +526,24 @@ page {
 .task-num {
   font-size: 34rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   font-variant-numeric: tabular-nums;
 }
 .task-num-done {
-  color: #6ee7b7;
+  color: #0F9D58;
 }
 .task-num-overdue {
-  color: #fda4af;
+  color: #FF3B30;
 }
 .task-label {
   font-size: 26rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
 }
 .task-label-overdue {
-  color: rgba(253, 164, 175, 0.85);
+  color: #C9302C;
 }
 
 /* ============ 入场动效 (fade + slide-up + stagger) ============ */
-/* card 出现 时 从 24rpx 下方 + opacity 0 → 落位.
-   stagger 由 wxml 的 inline style animation-delay 控制 (50ms × idx, cap 8). */
 @keyframes agent-enter-anim {
   from {
     opacity: 0;
@@ -558,13 +558,12 @@ page {
   animation: agent-enter-anim 0.36s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* ============ Bottom Nav (跟 page bg 完全一致, 消除"白线") ============ */
+/* ============ Bottom Nav (跟 page bg 完全一致) ============ */
 .navbar {
   flex-shrink: 0;
   display: flex;
-  background: #0a0a0c;        /* 跟 page bg 一致 — 没有 视觉断层 */
+  background: #F2F2F7;
   padding: 6rpx 0 0;
-  /* 不放 border-top — 用户反馈"白色缝隙"就是这个 1px 线 */
 }
 .nav-item {
   flex: 1;
@@ -573,22 +572,22 @@ page {
   align-items: center;
   justify-content: center;
   padding: 8rpx 0 10rpx;
-  color: #71717a;             /* zinc-500 */
+  color: #8E8E93;
   transition: color 0.2s ease;
 }
 .nav-emoji {
-  font-size: 40rpx;           /* H5 text-xl */
+  font-size: 40rpx;
   line-height: 1;
   opacity: 0.7;
   transition: opacity 0.2s ease;
 }
 .nav-label {
   margin-top: 6rpx;
-  font-size: 22rpx;           /* H5 text-[11px] */
+  font-size: 22rpx;
   font-weight: 500;
 }
 .nav-on {
-  color: #c4b5fd;             /* H5 accent-300 — 浅紫 */
+  color: #007AFF;
 }
 .nav-on .nav-emoji {
   opacity: 1;

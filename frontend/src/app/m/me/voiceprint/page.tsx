@@ -13,10 +13,16 @@
  * UI 两态:
  *   - listing: 列表 + 顶部"+ 录新人"按钮 (leader+ 显) + 每行点击重录
  *   - recording: 模态全屏 — 输姓名 + 录音 + 上传
+ *
+ * v1.4.0 Saga D · 浅色化 (round-6).
+ *   - bg: ink-950 → MR_COLORS.bgGroupedPrimary
+ *   - 卡: ink-900 → bgWhite + 0.5px hairline
+ *   - 主蓝 accent → systemBlue; 红 rose → systemRed; 紫 violet → systemPurple
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
 import { mApi } from "@/lib/mobile/api";
 import { api as desktopApi } from "@/lib/api";
 import { startAudioCapture, type AudioCaptureHandle } from "@/lib/audioCapture";
@@ -289,35 +295,56 @@ export default function MobileVoiceprintLibraryPage() {
   const total = users?.length ?? 0;
 
   return (
-    <div className="flex min-h-screen flex-col">
-      {/* 顶栏 — 用实色 bg-ink-950 (无透明度 + 无 backdrop-blur), 跟微信小程序
-          navigationBar 同色融合, 避免视觉色差形成 "白线". safe-area 保留供
-          Safari 浏览器全屏模式 (小程序 webview 内 env 应该为 0). */}
+    <div
+      className="flex min-h-screen flex-col"
+      style={{ background: MR_COLORS.bgGroupedPrimary }}
+    >
+      {/* 顶栏 — 浅色 iOS, 实色 systemGroupedBackground (无透明度), 跟 mobile shell 同色融合. */}
       <div
-        className="sticky top-0 z-30 flex items-center gap-3 border-b border-ink-800 bg-ink-950 px-4 pb-3"
-        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
+        className="sticky top-0 z-30 flex items-center gap-3 px-4 pb-3"
+        style={{
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+          background: MR_COLORS.bgGroupedPrimary,
+          borderBottom: `0.5px solid ${MR_COLORS.hairline}`,
+        }}
       >
         <Link
           href="/m/me"
-          className="-ml-2 flex h-10 w-10 items-center justify-center text-zinc-300 active:text-zinc-50"
+          className="-ml-2 flex h-10 w-10 items-center justify-center"
+          style={{ color: MR_COLORS.systemBlue }}
           aria-label="返回"
         >
           <span className="text-2xl leading-none">←</span>
         </Link>
-        <h1 className="flex-1 truncate text-[18px] font-semibold text-zinc-50">
+        <h1
+          className="flex-1 truncate text-[18px] font-semibold"
+          style={{ color: MR_COLORS.textPrimary }}
+        >
           声纹库
         </h1>
       </div>
 
       <main className="flex-1 space-y-4 p-4 pb-8">
         {/* 概要 + 录新人按钮 */}
-        <section className="rounded-2xl bg-ink-900 p-4">
+        <section
+          className="rounded-2xl p-4"
+          style={{
+            background: MR_COLORS.bgWhite,
+            border: `0.5px solid ${MR_COLORS.hairline}`,
+          }}
+        >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[18px] font-semibold text-zinc-50">
+              <p
+                className="text-[18px] font-semibold"
+                style={{ color: MR_COLORS.textPrimary }}
+              >
                 工作区声纹 · {enrolledCount}/{total}
               </p>
-              <p className="mt-1 text-[12px] leading-snug text-zinc-400">
+              <p
+                className="mt-1 text-[12px] leading-snug"
+                style={{ color: MR_COLORS.textSecondary }}
+              >
                 已录 {enrolledCount} 人 · 共 {total} 人. 会议中系统自动识别已录者发言.
               </p>
             </div>
@@ -325,7 +352,11 @@ export default function MobileVoiceprintLibraryPage() {
               <button
                 type="button"
                 onClick={onOpenRecordNew}
-                className="shrink-0 rounded-full bg-accent-500 px-4 py-2 text-[13px] font-medium text-white active:scale-[0.97] active:bg-accent-600"
+                className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium text-white active:scale-[0.97]"
+                style={{
+                  background: MR_COLORS.systemBlue,
+                  boxShadow: "0 2px 8px rgba(0,122,255,0.20)",
+                }}
                 data-testid="voiceprint-add-new"
               >
                 + 录新人
@@ -333,7 +364,10 @@ export default function MobileVoiceprintLibraryPage() {
             ) : null}
           </div>
           {!isAdmin ? (
-            <p className="mt-3 text-[12px] text-amber-300">
+            <p
+              className="mt-3 text-[12px]"
+              style={{ color: MR_COLORS.systemOrange }}
+            >
               ⚠ 只有 leader / admin / owner 可以录入或修改声纹.
             </p>
           ) : null}
@@ -341,7 +375,14 @@ export default function MobileVoiceprintLibraryPage() {
 
         {/* 列表 */}
         {listErr ? (
-          <div className="rounded-xl border border-rose-500/30 bg-rose-500/[0.06] p-3 text-[13px] text-rose-300">
+          <div
+            className="rounded-xl p-3 text-[13px]"
+            style={{
+              border: `0.5px solid ${MR_COLORS.urgentBorder}`,
+              background: MR_COLORS.urgentBg,
+              color: MR_COLORS.systemRed,
+            }}
+          >
             {listErr}
           </div>
         ) : null}
@@ -351,7 +392,8 @@ export default function MobileVoiceprintLibraryPage() {
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="h-16 animate-pulse rounded-2xl bg-ink-900"
+                className="h-16 animate-pulse rounded-2xl"
+                style={{ background: "rgba(60,60,67,0.06)" }}
               />
             ))}
           </div>
@@ -360,23 +402,42 @@ export default function MobileVoiceprintLibraryPage() {
             {sortedUsers.map((u) => (
               <li
                 key={u.id}
-                className="flex items-center gap-3 rounded-2xl bg-ink-900 p-4"
+                className="flex items-center gap-3 rounded-2xl p-4"
+                style={{
+                  background: MR_COLORS.bgWhite,
+                  border: `0.5px solid ${MR_COLORS.hairline}`,
+                }}
               >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-accent-500 text-[18px] font-semibold text-white">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-sky-500 text-[18px] font-semibold text-white">
                   {u.name.slice(0, 1)}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-medium text-zinc-50">
+                  <p
+                    className="truncate text-[15px] font-medium"
+                    style={{ color: MR_COLORS.textPrimary }}
+                  >
                     {u.name}
                   </p>
-                  <p className="mt-0.5 text-[12px] text-zinc-500">
+                  <p
+                    className="mt-0.5 text-[12px]"
+                    style={{ color: MR_COLORS.textTertiary }}
+                  >
                     {u.has_voiceprint ? (
-                      <span className="text-emerald-300">● 已录入</span>
+                      <span style={{ color: MR_COLORS.systemGreen }}>
+                        ● 已录入
+                      </span>
                     ) : (
-                      <span className="text-zinc-500">○ 未录入</span>
+                      <span style={{ color: MR_COLORS.textTertiary }}>
+                        ○ 未录入
+                      </span>
                     )}
                     {u.email ? (
-                      <span className="ml-2 text-zinc-600">· {u.email}</span>
+                      <span
+                        className="ml-2"
+                        style={{ color: MR_COLORS.textQuaternary }}
+                      >
+                        · {u.email}
+                      </span>
                     ) : null}
                   </p>
                 </div>
@@ -385,7 +446,11 @@ export default function MobileVoiceprintLibraryPage() {
                     <button
                       type="button"
                       onClick={() => onOpenRecordFor(u)}
-                      className="rounded-full bg-ink-800 px-3 py-1.5 text-[12px] text-zinc-200 active:bg-ink-700"
+                      className="rounded-full px-3 py-1.5 text-[12px]"
+                      style={{
+                        background: MR_COLORS.bgInputFill,
+                        color: MR_COLORS.textPrimary,
+                      }}
                     >
                       {u.has_voiceprint ? "重录" : "录入"}
                     </button>
@@ -393,7 +458,12 @@ export default function MobileVoiceprintLibraryPage() {
                       <button
                         type="button"
                         onClick={() => void onDeleteFor(u)}
-                        className="rounded-full border border-rose-500/30 px-3 py-1.5 text-[12px] text-rose-300 active:bg-rose-500/[0.06]"
+                        className="rounded-full px-3 py-1.5 text-[12px]"
+                        style={{
+                          border: `0.5px solid ${MR_COLORS.urgentBorder}`,
+                          color: MR_COLORS.systemRed,
+                          background: "transparent",
+                        }}
                       >
                         撤销
                       </button>
@@ -404,10 +474,21 @@ export default function MobileVoiceprintLibraryPage() {
             ))}
           </ul>
         ) : (
-          <div className="rounded-2xl border border-dashed border-zinc-800 p-8 text-center">
-            <p className="text-[14px] text-zinc-400">工作区里 没人</p>
+          <div
+            className="rounded-2xl p-8 text-center"
+            style={{ border: `1px dashed ${MR_COLORS.hairlineStrong}` }}
+          >
+            <p
+              className="text-[14px]"
+              style={{ color: MR_COLORS.textSecondary }}
+            >
+              工作区里 没人
+            </p>
             {isAdmin ? (
-              <p className="mt-2 text-[12px] text-zinc-500">
+              <p
+                className="mt-2 text-[12px]"
+                style={{ color: MR_COLORS.textTertiary }}
+              >
                 点上面的 + 录新人 添加一个人
               </p>
             ) : null}
@@ -415,16 +496,21 @@ export default function MobileVoiceprintLibraryPage() {
         )}
       </main>
 
-      {/* 录音 模态 */}
+      {/* 录音 模态 — 全屏 浅色 sheet */}
       {recordOpen ? (
         <div
-          className="fixed inset-0 z-[60] flex flex-col bg-ink-950"
+          className="fixed inset-0 z-[60] flex flex-col"
+          style={{ background: MR_COLORS.bgGroupedPrimary }}
           data-testid="voiceprint-record-modal"
         >
           {/* 顶栏 */}
           <div
-            className="sticky top-0 z-10 flex items-center gap-3 border-b border-ink-800 bg-ink-950/85 px-4 pb-3 backdrop-blur"
-            style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
+            className="sticky top-0 z-10 flex items-center gap-3 px-4 pb-3 backdrop-blur"
+            style={{
+              paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+              background: "rgba(242,242,247,0.92)",
+              borderBottom: `0.5px solid ${MR_COLORS.hairline}`,
+            }}
           >
             <button
               type="button"
@@ -432,12 +518,16 @@ export default function MobileVoiceprintLibraryPage() {
                 if (phase === "recording" || phase === "uploading") return;
                 setRecordOpen(false);
               }}
-              className="-ml-2 flex h-10 w-10 items-center justify-center text-zinc-300 active:text-zinc-50"
+              className="-ml-2 flex h-10 w-10 items-center justify-center"
+              style={{ color: MR_COLORS.systemBlue }}
               aria-label="关闭"
             >
               <span className="text-2xl leading-none">×</span>
             </button>
-            <h2 className="flex-1 truncate text-[17px] font-semibold text-zinc-50">
+            <h2
+              className="flex-1 truncate text-[17px] font-semibold"
+              style={{ color: MR_COLORS.textPrimary }}
+            >
               {targetUserId ? `重录 · ${name}` : "录入新人"}
             </h2>
           </div>
@@ -445,7 +535,12 @@ export default function MobileVoiceprintLibraryPage() {
           <div className="flex-1 space-y-4 overflow-y-auto p-4">
             {/* 姓名 — 新人才能编辑 */}
             <section>
-              <label className="text-[12px] text-zinc-500">姓名</label>
+              <label
+                className="text-[12px]"
+                style={{ color: MR_COLORS.textTertiary }}
+              >
+                姓名
+              </label>
               <input
                 type="text"
                 value={name}
@@ -453,46 +548,73 @@ export default function MobileVoiceprintLibraryPage() {
                 disabled={!!targetUserId || phase !== "idle"}
                 placeholder="例: 张三"
                 maxLength={40}
-                className="mt-1 h-11 w-full rounded-xl bg-ink-900 px-3 text-[16px] text-zinc-50 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-accent-500 disabled:opacity-60"
+                className="mt-1 h-11 w-full rounded-xl px-3 text-[16px] focus:outline-none disabled:opacity-60"
+                style={{
+                  background: MR_COLORS.bgWhite,
+                  border: `0.5px solid ${MR_COLORS.hairline}`,
+                  color: MR_COLORS.textPrimary,
+                }}
               />
             </section>
 
             {/* 朗读文 */}
             <section
-              className={`rounded-2xl border p-4 transition ${
-                phase === "recording"
-                  ? "border-accent-500/60 bg-accent-500/5"
-                  : "border-ink-800 bg-ink-900"
-              }`}
+              className="rounded-2xl p-4 transition"
+              style={{
+                background:
+                  phase === "recording" ? "rgba(0,122,255,0.06)" : MR_COLORS.bgWhite,
+                border:
+                  phase === "recording"
+                    ? `0.5px solid ${MR_COLORS.systemBlue}`
+                    : `0.5px solid ${MR_COLORS.hairline}`,
+              }}
             >
               <div className="flex items-center justify-between">
-                <span className="rounded bg-ink-800 px-2 py-0.5 text-[12px] text-zinc-400">
+                <span
+                  className="rounded px-2 py-0.5 text-[12px]"
+                  style={{
+                    background: MR_COLORS.bgInputFill,
+                    color: MR_COLORS.textSecondary,
+                  }}
+                >
                   朗读 · {script.title}
                 </span>
                 <button
                   type="button"
                   onClick={nextScript}
                   disabled={phase !== "idle"}
-                  className="text-[12px] text-zinc-500 active:text-accent-400 disabled:opacity-40"
+                  className="text-[12px] disabled:opacity-40"
+                  style={{ color: MR_COLORS.systemBlue }}
                 >
                   换一段 ↻
                 </button>
               </div>
               <p
-                className={`mt-3 text-[15px] leading-loose tracking-wide ${
-                  phase === "recording" ? "text-white" : "text-zinc-200"
-                }`}
+                className="mt-3 text-[15px] leading-loose tracking-wide"
+                style={{ color: MR_COLORS.textPrimary }}
               >
                 {script.text}
               </p>
-              <p className="mt-3 text-[12px] text-zinc-500">
+              <p
+                className="mt-3 text-[12px]"
+                style={{ color: MR_COLORS.textTertiary }}
+              >
                 正常 语速 读完一遍 约 30-45 秒. 不够 30s 接着重复.
               </p>
             </section>
 
             {/* 进度 */}
-            <section className="rounded-2xl bg-ink-900 p-4">
-              <div className="flex items-center justify-between text-[13px] text-zinc-500">
+            <section
+              className="rounded-2xl p-4"
+              style={{
+                background: MR_COLORS.bgWhite,
+                border: `0.5px solid ${MR_COLORS.hairline}`,
+              }}
+            >
+              <div
+                className="flex items-center justify-between text-[13px]"
+                style={{ color: MR_COLORS.textTertiary }}
+              >
                 <span>
                   已录 {seconds.toFixed(1)}s · 目标 {MIN_SUBMIT_SECONDS}-{MAX_SECONDS}s
                 </span>
@@ -504,10 +626,16 @@ export default function MobileVoiceprintLibraryPage() {
                       : "未开始"}
                 </span>
               </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-ink-800">
+              <div
+                className="mt-2 h-2 overflow-hidden rounded-full"
+                style={{ background: MR_COLORS.bgInputFill }}
+              >
                 <div
-                  className="h-full bg-accent-500 transition-all"
-                  style={{ width: `${target * 100}%` }}
+                  className="h-full transition-all"
+                  style={{
+                    width: `${target * 100}%`,
+                    background: MR_COLORS.systemBlue,
+                  }}
                 />
               </div>
             </section>
@@ -518,7 +646,11 @@ export default function MobileVoiceprintLibraryPage() {
                 <button
                   type="button"
                   onClick={() => void start()}
-                  className="flex h-20 w-20 items-center justify-center rounded-full bg-accent-500 text-3xl text-white shadow-lg shadow-accent-500/30 active:scale-95"
+                  className="flex h-20 w-20 items-center justify-center rounded-full text-3xl text-white active:scale-95"
+                  style={{
+                    background: MR_COLORS.systemBlue,
+                    boxShadow: "0 6px 20px rgba(0,122,255,0.30)",
+                  }}
                 >
                   🎙
                 </button>
@@ -526,20 +658,32 @@ export default function MobileVoiceprintLibraryPage() {
                 <button
                   type="button"
                   onClick={() => void stop(false)}
-                  className={`flex h-20 w-20 items-center justify-center rounded-full text-3xl text-white shadow-lg transition active:scale-95 ${
-                    seconds >= MIN_SUBMIT_SECONDS
-                      ? "bg-rose-500 shadow-rose-500/30"
-                      : "bg-zinc-700 shadow-zinc-700/30"
-                  }`}
+                  className="flex h-20 w-20 items-center justify-center rounded-full text-3xl text-white transition active:scale-95"
+                  style={{
+                    background:
+                      seconds >= MIN_SUBMIT_SECONDS
+                        ? MR_COLORS.systemRed
+                        : MR_COLORS.textTertiary,
+                    boxShadow:
+                      seconds >= MIN_SUBMIT_SECONDS
+                        ? "0 6px 20px rgba(255,59,48,0.30)"
+                        : "0 6px 20px rgba(60,60,67,0.20)",
+                  }}
                 >
                   ■
                 </button>
               ) : (
-                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-violet-500/20 text-3xl">
+                <div
+                  className="flex h-20 w-20 items-center justify-center rounded-full text-3xl"
+                  style={{ background: "rgba(94,92,230,0.15)" }}
+                >
                   <span className="animate-pulse">⏳</span>
                 </div>
               )}
-              <p className="mt-3 text-[13px] text-zinc-400">
+              <p
+                className="mt-3 text-[13px]"
+                style={{ color: MR_COLORS.textSecondary }}
+              >
                 {phase === "idle" && "点击开始录音"}
                 {phase === "recording" &&
                   (seconds >= MIN_SUBMIT_SECONDS

@@ -1,19 +1,21 @@
 /* app.wxss — 全局样式 + 4 个主 tab 页共享的 layout / header / segment / navbar.
  *
- * v27.2 重写: 4 主 tab (home / meetings_list / tasks_list / insights) UI 一致,
- * 把 公共骨架 抽过来. 各 page wxss 只放 自己 独有的 卡片样式.
+ * v1.4.0 Saga F · 浅色化重写: 跟 Mobile MR_COLORS 1:1 (frontend/src/components/mobile/meeting-room/styles.ts).
+ * NORTH_STAR § 7.1 不做 dark mode — 全栈走 iOS 浅色.
  *
- * 设计原则 — 跟 H5 对齐:
- *   - 字号 / 留白 / 配色 跟 frontend/src/components/mobile/{PageHeader, SegmentControl, BottomNav} 对应
- *   - 取消 navbar 上 1px 浅边 (用户反馈"白色缝隙") — navbar 直接 bg 跟页面 bg 一致, 没分割线
- *   - segment 用 半透明 + 浅 active (zinc-700) — iOS pill 风
- *   - bg color 全 走 ink-950 (#0a0a0c) → ink-900 (#18181b) → zinc-700 (#3f3f46) 三层
+ * 设计原则 — 跟 H5 (frontend/src/app/m + components/mobile/meeting-room) 对齐:
+ *   - page bg = #F2F2F7 (iOS systemGroupedBackground)
+ *   - card / surface = #FFFFFF
+ *   - 文字 primary #1C1C1E / secondary #3C3C43 / tertiary #8E8E93
+ *   - hairline rgba(60,60,67,0.12) / separator #E5E5EA
+ *   - 系统色 blue #007AFF / green #34C759 / red #FF3B30 / orange #FF9F0A / purple #5E5CE6
+ *   - 字号 / 留白 跟 frontend/src/components/mobile/{PageHeader, SegmentControl, BottomNav} 对应
  */
 
 page {
-  background-color: #0a0a0c;
-  color: #fafafa;
-  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background-color: #F2F2F7;
+  color: #1C1C1E;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
 }
 
 /* v27.2 关键 reset: mini program 默认 box-sizing 是 content-box,
@@ -39,60 +41,59 @@ view, scroll-view, button, input, image, text, swiper, swiper-item, navigator {
   flex-direction: column;
   height: 100vh;
   box-sizing: border-box;
-  background: #0a0a0c;
+  background: #F2F2F7;
 }
 
 /* ============ Header (跟 H5 PageHeader 对齐) ============ */
-/* H5: px-4 pt-5 pb-3 + 大标题 26px font-semibold leading-none zinc-50 */
 .tab-hd {
   flex-shrink: 0;
   padding: 40rpx 32rpx 24rpx;
 }
 .tab-hd-title {
-  font-size: 52rpx;  /* H5 text-[26px] */
+  font-size: 52rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   line-height: 1;
   letter-spacing: -0.5rpx;
 }
 
 /* ============ Segment Control (跟 H5 SegmentControl 对齐) ============ */
-/* H5: inline-flex w-full rounded-xl bg-ink-900/60 p-1, h-10 buttons text-[15px], active bg-zinc-700 */
+/* iOS 浅: 容器底色 #E5E5EA, active 段 #FFFFFF 抬起 (跟 iOS 系统 segment 一致). */
 .tab-segment {
   margin-top: 32rpx;
   display: flex;
-  background: rgba(24, 24, 27, 0.6);   /* ink-900/60 */
-  border-radius: 24rpx;                /* rounded-xl ~12px */
-  padding: 8rpx;                       /* p-1 */
+  background: #E5E5EA;
+  border-radius: 24rpx;
+  padding: 8rpx;
 }
 .tab-seg-item {
   flex: 1;
-  height: 80rpx;                       /* h-10 */
+  height: 80rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12rpx;                          /* gap-1.5 */
-  font-size: 30rpx;                    /* text-[15px] */
-  color: #d4d4d8;                      /* zinc-300 */
-  border-radius: 16rpx;                /* rounded-lg */
+  gap: 12rpx;
+  font-size: 30rpx;
+  color: #3C3C43;
+  border-radius: 16rpx;
   transition: background 0.2s ease, color 0.2s ease;
 }
 .tab-seg-count {
-  font-size: 26rpx;                    /* text-[13px] */
-  color: #71717a;                      /* zinc-500 */
+  font-size: 26rpx;
+  color: #8E8E93;
   font-variant-numeric: tabular-nums;
 }
 .tab-seg-on {
-  background: #3f3f46;                 /* zinc-700 */
-  color: #fafafa;                      /* zinc-50 */
+  background: #FFFFFF;
+  color: #1C1C1E;
   font-weight: 500;
-  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.2);
+  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.06);
 }
 .tab-seg-on .tab-seg-count {
-  color: #d4d4d8;                      /* zinc-300 active 时 数字也跟着亮 */
+  color: #3C3C43;
 }
 .tab-seg-count-warn {
-  color: #fcd34d;                      /* amber-300 — 待审 tab 用 */
+  color: #B8860B;
 }
 
 /* ============ Body (scroll) ============ */
@@ -103,15 +104,11 @@ view, scroll-view, button, input, image, text, swiper, swiper-item, navigator {
 }
 
 /* ============ Bottom Nav (跟 H5 BottomNav 对齐) ============ */
-/* H5: fixed bottom-0 border-t border-ink-800 bg-ink-950/95 backdrop-blur, h-14 buttons,
-   text-xl emoji + text-[11px] label, active text-accent-300.
-   注: 这里 不用 fixed (mini program 用 flex column 更稳, scroll 不抖). 但 bg 跟 page 一样,
-   去掉 border-top, 消除 "白色缝隙" 感觉. */
+/* iOS 浅: bg 跟 page 一致 #F2F2F7, 无 border-top, active 用 iOS blue. */
 .tab-navbar {
   flex-shrink: 0;
   display: flex;
-  background: #0a0a0c;                 /* 跟 page bg 完全 一样 — 不产生 视觉断层 */
-  /* 没有 border-top — 这是 用户 反馈 的 "白色缝隙" 的 元凶 */
+  background: #F2F2F7;
 }
 .tab-nav-item {
   flex: 1;
@@ -120,23 +117,23 @@ view, scroll-view, button, input, image, text, swiper, swiper-item, navigator {
   align-items: center;
   justify-content: center;
   padding: 12rpx 0 8rpx;
-  height: 96rpx;                       /* H5 h-14 = 56px = 112rpx, 留点紧凑 */
-  color: #71717a;                      /* zinc-500 */
+  height: 96rpx;
+  color: #8E8E93;
   transition: color 0.2s ease;
 }
 .tab-nav-emoji {
-  font-size: 40rpx;                    /* H5 text-xl = 20px = 40rpx */
+  font-size: 40rpx;
   line-height: 1;
   opacity: 0.7;
   transition: opacity 0.2s ease;
 }
 .tab-nav-label {
   margin-top: 6rpx;
-  font-size: 22rpx;                    /* H5 text-[11px] */
+  font-size: 22rpx;
   font-weight: 500;
 }
 .tab-nav-on {
-  color: #c4b5fd;                      /* H5 text-accent-300 */
+  color: #007AFF;
 }
 .tab-nav-on .tab-nav-emoji {
   opacity: 1;
@@ -173,7 +170,7 @@ view, scroll-view, button, input, image, text, swiper, swiper-item, navigator {
   transition: transform 0.12s ease;
 }
 .tap-highlight {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(60, 60, 67, 0.06);
 }
 
 /* ============ 自定义导航栏 — 子页 (带返回按钮) ============ */
@@ -182,7 +179,7 @@ view, scroll-view, button, input, image, text, swiper, swiper-item, navigator {
  * utils/nav.js getNavMetrics() 算, 页面 inline style 注入. */
 .cnav {
   flex-shrink: 0;
-  background: #0a0a0c;
+  background: #F2F2F7;
 }
 .cnav-inner {
   position: relative;
@@ -202,7 +199,7 @@ view, scroll-view, button, input, image, text, swiper, swiper-item, navigator {
 }
 .cnav-back-arrow {
   font-size: 52rpx;
-  color: #fafafa;
+  color: #007AFF;
   line-height: 1;
   font-weight: 300;
 }
@@ -212,7 +209,7 @@ view, scroll-view, button, input, image, text, swiper, swiper-item, navigator {
 .cnav-title {
   font-size: 32rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -220,7 +217,7 @@ view, scroll-view, button, input, image, text, swiper, swiper-item, navigator {
 }
 
 /* ============ Header 右上 icon button (跟 H5 PageHeader 对齐) ============ */
-/* H5: 40x40 圆按钮, 默认灰, active bg-ink-800 + 字 zinc-200 */
+/* H5 浅: 40x40 圆按钮, 默认灰, active bg #E5E5EA + 字 #1C1C1E */
 .hd-row {
   display: flex;
   align-items: center;
@@ -234,17 +231,17 @@ view, scroll-view, button, input, image, text, swiper, swiper-item, navigator {
   flex-shrink: 0;
 }
 .hd-icon-btn {
-  width: 72rpx;                    /* H5 h-10 w-10 = 80rpx, 微缩 */
+  width: 72rpx;
   height: 72rpx;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 32rpx;
-  color: #a1a1aa;                  /* zinc-400 */
+  color: #8E8E93;
   transition: background 0.15s ease, color 0.15s ease;
 }
 .hd-icon-hover {
-  background: #27272a;             /* zinc-800 */
-  color: #e4e4e7;                  /* zinc-200 */
+  background: #E5E5EA;
+  color: #1C1C1E;
 }

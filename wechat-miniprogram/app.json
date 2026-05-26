@@ -18,19 +18,19 @@
     "pages/create/create"
   ],
   "window": {
-    "backgroundColor": "#0a0a0c",
-    "backgroundTextStyle": "light",
-    "navigationBarBackgroundColor": "#0a0a0c",
+    "backgroundColor": "#F2F2F7",
+    "backgroundTextStyle": "dark",
+    "navigationBarBackgroundColor": "#FFFFFF",
     "navigationBarTitleText": "智囊团",
-    "navigationBarTextStyle": "white",
+    "navigationBarTextStyle": "black",
     "enablePullDownRefresh": false
   },
   "tabBar": {
     "custom": true,
-    "color": "#71717a",
-    "selectedColor": "#c4b5fd",
-    "backgroundColor": "#0a0a0c",
-    "borderStyle": "black",
+    "color": "#8E8E93",
+    "selectedColor": "#007AFF",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "white",
     "list": [
       { "pagePath": "pages/home/home", "text": "今日" },
       { "pagePath": "pages/meetings_list/meetings_list", "text": "会议" },

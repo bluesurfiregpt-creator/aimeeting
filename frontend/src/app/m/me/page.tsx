@@ -11,6 +11,13 @@
  *   - 「关于」link → /m/about (复用 wechat-miniprogram 同名? 不, 不必, mvp 只 link 到外部 manual)
  *   - 「退出登录」红色按钮
  *   - 底部版本号
+ *
+ * v1.4.0 Saga D · 浅色化 (跟 /m today 一致, iOS 浅色).
+ *
+ * v1.4.0 Saga I · 新增 "切到 Web 管理" 入口 (R6 改版后跳 /workstation 不再是 /admin).
+ *   - 仅 leader+ (workspace_creator / leader / admin) 显示
+ *   - 点击 → 新窗口打开 /workstation (web 端工作站, R6 落地)
+ *   - 在小程序 webview 内 跳出微信: 走 web-view 标准导航
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -20,6 +27,7 @@ import { api } from "@/lib/api";
 import { clearAllCache } from "@/lib/mobile/swrCache";
 import Toast from "@/components/mobile/Toast";
 import ConfirmDialog from "@/components/mobile/ConfirmDialog";
+import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
 
 type MeInfo = {
   user_id: string;
@@ -32,19 +40,53 @@ type MeInfo = {
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "Owner",
+  workspace_creator: "创建者",
   leader: "Leader",
   admin: "Admin",
+  agent_owner: "AI 主理人",
   expert: "Expert",
   member: "Member",
 };
 
-const ROLE_CHIP: Record<string, string> = {
-  owner: "bg-violet-500/15 text-violet-300",
-  leader: "bg-amber-500/15 text-amber-300",
-  admin: "bg-sky-500/15 text-sky-300",
-  expert: "bg-emerald-500/15 text-emerald-300",
-  member: "bg-zinc-700 text-zinc-300",
+// 浅色 iOS chip — 跟 round-3 同套
+const ROLE_CHIP: Record<string, { bg: string; fg: string }> = {
+  owner: {
+    bg: "rgba(94,92,230,0.10)",
+    fg: MR_COLORS.systemPurple,
+  },
+  workspace_creator: {
+    bg: "rgba(94,92,230,0.10)",
+    fg: MR_COLORS.systemPurple,
+  },
+  leader: {
+    bg: "rgba(255,159,10,0.12)",
+    fg: MR_COLORS.systemOrange,
+  },
+  admin: {
+    bg: "rgba(0,122,255,0.10)",
+    fg: MR_COLORS.systemBlue,
+  },
+  agent_owner: {
+    bg: "rgba(52,199,89,0.12)",
+    fg: MR_COLORS.systemGreen,
+  },
+  expert: {
+    bg: "rgba(52,199,89,0.12)",
+    fg: MR_COLORS.systemGreen,
+  },
+  member: {
+    bg: MR_COLORS.bgInputFill,
+    fg: MR_COLORS.textSecondary,
+  },
 };
+
+// v1.4.0 Saga I — leader+ 才能跳 web 管理. 跟 voiceprint 页同一套白名单.
+const LEADER_ROLES = new Set([
+  "workspace_creator",
+  "leader",
+  "admin",
+  "owner",
+]);
 
 export default function MobileMePage() {
   const router = useRouter();
@@ -103,30 +145,52 @@ export default function MobileMePage() {
 
   if (loading) {
     return (
-      <div className="space-y-4 p-4">
-        <div className="h-32 animate-pulse rounded-2xl bg-ink-900" />
-        <div className="h-12 animate-pulse rounded-xl bg-ink-900" />
+      <div
+        className="space-y-4 p-4"
+        style={{ background: MR_COLORS.bgGroupedPrimary, minHeight: "100%" }}
+      >
+        <div
+          className="h-32 animate-pulse rounded-2xl"
+          style={{ background: "rgba(60,60,67,0.06)" }}
+        />
+        <div
+          className="h-12 animate-pulse rounded-xl"
+          style={{ background: "rgba(60,60,67,0.06)" }}
+        />
       </div>
     );
   }
 
+  const isLeaderPlus = me && LEADER_ROLES.has(me.role);
+
   return (
     /* P18: min-h-screen + flex col → mt-auto 把退出按钮推到屏幕底.
        min-h-full 在 layout main (flex-1) 里算 0%; 100vh 才稳. */
-    <div className="flex min-h-screen flex-col">
-      {/* TopBar */}
+    <div
+      className="flex min-h-screen flex-col"
+      style={{ background: MR_COLORS.bgGroupedPrimary }}
+    >
+      {/* TopBar — 浅色 iOS */}
       <div
-        className="sticky top-0 z-30 flex items-center gap-3 border-b border-ink-800 bg-ink-950/85 px-4 pb-3 backdrop-blur"
-        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
+        className="sticky top-0 z-30 flex items-center gap-3 px-4 pb-3 backdrop-blur"
+        style={{
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+          background: "rgba(242,242,247,0.92)",
+          borderBottom: `0.5px solid ${MR_COLORS.hairline}`,
+        }}
       >
         <Link
           href="/m"
-          className="-ml-2 flex h-10 w-10 items-center justify-center text-zinc-300 active:text-zinc-50"
+          className="-ml-2 flex h-10 w-10 items-center justify-center"
+          style={{ color: MR_COLORS.systemBlue }}
           aria-label="返回"
         >
           <span className="text-2xl leading-none">←</span>
         </Link>
-        <h1 className="flex-1 truncate text-[18px] font-semibold text-zinc-50">
+        <h1
+          className="flex-1 truncate text-[18px] font-semibold"
+          style={{ color: MR_COLORS.textPrimary }}
+        >
           我的
         </h1>
       </div>
@@ -135,22 +199,31 @@ export default function MobileMePage() {
         {/* 档案卡 */}
         {me ? (
           <section
-            className="rounded-2xl bg-ink-900 p-5"
+            className="rounded-2xl p-5"
+            style={{
+              background: MR_COLORS.bgWhite,
+              border: `0.5px solid ${MR_COLORS.hairline}`,
+            }}
             data-testid="mobile-me-profile"
           >
             <div className="flex items-center gap-4">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-accent-500 text-[24px] font-semibold text-white">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-sky-500 text-[24px] font-semibold text-white">
                 {me.name.slice(0, 1)}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[20px] font-semibold text-zinc-50">
+                <p
+                  className="truncate text-[20px] font-semibold"
+                  style={{ color: MR_COLORS.textPrimary }}
+                >
                   {me.name}
                 </p>
-                <p className="mt-1 flex items-center gap-2 truncate text-[14px] text-zinc-400">
+                <p
+                  className="mt-1 flex items-center gap-2 truncate text-[14px]"
+                  style={{ color: MR_COLORS.textSecondary }}
+                >
                   <span
-                    className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[13px] font-medium ${
-                      ROLE_CHIP[me.role] || ROLE_CHIP.member
-                    }`}
+                    className="inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[13px] font-medium"
+                    style={(ROLE_CHIP[me.role] || ROLE_CHIP.member) as React.CSSProperties}
                   >
                     {ROLE_LABEL[me.role] || me.role}
                   </span>
@@ -163,12 +236,25 @@ export default function MobileMePage() {
 
         {/* 工作区 / 部门 信息 */}
         {me ? (
-          <section className="rounded-2xl bg-ink-900 px-5 py-2">
+          <section
+            className="rounded-2xl px-5 py-2"
+            style={{
+              background: MR_COLORS.bgWhite,
+              border: `0.5px solid ${MR_COLORS.hairline}`,
+            }}
+          >
             <Row label="工作区" value={me.workspace_name} />
             {me.department ? (
-              <Row label="所属部门" value={me.department} />
+              <Row label="所属部门" value={me.department} last />
             ) : null}
           </section>
+        ) : null}
+
+        {/* v1.4.0 Saga I — leader+ 看到的 "切到 web 管理" 入口.
+            R6 落地 Workstation 后, 目的地 = /workstation (而不是老 /admin).
+            桌面 /admin → /me/profile/agents 老 redirect 仍在, 但新动线一律走 /workstation. */}
+        {isLeaderPlus ? (
+          <WebManagementEntry />
         ) : null}
 
         {/* P22: 声纹 — 跳录音页. 在小程序 webview 内, 自动跳 原生 voiceprint 页;
@@ -177,26 +263,38 @@ export default function MobileMePage() {
         <VoiceprintEntry />
 
         {/* 关于 + 反馈 (mvp 文字提示) */}
-
-        {/* 关于 + 反馈 (mvp 文字提示) */}
-        <section className="rounded-2xl bg-ink-900 px-5 py-2">
+        <section
+          className="rounded-2xl px-5 py-2"
+          style={{
+            background: MR_COLORS.bgWhite,
+            border: `0.5px solid ${MR_COLORS.hairline}`,
+          }}
+        >
           <Row label="客服 / 反馈" value="联系管理员" />
-          <Row label="环境" value="生产" />
+          <Row label="环境" value="生产" last />
         </section>
 
         {/* 退出登录 — mt-auto 推到底, 内容少时也贴底 */}
         <button
           type="button"
           onClick={() => setLogoutOpen(true)}
-          className="mt-auto flex h-12 w-full items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/[0.06] text-[15px] font-medium text-rose-300 active:scale-[0.98] active:bg-rose-500/[0.12]"
+          className="mt-auto flex h-12 w-full items-center justify-center rounded-xl text-[15px] font-medium active:scale-[0.98]"
+          style={{
+            border: `0.5px solid ${MR_COLORS.urgentBorder}`,
+            background: MR_COLORS.urgentBg,
+            color: MR_COLORS.systemRed,
+          }}
           data-testid="mobile-me-logout"
         >
           退出登录
         </button>
 
         {/* 版本号 */}
-        <p className="text-center text-[13px] text-zinc-500">
-          Aimeeting · v27.0-mobile
+        <p
+          className="text-center text-[13px]"
+          style={{ color: MR_COLORS.textTertiary }}
+        >
+          Aimeeting · v1.4.0
         </p>
       </main>
 
@@ -219,11 +317,36 @@ export default function MobileMePage() {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({
+  label,
+  value,
+  last = false,
+}: {
+  label: string;
+  value: string;
+  last?: boolean;
+}) {
   return (
-    <div className="flex items-center justify-between border-b border-zinc-800 py-3 last:border-b-0">
-      <span className="text-[14px] text-zinc-400">{label}</span>
-      <span className="truncate text-[15px] text-zinc-100">{value}</span>
+    <div
+      className="flex items-center justify-between py-3"
+      style={
+        last
+          ? undefined
+          : { borderBottom: `0.5px solid ${MR_COLORS.hairline}` }
+      }
+    >
+      <span
+        className="text-[14px]"
+        style={{ color: MR_COLORS.textSecondary }}
+      >
+        {label}
+      </span>
+      <span
+        className="truncate text-[15px]"
+        style={{ color: MR_COLORS.textPrimary }}
+      >
+        {value}
+      </span>
     </div>
   );
 }
@@ -275,14 +398,109 @@ function VoiceprintEntry() {
     <Link
       href="/m/me/voiceprint"
       onClick={handleClick}
-      className="rounded-2xl bg-ink-900 px-5 py-2 active:bg-ink-800"
+      className="rounded-2xl px-5 py-2 active:opacity-80"
+      style={{
+        background: MR_COLORS.bgWhite,
+        border: `0.5px solid ${MR_COLORS.hairline}`,
+      }}
       data-testid="mobile-me-voiceprint-link"
     >
-      <div className="flex items-center justify-between border-b border-zinc-800 py-3 last:border-b-0">
-        <span className="text-[14px] text-zinc-400">声纹库</span>
-        <span className="flex items-center gap-1 text-[15px] text-zinc-100">
-          <span className="text-[13px] text-zinc-500">管理</span>
-          <span className="text-zinc-500">›</span>
+      <div className="flex items-center justify-between py-3">
+        <span
+          className="text-[14px]"
+          style={{ color: MR_COLORS.textSecondary }}
+        >
+          声纹库
+        </span>
+        <span
+          className="flex items-center gap-1 text-[15px]"
+          style={{ color: MR_COLORS.textPrimary }}
+        >
+          <span
+            className="text-[13px]"
+            style={{ color: MR_COLORS.textTertiary }}
+          >
+            管理
+          </span>
+          <span style={{ color: MR_COLORS.textTertiary }}>›</span>
+        </span>
+      </div>
+    </Link>
+  );
+}
+
+/**
+ * v1.4.0 Saga I — 跨端切到 web 管理.
+ *
+ * R6 落地 "工作站" 框 后, leader+ 跨端跳目的地 改为 /workstation.
+ * (老 /admin redirect 仍存在但新动线不走它.)
+ *
+ * 行为分支:
+ *   - 浏览器 / H5 内 → 直接 window.open("/workstation"), 新 tab 打开
+ *   - 小程序 webview 内 → 不能开新 tab, 提示用户复制链接到电脑浏览器
+ *     (短期方案: 显 toast + copy. 长期: 用 wx.openLink / wx.showShareMenu 唤起分享)
+ */
+function WebManagementEntry() {
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    if (typeof window === "undefined") return;
+    const inMp = window.__wxjs_environment === "miniprogram";
+    if (inMp) {
+      // 小程序内不能开新 tab — 提示用户去电脑端
+      try {
+        navigator.clipboard?.writeText(
+          window.location.origin + "/workstation",
+        );
+      } catch {
+        /* ignore — 仅复制失败, 仍提示用户 */
+      }
+      alert("已复制 web 管理链接, 请到电脑浏览器粘贴打开");
+      return;
+    }
+    // 浏览器 / 普通 H5: 新窗口打开 web 工作站
+    window.open("/workstation", "_blank", "noopener");
+  }, []);
+
+  return (
+    <Link
+      href="/workstation"
+      onClick={handleClick}
+      className="rounded-2xl px-5 py-2 active:opacity-80"
+      style={{
+        background: MR_COLORS.bgWhite,
+        border: `0.5px solid ${MR_COLORS.hairline}`,
+      }}
+      data-testid="mobile-me-workstation-link"
+    >
+      <div className="flex items-center justify-between py-3">
+        <div className="flex items-center gap-2">
+          <span
+            className="text-[14px]"
+            style={{ color: MR_COLORS.textSecondary }}
+          >
+            切到 web 管理
+          </span>
+          <span
+            className="rounded-md px-1.5 py-0.5 text-[11px] font-medium"
+            style={{
+              background: "rgba(0,122,255,0.10)",
+              color: MR_COLORS.systemBlue,
+            }}
+          >
+            Leader+
+          </span>
+        </div>
+        <span
+          className="flex items-center gap-1 text-[15px]"
+          style={{ color: MR_COLORS.textPrimary }}
+        >
+          <span
+            className="text-[13px]"
+            style={{ color: MR_COLORS.textTertiary }}
+          >
+            工作站
+          </span>
+          <span style={{ color: MR_COLORS.textTertiary }}>›</span>
         </span>
       </div>
     </Link>

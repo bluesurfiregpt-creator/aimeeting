@@ -16,6 +16,17 @@
  *
  * 创建成功 → 跳 /m/meetings/<新 id>.
  * status="scheduled". 用户进会议室后还得手动开始 (桌面端流程).
+ *
+ * v1.4.0 Saga D · 浅色化 (round-6).
+ *   - 跟 Mobile MR_COLORS / round-3 会议室 一致 (iOS 浅色)
+ *   - bg: ink-950 → MR_COLORS.bgGroupedPrimary (#F2F2F7)
+ *   - 卡: ink-900 → MR_COLORS.bgWhite (#FFFFFF) + 0.5px hairline
+ *   - 主文: zinc-50/100 → MR_COLORS.textPrimary (#1C1C1E)
+ *   - 次文: zinc-400/500 → textSecondary (#3C3C43) / textTertiary (#8E8E93)
+ *   - 主蓝 accent-500 → MR_COLORS.systemBlue (#007AFF)
+ *   - 紫强调 violet → MR_COLORS.systemPurple (#5E5CE6)
+ *   - 红强调 rose → MR_COLORS.systemRed (#FF3B30)
+ *   - hairline: ink-800 → MR_COLORS.hairline (rgba(60,60,67,0.12))
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -23,6 +34,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { MaterialsInline } from "@/components/mobile/meeting-room/materials";
 import Toast from "@/components/mobile/Toast";
+import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
 import { mApi } from "@/lib/mobile/api";
 import { invalidateCache } from "@/lib/mobile/swrCache";
 import type {
@@ -294,20 +306,29 @@ export default function NewMeetingPage() {
   ]);
 
   return (
-    <div>
-      {/* TopBar */}
+    <div style={{ background: MR_COLORS.bgGroupedPrimary, minHeight: "100%" }}>
+      {/* TopBar — 浅色 iOS */}
       <div
-        className="sticky top-0 z-30 flex items-center gap-3 border-b border-ink-800 bg-ink-950/85 px-4 pb-3 backdrop-blur"
-        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
+        className="sticky top-0 z-30 flex items-center gap-3 px-4 pb-3 backdrop-blur"
+        style={{
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+          background: "rgba(242,242,247,0.92)",
+          borderBottom: `0.5px solid ${MR_COLORS.hairline}`,
+          color: MR_COLORS.textPrimary,
+        }}
       >
         <Link
           href="/m/meetings"
-          className="-ml-2 flex h-10 w-10 items-center justify-center text-zinc-300 active:text-zinc-50"
+          className="-ml-2 flex h-10 w-10 items-center justify-center"
+          style={{ color: MR_COLORS.systemBlue }}
           aria-label="返回"
         >
           <span className="text-2xl leading-none">←</span>
         </Link>
-        <h1 className="flex-1 truncate text-[18px] font-semibold text-zinc-50">
+        <h1
+          className="flex-1 truncate text-[18px] font-semibold"
+          style={{ color: MR_COLORS.textPrimary }}
+        >
           新建会议
         </h1>
       </div>
@@ -322,7 +343,12 @@ export default function NewMeetingPage() {
             onChange={(e) => setTitle(e.target.value)}
             placeholder="例: Q1 投诉处理评估会"
             maxLength={120}
-            className="mt-2 h-12 w-full rounded-xl border border-ink-800 bg-ink-900 px-4 text-[16px] text-zinc-100 placeholder:text-zinc-600 focus:border-accent-500/60 focus:outline-none"
+            className="mt-2 h-12 w-full rounded-xl px-4 text-[16px] focus:outline-none"
+            style={{
+              background: MR_COLORS.bgWhite,
+              border: `0.5px solid ${MR_COLORS.hairline}`,
+              color: MR_COLORS.textPrimary,
+            }}
           />
         </section>
 
@@ -348,7 +374,7 @@ export default function NewMeetingPage() {
         {/* === v27.0-mobile P19: 会议 brief / 诉求 ===
             auto 模式 必填,hybrid / human 选填 (但填了 AI 召出来时也能用).
             UI:
-              - auto 模式: 整块 高亮 (border-accent),提示"必填,否则 AI 抓瞎"
+              - auto 模式: 整块 高亮 (border-systemBlue),提示"必填,否则 AI 抓瞎"
               - 其他模式: 灰色 中性 提示
               - 字数 counter (10-2000 字 — 后端 schema 同步)
         */}
@@ -357,14 +383,25 @@ export default function NewMeetingPage() {
             <Label>
               会议 brief / 诉求{" "}
               {mode === "auto" ? (
-                <span className="text-[12px] font-medium text-accent-400">
+                <span
+                  className="text-[12px] font-medium"
+                  style={{ color: MR_COLORS.systemBlue }}
+                >
                   · 全 AI 模式 必填
                 </span>
               ) : (
-                <span className="text-[12px] text-zinc-500">· 选填</span>
+                <span
+                  className="text-[12px]"
+                  style={{ color: MR_COLORS.textTertiary }}
+                >
+                  · 选填
+                </span>
               )}
             </Label>
-            <span className="text-[11px] tabular-nums text-zinc-500">
+            <span
+              className="text-[11px] tabular-nums"
+              style={{ color: MR_COLORS.textTertiary }}
+            >
               {description.length}/2000
             </span>
           </div>
@@ -377,11 +414,15 @@ export default function NewMeetingPage() {
                 : "可选 — 写一段背景给 AI 看. 不写也能开,只是 AI 召出来时 没 context."
             }
             rows={5}
-            className={`mt-2 w-full resize-y rounded-xl border bg-ink-900 p-3 text-[15px] leading-relaxed text-zinc-100 placeholder:text-zinc-600 focus:outline-none ${
-              mode === "auto"
-                ? "border-accent-500/40 focus:border-accent-500/70"
-                : "border-ink-800 focus:border-accent-500/60"
-            }`}
+            className="mt-2 w-full resize-y rounded-xl p-3 text-[15px] leading-relaxed focus:outline-none"
+            style={{
+              background: MR_COLORS.bgWhite,
+              border:
+                mode === "auto"
+                  ? `0.5px solid ${MR_COLORS.systemBlue}`
+                  : `0.5px solid ${MR_COLORS.hairline}`,
+              color: MR_COLORS.textPrimary,
+            }}
           />
           {/* AI 拆议程 入口 — 只在 brief 够长时显 */}
           {description.trim().length >= 10 ? (
@@ -389,12 +430,22 @@ export default function NewMeetingPage() {
               type="button"
               onClick={onDecomposeClick}
               disabled={decomposing}
-              className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-violet-500/15 px-3 py-1.5 text-[13px] font-medium text-violet-300 active:scale-[0.97] active:bg-violet-500/25 disabled:opacity-50"
+              className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium active:scale-[0.97] disabled:opacity-50"
+              style={{
+                background: "rgba(94,92,230,0.10)",
+                color: MR_COLORS.systemPurple,
+              }}
               data-testid="ai-decompose-agenda-btn"
             >
               {decomposing ? (
                 <>
-                  <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-violet-300/40 border-t-violet-300" />
+                  <span
+                    className="inline-block h-3 w-3 animate-spin rounded-full"
+                    style={{
+                      border: "1.5px solid rgba(94,92,230,0.30)",
+                      borderTopColor: MR_COLORS.systemPurple,
+                    }}
+                  />
                   AI 拆议程中…
                 </>
               ) : (
@@ -426,7 +477,8 @@ export default function NewMeetingPage() {
             <button
               type="button"
               onClick={addAgenda}
-              className="text-[14px] font-medium text-accent-400 active:text-accent-300"
+              className="text-[14px] font-medium"
+              style={{ color: MR_COLORS.systemBlue }}
             >
               + 加一项
             </button>
@@ -435,10 +487,17 @@ export default function NewMeetingPage() {
             {agenda.map((item, idx) => (
               <li
                 key={item.id}
-                className="rounded-xl border border-ink-800 bg-ink-900 p-3"
+                className="rounded-xl p-3"
+                style={{
+                  background: MR_COLORS.bgWhite,
+                  border: `0.5px solid ${MR_COLORS.hairline}`,
+                }}
               >
                 <div className="flex items-baseline gap-2">
-                  <span className="shrink-0 text-[13px] font-medium text-zinc-500 tabular-nums">
+                  <span
+                    className="shrink-0 text-[13px] font-medium tabular-nums"
+                    style={{ color: MR_COLORS.textTertiary }}
+                  >
                     {idx + 1}.
                   </span>
                   <input
@@ -449,13 +508,15 @@ export default function NewMeetingPage() {
                     }
                     placeholder="议题标题"
                     maxLength={100}
-                    className="min-w-0 flex-1 bg-transparent text-[15px] text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+                    className="min-w-0 flex-1 bg-transparent text-[15px] focus:outline-none"
+                    style={{ color: MR_COLORS.textPrimary }}
                   />
                   {agenda.length > 1 ? (
                     <button
                       type="button"
                       onClick={() => removeAgenda(item.id)}
-                      className="shrink-0 px-2 text-[18px] text-zinc-500 active:text-rose-400"
+                      className="shrink-0 px-2 text-[18px]"
+                      style={{ color: MR_COLORS.textTertiary }}
                       aria-label="删除"
                     >
                       ×
@@ -475,7 +536,10 @@ export default function NewMeetingPage() {
                   {item.noteOpen ? (
                     <div className="space-y-1">
                       <div className="flex items-baseline justify-between">
-                        <span className="text-[12px] font-medium text-zinc-400">
+                        <span
+                          className="text-[12px] font-medium"
+                          style={{ color: MR_COLORS.textSecondary }}
+                        >
                           方向提示 (给 AI 看)
                         </span>
                         <button
@@ -486,7 +550,8 @@ export default function NewMeetingPage() {
                               note: "",
                             })
                           }
-                          className="text-[11px] text-zinc-500 active:text-zinc-300"
+                          className="text-[11px]"
+                          style={{ color: MR_COLORS.textTertiary }}
                         >
                           收起
                         </button>
@@ -500,14 +565,20 @@ export default function NewMeetingPage() {
                         }
                         placeholder="例: 重点考虑 Q3 时间窗 + 预算 ≤ 30w"
                         rows={2}
-                        className="w-full resize-y rounded-lg border border-ink-800 bg-ink-950 p-2 text-[13px] leading-snug text-zinc-100 placeholder:text-zinc-600 focus:border-accent-500/60 focus:outline-none"
+                        className="w-full resize-y rounded-lg p-2 text-[13px] leading-snug focus:outline-none"
+                        style={{
+                          background: MR_COLORS.bgInputFill,
+                          border: `0.5px solid ${MR_COLORS.hairline}`,
+                          color: MR_COLORS.textPrimary,
+                        }}
                       />
                     </div>
                   ) : (
                     <button
                       type="button"
                       onClick={() => updateAgenda(item.id, { noteOpen: true })}
-                      className="text-[12px] text-zinc-500 active:text-accent-400"
+                      className="text-[12px]"
+                      style={{ color: MR_COLORS.systemBlue }}
                     >
                       + 方向提示 (可选)
                     </button>
@@ -523,17 +594,35 @@ export default function NewMeetingPage() {
           <Label>
             邀请真人{" "}
             {selectedUserIds.size > 0 ? (
-              <span className="text-[13px] text-zinc-500">
+              <span
+                className="text-[13px]"
+                style={{ color: MR_COLORS.textTertiary }}
+              >
                 · 已选 {selectedUserIds.size}
               </span>
             ) : null}
           </Label>
           {membersErr ? (
-            <p className="mt-2 text-[13px] text-zinc-500">{membersErr}</p>
+            <p
+              className="mt-2 text-[13px]"
+              style={{ color: MR_COLORS.textTertiary }}
+            >
+              {membersErr}
+            </p>
           ) : members === null ? (
-            <p className="mt-2 text-[14px] text-zinc-500">加载中…</p>
+            <p
+              className="mt-2 text-[14px]"
+              style={{ color: MR_COLORS.textTertiary }}
+            >
+              加载中…
+            </p>
           ) : members.length === 0 ? (
-            <p className="mt-2 text-[14px] text-zinc-500">没有可邀请的成员</p>
+            <p
+              className="mt-2 text-[14px]"
+              style={{ color: MR_COLORS.textTertiary }}
+            >
+              没有可邀请的成员
+            </p>
           ) : (
             <ChipGrid
               items={members.map((m) => ({
@@ -552,15 +641,28 @@ export default function NewMeetingPage() {
           <Label>
             邀请 AI 专家{" "}
             {selectedAgentIds.size > 0 ? (
-              <span className="text-[13px] text-zinc-500">
+              <span
+                className="text-[13px]"
+                style={{ color: MR_COLORS.textTertiary }}
+              >
                 · 已选 {selectedAgentIds.size}
               </span>
             ) : null}
           </Label>
           {agents === null ? (
-            <p className="mt-2 text-[14px] text-zinc-500">加载中…</p>
+            <p
+              className="mt-2 text-[14px]"
+              style={{ color: MR_COLORS.textTertiary }}
+            >
+              加载中…
+            </p>
           ) : agents.length === 0 ? (
-            <p className="mt-2 text-[14px] text-zinc-500">工作区没有 AI 专家</p>
+            <p
+              className="mt-2 text-[14px]"
+              style={{ color: MR_COLORS.textTertiary }}
+            >
+              工作区没有 AI 专家
+            </p>
           ) : (
             <ChipGrid
               items={agents.map((a) => ({
@@ -577,11 +679,23 @@ export default function NewMeetingPage() {
 
         {/* === 校验错误展示 === */}
         {!validation.ok && validation.errors.length > 0 ? (
-          <section className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-3">
-            <p className="text-[13px] font-medium text-amber-300">
+          <section
+            className="rounded-xl p-3"
+            style={{
+              background: MR_COLORS.hostBg,
+              border: `0.5px solid ${MR_COLORS.hostBorder}`,
+            }}
+          >
+            <p
+              className="text-[13px] font-medium"
+              style={{ color: MR_COLORS.systemOrange }}
+            >
               ⚠ 还需要:
             </p>
-            <ul className="mt-1.5 space-y-1 text-[14px] text-amber-100">
+            <ul
+              className="mt-1.5 space-y-1 text-[14px]"
+              style={{ color: MR_COLORS.textSecondary }}
+            >
               {validation.errors.map((e, i) => (
                 <li key={i}>• {e}</li>
               ))}
@@ -595,14 +709,22 @@ export default function NewMeetingPage() {
         里行为飘忽, 用户报按钮"会随页面拖拽异动". fixed 直接钉 viewport 底,
         永远不动. main 加 pb-28 给 fixed 按钮留位 (button h-12 + padding ~ 100px). */}
       <div
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-ink-800 bg-ink-950/95 px-4 py-3 backdrop-blur"
-        style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)" }}
+        className="fixed inset-x-0 bottom-0 z-30 px-4 py-3 backdrop-blur"
+        style={{
+          paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)",
+          background: "rgba(242,242,247,0.94)",
+          borderTop: `0.5px solid ${MR_COLORS.hairline}`,
+        }}
       >
         <button
           type="button"
           onClick={handleSubmit}
           disabled={creating || !validation.ok}
-          className="flex h-12 w-full items-center justify-center rounded-xl bg-accent-500 px-4 text-[16px] font-medium text-white shadow-lg shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex h-12 w-full items-center justify-center rounded-xl px-4 text-[16px] font-medium text-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+          style={{
+            background: MR_COLORS.systemBlue,
+            boxShadow: "0 4px 14px rgba(0,122,255,0.20)",
+          }}
         >
           {creating ? "创建中…" : "创建会议"}
         </button>
@@ -613,35 +735,50 @@ export default function NewMeetingPage() {
       ) : null}
 
       {/* v27.0-mobile P19-A.2: AI 拆议程 — 现有议程有内容 时的 confirm 覆盖.
-          fixed inset-0 z-50,bg-black/60 backdrop blur. */}
+          fixed inset-0 z-50, 浅色 sheet. */}
       {decomposeConfirmOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-50 flex items-end justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.40)", backdropFilter: "blur(4px)" }}
           onClick={() => setDecomposeConfirmOpen(false)}
         >
           <div
-            className="w-full max-w-sm rounded-2xl bg-ink-900 p-5"
+            className="w-full max-w-sm rounded-2xl p-5"
             onClick={(e) => e.stopPropagation()}
-            style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)" }}
+            style={{
+              paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)",
+              background: MR_COLORS.bgWhite,
+            }}
           >
-            <p className="text-[16px] font-semibold text-zinc-50">
+            <p
+              className="text-[16px] font-semibold"
+              style={{ color: MR_COLORS.textPrimary }}
+            >
               覆盖现有议程?
             </p>
-            <p className="mt-2 text-[14px] leading-relaxed text-zinc-400">
+            <p
+              className="mt-2 text-[14px] leading-relaxed"
+              style={{ color: MR_COLORS.textSecondary }}
+            >
               你已填了一些议程项. 让 AI 拆议程会替换它们 — 已有内容会丢失.
             </p>
             <div className="mt-4 flex gap-2">
               <button
                 type="button"
                 onClick={() => setDecomposeConfirmOpen(false)}
-                className="flex h-11 flex-1 items-center justify-center rounded-xl bg-ink-800 text-[15px] font-medium text-zinc-200 active:scale-[0.98]"
+                className="flex h-11 flex-1 items-center justify-center rounded-xl text-[15px] font-medium active:scale-[0.98]"
+                style={{
+                  background: MR_COLORS.bgInputFill,
+                  color: MR_COLORS.textPrimary,
+                }}
               >
                 再想想
               </button>
               <button
                 type="button"
                 onClick={() => void doDecompose()}
-                className="flex h-11 flex-1 items-center justify-center rounded-xl bg-violet-500 text-[15px] font-medium text-white active:scale-[0.98]"
+                className="flex h-11 flex-1 items-center justify-center rounded-xl text-[15px] font-medium text-white active:scale-[0.98]"
+                style={{ background: MR_COLORS.systemPurple }}
               >
                 覆盖
               </button>
@@ -657,7 +794,12 @@ export default function NewMeetingPage() {
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="text-[14px] font-medium text-zinc-300">{children}</h2>
+    <h2
+      className="text-[14px] font-medium"
+      style={{ color: MR_COLORS.textSecondary }}
+    >
+      {children}
+    </h2>
   );
 }
 
@@ -676,24 +818,40 @@ function ModeOption({
     <button
       type="button"
       onClick={onSelect}
-      className={`flex w-full items-start gap-3 rounded-xl border p-3 text-left transition active:scale-[0.99] ${
-        checked
-          ? "border-accent-500/60 bg-accent-500/10"
-          : "border-ink-800 bg-ink-900"
-      }`}
+      className="flex w-full items-start gap-3 rounded-xl p-3 text-left transition active:scale-[0.99]"
+      style={{
+        background: checked ? "rgba(0,122,255,0.06)" : MR_COLORS.bgWhite,
+        border: checked
+          ? `0.5px solid ${MR_COLORS.systemBlue}`
+          : `0.5px solid ${MR_COLORS.hairline}`,
+      }}
     >
       <span
-        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
-          checked ? "border-accent-400" : "border-zinc-600"
-        }`}
+        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
+        style={{
+          border: `2px solid ${checked ? MR_COLORS.systemBlue : MR_COLORS.separator}`,
+        }}
       >
         {checked ? (
-          <span className="h-2.5 w-2.5 rounded-full bg-accent-400" />
+          <span
+            className="h-2.5 w-2.5 rounded-full"
+            style={{ background: MR_COLORS.systemBlue }}
+          />
         ) : null}
       </span>
       <div className="min-w-0">
-        <p className="text-[15px] font-medium text-zinc-50">{title}</p>
-        <p className="mt-1 text-[13px] leading-snug text-zinc-400">{body}</p>
+        <p
+          className="text-[15px] font-medium"
+          style={{ color: MR_COLORS.textPrimary }}
+        >
+          {title}
+        </p>
+        <p
+          className="mt-1 text-[13px] leading-snug"
+          style={{ color: MR_COLORS.textSecondary }}
+        >
+          {body}
+        </p>
       </div>
     </button>
   );
@@ -728,29 +886,44 @@ function ChipGrid({
             <button
               type="button"
               onClick={() => onToggle(it.id)}
-              className={`flex items-center gap-2 rounded-full border px-3 py-2 text-left transition active:scale-[0.97] ${
-                isSel
-                  ? "border-accent-500/60 bg-accent-500/15"
-                  : "border-ink-800 bg-ink-900"
-              }`}
+              className="flex items-center gap-2 rounded-full px-3 py-2 text-left transition active:scale-[0.97]"
+              style={{
+                background: isSel
+                  ? "rgba(0,122,255,0.10)"
+                  : MR_COLORS.bgWhite,
+                border: isSel
+                  ? `0.5px solid ${MR_COLORS.systemBlue}`
+                  : `0.5px solid ${MR_COLORS.hairline}`,
+              }}
             >
               {it.color !== undefined ? (
                 <span
                   className={`inline-flex h-2.5 w-2.5 shrink-0 rounded-full ${
-                    it.color ? COLOR_BG[it.color] || "bg-zinc-600" : "bg-zinc-600"
+                    it.color ? COLOR_BG[it.color] || "bg-zinc-400" : "bg-zinc-400"
                   }`}
                 />
               ) : null}
-              <span className="min-w-0 max-w-[12em] truncate text-[14px] font-medium text-zinc-100">
+              <span
+                className="min-w-0 max-w-[12em] truncate text-[14px] font-medium"
+                style={{ color: MR_COLORS.textPrimary }}
+              >
                 {it.label}
               </span>
               {it.sub ? (
-                <span className="hidden text-[12px] text-zinc-500 sm:inline">
+                <span
+                  className="hidden text-[12px] sm:inline"
+                  style={{ color: MR_COLORS.textTertiary }}
+                >
                   · {it.sub}
                 </span>
               ) : null}
               {isSel ? (
-                <span className="shrink-0 text-[14px] text-accent-300">✓</span>
+                <span
+                  className="shrink-0 text-[14px]"
+                  style={{ color: MR_COLORS.systemBlue }}
+                >
+                  ✓
+                </span>
               ) : null}
             </button>
           </li>
@@ -784,21 +957,33 @@ function DurationPicker({
     <div className="mt-3 pl-5">
       {/* 当前值显示 */}
       <div className="flex items-baseline gap-2">
-        <span className="text-[13px] font-medium text-zinc-300">
+        <span
+          className="text-[13px] font-medium"
+          style={{ color: MR_COLORS.textSecondary }}
+        >
           时长:
         </span>
         {v > 0 ? (
-          <span className="text-[15px] font-semibold text-accent-300 tabular-nums">
+          <span
+            className="text-[15px] font-semibold tabular-nums"
+            style={{ color: MR_COLORS.systemBlue }}
+          >
             {v} 分钟
           </span>
         ) : (
-          <span className="text-[13px] text-zinc-500">不设 (可选)</span>
+          <span
+            className="text-[13px]"
+            style={{ color: MR_COLORS.textTertiary }}
+          >
+            不设 (可选)
+          </span>
         )}
         {v > 0 ? (
           <button
             type="button"
             onClick={() => onChange("")}
-            className="ml-auto shrink-0 text-[12px] text-zinc-500 active:text-zinc-300"
+            className="ml-auto shrink-0 text-[12px]"
+            style={{ color: MR_COLORS.textTertiary }}
           >
             清除
           </button>
@@ -816,11 +1001,15 @@ function DurationPicker({
           const n = parseInt(e.target.value, 10);
           onChange(n > 0 ? String(n) : "");
         }}
-        className="mt-2 w-full accent-accent-500"
+        className="mt-2 w-full"
+        style={{ accentColor: MR_COLORS.systemBlue }}
         aria-label="议题时长 分钟"
       />
       {/* 刻度提示 */}
-      <div className="mt-0.5 flex justify-between text-[10px] text-zinc-600 tabular-nums">
+      <div
+        className="mt-0.5 flex justify-between text-[10px] tabular-nums"
+        style={{ color: MR_COLORS.textQuaternary }}
+      >
         <span>0</span>
         <span>30</span>
         <span>60</span>
@@ -837,11 +1026,11 @@ function DurationPicker({
               key={p}
               type="button"
               onClick={() => onChange(String(p))}
-              className={`inline-flex h-7 items-center rounded-full px-3 text-[12px] font-medium transition active:scale-[0.95] ${
-                active
-                  ? "bg-accent-500 text-white"
-                  : "bg-ink-800 text-zinc-300 active:bg-ink-700"
-              }`}
+              className="inline-flex h-7 items-center rounded-full px-3 text-[12px] font-medium transition active:scale-[0.95]"
+              style={{
+                background: active ? MR_COLORS.systemBlue : MR_COLORS.bgInputFill,
+                color: active ? "#fff" : MR_COLORS.textSecondary,
+              }}
             >
               {p}m
             </button>

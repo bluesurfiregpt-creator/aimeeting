@@ -1,8 +1,8 @@
-/* pages/login/login.wxss — v27.1 OAuth 登录页 */
+/* pages/login/login.wxss — v1.4.0 Saga F OAuth 登录页 (iOS 浅色) */
 
 page {
-  background: #0a0a0c;
-  color: #e4e4e7;
+  background: #F2F2F7;
+  color: #1C1C1E;
   font-size: 28rpx;
 }
 
@@ -27,13 +27,13 @@ page {
   margin-top: 32rpx;
   font-size: 56rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
   letter-spacing: 2rpx;
 }
 .hero-sub {
   margin-top: 16rpx;
   font-size: 26rpx;
-  color: #71717a;
+  color: #8E8E93;
   letter-spacing: 1rpx;
 }
 
@@ -46,18 +46,19 @@ page {
   align-items: center;
 }
 
+/* WeChat 绿 — 品牌色, 保留 (MR_COLORS.wechatGreen #07C160) */
 .btn-wx-login {
   width: 100%;
   height: 112rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #07c160 0%, #06a050 100%);
+  background: #07C160;
   color: #fff;
   border-radius: 24rpx;
   font-size: 34rpx;
   font-weight: 500;
-  box-shadow: 0 12rpx 32rpx rgba(7, 193, 96, 0.3);
+  box-shadow: 0 8rpx 24rpx rgba(7, 193, 96, 0.25);
   border: none;
   padding: 0;
   transition: transform 0.15s ease;
@@ -67,7 +68,7 @@ page {
 }
 .btn-wx-hover {
   transform: scale(0.97);
-  box-shadow: 0 4rpx 12rpx rgba(7, 193, 96, 0.2);
+  box-shadow: 0 2rpx 8rpx rgba(7, 193, 96, 0.15);
 }
 .btn-disabled {
   opacity: 0.55;
@@ -81,7 +82,7 @@ page {
   font-size: 32rpx;
 }
 
-/* v27.2 副 CTA: 微信手机号一键登录 — 比主 CTA 低调, 但仍醒目 */
+/* 副 CTA: 微信手机号一键登录 */
 .btn-phone-login {
   width: 100%;
   height: 96rpx;
@@ -90,7 +91,7 @@ page {
   align-items: center;
   justify-content: center;
   background: rgba(7, 193, 96, 0.08);
-  color: #34d399;
+  color: #07C160;
   border-radius: 24rpx;
   font-size: 28rpx;
   font-weight: 500;
@@ -103,7 +104,7 @@ page {
 }
 .btn-phone-hover {
   transform: scale(0.97);
-  background: rgba(7, 193, 96, 0.18);
+  background: rgba(7, 193, 96, 0.16);
 }
 .btn-phone-emoji {
   font-size: 32rpx;
@@ -116,20 +117,20 @@ page {
 .hint-line {
   margin-top: 24rpx;
   font-size: 22rpx;
-  color: #71717a;
+  color: #8E8E93;
   text-align: center;
   line-height: 1.6;
 }
 .link {
-  color: #a78bfa;
+  color: #007AFF;
 }
 
 .error-banner {
   margin-top: 24rpx;
   padding: 16rpx 24rpx;
-  background: rgba(244, 63, 94, 0.12);
-  border: 2rpx solid rgba(244, 63, 94, 0.35);
-  color: #fda4af;
+  background: rgba(255, 59, 48, 0.10);
+  border: 2rpx solid rgba(255, 59, 48, 0.35);
+  color: #C9302C;
   border-radius: 16rpx;
   font-size: 24rpx;
   width: 100%;
@@ -145,12 +146,12 @@ page {
 .bind-title {
   font-size: 40rpx;
   font-weight: 600;
-  color: #fafafa;
+  color: #1C1C1E;
 }
 .bind-body {
   margin-top: 16rpx;
   font-size: 26rpx;
-  color: #a1a1aa;
+  color: #3C3C43;
   line-height: 1.6;
 }
 
@@ -162,22 +163,22 @@ page {
 }
 .field-label {
   font-size: 24rpx;
-  color: #71717a;
+  color: #8E8E93;
   margin-bottom: 12rpx;
 }
 .field-input {
   width: 100%;
   height: 88rpx;
   padding: 0 24rpx;
-  background: #18181b;
-  border: 2rpx solid #27272a;
+  background: #FFFFFF;
+  border: 2rpx solid #E5E5EA;
   border-radius: 16rpx;
-  color: #fafafa;
+  color: #1C1C1E;
   font-size: 30rpx;
   box-sizing: border-box;
 }
 .ph {
-  color: #52525b;
+  color: #C7C7CC;
 }
 .field-row {
   position: relative;
@@ -192,7 +193,7 @@ page {
   align-items: center;
   justify-content: center;
   font-size: 32rpx;
-  color: #71717a;
+  color: #8E8E93;
 }
 
 .btn-primary {
@@ -202,12 +203,12 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  background: #007AFF;
   color: #fff;
   border-radius: 20rpx;
   font-size: 32rpx;
   font-weight: 500;
-  box-shadow: 0 8rpx 24rpx rgba(139, 92, 246, 0.3);
+  box-shadow: 0 6rpx 16rpx rgba(0, 122, 255, 0.20);
   border: none;
 }
 .btn-primary::after {
@@ -215,7 +216,7 @@ page {
 }
 .btn-primary-hover {
   transform: scale(0.97);
-  box-shadow: 0 4rpx 12rpx rgba(139, 92, 246, 0.2);
+  box-shadow: 0 2rpx 8rpx rgba(0, 122, 255, 0.15);
 }
 
 .btn-cancel {
@@ -225,17 +226,17 @@ page {
   line-height: 96rpx;
   text-align: center;
   background: transparent;
-  color: #71717a;
+  color: #8E8E93;
   font-size: 28rpx;
 }
 .btn-cancel-hover {
-  color: #a1a1aa;
+  color: #3C3C43;
 }
 
 .bind-tip {
   margin-top: 48rpx;
   font-size: 22rpx;
-  color: #52525b;
+  color: #C7C7CC;
   text-align: center;
   line-height: 1.6;
 }
@@ -245,12 +246,12 @@ page {
   padding: 32rpx 0 calc(40rpx + env(safe-area-inset-bottom));
   text-align: center;
   font-size: 22rpx;
-  color: #52525b;
+  color: #C7C7CC;
 }
 .foot-link {
-  color: #71717a;
+  color: #8E8E93;
   padding: 0 12rpx;
 }
 .foot-dot {
-  color: #3f3f46;
+  color: #D1D1D6;
 }
