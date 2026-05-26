@@ -36,10 +36,14 @@ build/
 *.log
 logs/
 
-# Local data
-data/
+# Local data (root-level only — 不影响 frontend/src/components/web/data/ 等 source data)
+/data/
+/backend/data/
 uploads/
 *.sqlite
+# round-6: web 端 frontend source data 必须入库 (R5.A 之前漏 commit)
+!frontend/src/components/web/data/
+!frontend/src/components/web/data/**
 
 # v24.1: Cowork multi-account local credentials + report output
 tests/accounts.json

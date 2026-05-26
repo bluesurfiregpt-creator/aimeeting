@@ -137,15 +137,16 @@ export const W_THEME_CSS = `
   --w-surface: #ffffff;
   --w-surface-raised: #fafafc;
   --w-surface-hover: #f0f0f5;
-  --w-border: rgba(0,0,0,0.07);
-  --w-border-hover: rgba(0,0,0,0.14);
-  --w-text: #1c1c1e;
-  --w-text-2: #3c3c43;
-  --w-text-muted: #71717a;
-  --w-text-faint: #a8a8b0;
-  --w-nav-bg: rgba(244,244,248,0.82);
-  --w-scroll-thumb: rgba(0,0,0,0.10);
-  --w-scroll-thumb-hover: rgba(0,0,0,0.18);
+  /* round-6 加深 — PM 引语 "饱和度太低的色调只能用于小字和说明" */
+  --w-border: rgba(0,0,0,0.10);
+  --w-border-hover: rgba(0,0,0,0.18);
+  --w-text: #0a0a0e;
+  --w-text-2: #1f1f2b;
+  --w-text-muted: #4b4b58;
+  --w-text-faint: #8a8a98;
+  --w-nav-bg: rgba(244,244,248,0.86);
+  --w-scroll-thumb: rgba(0,0,0,0.18);
+  --w-scroll-thumb-hover: rgba(0,0,0,0.28);
 }
 @keyframes wPulse {
   0%, 100% { opacity: 0.5; transform: scale(0.85); }

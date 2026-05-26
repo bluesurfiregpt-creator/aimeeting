@@ -1,19 +1,39 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { W_TOKENS } from "../tokens";
 import { W_USER } from "../data/agents";
-import { WIcon, type WIconName, WSparkle } from "../atoms";
+import { WIcon, WSparkle } from "../atoms";
+
+// LineagePane 用 echarts (~900KB gzip), 动态加载减少 mental pane first-load,
+// 同时避免 SSR 时 echarts 调用 window 报错.
+const LineagePane = dynamic(() => import("./LineagePane").then((m) => ({ default: m.LineagePane })), {
+  ssr: false,
+  loading: () => (
+    <div
+      style={{
+        padding: 40,
+        textAlign: "center",
+        color: W_TOKENS.textMuted,
+        fontSize: 13,
+      }}
+    >
+      血缘图加载中…
+    </div>
+  ),
+});
 
 /**
- * 心智模型 pane (workstation 默认 landing).
+ * AI 心智一览 pane (workstation 默认 landing). round-6 rewrite:
  *
- * 紫渐变 hero box + 4 个流程节点 (AI 专家 → 书架 → 经验 → 会议) 横向 arrow 串联.
- * 下方 4 个 quick card (AI 专家管理 / 知识库 / 长期记忆 / 我的任务).
+ * - 副标题加 "· 一页看完 AI 怎么思考、怎么记住、怎么使用"
+ * - 标题改 "AI 心智一览" (吃掉独立 graph 入口)
+ * - 删 4 张 QuickCard
+ * - 新加 <MentalLiveSection /> 嵌入 LineagePane (Sankey, embedded)
  *
- * 节点点击 → 跳对应 pane (PM R2: App Router).
+ * 紫渐变 hero box 保留 (4 个流程节点 AI 专家 → 书架 → 经验 → 会议).
  */
 export function MentalModelPane() {
   const router = useRouter();
@@ -30,7 +50,7 @@ export function MentalModelPane() {
           marginBottom: 6,
         }}
       >
-        WORKSTATION
+        总览
       </div>
       <h1
         style={{
@@ -41,7 +61,7 @@ export function MentalModelPane() {
           color: W_TOKENS.textPrimary,
         }}
       >
-        我的工作站
+        AI 心智一览
       </h1>
       <div
         style={{
@@ -50,32 +70,72 @@ export function MentalModelPane() {
           marginBottom: 24,
         }}
       >
-        {W_USER.name} · {W_USER.workspace}
+        {W_USER.name} · {W_USER.workspace} · 一页看完 AI 怎么思考、怎么记住、怎么使用
       </div>
 
       <MentalModelHero onJump={(slug) => router.push(`/workstation/${slug}`)} />
 
-      {/* quick navigate */}
+      <MentalLiveSection />
+    </>
+  );
+}
+
+// ════════════════════════════════════════════
+// MENTAL LIVE SECTION — embeds LineagePane (桑基图)
+// ════════════════════════════════════════════
+function MentalLiveSection() {
+  return (
+    <div style={{ marginTop: 28 }}>
+      {/* 紫色脉冲分隔标 */}
       <div
         style={{
-          marginTop: 28,
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-          gap: 12,
+          display: "flex",
+          alignItems: "center",
+          gap: 14,
+          marginBottom: 16,
         }}
       >
-        <QuickCard icon="admin" title="AI 专家管理" sub="16 位 · 4 位由你管理" href="/workstation/agents" />
-        <QuickCard icon="book"  title="知识库" sub="26 个 · 上次更新今天" href="/workstation/kb" />
-        <QuickCard icon="brain" title="长期记忆" sub="100 条 · 2 条待审" href="/workstation/memory" />
-        <QuickCard
-          icon="task"
-          title="我的任务"
-          sub="3 待办 · 1 紧急"
-          tone="warn"
-          href="/workstation/tasks"
-        />
+        <div
+          style={{
+            flex: "0 0 auto",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 9,
+            padding: "6px 14px 6px 10px",
+            borderRadius: 22,
+            background:
+              "linear-gradient(135deg, rgba(124,92,250,0.16) 0%, rgba(196,181,253,0.08) 100%)",
+            boxShadow: "inset 0 0 0 0.5px rgba(124,92,250,0.30)",
+          }}
+        >
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: "#C4B5FD",
+              boxShadow: "0 0 10px rgba(196,181,253,0.80)",
+              animation: "wPulse 1.4s ease-in-out infinite",
+            }}
+          />
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              color: W_TOKENS.textPrimary,
+              letterSpacing: 0.3,
+            }}
+          >
+            下方 · 你工作空间里的真实血缘
+          </span>
+        </div>
+        <div style={{ flex: 1, height: 1, background: W_TOKENS.border }} />
+        <span style={{ fontSize: 12, color: W_TOKENS.textMuted }}>点击节点 / 拖拽缩放</span>
       </div>
-    </>
+
+      {/* 嵌入 LineagePane (Sankey + 全屏入口) */}
+      <LineagePane embedded />
+    </div>
   );
 }
 
@@ -200,7 +260,6 @@ function MentalModelHero({ onJump }: { onJump: (slug: string) => void }) {
         </div>
       </div>
 
-      {/* flow diagram */}
       <div
         style={{
           position: "relative",
@@ -220,7 +279,6 @@ function MentalModelHero({ onJump }: { onJump: (slug: string) => void }) {
         ))}
       </div>
 
-      {/* footer sentence */}
       <div
         style={{
           position: "relative",
@@ -386,70 +444,5 @@ function FlowNode({ n, last, onClick }: FlowNodeProps) {
         </div>
       </button>
     </div>
-  );
-}
-
-function QuickCard({
-  icon,
-  title,
-  sub,
-  href,
-  tone,
-}: {
-  icon: WIconName;
-  title: string;
-  sub: string;
-  href: string;
-  tone?: "warn";
-}) {
-  const accent = tone === "warn" ? "rgba(245,158,11,0.16)" : "rgba(124,92,250,0.12)";
-  const accentBd = tone === "warn" ? "rgba(245,158,11,0.30)" : "rgba(124,92,250,0.30)";
-  const accentFg = tone === "warn" ? "#FCD34D" : "#C4B5FD";
-  return (
-    <Link
-      href={href}
-      style={{
-        textDecoration: "none",
-        background: W_TOKENS.surface,
-        borderRadius: 12,
-        boxShadow: `inset 0 0 0 0.5px ${W_TOKENS.border}`,
-        padding: "14px 16px",
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        cursor: "pointer",
-        fontFamily: "inherit",
-        transition: "all 200ms ease",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.boxShadow = `inset 0 0 0 0.5px ${accentBd}, 0 6px 18px rgba(0,0,0,0.30)`;
-        e.currentTarget.style.transform = "translateY(-2px)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.boxShadow = `inset 0 0 0 0.5px ${W_TOKENS.border}`;
-        e.currentTarget.style.transform = "none";
-      }}
-    >
-      <div
-        style={{
-          width: 36,
-          height: 36,
-          borderRadius: 10,
-          background: accent,
-          boxShadow: `inset 0 0 0 0.5px ${accentBd}`,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-        }}
-      >
-        <WIcon name={icon} size={17} color={accentFg} />
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: W_TOKENS.textPrimary }}>{title}</div>
-        <div style={{ fontSize: 11.5, color: W_TOKENS.textMuted, marginTop: 2 }}>{sub}</div>
-      </div>
-      <WIcon name="chev" size={13} color={W_TOKENS.textFaint} />
-    </Link>
   );
 }
