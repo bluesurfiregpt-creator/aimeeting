@@ -25,8 +25,11 @@ class Settings(BaseSettings):
     oss_access_key_id: str = ""
     oss_access_key_secret: str = ""
     oss_bucket: str = ""
-    oss_endpoint: str = "https://oss-cn-hangzhou.aliyuncs.com"
-    oss_region: str = "oss-cn-hangzhou"
+    # NOTE: bucket aimeeting-recordings 实际在 ap-southeast-1 (新加坡),
+    # 不是 cn-hangzhou. 跨 region 访问 OSS 会返 403 AccessDenied (TD-OSS-001 2026-05-26).
+    # 真正的值通过 env 传 (backend/.env), 这里默认值只是开发参考.
+    oss_endpoint: str = "https://oss-ap-southeast-1.aliyuncs.com"
+    oss_region: str = "oss-ap-southeast-1"
 
     database_url: str = "postgresql+asyncpg://aimeeting:aimeeting@localhost:5432/aimeeting"
     redis_url: str = "redis://localhost:6379/0"
