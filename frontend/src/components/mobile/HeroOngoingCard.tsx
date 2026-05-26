@@ -10,19 +10,43 @@
  *   - 标题大字 (22-24px), 状态副字 (14px), AI 关键判断 callout
  *   - 唯一主 CTA: [立即进入] 全宽大按钮, touch 48px+
  *   - 不是 "卡列表" 中的一张, 是真正的信息主角
+ *
+ * v1.4.0 Saga L · 浅色化 (today 页已迁 LiveMeetingCard, 本组件 dead code
+ * 兼收尾保持 0 dark token).
  */
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
 import type { WorkbenchOngoingMeeting } from "@/lib/mobile/types";
 
-// type 配色 — 跟 AIInsightCard 保持一致
+// type 配色 — 跟 AIInsightCard 保持一致 (浅色)
 const TYPE_TONE: Record<string, { border: string; text: string; bg: string }> = {
-  建议: { border: "border-violet-500/50", text: "text-violet-200", bg: "bg-violet-500/10" },
-  决策建议: { border: "border-emerald-500/50", text: "text-emerald-200", bg: "bg-emerald-500/10" },
-  风险: { border: "border-rose-500/50", text: "text-rose-200", bg: "bg-rose-500/10" },
-  洞察: { border: "border-sky-500/50", text: "text-sky-200", bg: "bg-sky-500/10" },
-  思路: { border: "border-amber-500/50", text: "text-amber-200", bg: "bg-amber-500/10" },
+  建议: {
+    border: "rgba(94,92,230,0.40)",
+    text: MR_COLORS.systemPurple,
+    bg: "rgba(94,92,230,0.08)",
+  },
+  决策建议: {
+    border: "rgba(52,199,89,0.40)",
+    text: MR_COLORS.systemGreen,
+    bg: "rgba(52,199,89,0.08)",
+  },
+  风险: {
+    border: "rgba(255,59,48,0.40)",
+    text: MR_COLORS.systemRed,
+    bg: "rgba(255,59,48,0.08)",
+  },
+  洞察: {
+    border: "rgba(0,122,255,0.40)",
+    text: MR_COLORS.systemBlue,
+    bg: "rgba(0,122,255,0.08)",
+  },
+  思路: {
+    border: "rgba(255,159,10,0.40)",
+    text: MR_COLORS.systemOrange,
+    bg: "rgba(255,159,10,0.08)",
+  },
 };
 
 function StageBar({ cur, total }: { cur: number | null; total: number }) {
@@ -35,21 +59,24 @@ function StageBar({ cur, total }: { cur: number | null; total: number }) {
         {Array.from({ length: total }).map((_, i) => {
           const done = i < idx;
           const active = i === idx && !isComplete;
+          const bg = done
+            ? MR_COLORS.systemGreen
+            : active
+            ? MR_COLORS.systemBlue
+            : MR_COLORS.separator;
           return (
             <span
               key={i}
-              className={`h-1.5 flex-1 rounded-full ${
-                done
-                  ? "bg-emerald-400/70"
-                  : active
-                  ? "bg-accent-400"
-                  : "bg-zinc-700/70"
-              }`}
+              className="h-1.5 flex-1 rounded-full"
+              style={{ background: bg }}
             />
           );
         })}
       </div>
-      <span className="shrink-0 text-[13px] text-zinc-400">
+      <span
+        className="shrink-0 text-[13px]"
+        style={{ color: MR_COLORS.textTertiary }}
+      >
         {isComplete ? `${total}/${total}` : `议程 ${idx + 1}/${total}`}
       </span>
     </div>
@@ -65,24 +92,43 @@ function HeroSingle({ m }: { m: WorkbenchOngoingMeeting }) {
 
   return (
     <article
-      className="relative overflow-hidden rounded-2xl border border-accent-500/30 bg-gradient-to-br from-accent-500/[0.12] via-violet-500/[0.05] to-ink-900 p-5"
+      className="relative overflow-hidden rounded-2xl p-5"
+      style={{
+        background: MR_COLORS.bgWhite,
+        border: "0.5px solid rgba(0,122,255,0.30)",
+        boxShadow: "0 4px 12px rgba(0,122,255,0.08)",
+      }}
       data-testid="mobile-hero-ongoing"
     >
       {/* 顶部小标 */}
-      <p className="text-[14px] font-medium text-zinc-300">你正在推进</p>
+      <p
+        className="text-[14px] font-medium"
+        style={{ color: MR_COLORS.textSecondary }}
+      >
+        你正在推进
+      </p>
 
       {/* 主标题 */}
-      <h1 className="mt-2 text-[22px] font-semibold leading-tight text-zinc-50">
+      <h1
+        className="mt-2 text-[22px] font-semibold leading-tight"
+        style={{ color: MR_COLORS.textPrimary }}
+      >
         {m.title}
       </h1>
 
       {/* 状态行 */}
-      <div className="mt-2 flex items-center gap-2 text-[14px] text-zinc-300">
+      <div
+        className="mt-2 flex items-center gap-2 text-[14px]"
+        style={{ color: MR_COLORS.textSecondary }}
+      >
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-          <span className="text-emerald-300">进行中</span>
+          <span
+            className="inline-flex h-2 w-2 animate-pulse rounded-full"
+            style={{ background: MR_COLORS.systemGreen }}
+          />
+          <span style={{ color: MR_COLORS.systemGreen }}>进行中</span>
         </span>
-        <span className="text-zinc-500">·</span>
+        <span style={{ color: MR_COLORS.textTertiary }}>·</span>
         <span>{m.started_minutes_ago} min</span>
       </div>
 
@@ -95,23 +141,56 @@ function HeroSingle({ m }: { m: WorkbenchOngoingMeeting }) {
 
       {/* AI 关键判断 callout */}
       {insight && tone ? (
-        <div className={`mt-4 rounded-xl border-l-[3px] ${tone.border} ${tone.bg} px-4 py-3`}>
+        <div
+          className="mt-4 rounded-xl px-4 py-3"
+          style={{
+            background: tone.bg,
+            borderLeft: `3px solid ${tone.border}`,
+          }}
+        >
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-[14px] text-zinc-300">◆</span>
-            <span className="text-[14px] font-medium text-zinc-100">{agentDisplay}</span>
+            <span
+              className="text-[14px]"
+              style={{ color: MR_COLORS.textTertiary }}
+            >
+              ◆
+            </span>
+            <span
+              className="text-[14px] font-medium"
+              style={{ color: MR_COLORS.textPrimary }}
+            >
+              {agentDisplay}
+            </span>
             {insight.agent_name !== agentDisplay ? (
-              <span className="text-[13px] text-zinc-500">· {insight.agent_name}</span>
+              <span
+                className="text-[13px]"
+                style={{ color: MR_COLORS.textTertiary }}
+              >
+                · {insight.agent_name}
+              </span>
             ) : null}
-            <span className={`rounded px-2 py-0.5 text-[13px] font-medium ${tone.bg} ${tone.text}`}>
+            <span
+              className="rounded px-2 py-0.5 text-[13px] font-medium"
+              style={{ background: tone.bg, color: tone.text }}
+            >
               {insight.type}
             </span>
           </div>
-          <p className="mt-2 text-[15px] leading-snug text-zinc-100">
+          <p
+            className="mt-2 text-[15px] leading-snug"
+            style={{ color: MR_COLORS.textPrimary }}
+          >
             {insight.content}
           </p>
         </div>
       ) : (
-        <div className="mt-4 rounded-xl border border-dashed border-zinc-700/60 px-4 py-3 text-[14px] text-zinc-400">
+        <div
+          className="mt-4 rounded-xl px-4 py-3 text-[14px]"
+          style={{
+            border: `0.5px dashed ${MR_COLORS.hairlineStrong}`,
+            color: MR_COLORS.textTertiary,
+          }}
+        >
           这场会 AI 还没给关键判断
         </div>
       )}
@@ -119,7 +198,11 @@ function HeroSingle({ m }: { m: WorkbenchOngoingMeeting }) {
       {/* 主 CTA */}
       <Link
         href={`/m/meetings/${m.meeting_id}`}
-        className="mt-5 flex h-12 items-center justify-center rounded-xl bg-accent-500 px-4 text-[16px] font-medium text-white shadow-lg shadow-accent-500/20 active:scale-[0.98] active:bg-accent-600 transition"
+        className="mt-5 flex h-12 items-center justify-center rounded-xl px-4 text-[16px] font-medium text-white active:scale-[0.98] transition"
+        style={{
+          background: MR_COLORS.systemBlue,
+          boxShadow: "0 4px 12px rgba(0,122,255,0.20)",
+        }}
         data-testid="hero-enter-meeting"
       >
         立即进入 →
@@ -180,9 +263,12 @@ export default function HeroOngoingCard({
         {meetings.map((_, i) => (
           <span
             key={i}
-            className={`h-1.5 rounded-full transition-all ${
-              i === activeIdx ? "w-5 bg-accent-400" : "w-1.5 bg-zinc-700"
-            }`}
+            className="h-1.5 rounded-full transition-all"
+            style={{
+              width: i === activeIdx ? 20 : 6,
+              background:
+                i === activeIdx ? MR_COLORS.systemBlue : MR_COLORS.separator,
+            }}
           />
         ))}
       </div>

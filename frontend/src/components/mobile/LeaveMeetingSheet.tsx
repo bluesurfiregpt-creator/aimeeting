@@ -11,6 +11,8 @@
  *   - "取消" — sheet 收, 留在会议室
  *
  * 设计选用 sheet 而不是 ConfirmDialog 因为后者只 2 按钮.
+ *
+ * v1.4.0 Saga L · 浅色化 (跟 RejectFeedbackSheet 一致 iOS 浅色).
  */
 
 import { useEffect } from "react";
@@ -45,61 +47,74 @@ export default function LeaveMeetingSheet({
 
   return (
     <div className="fixed inset-0 z-50" data-testid="mobile-leave-sheet">
-      {/* 背景遮罩 */}
+      {/* 背景遮罩 — iOS 风更浅 0.40 */}
       <button
         type="button"
         aria-label="关闭"
         onClick={() => !endingMeeting && onCancel()}
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
       />
 
-      {/* sheet 主体 */}
+      {/* sheet 主体 — 浅色 grouped bg + hairline top */}
       <div
-        className="absolute inset-x-0 bottom-0 overflow-hidden rounded-t-3xl border-t border-ink-800 bg-ink-950 shadow-2xl"
+        className="absolute inset-x-0 bottom-0 overflow-hidden rounded-t-3xl"
         role="dialog"
         aria-modal="true"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+        style={{
+          background: "#F2F2F7",
+          borderTop: "0.5px solid rgba(60,60,67,0.12)",
+          boxShadow: "0 -8px 32px rgba(0,0,0,0.12)",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        }}
       >
         {/* 顶部把手 + 标题 */}
         <div className="flex flex-col items-center pt-3 pb-2">
-          <div className="h-1 w-10 rounded-full bg-zinc-700" />
-          <h2 className="mt-3 px-6 text-center text-[17px] font-semibold text-zinc-50">
+          <div className="h-1 w-10 rounded-full bg-[#D1D1D6]" />
+          <h2 className="mt-3 px-6 text-center text-[17px] font-semibold text-[#1C1C1E]">
             退出会议室
           </h2>
-          <p className="mt-1 px-6 text-center text-[13px] text-zinc-400 truncate max-w-full">
+          <p className="mt-1 px-6 text-center text-[13px] text-[#8E8E93] truncate max-w-full">
             {meetingTitle}
           </p>
         </div>
 
         {/* 按钮组 */}
         <div className="space-y-2 px-4 pt-2 pb-4">
-          {/* 仅离开 — 默认主操作, 风险低 */}
+          {/* 仅离开 — 默认主操作, 风险低 (白底 + hairline) */}
           <button
             type="button"
             onClick={onJustLeave}
             disabled={endingMeeting}
-            className="flex h-14 w-full items-center justify-center rounded-2xl bg-ink-900 px-4 text-[15px] font-medium text-zinc-100 active:scale-[0.98] active:bg-ink-800 disabled:opacity-50"
+            className="flex h-14 w-full items-center justify-center rounded-2xl bg-white px-4 text-[15px] font-medium text-[#1C1C1E] active:scale-[0.98] active:bg-[#F2F2F7] disabled:opacity-50"
+            style={{ border: "0.5px solid rgba(60,60,67,0.12)" }}
             data-testid="mobile-leave-just-leave"
           >
             <div className="flex flex-col items-center">
               <span>仅离开会议室</span>
-              <span className="mt-0.5 text-[12px] font-normal text-zinc-500">
+              <span className="mt-0.5 text-[12px] font-normal text-[#8E8E93]">
                 会议继续, 之后可重新进入
               </span>
             </div>
           </button>
 
-          {/* 结束会议 — 不可逆 + 跑 AI 后处理 */}
+          {/* 结束会议 — 不可逆 + 跑 AI 后处理 (iOS 红色 浅版) */}
           <button
             type="button"
             onClick={onEndMeeting}
             disabled={endingMeeting}
-            className="flex h-14 w-full items-center justify-center rounded-2xl border border-rose-500/30 bg-rose-500/[0.06] px-4 text-[15px] font-medium text-rose-300 active:scale-[0.98] active:bg-rose-500/[0.12] disabled:opacity-50"
+            className="flex h-14 w-full items-center justify-center rounded-2xl px-4 text-[15px] font-medium text-[#FF3B30] active:scale-[0.98] disabled:opacity-50"
+            style={{
+              background: "rgba(255,59,48,0.08)",
+              border: "0.5px solid rgba(255,59,48,0.30)",
+            }}
             data-testid="mobile-leave-end-meeting"
           >
             <div className="flex flex-col items-center">
               <span>{endingMeeting ? "结束中…" : "结束会议"}</span>
-              <span className="mt-0.5 text-[12px] font-normal text-rose-400/70">
+              <span
+                className="mt-0.5 text-[12px] font-normal"
+                style={{ color: "rgba(255,59,48,0.75)" }}
+              >
                 AI 自动生成纪要 + 抽待办. 不可撤销
               </span>
             </div>
@@ -110,7 +125,7 @@ export default function LeaveMeetingSheet({
             type="button"
             onClick={onCancel}
             disabled={endingMeeting}
-            className="flex h-12 w-full items-center justify-center rounded-2xl text-[15px] text-zinc-400 active:bg-ink-900 disabled:opacity-50"
+            className="flex h-12 w-full items-center justify-center rounded-2xl text-[15px] text-[#007AFF] active:opacity-60 disabled:opacity-50"
             data-testid="mobile-leave-cancel"
           >
             取消

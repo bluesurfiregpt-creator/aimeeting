@@ -166,82 +166,100 @@ export default function MeetingSummaryPage({
   const pendingActions = (actions || []).filter((a) => a.status === "open");
   const decidedActions = (actions || []).filter((a) => a.status !== "open");
 
+  // v1.4.0 Saga L: 整页 浅色化 — bg #F2F2F7, 卡 bg #fff + hairline,
+  // 文字 #1C1C1E / #3C3C43 / #8E8E93, 强调 #007AFF.
   return (
     /* P18: min-h-screen + flex column → mt-auto 把底部按钮推到 viewport 底.
        不能用 min-h-full — % 需要 parent 有显式高度, layout main 是 flex-1
        撑剩高度但 % 算不准, 底部不贴底. 100vh 直接对齐 viewport. */
-    <div className="flex min-h-screen flex-col bg-ink-950">
-      {/* TopBar */}
+    <div className="flex min-h-screen flex-col bg-[#F2F2F7]">
+      {/* TopBar — iOS 浅色 frosted */}
       <div
-        className="sticky top-0 z-30 flex items-center gap-3 border-b border-ink-800 bg-ink-950/85 px-4 pb-3 backdrop-blur"
-        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
+        className="sticky top-0 z-30 flex items-center gap-3 px-4 pb-3"
+        style={{
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+          background: "rgba(242,242,247,0.85)",
+          backdropFilter: "blur(20px) saturate(180%)",
+          WebkitBackdropFilter: "blur(20px) saturate(180%)",
+          borderBottom: "0.5px solid rgba(60,60,67,0.12)",
+        }}
       >
         <Link
           href="/m"
-          className="-ml-2 flex h-10 w-10 items-center justify-center text-zinc-300 active:text-zinc-50"
+          className="-ml-2 flex h-10 w-10 items-center justify-center text-[#007AFF] active:opacity-60"
           aria-label="回工作台"
         >
           <span className="text-2xl leading-none">←</span>
         </Link>
-        <h1 className="flex-1 truncate text-[18px] font-semibold text-zinc-50">
+        <h1 className="flex-1 truncate text-[18px] font-semibold text-[#1C1C1E]">
           会议总结
         </h1>
       </div>
 
       <main className="flex flex-1 flex-col space-y-5 p-4 pb-8">
-        {/* === 会议状态概览 === */}
-        <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4">
-          <p className="text-[16px] font-medium text-emerald-200">
+        {/* === 会议状态概览 — iOS 绿色 ✓ banner === */}
+        <section
+          className="rounded-2xl p-4"
+          style={{
+            background: "rgba(52,199,89,0.10)",
+            border: "0.5px solid rgba(52,199,89,0.30)",
+          }}
+        >
+          <p className="text-[16px] font-medium text-[#34C759]">
             ✓ 会议已结束
           </p>
-          <p className="mt-1 text-[13px] text-zinc-400">
+          <p className="mt-1 text-[13px] text-[#3C3C43]">
             AI 正在生成纪要 + 抽待办. 你可以现在查看, 也可以稍后回来.
           </p>
         </section>
 
         {/* === AI 纪要 === */}
         <section>
-          <h2 className="px-1 text-[14px] font-medium text-zinc-300">
+          <h2 className="px-1 text-[14px] font-medium text-[#3C3C43]">
             📝 会议纪要
           </h2>
-          <div className="mt-2 rounded-2xl bg-ink-900 p-4">
+          <div
+            className="mt-2 rounded-2xl bg-white p-4"
+            style={{ border: "0.5px solid rgba(60,60,67,0.12)" }}
+          >
             {summary === null ? (
               <SummarySkeleton />
             ) : summary.status === "pending" ? (
-              <div className="py-6 text-center text-[14px] text-zinc-400">
+              <div className="py-6 text-center text-[14px] text-[#3C3C43]">
                 <div className="inline-flex items-center gap-2">
-                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent-400" />
+                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#007AFF]" />
                   AI 正在生成纪要…
                 </div>
-                <p className="mt-2 text-[12px] text-zinc-500">
+                <p className="mt-2 text-[12px] text-[#8E8E93]">
                   通常需要 1-3 分钟. 这页会自动刷新.
                 </p>
               </div>
             ) : summary.status === "skipped" ? (
-              <p className="text-[14px] text-zinc-400">
+              <p className="text-[14px] text-[#8E8E93]">
                 ⏭ {summary.message || "纪要已跳过 (转录内容太薄)"}
               </p>
             ) : summary.status === "failed" ? (
               <div>
-                <p className="text-[14px] text-rose-300">
+                <p className="text-[14px] text-[#FF3B30]">
                   ⚠ 生成失败: {summary.message || "未知错误"}
                 </p>
                 <button
                   type="button"
                   onClick={() => loadSummary()}
-                  className="mt-2 inline-flex h-9 items-center justify-center rounded-lg border border-zinc-700 px-3 text-[13px] text-zinc-200 active:scale-[0.98]"
+                  className="mt-2 inline-flex h-9 items-center justify-center rounded-lg bg-white px-3 text-[13px] text-[#1C1C1E] active:scale-[0.98] active:bg-[#F2F2F7]"
+                  style={{ border: "0.5px solid rgba(60,60,67,0.18)" }}
                 >
                   ↻ 重试
                 </button>
               </div>
             ) : summary.summary_md ? (
-              <div className="markdown-body text-[14px] leading-relaxed text-zinc-100">
+              <div className="markdown-body text-[14px] leading-relaxed text-[#1C1C1E]">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {summary.summary_md}
                 </ReactMarkdown>
               </div>
             ) : (
-              <p className="text-[14px] text-zinc-500">(空)</p>
+              <p className="text-[14px] text-[#8E8E93]">(空)</p>
             )}
           </div>
         </section>
@@ -254,10 +272,10 @@ export default function MeetingSummaryPage({
         {/* === 待办列表 — pending === */}
         {pendingActions.length > 0 ? (
           <section>
-            <h2 className="px-1 text-[14px] font-medium text-zinc-300">
+            <h2 className="px-1 text-[14px] font-medium text-[#3C3C43]">
               📌 AI 抽出的待办 ({pendingActions.length})
             </h2>
-            <p className="mt-1 px-1 text-[12px] text-zinc-500">
+            <p className="mt-1 px-1 text-[12px] text-[#8E8E93]">
               确认入库或驳回. 后续在 任务页 / 任务详情 也能操作.
             </p>
             <ul className="mt-2 space-y-2">
@@ -273,11 +291,14 @@ export default function MeetingSummaryPage({
             </ul>
           </section>
         ) : actions !== null && summary?.status === "ready" ? (
-          <section className="rounded-2xl border border-dashed border-zinc-800 px-4 py-6 text-center">
-            <p className="text-[14px] text-zinc-400">
+          <section
+            className="rounded-2xl px-4 py-6 text-center"
+            style={{ border: "0.5px dashed rgba(60,60,67,0.18)" }}
+          >
+            <p className="text-[14px] text-[#3C3C43]">
               AI 没抽出明显的待办
             </p>
-            <p className="mt-1 text-[12px] text-zinc-500">
+            <p className="mt-1 text-[12px] text-[#8E8E93]">
               这场会主要是信息同步 / 讨论
             </p>
           </section>
@@ -286,20 +307,21 @@ export default function MeetingSummaryPage({
         {/* === 已处理过的 action — folded === */}
         {decidedActions.length > 0 ? (
           <section>
-            <h2 className="px-1 text-[14px] font-medium text-zinc-400">
+            <h2 className="px-1 text-[14px] font-medium text-[#8E8E93]">
               已处理 ({decidedActions.length})
             </h2>
             <ul className="mt-2 space-y-1.5">
               {decidedActions.map((act) => (
                 <li
                   key={act.id}
-                  className="rounded-lg bg-ink-900/40 px-3 py-2 text-[13px]"
+                  className="rounded-lg bg-white px-3 py-2 text-[13px]"
+                  style={{ border: "0.5px solid rgba(60,60,67,0.12)" }}
                 >
                   <span
                     className={
                       act.status === "done"
-                        ? "text-emerald-300"
-                        : "text-zinc-500 line-through"
+                        ? "text-[#34C759]"
+                        : "text-[#8E8E93] line-through"
                     }
                   >
                     {act.status === "done" ? "✓" : "✗"} {act.content}
@@ -314,13 +336,15 @@ export default function MeetingSummaryPage({
         <section className="mt-auto flex gap-2 pt-4">
           <Link
             href={`/m/meetings/${id}`}
-            className="flex h-12 flex-1 items-center justify-center rounded-xl border border-zinc-700 px-4 text-[14px] text-zinc-200 active:scale-[0.98] active:bg-ink-800"
+            className="flex h-12 flex-1 items-center justify-center rounded-xl bg-white px-4 text-[14px] text-[#1C1C1E] active:scale-[0.98] active:bg-[#F2F2F7]"
+            style={{ border: "0.5px solid rgba(60,60,67,0.18)" }}
           >
             看完整会议
           </Link>
           <Link
             href="/m"
-            className="flex h-12 flex-1 items-center justify-center rounded-xl bg-accent-500 px-4 text-[14px] font-medium text-white active:scale-[0.98] active:bg-accent-600"
+            className="flex h-12 flex-1 items-center justify-center rounded-xl bg-[#007AFF] px-4 text-[14px] font-medium text-white active:scale-[0.98] active:bg-[#0051D5]"
+            style={{ boxShadow: "0 4px 12px rgba(0,122,255,0.20)" }}
           >
             回工作台
           </Link>
@@ -337,10 +361,10 @@ export default function MeetingSummaryPage({
 function SummarySkeleton() {
   return (
     <div className="space-y-2">
-      <div className="h-4 w-3/4 animate-pulse rounded bg-ink-800" />
-      <div className="h-4 w-full animate-pulse rounded bg-ink-800" />
-      <div className="h-4 w-5/6 animate-pulse rounded bg-ink-800" />
-      <div className="h-4 w-2/3 animate-pulse rounded bg-ink-800" />
+      <div className="h-4 w-3/4 animate-pulse rounded bg-[#F2F2F7]" />
+      <div className="h-4 w-full animate-pulse rounded bg-[#F2F2F7]" />
+      <div className="h-4 w-5/6 animate-pulse rounded bg-[#F2F2F7]" />
+      <div className="h-4 w-2/3 animate-pulse rounded bg-[#F2F2F7]" />
     </div>
   );
 }
@@ -363,18 +387,22 @@ function ActionRow({
     "未指定";
   return (
     <li
-      className="rounded-xl bg-ink-900 p-4"
+      className="rounded-xl bg-white p-4"
+      style={{ border: "0.5px solid rgba(60,60,67,0.12)" }}
       data-testid="mobile-summary-action-row"
     >
-      <p className="text-[15px] leading-snug text-zinc-100">{action.content}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-zinc-400">
+      <p className="text-[15px] leading-snug text-[#1C1C1E]">{action.content}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-[#3C3C43]">
         <span>归属: {assignee}</span>
         {action.due_at ? (
           <span>截止: {new Date(action.due_at).toLocaleDateString("zh-CN")}</span>
         ) : null}
       </div>
       {action.evidence_quote ? (
-        <p className="mt-2 border-l-2 border-zinc-700 pl-3 text-[12px] italic text-zinc-500 line-clamp-2">
+        <p
+          className="mt-2 pl-3 text-[12px] italic text-[#8E8E93] line-clamp-2"
+          style={{ borderLeft: "2px solid rgba(60,60,67,0.18)" }}
+        >
           ▸ {action.evidence_quote}
         </p>
       ) : null}
@@ -383,7 +411,8 @@ function ActionRow({
           type="button"
           onClick={onReject}
           disabled={busy}
-          className="flex h-10 flex-1 items-center justify-center rounded-lg border border-zinc-700 px-3 text-[14px] text-zinc-200 active:scale-[0.98] disabled:opacity-50"
+          className="flex h-10 flex-1 items-center justify-center rounded-lg bg-white px-3 text-[14px] text-[#1C1C1E] active:scale-[0.98] active:bg-[#F2F2F7] disabled:opacity-50"
+          style={{ border: "0.5px solid rgba(60,60,67,0.18)" }}
         >
           {busy ? "…" : "驳回"}
         </button>
@@ -391,7 +420,8 @@ function ActionRow({
           type="button"
           onClick={onConfirm}
           disabled={busy}
-          className="flex h-10 flex-1 items-center justify-center rounded-lg bg-accent-500 px-3 text-[14px] font-medium text-white active:scale-[0.98] active:bg-accent-600 disabled:opacity-50"
+          className="flex h-10 flex-1 items-center justify-center rounded-lg bg-[#007AFF] px-3 text-[14px] font-medium text-white active:scale-[0.98] active:bg-[#0051D5] disabled:opacity-50"
+          style={{ boxShadow: "0 2px 6px rgba(0,122,255,0.30)" }}
         >
           {busy ? "处理中…" : "确认"}
         </button>

@@ -129,11 +129,12 @@ export default function MeetingRecorderControl({
 
   if (!meetingOngoing) return null;
 
-  // ===== Render — 一行紧凑 =====
+  // ===== Render — 一行紧凑 (v1.4.0 Saga L: 浅色化 iOS) =====
   if (state === "starting") {
     return (
       <div
-        className="flex items-center gap-3 text-[14px] text-zinc-400"
+        className="flex items-center gap-3 text-[14px]"
+        style={{ color: "#8E8E93" }}
         data-testid="mobile-recorder-starting"
       >
         <span>⏳</span>
@@ -149,19 +150,33 @@ export default function MeetingRecorderControl({
         data-testid="mobile-recorder-mic-on"
       >
         <span className="relative inline-flex h-3 w-3 shrink-0">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
-          <span className="relative inline-flex h-3 w-3 rounded-full bg-rose-500" />
+          <span
+            className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75"
+            style={{ background: "#FF3B30" }}
+          />
+          <span
+            className="relative inline-flex h-3 w-3 rounded-full"
+            style={{ background: "#FF3B30" }}
+          />
         </span>
-        <p className="min-w-0 flex-1 text-[14px] text-rose-100">
+        <p className="min-w-0 flex-1 text-[14px]" style={{ color: "#FF3B30" }}>
           <span className="font-medium">正在录音</span>
-          <span className="ml-2 tabular-nums text-rose-200/80">
+          <span
+            className="ml-2 tabular-nums"
+            style={{ color: "rgba(255,59,48,0.70)" }}
+          >
             {fmtElapsed(elapsed)}
           </span>
         </p>
         <button
           type="button"
           onClick={handleToggleMute}
-          className="shrink-0 inline-flex h-10 items-center justify-center gap-1 rounded-lg border border-rose-500/40 bg-ink-950/60 px-4 text-[14px] font-medium text-rose-200 active:scale-[0.98]"
+          className="shrink-0 inline-flex h-10 items-center justify-center gap-1 rounded-lg px-4 text-[14px] font-medium active:scale-[0.98]"
+          style={{
+            background: "rgba(255,59,48,0.08)",
+            border: "0.5px solid rgba(255,59,48,0.30)",
+            color: "#FF3B30",
+          }}
           data-testid="mobile-recorder-mute"
         >
           🔇 闭麦
@@ -176,15 +191,26 @@ export default function MeetingRecorderControl({
         className="flex items-center gap-3"
         data-testid="mobile-recorder-mic-off"
       >
-        <span className="text-[16px] text-zinc-500">🔇</span>
-        <p className="min-w-0 flex-1 text-[14px] text-zinc-400">
+        <span className="text-[16px]" style={{ color: "#8E8E93" }}>
+          🔇
+        </span>
+        <p
+          className="min-w-0 flex-1 text-[14px]"
+          style={{ color: "#3C3C43" }}
+        >
           <span className="font-medium">已闭麦</span>
-          <span className="ml-2 text-zinc-500">点右侧恢复</span>
+          <span className="ml-2" style={{ color: "#8E8E93" }}>
+            点右侧恢复
+          </span>
         </p>
         <button
           type="button"
           onClick={handleToggleMute}
-          className="shrink-0 inline-flex h-10 items-center justify-center gap-1 rounded-lg bg-accent-500 px-4 text-[14px] font-medium text-white shadow-md active:scale-[0.98] active:bg-accent-600"
+          className="shrink-0 inline-flex h-10 items-center justify-center gap-1 rounded-lg px-4 text-[14px] font-medium text-white active:scale-[0.98]"
+          style={{
+            background: "#007AFF",
+            boxShadow: "0 2px 6px rgba(0,122,255,0.30)",
+          }}
           data-testid="mobile-recorder-unmute"
         >
           🎙 开麦
@@ -197,18 +223,24 @@ export default function MeetingRecorderControl({
   return (
     <div data-testid="mobile-recorder-error">
       <div className="flex items-baseline gap-2">
-        <span className="shrink-0 text-[14px] font-medium text-amber-200">
+        <span
+          className="shrink-0 text-[14px] font-medium"
+          style={{ color: "#FF9500" }}
+        >
           ⚠ 麦克风失败
         </span>
         <button
           type="button"
           onClick={handleToggleMute}
-          className="ml-auto shrink-0 text-[13px] font-medium text-amber-300 active:text-amber-200"
+          className="ml-auto shrink-0 text-[13px] font-medium active:opacity-60"
+          style={{ color: "#FF9500" }}
         >
           重试 →
         </button>
       </div>
-      <p className="mt-1 line-clamp-2 text-[12px] text-zinc-400">{errorMsg}</p>
+      <p className="mt-1 line-clamp-2 text-[12px]" style={{ color: "#8E8E93" }}>
+        {errorMsg}
+      </p>
     </div>
   );
 }

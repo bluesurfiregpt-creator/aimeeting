@@ -18,26 +18,30 @@
  *   行 1: 📅 最近会议 (label 14px) | 数字 (caption 13px)
  *         · MM/DD 会议标题 (15px x 最多 3 条)
  *   行 2: 📋 任务 (label 14px) + 横向数字: 3 进行中 · 1 已完成 · 1 超期
+ *
+ * v1.4.0 Saga L · 浅色化 (跟 today 主 tab + TaskCard 一致).
  */
 
 import { useState } from "react";
 import Link from "next/link";
+import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
 import type { AgentWorkCard } from "@/lib/mobile/types";
 
+// 色条用 iOS 系统色 (浅色卡左侧 1px 色条)
 const COLOR_BAR: Record<string, string> = {
-  violet: "bg-violet-500",
-  emerald: "bg-emerald-500",
-  amber: "bg-amber-500",
-  sky: "bg-sky-500",
-  rose: "bg-rose-500",
-  teal: "bg-teal-500",
-  blue: "bg-blue-500",
-  indigo: "bg-indigo-500",
+  violet: "#5E5CE6",
+  emerald: "#34C759",
+  amber: "#FF9F0A",
+  sky: "#5AC8FA",
+  rose: "#FF3B30",
+  teal: "#30B0C7",
+  blue: "#007AFF",
+  indigo: "#5856D6",
 };
 
 function colorBar(color: string | null): string {
-  if (!color) return "bg-zinc-700";
-  return COLOR_BAR[color] || "bg-zinc-700";
+  if (!color) return MR_COLORS.separator;
+  return COLOR_BAR[color] || MR_COLORS.separator;
 }
 
 function timeAgo(iso: string | null): string {
@@ -93,17 +97,28 @@ export default function AgentWorkCard({
     summaryBits.push(`${tasks.total} 任务`);
 
   const rootCls =
-    "block w-full overflow-hidden rounded-2xl bg-ink-900 text-left transition active:scale-[0.99]";
+    "block w-full overflow-hidden rounded-2xl text-left transition active:scale-[0.99]";
+  const rootStyle: React.CSSProperties = {
+    background: MR_COLORS.bgWhite,
+    border: `0.5px solid ${MR_COLORS.hairline}`,
+    boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+  };
 
   const Wrapper = ({ children }: { children: React.ReactNode }) =>
     href ? (
-      <Link href={href} className={rootCls} data-testid="mobile-agent-workcard">
+      <Link
+        href={href}
+        className={rootCls}
+        style={rootStyle}
+        data-testid="mobile-agent-workcard"
+      >
         {children}
       </Link>
     ) : (
       <div
         onClick={onClick}
         className={rootCls}
+        style={rootStyle}
         data-testid="mobile-agent-workcard"
         role={onClick ? "button" : undefined}
       >
@@ -115,38 +130,59 @@ export default function AgentWorkCard({
     <Wrapper>
       <div className="flex">
         {/* 左侧色块条 */}
-        <div className={`w-1 ${colorBar(agent.color)}`} />
+        <div className="w-1" style={{ background: colorBar(agent.color) }} />
 
         <div className="min-w-0 flex-1 p-4">
           {/* === Header === */}
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
-              <h3 className="truncate text-[17px] font-semibold leading-tight text-zinc-50">
+              <h3
+                className="truncate text-[17px] font-semibold leading-tight"
+                style={{ color: MR_COLORS.textPrimary }}
+              >
                 {display}
               </h3>
               {agent.domain ? (
-                <p className="mt-1 truncate text-[14px] text-zinc-400">
+                <p
+                  className="mt-1 truncate text-[14px]"
+                  style={{ color: MR_COLORS.textSecondary }}
+                >
                   {agent.domain}
                   {hasNickname ? (
-                    <span className="text-zinc-500"> · {agent.name}</span>
+                    <span style={{ color: MR_COLORS.textTertiary }}>
+                      {" "}
+                      · {agent.name}
+                    </span>
                   ) : null}
                 </p>
               ) : null}
               {/* v27.0-mobile P19.1: 折叠态 显 数字摘要 — 让 用户 一眼 看到
                   有几场会议 / 几条任务, 不必展开 也能 大致判断 是否相关. */}
               {!expanded && summaryBits.length > 0 ? (
-                <p className="mt-1.5 truncate text-[13px] text-zinc-500">
+                <p
+                  className="mt-1.5 truncate text-[13px]"
+                  style={{ color: MR_COLORS.textTertiary }}
+                >
                   {summaryBits.join(" · ")}
                 </p>
               ) : null}
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               {isActive ? (
-                <span className="text-[13px] text-zinc-500">
+                <span
+                  className="text-[13px]"
+                  style={{ color: MR_COLORS.textTertiary }}
+                >
                   {timeAgo(agent.last_active)}
                 </span>
               ) : (
-                <span className="rounded-full bg-zinc-800 px-2.5 py-1 text-[13px] text-zinc-400">
+                <span
+                  className="rounded-full px-2.5 py-1 text-[13px]"
+                  style={{
+                    background: MR_COLORS.separatorLight,
+                    color: MR_COLORS.textSecondary,
+                  }}
+                >
                   未激活
                 </span>
               )}
@@ -160,7 +196,11 @@ export default function AgentWorkCard({
                   e.stopPropagation();
                   setExpanded((v) => !v);
                 }}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-ink-800 text-zinc-400 active:scale-[0.9] active:bg-ink-700"
+                className="flex h-8 w-8 items-center justify-center rounded-full active:scale-[0.9]"
+                style={{
+                  background: MR_COLORS.separatorLight,
+                  color: MR_COLORS.textSecondary,
+                }}
                 aria-expanded={expanded}
                 aria-label={expanded ? "折叠" : "展开"}
                 data-testid="mobile-agent-card-toggle"
@@ -182,27 +222,44 @@ export default function AgentWorkCard({
           {/* === 最近会议 === */}
           <section className="mt-4">
             <div className="flex items-baseline justify-between">
-              <h4 className="text-[14px] font-medium text-zinc-300">
+              <h4
+                className="text-[14px] font-medium"
+                style={{ color: MR_COLORS.textSecondary }}
+              >
                 📅 最近会议
               </h4>
               {meetings.length > 0 ? (
-                <span className="text-[13px] text-zinc-500">
+                <span
+                  className="text-[13px]"
+                  style={{ color: MR_COLORS.textTertiary }}
+                >
                   {meetings.length} 场
                 </span>
               ) : null}
             </div>
             {meetings.length === 0 ? (
-              <p className="mt-2 text-[14px] text-zinc-500">未参会</p>
+              <p
+                className="mt-2 text-[14px]"
+                style={{ color: MR_COLORS.textTertiary }}
+              >
+                未参会
+              </p>
             ) : (
               <ul className="mt-2 space-y-1.5">
                 {meetings.slice(0, 3).map((m) => (
                   <li key={m.meeting_id} className="flex items-baseline gap-2">
                     {m.started_at ? (
-                      <span className="shrink-0 text-[14px] text-zinc-500 tabular-nums">
+                      <span
+                        className="shrink-0 text-[14px] tabular-nums"
+                        style={{ color: MR_COLORS.textTertiary }}
+                      >
                         {meetingShortDate(m.started_at)}
                       </span>
                     ) : null}
-                    <span className="min-w-0 flex-1 truncate text-[15px] text-zinc-200">
+                    <span
+                      className="min-w-0 flex-1 truncate text-[15px]"
+                      style={{ color: MR_COLORS.textPrimary }}
+                    >
                       {m.title}
                     </span>
                   </li>
@@ -212,43 +269,81 @@ export default function AgentWorkCard({
           </section>
 
           {/* === 任务 === */}
-          <section className="mt-4 border-t border-zinc-800 pt-3">
+          <section
+            className="mt-4 pt-3"
+            style={{ borderTop: `0.5px solid ${MR_COLORS.hairline}` }}
+          >
             <div className="flex items-baseline justify-between">
-              <h4 className="text-[14px] font-medium text-zinc-300">
+              <h4
+                className="text-[14px] font-medium"
+                style={{ color: MR_COLORS.textSecondary }}
+              >
                 📋 任务
               </h4>
               {hasTasks ? (
-                <span className="text-[13px] text-zinc-500">
+                <span
+                  className="text-[13px]"
+                  style={{ color: MR_COLORS.textTertiary }}
+                >
                   共 {tasks.total}
                 </span>
               ) : null}
             </div>
             {!hasTasks ? (
-              <p className="mt-2 text-[14px] text-zinc-500">未分配</p>
+              <p
+                className="mt-2 text-[14px]"
+                style={{ color: MR_COLORS.textTertiary }}
+              >
+                未分配
+              </p>
             ) : (
               <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
                 {tasks.open_count > 0 ? (
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-[17px] font-semibold text-zinc-100 tabular-nums">
+                    <span
+                      className="text-[17px] font-semibold tabular-nums"
+                      style={{ color: MR_COLORS.textPrimary }}
+                    >
                       {tasks.open_count}
                     </span>
-                    <span className="text-[14px] text-zinc-400">进行中</span>
+                    <span
+                      className="text-[14px]"
+                      style={{ color: MR_COLORS.textSecondary }}
+                    >
+                      进行中
+                    </span>
                   </div>
                 ) : null}
                 {tasks.done_count > 0 ? (
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-[17px] font-semibold text-emerald-300 tabular-nums">
+                    <span
+                      className="text-[17px] font-semibold tabular-nums"
+                      style={{ color: MR_COLORS.systemGreen }}
+                    >
                       {tasks.done_count}
                     </span>
-                    <span className="text-[14px] text-zinc-400">已完成</span>
+                    <span
+                      className="text-[14px]"
+                      style={{ color: MR_COLORS.textSecondary }}
+                    >
+                      已完成
+                    </span>
                   </div>
                 ) : null}
                 {tasks.overdue_count > 0 ? (
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-[17px] font-semibold text-rose-300 tabular-nums">
+                    <span
+                      className="text-[17px] font-semibold tabular-nums"
+                      style={{ color: MR_COLORS.systemRed }}
+                    >
                       {tasks.overdue_count}
                     </span>
-                    <span className="text-[14px] text-rose-300/80">超期</span>
+                    <span
+                      className="text-[14px]"
+                      style={{ color: MR_COLORS.systemRed }}
+                    >
+                      超期
+                    </span>
                   </div>
                 ) : null}
               </div>

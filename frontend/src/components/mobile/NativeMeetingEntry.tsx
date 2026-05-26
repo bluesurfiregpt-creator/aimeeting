@@ -96,15 +96,28 @@ export default function NativeMeetingEntry({
     }
   };
 
+  // v1.4.0 Saga L: 浅色化 — 紫调 ✕ MR_COLORS.systemPurple iOS 风
   return (
-    <div className="mx-4 mt-3 rounded-2xl border border-violet-500/30 bg-violet-500/[0.08] p-3">
+    <div
+      className="mx-4 mt-3 rounded-2xl p-3"
+      style={{
+        background: "rgba(94,92,230,0.06)",
+        border: "0.5px solid rgba(94,92,230,0.30)",
+      }}
+    >
       <div className="flex items-center gap-3">
         <div className="text-2xl">📱</div>
         <div className="min-w-0 flex-1">
-          <p className="text-[14px] font-medium text-violet-200">
+          <p
+            className="text-[14px] font-medium"
+            style={{ color: "#5E5CE6" }}
+          >
             试用 原生 会议室体验
           </p>
-          <p className="mt-0.5 text-[12px] leading-snug text-zinc-400">
+          <p
+            className="mt-0.5 text-[12px] leading-snug"
+            style={{ color: "#3C3C43" }}
+          >
             原生录音 / 转录 更稳, 议程提醒 更跟手
           </p>
         </div>
@@ -112,14 +125,20 @@ export default function NativeMeetingEntry({
           type="button"
           onClick={handleJump}
           disabled={busy}
-          className="shrink-0 rounded-full bg-violet-500 px-4 py-2 text-[13px] font-medium text-white active:scale-[0.97] active:bg-violet-600 disabled:opacity-50"
+          className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium text-white active:scale-[0.97] disabled:opacity-50"
+          style={{
+            background: "#5E5CE6",
+            boxShadow: "0 2px 6px rgba(94,92,230,0.25)",
+          }}
           data-testid="native-meeting-entry"
         >
           {busy ? "跳转中…" : "进入 →"}
         </button>
       </div>
       {error ? (
-        <p className="mt-2 text-[12px] text-rose-300">{error}</p>
+        <p className="mt-2 text-[12px]" style={{ color: "#FF3B30" }}>
+          {error}
+        </p>
       ) : null}
     </div>
   );
