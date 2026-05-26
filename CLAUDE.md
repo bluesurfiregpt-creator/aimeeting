@@ -61,13 +61,16 @@
 
 ## 测试账号(全项目共享)
 
+> v1.3.1 角色对齐 (PM 拍板, 2026-05-26): owner → workspace_creator, manager → agent_owner.
+> system_owner 走 env `PLATFORM_ADMIN_EMAILS` 白名单, 不入 membership 表.
+
 | 角色 | 邮箱 | 密码 | 备注 |
 |------|------|------|------|
-| owner / 召集人 | `bluesurfiregpt@gmail.com` | `aimeeting123` | workspace 拥有者 |
-| leader | `demo.lijg@futian.gov.cn` | `demo123` | 局长 |
-| admin | `demo.chensy@futian.gov.cn` | `demo123` | 物业科长 |
-| expert(bound AI-08) | `demo.fengl@futian.gov.cn` | `demo123` | 物业 expert |
-| member | `demo.hanx@futian.gov.cn` | `demo123` | 物业普通员工 |
+| system_owner | `bluesurfiregpt@gmail.com` | `aimeeting123` | 跨 ws 最高权, env 白名单. 同时也是 demo ws 的 workspace_creator (兼任) |
+| leader | `demo.lijg@futian.gov.cn` | `demo123` | 局长, workspace 管理员 |
+| admin | `demo.chensy@futian.gov.cn` | `demo123` | 物业科长 (科室级权限, 不改 AI/KB/memory) |
+| agent_owner | `demo.fengl@futian.gov.cn` | `demo123` | 物业监管 AI 的 primary user (可改自己 AI 的 KB/memory) |
+| member | `demo.hanx@futian.gov.cn` | `demo123` | 物业普通员工 (仅查看 + 发起会议) |
 
 ## 部署 入口
 - 生产:`https://aimeeting.zhzjpt.cn`

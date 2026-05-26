@@ -38,7 +38,16 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, type Me } from "@/lib/api";
 
-const FULL_ADMIN_ROLES = new Set(["owner", "admin", "leader"]);
+// v1.3.1: 系统配置入口可见性 — workspace_creator / leader / admin (workspace 管理员级).
+// 老 'owner' 兼容服务端老 cache.
+// agent_owner / member 只看 (隐藏 系统配置入口).
+const FULL_ADMIN_ROLES = new Set([
+  "workspace_creator",
+  "leader",
+  "admin",
+  // 老兼容
+  "owner",
+]);
 
 type NavItem = {
   href: string;
@@ -168,7 +177,14 @@ function isItemVisible(item: NavItem, role: string): boolean {
   if (!item.needsRole) return true;
   if (item.needsRole === "full") return FULL_ADMIN_ROLES.has(role);
   if (item.needsRole === "manager+")
-    return FULL_ADMIN_ROLES.has(role) || role === "manager";
+    // v1.3.1: 老 "manager+" 现 = full_admin + agent_owner (旧 manager).
+    // 老 'manager' / 'expert' 名字 兼容服务端 老 cache.
+    return (
+      FULL_ADMIN_ROLES.has(role) ||
+      role === "agent_owner" ||
+      role === "manager" ||
+      role === "expert"
+    );
   return true;
 }
 

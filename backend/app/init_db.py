@@ -349,6 +349,45 @@ async def init_db() -> None:
         if res.rowcount and res.rowcount > 0:
             logger.info("[v26.5] 迁移 workspace_membership.role 'expert' → 'manager': %d 行", res.rowcount)
 
+        # 3c.2. v1.3.1 角色对齐 (PM 拍板, 命名收敛 + 分层重设计):
+        #   owner   → workspace_creator   (PM 心智 "owner" 留给 system_owner = env 白名单)
+        #   manager → agent_owner         (PM 在 N1 拍板的命名, 跟 Agent.primary_user_id 概念呼应)
+        # leader / admin / member 不动.
+        # idempotent: 已 migrated 时 UPDATE 0 行.
+        #
+        # v1.3.1 P0.1 fix: 新值 'workspace_creator' 17 字符, 超 VARCHAR(16).
+        # 先 ALTER COLUMN 扩展到 VARCHAR(32) 容纳新值. ALTER COLUMN ... TYPE
+        # 在 Postgres 是 idempotent (相同类型为 no-op).
+        await conn.execute(text("""
+            ALTER TABLE workspace_membership ALTER COLUMN role TYPE VARCHAR(32)
+        """))
+        await conn.execute(text("""
+            ALTER TABLE workspace_invitation ALTER COLUMN role TYPE VARCHAR(32)
+        """))
+        res = await conn.execute(text("""
+            UPDATE workspace_membership SET role = 'workspace_creator' WHERE role = 'owner'
+        """))
+        if res.rowcount and res.rowcount > 0:
+            logger.info(
+                "[v1.3.1] 迁移 workspace_membership.role 'owner' → 'workspace_creator': %d 行",
+                res.rowcount,
+            )
+        res = await conn.execute(text("""
+            UPDATE workspace_membership SET role = 'agent_owner' WHERE role = 'manager'
+        """))
+        if res.rowcount and res.rowcount > 0:
+            logger.info(
+                "[v1.3.1] 迁移 workspace_membership.role 'manager' → 'agent_owner': %d 行",
+                res.rowcount,
+            )
+        # workspace_invitation.role 也同步迁移 (老 invite 还没用掉 时 它的 role 字面值 也要改)
+        await conn.execute(text("""
+            UPDATE workspace_invitation SET role = 'workspace_creator' WHERE role = 'owner'
+        """))
+        await conn.execute(text("""
+            UPDATE workspace_invitation SET role = 'agent_owner' WHERE role = 'manager'
+        """))
+
         # 3d. v26.5-02 P1: KB.owner_agent_id + LTM.agent_id 加 FK 约束.
         # 同样的理由 — ALTER ADD COLUMN 不会回填 FK, 需要这里显式补.
         # 都是 idempotent — 已有 FK 跳过.
@@ -557,7 +596,7 @@ async def init_db() -> None:
             text(
                 """
                 INSERT INTO workspace_membership (id, workspace_id, user_id, role)
-                SELECT gen_random_uuid(), u.workspace_id, u.id, 'owner'
+                SELECT gen_random_uuid(), u.workspace_id, u.id, 'workspace_creator'
                 FROM "user" u
                 WHERE u.workspace_id IS NOT NULL
                   AND u.password_hash IS NOT NULL

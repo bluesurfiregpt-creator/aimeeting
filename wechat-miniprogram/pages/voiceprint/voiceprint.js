@@ -102,7 +102,13 @@ Page({
         api.get('/api/users'),
       ]);
       const role = (me && me.role) || 'member';
-      const isWriter = role === 'owner' || role === 'admin' || role === 'leader';
+      // v1.3.1: ws_admin_or_above 可写声纹 (workspace_creator / leader / admin).
+      // 老 'owner' 兼容服务端老 cache.
+      const isWriter =
+        role === 'workspace_creator' ||
+        role === 'leader' ||
+        role === 'admin' ||
+        role === 'owner';
       const list = (users || []).map((u) => ({
         id: u.id,
         name: u.name || '(未命名)',

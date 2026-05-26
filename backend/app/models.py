@@ -103,17 +103,22 @@ class WorkspaceMembership(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True
     )
-    # v21: role 枚举扩展.
-    #   owner / admin — 「领导权限」(全局俯瞰 + 调度,继承 v17 语义)
-    #   leader        — owner/admin 的别名,智慧住建偏好这个词;权限同 admin
-    #   expert        — 「专家权限」:操作范围限制在所绑定的单一 AI 专家
-    #                   (智慧住建 16 AI 集群里,一个科员对应一个 AI 专家);
-    #                   必须填 bound_agent_id
-    #   member        — legacy,默认值,保留向后兼容(v17-v20 用户都是这个)
-    role: Mapped[str] = mapped_column(String(16), default="member")
-    # v21: expert 角色的「绑定 AI 专家」.其他 role 应为 NULL.
-    # ondelete=SET NULL — agent 被删时不连带踢人,但 expert 会失去 scope,
-    # API 入口处会拦下并提示「请联系管理员重新绑定专家」.
+    # v1.3.1 角色对齐 (PM 拍板, 取代 v21/v26.5 6-role 模型):
+    #   workspace_creator — workspace 注册者 (旧 'owner', 改名). ws 内最高权.
+    #   leader            — workspace 管理员, 跟 workspace_creator 同权
+    #   admin             — workspace 内 科室级 (管科室人员 + 发起会议; 不改 AI/KB/memory)
+    #   agent_owner       — 某 AI 的 primary user (旧 'manager', 改名). 改 自己 AI 的 KB / memory
+    #   member            — 默认, 仅查看 + 发起会议
+    #
+    # 跨 ws 最高权 system_owner 走 env PLATFORM_ADMIN_EMAILS 白名单, 不入此表.
+    # 老 'expert' / 'manager' / 'owner' 字符串保留以兼容老数据查询, init_db
+    # 自动 migrate 到新值 (owner → workspace_creator, manager → agent_owner,
+    # expert 已 v26.5 → manager → 现 agent_owner).
+    # v1.3.1 P0.1 fix: 'workspace_creator' 17 字符, 扩 String(16) → String(32) 容纳.
+    role: Mapped[str] = mapped_column(String(32), default="member")
+    # v21: 老 expert 绑定的 AI. v1.3.1 后字段保留以兼容老数据, 但不再使用
+    # (agent_owner 通过 Agent.primary_user_id 反向查管的 AI, 不用此字段).
+    # ondelete=SET NULL — agent 被删时不连带踢人.
     bound_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("agent.id", ondelete="SET NULL"), nullable=True
     )
@@ -134,7 +139,8 @@ class WorkspaceInvitation(Base):
         PgUUID(as_uuid=True), ForeignKey("workspace.id", ondelete="CASCADE"), index=True
     )
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    role: Mapped[str] = mapped_column(String(16), default="member")
+    # v1.3.1 P0.1: 容纳 'workspace_creator' (17 char), 扩 String(16) → String(32).
+    role: Mapped[str] = mapped_column(String(32), default="member")
     token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True

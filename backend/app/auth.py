@@ -196,31 +196,49 @@ async def get_current_auth(
         )
     ).scalar_one_or_none()
     if not membership and user.workspace_id != ws.id:
-        # v26.4-fix2: platform admin 切换到 客户 workspace 时,在该 ws 里没
+        # v26.4-fix2 → v1.3.1: system_owner 切换到 客户 workspace 时,在该 ws 里没
         # membership 行 是 设计意图("上帝视角" + 不污染客户 user 列表 — 见
         # routers/super.py 的 /switch 注释).这里 开后门:caller email 在
-        # PLATFORM_ADMIN_EMAILS env 白名单 → 放行.
+        # PLATFORM_ADMIN_EMAILS env 白名单 (= system_owner) → 放行.
         # 普通用户的 not-a-member 防御仍然 生效 (email 不在白名单 → 仍 raise).
-        # 后续 is_leader_or_admin / /api/auth/me 都已 platform admin 兼容
-        # (v26.4-fix1),所以放行后 一切 UI 端正常工作.
         if not is_platform_admin_email(user.email):
             raise HTTPException(403, "[权限不足] 您不是该工作空间的成员")
 
     return AuthContext(user=user, workspace=ws)
 
 
-# ----- v21: role + scope helpers ---------------------------------------------
+# ----- v1.3.1 角色对齐: 4 层 + 1 system 模型 ---------------------------------
 #
-# v17-v20 把权限模型保持在 owner/admin/member 三档.v21 引入「领导/专家」
-# 二分(智慧住建文档「二.1」),实现方式不破坏 legacy:
-#   - 旧的 owner/admin/member 全部继续工作(member ≈ general user)
-#   - 新增 'expert' role(必填 bound_agent_id,只能看 bound 的 Agent 范围)
-#   - 'leader' 暂作为 admin 别名(权限同 admin),以后语义分化时再独立
+# v1.3.1 PM 拍板 后 的 5 层 权限 模型 (旧 6 role + env 白名单 → 新 4 ws-role + 1 system):
 #
-# 这些 helper 都是同步查询 workspace_membership 表,只触一行,可以放心
-# 在 hot path 调.
+#   system_owner       — env 白名单, 跨 workspace 最高权 (旧 platform_admin)
+#   workspace_creator  — workspace 注册者, ws 内最高权 (旧 owner). 跟 leader 同权
+#   leader             — workspace 管理员, ws 内最高权 (跟 workspace_creator 同权)
+#   admin              — workspace 内 科室级 (只 看科室 + 改科室人员 + 发起会议; 不改 AI/KB/memory)
+#   agent_owner        — 某 AI 的 primary user (旧 manager). 改 自己 AI 的 KB / memory.
+#   member             — 仅查看 + 发起会议
+#
+# 三层 helper 对应 三种 ABAC 决策粒度:
+#   is_system_owner             — 跨 ws 上帝视角
+#   is_workspace_manager        — ws 管理员 (workspace_creator + leader). 编辑 AI/KB/memory 的最低门槛
+#   is_workspace_admin_or_above — ws 管理员 + admin (科室级). 邀请成员 / 看团队 / 发起 auto 会议
+#   is_agent_owner              — 某 AI 的 primary user. ABAC: 可改 自己 AI 的 KB / memory
+#
+# 旧 helper 保留兼容 alias (是 leader/workspace_creator + admin 的并集):
+#   is_leader_or_admin → is_workspace_admin_or_above
+#   require_leader_or_admin → require_workspace_admin_or_above
+#
+# 这些 helper 都是同步查询 workspace_membership 表,只触一行,可以放心在 hot path 调.
 
-_LEADER_ROLES: frozenset[str] = frozenset({"owner", "admin", "leader"})
+# v1.3.1: ws 管理员集合 — 编辑 AI / KB / memory 必须达到 (PM Q7.4 web 独占编辑).
+_WORKSPACE_MANAGER_ROLES: frozenset[str] = frozenset(
+    {"workspace_creator", "leader"}
+)
+# v1.3.1: workspace_creator + leader + admin 等. 邀请 / 看团队 / 发起 auto 会议 等
+# 工作空间级 但允许 科室长 admin 操作 的端点 用这个.
+_WORKSPACE_ADMIN_OR_ABOVE_ROLES: frozenset[str] = frozenset(
+    {"workspace_creator", "leader", "admin"}
+)
 
 
 async def get_membership_role(
@@ -237,39 +255,104 @@ async def get_membership_role(
     ).scalar_one_or_none()
 
 
-async def is_leader_or_admin(
+async def is_workspace_manager(
     session: AsyncSession, auth: AuthContext
 ) -> bool:
-    """True if caller has a 「领导/管理员」 role (owner/admin/leader).
+    """v1.3.1: caller 是否 workspace_creator / leader (workspace 管理员).
 
-    v26.4-fix1: platform admin 切到任何 workspace 都视为 leader (即使该 ws 内
-    没 membership 行).这是设计 — 平台超管的"上帝视角"语义.audit_log 里已经
-    打 platform_admin=true 让客户能追溯,不需要 insert membership 污染客户 user
-    列表.
+    这是 编辑 AI / KB / memory 的 最低 门槛. admin 不算 (只能看 + 发起会议 + 管科室人员).
+
+    v26.4-fix1: system_owner (platform admin) 视为 workspace_manager (上帝视角).
     """
     if is_platform_admin(auth):
         return True
     role = await get_membership_role(session, auth.user.id, auth.workspace.id)
-    return role in _LEADER_ROLES
+    return role in _WORKSPACE_MANAGER_ROLES
+
+
+async def is_workspace_admin_or_above(
+    session: AsyncSession, auth: AuthContext
+) -> bool:
+    """v1.3.1: caller 是否 workspace_creator / leader / admin.
+
+    用于 邀请成员 / 看团队 / 发起 auto 会议 等 ws 级 但 admin 也能做 的操作.
+    跟 PM Q7.4 区分 — "编辑 AI/KB/memory" 必须 workspace_manager (更严),
+    "管科室人员 / 发起 auto 会议" 用 这个.
+
+    v26.4-fix1: system_owner 视为通过.
+    """
+    if is_platform_admin(auth):
+        return True
+    role = await get_membership_role(session, auth.user.id, auth.workspace.id)
+    return role in _WORKSPACE_ADMIN_OR_ABOVE_ROLES
+
+
+# v1.3.1 兼容 alias — 老代码 全 走 is_leader_or_admin, 语义上 就是 ws_admin_or_above.
+is_leader_or_admin = is_workspace_admin_or_above
+
+
+async def require_workspace_manager(
+    session: AsyncSession, auth: AuthContext
+) -> None:
+    """v1.3.1: 要求 caller 是 workspace_creator / leader (或 system_owner).
+
+    编辑 AI / KB / memory 等 PM Q7.4 web 独占编辑端点 用此 guard.
+    admin / agent_owner / member 触此 guard 都 403."""
+    if not await is_workspace_manager(session, auth):
+        raise HTTPException(
+            403,
+            "[权限不足] 此操作需要 workspace_creator / leader 角色"
+            " (admin / agent_owner / member 无权)"
+        )
+
+
+async def require_workspace_admin_or_above(
+    session: AsyncSession, auth: AuthContext
+) -> None:
+    """v1.3.1: 要求 caller 是 workspace_creator / leader / admin (或 system_owner).
+
+    邀请成员 / 看团队 / cron / search providers / asr vocab / dispatch / 发起 auto
+    会议 等 ws 级 但 科室长 admin 也能做 的操作 用此 guard.
+
+    agent_owner / member 触此 guard 都 403."""
+    if not await is_workspace_admin_or_above(session, auth):
+        raise HTTPException(
+            403,
+            "[权限不足] 此操作需要 workspace_creator / leader / admin 角色"
+        )
+
+
+# v1.3.1 兼容 alias — 老代码 全 走 require_leader_or_admin, 语义 = admin_or_above.
+require_leader_or_admin = require_workspace_admin_or_above
+
+
+async def is_agent_owner_user(
+    session: AsyncSession, auth: AuthContext
+) -> bool:
+    """v1.3.1: caller 在当前 workspace 是 agent_owner 角色 (= 老 manager).
+
+    通过 Agent.primary_user_id 反向查 caller 管的 AI 列表; 也校验 membership.role."""
+    role = await get_membership_role(session, auth.user.id, auth.workspace.id)
+    return role == "agent_owner"
+
+
+# v1.3.1 兼容: is_manager / is_expert 老 helper. 改名后 alias 保留, 避免大爆破.
+async def is_manager(session: AsyncSession, auth: AuthContext) -> bool:
+    """DEPRECATED v1.3.1 — 改用 is_agent_owner_user. 保留 alias 避免老代码 break."""
+    return await is_agent_owner_user(session, auth)
 
 
 async def is_expert(session: AsyncSession, auth: AuthContext) -> bool:
-    """DEPRECATED v26.5 — kept for backward compat. 真实场景应该用 is_manager."""
-    role = await get_membership_role(session, auth.user.id, auth.workspace.id)
-    return role == "expert"
-
-
-async def is_manager(session: AsyncSession, auth: AuthContext) -> bool:
-    """v26.5: caller 在当前 workspace 是 manager 角色?
-    (manager = 部门 AI 维护人, 取代 v21 expert 概念)"""
-    role = await get_membership_role(session, auth.user.id, auth.workspace.id)
-    return role == "manager"
+    """DEPRECATED v26.5 — kept for backward compat. v1.3.1 后 永远 返 False
+    (老 expert 在 v26.5 已 migrate 成 manager, 现在又 migrate 成 agent_owner).
+    """
+    return False
 
 
 async def manager_owned_agent_ids(
     session: AsyncSession, auth: AuthContext
 ) -> list[uuid.UUID]:
-    """v26.5: 返回 caller 作为 Agent.primary_user_id 管理的所有 agent id (本 ws 内).
+    """v1.3.1: 返回 caller 作为 Agent.primary_user_id 管理的所有 agent id (本 ws 内).
 
     用法: dashboard scope filter / 邀请 AI 时显示 "我管的 AI" 分组 / 等.
 
@@ -287,19 +370,22 @@ async def manager_owned_agent_ids(
     return list(rows)
 
 
-async def is_agent_manager(
+async def is_agent_owner(
     session: AsyncSession, auth: AuthContext, agent_id: uuid.UUID
 ) -> bool:
-    """v26.5 核心 ABAC: caller 是否有权管理 这个 agent
+    """v1.3.1 核心 ABAC: caller 是否有权管理 这个 agent
     (改 agent 配置 / KB / 长期记忆 / 审批任务沉淀).
 
     True 条件 (任一即可):
-      1. caller 是 workspace owner/admin/leader (跨部门管 — 局长有权干预)
-      2. caller 是 该 agent 的 primary_user_id (部门级 manager)
+      1. caller 是 workspace_manager (workspace_creator / leader) — 跨科室管
+      2. caller 是 该 agent 的 primary_user_id (agent_owner 角色)
 
-    platform admin 跨 ws 自动 通过 (经 is_leader_or_admin 已 fallback,v26.4-fix1).
+    注意: admin 不再 通过 这条 — admin 看 AI 不能改 (PM Q7.4 web 独占).
+    system_owner 跨 ws 自动 通过 (经 is_workspace_manager fallback).
+
+    旧 名 is_agent_manager 保留为 alias 避免老代码 break.
     """
-    if await is_leader_or_admin(session, auth):
+    if await is_workspace_manager(session, auth):
         return True
     from .models import Agent
     agent = (
@@ -315,40 +401,20 @@ async def is_agent_manager(
     return agent.primary_user_id == auth.user.id
 
 
+# v1.3.1 兼容 alias — 老代码 全 走 is_agent_manager.
+is_agent_manager = is_agent_owner
+
+
 async def expert_bound_agent_id(
     session: AsyncSession, auth: AuthContext
 ) -> Optional[uuid.UUID]:
-    """
-    For expert-role caller, returns their bound agent id (or None if not
-    expert / not bound). Other roles return None — caller decides what
-    that means (typically: full access).
-    """
-    row = (
-        await session.execute(
-            select(
-                WorkspaceMembership.role, WorkspaceMembership.bound_agent_id
-            ).where(
-                WorkspaceMembership.user_id == auth.user.id,
-                WorkspaceMembership.workspace_id == auth.workspace.id,
-            )
-        )
-    ).first()
-    if row is None:
-        return None
-    role, bound = row
-    if role != "expert":
-        return None
-    return bound
+    """v1.3.1: DEPRECATED — 永远 返 None (老 expert 已 migrate, bound_agent_id 字段
+    保留但不再使用). 老 caller 调用 不影响 — return None 让 caller 走 "no scope limit"
+    分支 (跟 普通用户 一样).
 
-
-async def require_leader_or_admin(
-    session: AsyncSession, auth: AuthContext
-) -> None:
-    """Raise 403 if caller is not a leader/owner/admin. Use as the first
-    line in any router that does workspace-level destructive / global ops
-    (cron rules, agent CRUD, team management, dispatch, approve, etc)."""
-    if not await is_leader_or_admin(session, auth):
-        raise HTTPException(403, "[权限不足] 此功能需要 owner / admin / leader 角色")
+    Agent.primary_user_id 反向查 才是 v1.3.1 的 推荐路径.
+    """
+    return None
 
 
 # ============================================================================
@@ -358,20 +424,21 @@ async def require_leader_or_admin(
 async def can_write_kb(
     session: AsyncSession, auth: AuthContext, kb_id: uuid.UUID
 ) -> bool:
-    """v26.5-02a: 这个 caller 是否有权改 这个 KB 的内容
+    """v1.3.1: 这个 caller 是否有权改 这个 KB 的内容
     (上传文档 / 删文档 / reprocess).
 
     True 条件 (任一即可):
-      1. caller 是 workspace owner/admin/leader → 全权
+      1. caller 是 workspace_manager (workspace_creator / leader / system_owner) → 全权
       2. KB.owner_agent_id 指向某 agent A, 且 caller 是 A.primary_user_id
-         → 该 manager 负责 A, 可以管理 A 的 KB
-      3. KB.owner_agent_id 为 NULL → 退到 admin-only (1)
+         → 该 agent_owner 负责 A, 可以管理 A 的 KB
+      3. KB.owner_agent_id 为 NULL → 退到 ws_manager-only (1)
 
     workspace 隔离: KB 必须属于 caller 的 workspace.
+    注意 v1.3.1: admin 不再 通过 — admin 不改 AI / KB / memory (PM Q7.4).
     """
-    if await is_leader_or_admin(session, auth):
+    if await is_workspace_manager(session, auth):
         return True
-    from .models import KnowledgeBase, Agent
+    from .models import KnowledgeBase
     kb = (
         await session.execute(
             select(KnowledgeBase).where(
@@ -383,20 +450,20 @@ async def can_write_kb(
     if kb is None:
         return False
     if kb.owner_agent_id is None:
-        return False  # 无 owner agent 的 KB 仅 admin/leader 可写
-    # KB 归属某 agent → 该 agent 的 primary_user 可写
-    return await is_agent_manager(session, auth, kb.owner_agent_id)
+        return False  # 无 owner agent 的 KB 仅 workspace_manager 可写
+    # KB 归属某 agent → 该 agent 的 primary_user (agent_owner) 可写
+    return await is_agent_owner(session, auth, kb.owner_agent_id)
 
 
 async def require_kb_writer(
     session: AsyncSession, auth: AuthContext, kb_id: uuid.UUID
 ) -> None:
-    """v26.5-02a: 写 KB 内容 (上传/删/reprocess 文档) 的 ABAC 守卫."""
+    """v1.3.1: 写 KB 内容 (上传/删/reprocess 文档) 的 ABAC 守卫."""
     if not await can_write_kb(session, auth, kb_id):
         raise HTTPException(
             403,
-            "[权限不足] 写此 KB 需要 owner/admin/leader,"
-            "或该 KB 归属 AI 的 primary_user (manager)"
+            "[权限不足] 写此 KB 需要 workspace_creator / leader,"
+            "或该 KB 归属 AI 的 agent_owner (primary_user)"
         )
 
 
@@ -407,20 +474,21 @@ async def require_kb_writer(
 async def can_write_memory(
     session: AsyncSession, auth: AuthContext, memory_id: uuid.UUID
 ) -> bool:
-    """v26.5-Lineage: 这个 caller 是否有权改/删 这条 memory.
+    """v1.3.1: 这个 caller 是否有权改/删 这条 memory.
 
     True 条件 (任一即可):
-      1. caller 是 workspace owner/admin/leader → 全权
+      1. caller 是 workspace_manager (workspace_creator / leader / system_owner) → 全权
       2. memory 通过 memory_agent_link is_primary=TRUE 挂在 agent A,
-         且 caller 是 A.primary_user_id → 该 manager 是 memory 的 "主人"
+         且 caller 是 A.primary_user_id (agent_owner) → 该 agent_owner 是 memory 的 "主人"
       3. 老数据 long_term_memory.agent_id (deprecated) 指向 agent A,
          且 caller 是 A.primary_user_id → 老兼容路径
       4. memory 没有任何 primary agent (agent_id=NULL 且 无 link)
-         → 退到 admin-only (仅 1 通过)
+         → 退到 ws_manager-only (仅 1 通过)
 
     workspace 隔离: memory 必须属于 caller 的 workspace.
+    注意 v1.3.1: admin 不再 通过 — admin 不改 AI / KB / memory (PM Q7.4).
     """
-    if await is_leader_or_admin(session, auth):
+    if await is_workspace_manager(session, auth):
         return True
     from .models import Agent, LongTermMemory, MemoryAgentLink
     m = (
@@ -448,7 +516,7 @@ async def can_write_memory(
         primary_agent_ids.add(m.agent_id)
     if not primary_agent_ids:
         return False
-    # 任一 primary agent 的 primary_user 是 caller → 可写
+    # 任一 primary agent 的 primary_user (agent_owner) 是 caller → 可写
     rows = (
         await session.execute(
             select(Agent.primary_user_id).where(Agent.id.in_(primary_agent_ids))
@@ -460,46 +528,65 @@ async def can_write_memory(
 async def require_memory_writer(
     session: AsyncSession, auth: AuthContext, memory_id: uuid.UUID
 ) -> None:
-    """v26.5-Lineage: 写 memory (改/删) 的 ABAC 守卫."""
+    """v1.3.1: 写 memory (改/删) 的 ABAC 守卫."""
     if not await can_write_memory(session, auth, memory_id):
         raise HTTPException(
             403,
-            "[权限不足] 改 / 删此 memory 需要 owner/admin/leader,"
-            "或该 memory 主 AI 的 primary_user (manager)"
+            "[权限不足] 改 / 删此 memory 需要 workspace_creator / leader,"
+            "或该 memory 主 AI 的 agent_owner (primary_user)"
         )
 
 
 # ============================================================================
-# v26.4 · Platform Admin (跨 workspace 的 SaaS 平台层超管)
+# v1.3.1 · system_owner (跨 workspace 的 SaaS 平台层超管, 旧 platform_admin)
 # ============================================================================
-# Q1=C 决策:超管身份 由 env var PLATFORM_ADMIN_EMAILS 硬配,不入库.
-# 理由:
+# v1.3.1 命名收敛: platform_admin → system_owner (PM 心智 "owner = 系统拥有者").
+# 但实现 保留 env 白名单 (PLATFORM_ADMIN_EMAILS) 不动 —— 这是 PM 决策 1 的实施细节:
 #   - 最小 schema 改动 (零 migration)
 #   - 不让业务后台 SQL 误改超管列表 (env var 改完必重启容器,运维 trace 清晰)
-#   - 后续要加 UI 管理超管时再升级到 platform_admin 表
+#   - 后续要加 UI 管理超管时再升级到 system_owner 表
+#
+# 旧 helper 名 (is_platform_admin / require_platform_admin) 保留为 alias
+# 避免老代码 break. 新 helper 名 is_system_owner / require_system_owner.
 #
 # 安全:
-#   - 后端任何 /api/super/* 端点 必须 先调 require_platform_admin
+#   - 后端任何 /api/super/* 端点 必须 先调 require_system_owner
 #   - 前端 /super 路由 + middleware 二次校验 me.email 在白名单
-#   - 所有 superadmin 操作 audit 时 payload 加 {"platform_admin": true}
-#     方便客户日后查 "今天 platform admin 在我空间做了什么"
+#   - 所有 system_owner 操作 audit 时 payload 加 {"system_owner": true}
+#     方便客户日后查 "今天 system_owner 在我空间做了什么"
 
 
 def is_platform_admin_email(email: Optional[str]) -> bool:
-    """email 是否在 env PLATFORM_ADMIN_EMAILS 白名单 (case-insensitive)."""
+    """email 是否在 env PLATFORM_ADMIN_EMAILS 白名单 (case-insensitive).
+
+    v1.3.1 概念上 这是 "system_owner" 的判定, env var 名保留兼容."""
     if not email:
         return False
     from .config import get_settings
     return email.lower().strip() in get_settings().platform_admin_emails_set
 
 
-def is_platform_admin(auth: AuthContext) -> bool:
-    """当前 user 是否是平台超管.基于 user.email 跟 env 白名单 比对."""
+def is_system_owner(auth: AuthContext) -> bool:
+    """v1.3.1: 当前 user 是否是 system_owner (跨 ws 最高权).
+
+    基于 user.email 跟 env PLATFORM_ADMIN_EMAILS 白名单 比对."""
     return is_platform_admin_email(auth.user.email)
 
 
-async def require_platform_admin(auth: AuthContext) -> None:
-    """Raise 403 if caller 不是 平台超管.每个 /api/super/* 端点 必填第一行.
+# v1.3.1 兼容 alias — 老代码 全 走 is_platform_admin.
+is_platform_admin = is_system_owner
+
+
+async def require_system_owner(auth: AuthContext) -> None:
+    """v1.3.1: Raise 403 if caller 不是 system_owner. 每个 /api/super/* 端点 必填.
     不需要 session 因为校验只看 env + auth.user.email,无 DB query."""
-    if not is_platform_admin(auth):
-        raise HTTPException(403, "[权限不足] 此功能仅平台超管可见 (您的 email 不在 PLATFORM_ADMIN_EMAILS 白名单)")
+    if not is_system_owner(auth):
+        raise HTTPException(
+            403,
+            "[权限不足] 此功能仅 system_owner 可见 "
+            "(您的 email 不在 PLATFORM_ADMIN_EMAILS 白名单)"
+        )
+
+
+# v1.3.1 兼容 alias — 老代码 全 走 require_platform_admin.
+require_platform_admin = require_system_owner

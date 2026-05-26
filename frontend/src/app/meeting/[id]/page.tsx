@@ -13,8 +13,9 @@ import { toast } from "@/lib/toast";
 import { openSttSocket, type SttEvent, type SttSocket } from "@/lib/sttSocket";
 import { api, type Agent, type AgendaItem, type Me, type TranscriptLine } from "@/lib/api";
 
-// v26.3.1: 谁能 看到/调 裁决按钮.跟后端 require_leader_or_admin 对齐.
-const WRITE_ROLES = new Set(["owner", "admin", "leader"]);
+// v1.3.1: 谁能 看到/调 裁决按钮. 跟后端 require_workspace_admin_or_above 对齐
+// (workspace_creator / leader / admin / system_owner).
+const WRITE_ROLES = new Set(["workspace_creator", "leader", "admin", "owner"]);
 import BriefingCard from "./BriefingCard";
 import SummaryCard from "./SummaryCard";
 import ActionItemsCard from "./ActionItemsCard";

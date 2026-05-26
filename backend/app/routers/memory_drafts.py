@@ -148,11 +148,14 @@ async def _load_with_abac(
     ).scalar_one_or_none()
     if not d:
         raise HTTPException(404, "draft not found")
-    is_admin = await is_leader_or_admin(session, auth)
-    if d.primary_user_id != auth.user.id and not is_admin:
+    # v1.3.1 (PM Q7.4): 仅 primary_user (agent_owner) 或 workspace_manager (admin 不能).
+    from ..auth import is_workspace_manager
+    is_ws_manager = await is_workspace_manager(session, auth)
+    if d.primary_user_id != auth.user.id and not is_ws_manager:
         raise HTTPException(
             403,
-            "[权限不足] 仅 该 memory 沉淀的 审批人 (primary_user) 或 owner/admin/leader 可操作"
+            "[权限不足] 仅 该 memory 沉淀的 审批人 (agent_owner = primary_user) "
+            "或 workspace_creator / leader 可操作"
         )
     return d
 
@@ -164,14 +167,16 @@ async def list_drafts(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    is_admin = await is_leader_or_admin(session, auth)
+    # v1.3.1: ws_manager 可查 全 workspace, 其他 只看自己 primary 的.
+    from ..auth import is_workspace_manager
+    is_ws_manager = await is_workspace_manager(session, auth)
     stmt = (
         select(MemoryDraft)
         .where(MemoryDraft.workspace_id == auth.workspace.id)
         .order_by(MemoryDraft.created_at.desc())
         .limit(limit)
     )
-    if not is_admin:
+    if not is_ws_manager:
         stmt = stmt.where(MemoryDraft.primary_user_id == auth.user.id)
     if status and status != "all":
         if status not in ("pending", "approved", "rejected", "expired"):

@@ -7,11 +7,13 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SkeletonList } from "@/components/Skeleton";
 import { toast } from "@/lib/toast";
 
-// v26.5 role-aware UI:
-//   leader+ (owner/admin/leader) 全权 — 创建 / 编辑 / 删 / 改 primary_user 都可
-//   manager 仅可 编辑 自己 primary 的 agent(不能创建 / 不能删 / 不能转 primary_user)
-//   member 不该进 admin
-const FULL_ADMIN_ROLES = new Set(["owner", "admin", "leader"]);
+// v1.3.1 role-aware UI (PM Q7.4 web 独占编辑):
+//   workspace_creator / leader 全权 — 创建 / 编辑 / 删 / 改 primary_user 都可
+//   admin                       仅看 — 不能 创建 / 不能 删 / 不能 改 primary_user
+//   agent_owner                  仅可 编辑 自己 primary 的 agent (不创建 / 不删)
+//   member                       仅只读
+// 老 'owner' 兼容服务端 老 cache (init_db 已 migrate, 但 H5 / 小程序 cache 滞后).
+const FULL_ADMIN_ROLES = new Set(["workspace_creator", "leader", "owner"]);
 
 type Form = {
   name: string;

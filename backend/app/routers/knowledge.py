@@ -219,9 +219,11 @@ async def create_kb(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    # v26.5-01c: 创建 KB 需 owner/admin/leader. manager 不能裸创 KB,需要 admin 先建,
-    # 再 admin 在 P1 给该 KB 指 owner_agent (然后 manager 才能写入).
-    await require_leader_or_admin(session, auth)
+    # v1.3.1 (PM Q7.4): 创建 KB 仅 workspace_creator / leader.
+    # agent_owner 不能 裸创 KB — 需要 ws_manager 先建, 再给该 KB 指 owner_agent,
+    # 然后 agent_owner 才能写入. admin 不能 创建 KB.
+    from ..auth import require_workspace_manager
+    await require_workspace_manager(session, auth)
     if not payload.name.strip():
         raise HTTPException(400, "name required")
     # v26.5-02a: 校验 owner_agent_id 同 workspace
@@ -275,12 +277,13 @@ async def update_kb(
     """
     kb = await _load_owned_kb(kb_id, session, auth)
     data = payload.model_dump(exclude_unset=True)
-    # 改 owner_agent_id 算 转移 — 仅 leader+
+    # v1.3.1: 改 owner_agent_id 算 转移 — 仅 workspace_creator / leader (admin 不能).
     if "owner_agent_id" in data and data["owner_agent_id"] != kb.owner_agent_id:
-        if not await is_leader_or_admin(session, auth):
+        from ..auth import is_workspace_manager
+        if not await is_workspace_manager(session, auth):
             raise HTTPException(
                 403,
-                "[权限不足] 仅 owner / admin / leader 可指派 / 转移 KB 归属的 AI"
+                "[权限不足] 仅 workspace_creator / leader 可指派 / 转移 KB 归属的 AI"
             )
         # 校验新 agent 同 ws
         if data["owner_agent_id"]:
@@ -335,9 +338,9 @@ async def delete_kb(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    # v26.5-01c: 删 整个 KB 仅 owner/admin/leader 可操作 (manager 即使是 owner agent 的 primary,
-    # 也不能 直接删 整个 KB — 需要 admin 显式 操作以防误删).
-    await require_leader_or_admin(session, auth)
+    # v1.3.1 (PM Q7.4): 删 整个 KB 仅 workspace_creator / leader (agent_owner / admin 都不能).
+    from ..auth import require_workspace_manager
+    await require_workspace_manager(session, auth)
     kb = await _load_owned_kb(kb_id, session, auth)
     name = kb.name
     await session.delete(kb)

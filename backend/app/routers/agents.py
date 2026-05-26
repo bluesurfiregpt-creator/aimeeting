@@ -17,10 +17,13 @@ from ..auth import (
     AuthContext,
     expert_bound_agent_id,
     get_current_auth,
-    is_agent_manager,
+    is_agent_owner,
     is_leader_or_admin,
-    require_leader_or_admin,
+    is_workspace_admin_or_above,
+    require_workspace_manager,
 )
+# v1.3.1 兼容: 老 helper 名仍可调
+from ..auth import is_agent_manager  # noqa: F401  alias for is_agent_owner
 from ..db import get_session
 from ..models import Agent
 from ..oss_client import OSSClient
@@ -145,17 +148,17 @@ async def list_agents(
         description="True 只返回 is_active=true 的 (首页 卡片 用)",
     ),
 ):
-    # v25-bug-fix #6 ABAC:
-    #   - leader/admin/owner: 看 全部 16 AI(管理用)
-    #   - expert: 仅看自己 bound 的 1 个 AI(避免看到其它科室 AI 的 persona / KB 绑定)
-    #   - member: 看 全部(基础信息,不含 dify key — _to_out 已脱敏)
-    # 这是 ABAC 雏形,实际上线后可能要进一步限制 member 视角.
-    is_admin = await is_leader_or_admin(session, auth)
-    bound = await expert_bound_agent_id(session, auth)
+    # v1.3.1 ABAC:
+    #   - workspace_creator / leader / admin: 看 全部 AI (科室长 admin 也能看 — 只是不能改)
+    #   - agent_owner: 看 全部 (它有 自己 primary 的 AI)
+    #   - member: 看 全部 (基础信息,不含 dify key — _to_out 已脱敏)
+    # 老 v21 expert 限制 已废 (expert_bound_agent_id 现在 永远 返 None).
+    is_admin = await is_workspace_admin_or_above(session, auth)  # noqa: F841
+    bound = await expert_bound_agent_id(session, auth)  # v1.3.1: 永远 None
 
     stmt = select(Agent).where(Agent.workspace_id == auth.workspace.id)
     if not is_admin and bound is not None:
-        # expert 只看自己绑定的
+        # 老 expert 路径 — v1.3.1 后 bound 恒为 None, 这条 dead code 但保留以防回退.
         stmt = stmt.where(Agent.id == bound)
     # v26.12-Home: 关键词 全文 (ILIKE), 首页 搜索框 用
     if q:
@@ -190,8 +193,10 @@ async def create_agent(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    # v26.5-01d: 创建 AI 专家 仅 owner/admin/leader (建好后 指定 primary_user 给 manager 维护)
-    await require_leader_or_admin(session, auth)
+    # v1.3.1 (PM Q7.4): 创建 AI 专家 仅 workspace_creator / leader
+    # (admin 不再 可创建 — admin 只管 科室人员 / 发起会议).
+    # 建好后 通过 primary_user_id 指定给 某个 agent_owner 维护.
+    await require_workspace_manager(session, auth)
     data = payload.model_dump()
     # v26.0: 验证 primary_user_id 在同 workspace
     if data.get("primary_user_id"):
@@ -255,22 +260,24 @@ async def update_agent(
     auth: AuthContext = Depends(get_current_auth),
 ):
     a = await _load_owned_agent(agent_id, session, auth)
-    # v26.5-01d: 改 agent 配置 仅 owner/admin/leader 或 该 agent 的 primary_user (manager) 可操作
-    if not await is_agent_manager(session, auth, a.id):
+    # v1.3.1 (PM Q7.4): 改 agent 配置 仅 workspace_creator / leader, 或 该 agent
+    # 的 primary_user (agent_owner). admin 不再 可改 — 看 AI 不能改.
+    if not await is_agent_owner(session, auth, a.id):
         raise HTTPException(
             403,
-            "[权限不足] 仅 owner / admin / leader,或该 AI 专家的 primary_user 可修改配置"
+            "[权限不足] 仅 workspace_creator / leader,或该 AI 的 agent_owner "
+            "(primary_user) 可修改配置"
         )
     data = payload.model_dump(exclude_unset=True)
-    # v26.5-01d: 只有 owner/admin/leader 可改 primary_user_id (manager 不能 把 agent 转给别人)
-    # v26.5-P0-fix4: 加 "值没变 不算改" 容错 — 前端 PATCH 可能 总是把 primary_user_id
-    # 一起 raw 传上来 (即使 manager 没动它), 这种情况 应该 通过, 不能 误拦 manager
-    # 改自己 primary agent 的其他字段.
+    # v1.3.1: 只有 workspace_creator / leader 可改 primary_user_id
+    # (agent_owner 不能 把 agent 转给别人).
+    # 加 "值没变 不算改" 容错 — 前端 PATCH 可能 总是把 primary_user_id raw 传上来.
     if "primary_user_id" in data and data["primary_user_id"] != a.primary_user_id:
-        if not await is_leader_or_admin(session, auth):
+        from ..auth import is_workspace_manager
+        if not await is_workspace_manager(session, auth):
             raise HTTPException(
                 403,
-                "[权限不足] 仅 owner / admin / leader 可指派 / 转移 agent 的 primary_user"
+                "[权限不足] 仅 workspace_creator / leader 可指派 / 转移 agent 的 primary_user"
             )
     # v26.0: 验证 primary_user_id 在同一 workspace 内
     if "primary_user_id" in data and data["primary_user_id"] is not None:
@@ -307,8 +314,9 @@ async def delete_agent(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    # v26.5-01d: 删 agent 仅 owner/admin/leader (manager 不能 自删 自己 管的 AI)
-    await require_leader_or_admin(session, auth)
+    # v1.3.1 (PM Q7.4): 删 agent 仅 workspace_creator / leader.
+    # agent_owner 不能 自删 自己 管的 AI; admin 也不能.
+    await require_workspace_manager(session, auth)
     a = await _load_owned_agent(agent_id, session, auth)
     if a.role == "moderator":
         # The built-in moderator drives agenda_monitor; deleting it would
@@ -402,10 +410,12 @@ async def _upload_agent_image(
 ) -> AgentOut:
     """统一的 agent 图片上传逻辑."""
     a = await _load_owned_agent(agent_id, session, auth)
-    if not await is_agent_manager(session, auth, a.id):
+    # v1.3.1: 上传 AI 形象 = 改 AI 配置, 走 agent_owner ABAC (= ws_manager OR primary_user).
+    if not await is_agent_owner(session, auth, a.id):
         raise HTTPException(
             403,
-            "[权限不足] 仅 owner / admin / leader,或该 AI 的 primary_user 可上传形象"
+            "[权限不足] 仅 workspace_creator / leader,或该 AI 的 agent_owner (primary_user) "
+            "可上传形象"
         )
     raw = await file.read()
     if not raw:

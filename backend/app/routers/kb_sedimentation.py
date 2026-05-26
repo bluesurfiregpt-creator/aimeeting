@@ -122,7 +122,9 @@ async def _resolve_draft_out(
 async def _load_draft_with_abac(
     draft_id: str, session: AsyncSession, auth: AuthContext
 ) -> KbSedimentationDraft:
-    """Load draft + ABAC: caller 必须是 primary_user 或 leader+."""
+    """v1.3.1: Load draft + ABAC. caller 必须是 primary_user (agent_owner) 或 workspace_manager.
+    admin 不能 审批 KB 沉淀 — KB 是 AI 的 大脑, 编辑 走 PM Q7.4 严控."""
+    from ..auth import is_workspace_manager
     d = (
         await session.execute(
             select(KbSedimentationDraft).where(
@@ -133,11 +135,12 @@ async def _load_draft_with_abac(
     ).scalar_one_or_none()
     if not d:
         raise HTTPException(404, "draft not found")
-    is_admin = await is_leader_or_admin(session, auth)
-    if d.primary_user_id != auth.user.id and not is_admin:
+    is_ws_manager = await is_workspace_manager(session, auth)
+    if d.primary_user_id != auth.user.id and not is_ws_manager:
         raise HTTPException(
             403,
-            "[权限不足] 仅 该 KB 沉淀的 审批人 (primary_user) 或 owner/admin/leader 可操作"
+            "[权限不足] 仅 该 KB 沉淀的 审批人 (agent_owner = primary_user) "
+            "或 workspace_creator / leader 可操作"
         )
     return d
 
@@ -151,15 +154,18 @@ async def list_drafts(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
-    """列 我作为 primary_user 的 待审批草稿. leader+ 可查全 workspace."""
-    is_admin = await is_leader_or_admin(session, auth)
+    """v1.3.1: 列 我作为 primary_user (agent_owner) 的 待审批草稿.
+    workspace_manager (workspace_creator / leader) 可查全 workspace.
+    admin 只能 看自己作为 primary_user 的 (但 admin 一般不会 是 primary_user)."""
+    from ..auth import is_workspace_manager
+    is_ws_manager = await is_workspace_manager(session, auth)
     stmt = (
         select(KbSedimentationDraft)
         .where(KbSedimentationDraft.workspace_id == auth.workspace.id)
         .order_by(KbSedimentationDraft.created_at.desc())
         .limit(limit)
     )
-    if not is_admin:
+    if not is_ws_manager:
         # 仅 我作为 primary_user 的
         stmt = stmt.where(KbSedimentationDraft.primary_user_id == auth.user.id)
     if status and status != "all":

@@ -213,23 +213,47 @@ async def register(
         ).scalar_one()
         role = invite.role
     else:
-        # Workspace creation — slug must be unique
-        name_for_ws = payload.workspace_name or f"{payload.name} 的工作空间"
-        base_slug = _slugify(payload.workspace_name or payload.name or "ws")
-        slug = base_slug
-        suffix = 1
-        while (
-            await session.execute(select(Workspace).where(Workspace.slug == slug))
-        ).scalar_one_or_none() is not None:
-            suffix += 1
-            slug = f"{base_slug}-{suffix}"
-            if suffix > 50:
-                slug = f"{base_slug}-{uuid.uuid4().hex[:6]}"
-                break
-        ws = Workspace(name=name_for_ws, slug=slug)
-        session.add(ws)
-        await session.flush()
-        role = "owner"
+        # v1.3.1 决策 4 (PM 拍板): 只 system_owner 可建新 workspace.
+        #
+        # 旧行为: 任何 register 不带 invite → 自动建新 ws + 当 owner. 这破坏了
+        # PM 心智 ("owner = 系统拥有者最高权限, 跨 ws"). 改成:
+        #   - email 在 PLATFORM_ADMIN_EMAILS 白名单 (system_owner) → 建新 ws + 当 workspace_creator
+        #   - 否则 → 加入 demo workspace ('default' slug, init_db 自动 seed) 当 member.
+        #     如果 demo ws 也没有 (异常情况) → 400.
+        from ..auth import is_platform_admin_email
+        if payload.email and is_platform_admin_email(payload.email):
+            # system_owner 注册 — 允许 建新 ws + 当 workspace_creator
+            name_for_ws = payload.workspace_name or f"{payload.name} 的工作空间"
+            base_slug = _slugify(payload.workspace_name or payload.name or "ws")
+            slug = base_slug
+            suffix = 1
+            while (
+                await session.execute(select(Workspace).where(Workspace.slug == slug))
+            ).scalar_one_or_none() is not None:
+                suffix += 1
+                slug = f"{base_slug}-{suffix}"
+                if suffix > 50:
+                    slug = f"{base_slug}-{uuid.uuid4().hex[:6]}"
+                    break
+            ws = Workspace(name=name_for_ws, slug=slug)
+            session.add(ws)
+            await session.flush()
+            role = "workspace_creator"
+        else:
+            # 普通用户注册 — 必须有 invite. 没 invite 退到 demo workspace.
+            demo_ws = (
+                await session.execute(
+                    select(Workspace).where(Workspace.slug == "default")
+                )
+            ).scalar_one_or_none()
+            if demo_ws is None:
+                raise HTTPException(
+                    403,
+                    "[注册受限] 您需要受邀加入现有工作空间. 请联系工作空间管理员"
+                    "获取邀请链接, 或联系平台运营."
+                )
+            ws = demo_ws
+            role = "member"
 
     if existing:
         # Speaker-only stub (e.g. enrolled via /enroll without password); upgrade it.
@@ -518,15 +542,10 @@ async def _authenticate_user(
 
     ws_id = user.workspace_id
     if not ws_id:
-        # auto-self-heal: 跟 /login 一致, 没 workspace 的用户自动建一个
-        ws = Workspace(name=f"{user.name} 的工作空间", slug=f"u-{user.id.hex[:8]}")
-        session.add(ws)
-        await session.flush()
-        user.workspace_id = ws.id
-        session.add(
-            WorkspaceMembership(workspace_id=ws.id, user_id=user.id, role="owner")
-        )
-        ws_id = ws.id
+        # v1.3.1 决策 4: auto-self-heal 不再 自动建新 ws.
+        #   - system_owner (env 白名单) → 仍然 建新 ws + workspace_creator
+        #   - 普通用户 → 加入 demo workspace 当 member
+        ws_id = await _attach_user_to_default_ws(session, user)
 
     user.last_login_at = datetime.now(timezone.utc)
     await session.commit()
@@ -543,6 +562,67 @@ async def _authenticate_user(
         )
     ).scalar_one_or_none()
     return user, ws, membership
+
+
+async def _attach_user_to_default_ws(
+    session: AsyncSession, user: User
+) -> uuid.UUID:
+    """v1.3.1 自助 attach 没 workspace 的 user 到一个 ws.
+
+    - email 在 PLATFORM_ADMIN_EMAILS → 建新 ws + workspace_creator
+    - 否则 → 加入 demo workspace (slug='default') 当 member
+    - demo ws 不存在时, 兜底建一个个人 ws (保留 老 行为, 避免 用户卡死)
+
+    返回 attach 上的 ws.id. 调用方需要 自己 commit.
+    """
+    from ..auth import is_platform_admin_email
+    if user.email and is_platform_admin_email(user.email):
+        ws = Workspace(name=f"{user.name} 的工作空间", slug=f"u-{user.id.hex[:8]}")
+        session.add(ws)
+        await session.flush()
+        user.workspace_id = ws.id
+        session.add(
+            WorkspaceMembership(
+                workspace_id=ws.id, user_id=user.id, role="workspace_creator"
+            )
+        )
+        return ws.id
+    # 普通用户 — 加入 demo ws
+    demo_ws = (
+        await session.execute(
+            select(Workspace).where(Workspace.slug == "default")
+        )
+    ).scalar_one_or_none()
+    if demo_ws is None:
+        # 异常兜底: 老代码兼容路径 — 建个人 ws 当 workspace_creator.
+        # 这条只在 prod demo ws 被误删 时触发, 不破坏 用户登录.
+        ws = Workspace(name=f"{user.name} 的工作空间", slug=f"u-{user.id.hex[:8]}")
+        session.add(ws)
+        await session.flush()
+        user.workspace_id = ws.id
+        session.add(
+            WorkspaceMembership(
+                workspace_id=ws.id, user_id=user.id, role="workspace_creator"
+            )
+        )
+        return ws.id
+    user.workspace_id = demo_ws.id
+    # 没 membership 才加 (重入 防 unique violation)
+    existing = (
+        await session.execute(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == demo_ws.id,
+                WorkspaceMembership.user_id == user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        session.add(
+            WorkspaceMembership(
+                workspace_id=demo_ws.id, user_id=user.id, role="member"
+            )
+        )
+    return demo_ws.id
 
 
 @router.post("/token", response_model=TokenIssueOut)
@@ -891,15 +971,8 @@ async def wx_login(
 
     ws_id = user.workspace_id
     if not ws_id:
-        # 跟 _authenticate_user 一致: 没 workspace 的用户 auto-self-heal
-        ws = Workspace(name=f"{user.name} 的工作空间", slug=f"u-{user.id.hex[:8]}")
-        session.add(ws)
-        await session.flush()
-        user.workspace_id = ws.id
-        session.add(
-            WorkspaceMembership(workspace_id=ws.id, user_id=user.id, role="owner")
-        )
-        ws_id = ws.id
+        # v1.3.1: 跟 _authenticate_user 一致 — system_owner 建新 ws, 否则加入 demo.
+        ws_id = await _attach_user_to_default_ws(session, user)
 
     user.last_login_at = datetime.now(timezone.utc)
     await session.commit()
@@ -976,15 +1049,8 @@ async def wx_phone_login(
 
     ws_id = user.workspace_id
     if not ws_id:
-        # auto-self-heal
-        ws = Workspace(name=f"{user.name} 的工作空间", slug=f"u-{user.id.hex[:8]}")
-        session.add(ws)
-        await session.flush()
-        user.workspace_id = ws.id
-        session.add(
-            WorkspaceMembership(workspace_id=ws.id, user_id=user.id, role="owner")
-        )
-        ws_id = ws.id
+        # v1.3.1: 跟 _authenticate_user 一致 — system_owner 建新 ws, 否则加入 demo.
+        ws_id = await _attach_user_to_default_ws(session, user)
 
     user.last_login_at = datetime.now(timezone.utc)
     await session.commit()
@@ -1090,15 +1156,15 @@ async def me(
             )
         )
     ).scalar_one_or_none()
-    # v26.4-fix1: 如果 caller 是 platform admin 但当前 workspace 内 没 membership
-    # (因为切换过来的 — 跨租户视角),自动 fallback 到 owner.前端凭这个 role 决定
-    # ⚙️ 后台 / 📊 看板 入口可见性.
-    from ..auth import is_platform_admin as _is_pa
+    # v1.3.1 (旧 v26.4-fix1): 如果 caller 是 system_owner 但当前 workspace 内 没 membership
+    # (因为切换过来的 — 跨租户视角),自动 fallback 到 workspace_creator.前端凭这个 role
+    # 决定 ⚙️ 后台 / 📊 看板 入口可见性.
+    from ..auth import is_system_owner as _is_so
     effective_role: str
     if membership:
         effective_role = membership.role
-    elif _is_pa(auth):
-        effective_role = "owner"  # platform admin 跨 ws 视角的 ABAC 兜底
+    elif _is_so(auth):
+        effective_role = "workspace_creator"  # system_owner 跨 ws 视角的 ABAC 兜底
     else:
         effective_role = "member"
 

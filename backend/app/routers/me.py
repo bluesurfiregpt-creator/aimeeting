@@ -847,7 +847,8 @@ async def _is_workspace_admin(
             )
         )
     ).scalar_one_or_none()
-    return role in ("owner", "admin")
+    # v1.3.1: ws_admin_or_above 可代审 (workspace_creator / leader / admin / + 老 owner 兼容)
+    return role in ("workspace_creator", "leader", "admin", "owner")
 
 
 @router.post("/tasks/{task_id}/submit", response_model=MyTaskOut)
@@ -2361,7 +2362,12 @@ async def create_report(
         await session.execute(
             select(WorkspaceMembership.user_id).where(
                 WorkspaceMembership.workspace_id == auth.workspace.id,
-                WorkspaceMembership.role.in_(("owner", "admin", "leader")),
+                WorkspaceMembership.role.in_((
+                    # v1.3.1: ws_admin_or_above
+                    "workspace_creator", "leader", "admin",
+                    # 老兼容
+                    "owner",
+                )),
             )
         )
     ).all()
