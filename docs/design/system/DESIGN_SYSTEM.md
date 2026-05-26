@@ -28,6 +28,55 @@
 
 ---
 
+## 0.3 双套 token 系统 (Web 暗紫 vs Mobile 浅 iOS)
+
+> round-6 拍板 (PM D5, 2026-05-26). Web 端 round-5 改深紫双 theme + Mobile 端坚守浅 iOS — 两套永不交叉, 必须有显式契约文档化, 防止后续 Saga 漂移.
+
+### 0.3.1 Web 端 W_TOKENS (暗紫双 theme)
+
+- **位置**: `frontend/src/components/web/tokens.ts`
+- **加载方式**: `WThemeProvider` 在客户端挂载时 inject `<style>` 注 `--w-*` CSS variables, 并按 `localStorage.w-theme` (默认 `dark`) 给 `<html>` 加 `data-theme` attr. 跨 `data-theme="dark"` (default) / `data-theme="light"` 切换两套配色.
+- **适用范围**:
+  - `frontend/src/app/page.tsx` 首页
+  - `frontend/src/app/workstation/**` 工作站 (所有 panes)
+  - **会议室 Web** (`frontend/src/components/web/meeting-room/**` 如存在) — **不挂 W_THEME**, PM 拍板"会议室永远浅色 iOS 风"
+- **受众**: 桌面端 PM / 数据分析师 / 业务专家 (50 岁以上长时间盯屏, 双 theme 让用户按场景选).
+- **业务代码 import 规则**:
+  ```ts
+  import { W_TOKENS } from "@/components/web/tokens";
+  // 用 W_TOKENS.bg / W_TOKENS.textPrimary 等 — 渲染时浏览器自动按 data-theme 解析
+  ```
+- **不准**用硬编码 hex (`#0a0a12` / `#fafafc` 等) 替代 W_TOKENS 引用. 例外: 紫渐变 / 品牌色 (W_TOKENS.accent 等已在 token 里).
+
+### 0.3.2 Mobile 端 MR_COLORS (浅 iOS 单 theme)
+
+- **位置**: `frontend/src/components/mobile/meeting-room/styles.ts`
+- **加载方式**: 直接 `import { MR_COLORS } from "..."` 用. 不挂 ThemeProvider, 没有 `data-theme` 切换. 永远浅色.
+- **适用范围**:
+  - `frontend/src/app/m/**` 所有 mobile 路由
+  - `frontend/src/components/mobile/**` 所有 mobile 组件
+- **受众**: 手机端业务一线员工 (走动场景, 浅 iOS 阅读门槛低, 一致性 = 信任).
+- **业务代码 import 规则**:
+  ```ts
+  import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
+  // bgGroupedPrimary / bgWhite / iosBlue 等
+  ```
+- **不准**在 mobile 文件里 import W_TOKENS, 反之亦然.
+
+### 0.3.3 风格守门规则 (强制, 同 CLAUDE.md 协议)
+
+1. **任何 Edit/Write 涉及 `frontend/src/components/web/**` 或 `frontend/src/app/workstation/**`** → **必须** 先读本文档 § 0.3.1 + § 0.3.2, 检查改动是否引入跟 token 系统冲突的视觉.
+2. **任何 Edit/Write 涉及 `frontend/src/components/mobile/**` 或 `frontend/src/app/m/**`** → 同上, 只能用 MR_COLORS 及衍生.
+3. **跨端 atom / shared component 严禁存在** — 如果某个组件想 "Web + Mobile 共用", 必须**拆**成两份, 分别用各自 token. (历史教训: round-3 共用 Avatar 导致 mobile 出现暗色 bleed.)
+4. **commit message 必须显式说明** — 跨 token 系统的实施 commit 在 message 里标 `[token-web]` 或 `[token-mobile]` 或 `[token-cross]` (后者需 PM 单独批).
+
+### 0.3.4 漂移历史 (供后续 review agent 反面教材)
+
+- **R5.A** 落地 light token 偏淡 (`#1c1c1e` 等), PM round-6 chat 反馈"饱和度太低只能用于小字和说明" → round-6 调深 (`#0a0a0e` 等 9 个变量, 见 SAGA-web-round-6-changelist.md § 2.5).
+- **v1.2.0 P1.2** 折叠态 borrow 了 AttachmentsSection 老 dark token (本应浅色化) → 典型反例, CLAUDE.md "风格守门协议"由此沉淀.
+
+---
+
 ## 1. 颜色系统
 
 ### 1.1 中性 + 系统色 (iOS 风, bundle 优先)

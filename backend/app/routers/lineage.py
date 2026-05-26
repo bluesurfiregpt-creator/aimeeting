@@ -476,3 +476,116 @@ async def get_agent_lineage(
     if not a:
         raise HTTPException(404, "agent not found")
     return await _build_lineage(session, auth.workspace.id, only_agent_id=aid)
+
+
+# ════════════════════════════════════════════
+# round-6 R5.B-replace · 桑基图 (Sankey) 接口
+#
+# 跟旧 GET /api/lineage 的差异:
+#  - 数据结构不同: nodes/links (而非 nodes/edges), links 有 value 字段 (流量宽度)
+#  - 节点类型简化: kb/agent/memory/meeting (旧的 upload/kb_doc 合并/简化)
+#  - 无 kind 字段 (Sankey 单一关系, 不需要边类型区分)
+#  - 4 列流向: KB → AI → Memory → Meeting
+#
+# PM R6.5 拍板用新 path, 不复用旧 /lineage 避免歧义.
+# ════════════════════════════════════════════
+
+
+class SankeyNode(BaseModel):
+    id: str
+    label: str
+    type: str  # kb | agent | memory | meeting
+    meta: Optional[dict[str, Any]] = None
+
+
+class SankeyLink(BaseModel):
+    source: str  # node.id
+    target: str  # node.id
+    value: float  # 流量宽度, 引用次数 / 共享强度
+
+
+class SankeyOut(BaseModel):
+    nodes: list[SankeyNode]
+    links: list[SankeyLink]
+
+
+def _build_sankey_from_lineage(legacy: LineageOut) -> SankeyOut:
+    """从 legacy /api/lineage 返回结构 (nodes+edges) 转换成 sankey (nodes+links).
+
+    映射:
+      - kb_doc → kb (列 1)
+      - agent → agent (列 2)
+      - memory → memory (列 3)
+      - meeting → meeting (列 4)
+      - upload/task → 跳过 (Sankey 4 列, 不展示来源列)
+
+    边映射 (单向 KB → AI → Memory → Meeting):
+      - kb_doc → agent (kind=primary/reference) → KB → AI 链路
+      - memory → agent (kind=primary/subscriber) → 反向, Sankey 内改 AI → Memory
+      - meeting → memory (kind=source) → 反向, Sankey 内改 Memory → Meeting
+
+    value 暂用边 weight (默认 1.0), 后续可基于 引用次数 / 共享强度 调整.
+    """
+    keep_types = {"kb_doc", "agent", "memory", "meeting"}
+    # type 重映射
+    type_remap = {"kb_doc": "kb"}
+
+    sankey_nodes: list[SankeyNode] = []
+    kept_ids: set[str] = set()
+    for n in legacy.nodes:
+        if n.type not in keep_types:
+            continue
+        sankey_nodes.append(SankeyNode(
+            id=n.id,
+            label=n.label,
+            type=type_remap.get(n.type, n.type),
+            meta=n.meta,
+        ))
+        kept_ids.add(n.id)
+
+    sankey_links: list[SankeyLink] = []
+    for e in legacy.edges:
+        if e.source not in kept_ids or e.target not in kept_ids:
+            continue
+        s_type = next((n.type for n in sankey_nodes if n.id == e.source), None)
+        t_type = next((n.type for n in sankey_nodes if n.id == e.target), None)
+        # Sankey 4 列流向: kb → agent → memory → meeting
+        # legacy 边方向跟这个不一致, 这里 normalize:
+        if s_type == "kb" and t_type == "agent":
+            sankey_links.append(SankeyLink(source=e.source, target=e.target, value=e.weight))
+        elif s_type == "memory" and t_type == "agent":
+            # 反向: agent → memory
+            sankey_links.append(SankeyLink(source=e.target, target=e.source, value=e.weight))
+        elif s_type == "meeting" and t_type == "memory":
+            # 反向: memory → meeting
+            sankey_links.append(SankeyLink(source=e.target, target=e.source, value=e.weight))
+        # 其他边类型 (来源 upload → kb_doc 等) 跳过
+
+    return SankeyOut(nodes=sankey_nodes, links=sankey_links)
+
+
+@router.get("/sankey", response_model=SankeyOut)
+async def get_sankey_lineage_get(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> SankeyOut:
+    """全景血缘图 · 桑基视图 (round-6 R5.B-replace).
+
+    Returns: { nodes: [{ id, label, type, meta? }], links: [{ source, target, value }] }
+    4 列流向: KB → AI → Memory → Meeting.
+    """
+    legacy = await _build_lineage(session, auth.workspace.id, only_agent_id=None)
+    return _build_sankey_from_lineage(legacy)
+
+
+@router.post("/sankey", response_model=SankeyOut)
+async def get_sankey_lineage_post(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> SankeyOut:
+    """同 GET, 接受 POST 调用 (用于前端 fetch 时统一 method, 兼容 CORS preflight).
+
+    PM R6.5: 跟旧 /api/lineage 区分新 path, 避免数据结构歧义.
+    """
+    legacy = await _build_lineage(session, auth.workspace.id, only_agent_id=None)
+    return _build_sankey_from_lineage(legacy)
