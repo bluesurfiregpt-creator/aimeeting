@@ -121,3 +121,24 @@ export const MR_ANIMATIONS_CSS = `
   to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 `;
+
+// ────────────────── iOS 风 scrollbar (page-scoped, .mr-scroll) ──────────────────
+// 浅色 iOS 系统风 — 6px 细条 / 透明 track / 半透明灰 thumb / hover 加深.
+// 仅作用于 R5.D 会议室加了 `className="mr-scroll"` 的元素, 不污染 globals.css.
+// 取色 对应 MR_TOKENS.divider / dividerStrong (rgba(60,60,67,0.10/0.14)) 的更浓变体.
+export const MR_SCROLLBAR_CSS = `
+.mr-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.mr-scroll::-webkit-scrollbar-track { background: transparent; }
+.mr-scroll::-webkit-scrollbar-thumb {
+  background: rgba(60,60,67,0.30);
+  border-radius: 3px;
+}
+.mr-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(60,60,67,0.50);
+}
+.mr-scroll::-webkit-scrollbar-corner { background: transparent; }
+.mr-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(60,60,67,0.30) transparent;
+}
+`;

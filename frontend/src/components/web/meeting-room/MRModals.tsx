@@ -178,7 +178,7 @@ export function MRFilterModal({
             <MRIcon name="close" size={14} color="#1C1C1E" />
           </button>
         </div>
-        <div style={{ padding: "6px 20px 20px", overflow: "auto" }}>
+        <div className="mr-scroll" style={{ padding: "6px 20px 20px", overflow: "auto" }}>
           <div
             style={{
               fontSize: 12,

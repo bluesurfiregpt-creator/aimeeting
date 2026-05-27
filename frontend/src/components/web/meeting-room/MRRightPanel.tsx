@@ -42,7 +42,7 @@ export function MRRightPanel() {
         overflow: "hidden",
       }}
     >
-      <div style={{ flex: 1, overflow: "auto", padding: "18px 16px" }}>
+      <div className="mr-scroll" style={{ flex: 1, overflow: "auto", padding: "18px 16px" }}>
         <MiraLive />
         <div style={{ height: 18 }} />
         <DecisionPool />

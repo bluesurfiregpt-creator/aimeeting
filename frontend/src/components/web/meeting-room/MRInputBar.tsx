@@ -279,6 +279,7 @@ export function MRInputBar({
           onClick={() => setShowSpeakerSheet(false)}
         >
           <div
+            className="mr-scroll"
             style={{
               background: "#fff",
               borderRadius: 12,

@@ -40,7 +40,7 @@ export function MRLeftPanel({
         overflow: "hidden",
       }}
     >
-      <div style={{ flex: 1, overflow: "auto", padding: "18px 14px 16px" }}>
+      <div className="mr-scroll" style={{ flex: 1, overflow: "auto", padding: "18px 14px 16px" }}>
         <ExpertsPanel selected={selected} onToggle={onToggleSpeaker} />
         <div style={{ height: 22 }} />
         <TimelineHighlights onJump={onJumpToMessage} />

@@ -449,6 +449,7 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
           />
           <div
             ref={scrollRef}
+            className="mr-scroll"
             onScroll={handleScroll}
             style={{
               flex: 1,
