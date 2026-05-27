@@ -79,8 +79,73 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
   useMRAnimations();
 
   // v1.4.0 Phase A · 6: 开 WS + mic 控制 hook. mute toggle 由 micOn 反向 derive.
-  const { conn: wsConn, micOn, toggleMic, liveLines, error: micError, clearError } =
-    useWebMeetingStt(meetingId);
+  // v1.4.0 Phase A 后置: + sendJson 给 MRInputBar 走 text_message.
+  const {
+    conn: wsConn,
+    micOn,
+    toggleMic,
+    error: micError,
+    clearError,
+    sendJson,
+  } = useWebMeetingStt(meetingId);
+
+  // v1.4.0 Phase A 后置: me + workspace users — 给 MRInputBar speaker chip 用.
+  // leader/admin 可代任一 user, member 只能 自己.
+  const [me, setMe] = useState<{ user_id: string; name: string; role: string } | null>(
+    null,
+  );
+  const [workspaceUsers, setWorkspaceUsers] = useState<{ id: string; name: string }[]>(
+    [],
+  );
+  useEffect(() => {
+    let cancelled = false;
+    Promise.allSettled([
+      fetch("/api/auth/me", { credentials: "include" }).then((r) =>
+        r.ok ? r.json() : null,
+      ),
+      api.listUsers().catch(() => [] as Array<{ id: string; name: string }>),
+    ]).then(([meR, usersR]) => {
+      if (cancelled) return;
+      if (meR.status === "fulfilled" && meR.value) {
+        const d = meR.value;
+        setMe({ user_id: d.user_id, name: d.name, role: d.role });
+      }
+      if (usersR.status === "fulfilled" && Array.isArray(usersR.value)) {
+        setWorkspaceUsers(
+          usersR.value.map((u) => ({ id: u.id, name: u.name })),
+        );
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const WEB_LEADER_ROLES = useMemo(
+    () => new Set(["workspace_creator", "leader", "admin", "owner"]),
+    [],
+  );
+  const meSpeaker = me ? { id: me.user_id, name: me.name } : null;
+  const canBorrowSpeaker = !!me && WEB_LEADER_ROLES.has(me.role);
+  const speakerOptions = useMemo(() => {
+    if (!meSpeaker) return [];
+    if (!canBorrowSpeaker) return [meSpeaker];
+    const others = workspaceUsers
+      .filter((u) => u.id !== meSpeaker.id)
+      .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+    return [meSpeaker, ...others];
+  }, [meSpeaker, canBorrowSpeaker, workspaceUsers]);
+
+  const handleSendText = useCallback(
+    (text: string, speakerId: string | null) => {
+      sendJson({
+        action: "text_message",
+        text,
+        speaker_user_id: speakerId,
+      });
+    },
+    [sendJson],
+  );
 
   const [timer, setTimer] = useState("00:00");
   // muted 旧 state: 现在 跟 hook 同步 (muted = !micOn). 保留 state 兼容 BottomBar API.
@@ -550,7 +615,12 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
               </button>
             )}
           </div>
-          <MRInputBar />
+          <MRInputBar
+            onSendText={handleSendText}
+            meSpeaker={meSpeaker}
+            speakerOptions={speakerOptions}
+            canBorrow={canBorrowSpeaker}
+          />
         </div>
 
         <MRRightPanel />

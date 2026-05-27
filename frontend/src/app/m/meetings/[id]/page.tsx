@@ -97,6 +97,9 @@ import {
   useMeetingWsSend,
 } from "@/lib/mobile/meetingWsBus";
 import type { MobileMeetingDetail } from "@/lib/mobile/types";
+// v1.4.0 Phase A 后置 (PM 拍 2026-05-27): 打字输入框 + 角色代发
+// Web R5.D MRInputBar + Mobile 一并加. Backend WS text_message 已有.
+import MTypedInputBar from "@/components/mobile/MTypedInputBar";
 
 export default function MobileMeetingDetailPage({
   params,
@@ -117,6 +120,27 @@ function MeetingDetailInner({ id }: { id: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const conn = useMeetingWsConn();
+
+  // v1.4.0 Phase A 后置: me (user_id + role) — 用于 MTypedInputBar 权限判定 +
+  // 默认 speaker = 自己. 拉一次, 失败 fallback 空 = 隐藏 input bar (优雅降级).
+  const [me, setMe] = useState<{ user_id: string; name: string; role: string } | null>(
+    null,
+  );
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        setMe({ user_id: d.user_id, name: d.name, role: d.role });
+      })
+      .catch(() => {
+        /* 静默 — input bar 不显示 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // v1.4.0 Sprint 3 Mobile Part 2 (NORTH_STAR § 3.1 v1.1): URL ?focus=<key>&highlight=1
   // 由 /m/insights snapshot 跳转过来 — MeetingTranscriptView 内 滚 + 闪 3 秒.
@@ -1220,6 +1244,29 @@ function MeetingDetailInner({ id }: { id: string }) {
               });
             }}
           />
+
+          {/* v1.4.0 Phase A 后置 (PM 拍 2026-05-27): 打字输入框 + 角色代发.
+            * 适用 不便说话 场景 + AI 自动测试录入. backend WS text_message 已支持
+            * speaker_user_id; leader/admin 可代任一 workspace user, member 只能 me.
+            * 位置: StickyActionBar (dock) 上方, fixed sticky 底部. */}
+          {data.status === "ongoing" && me ? (
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: 86, // 顶上 StickyActionBar 的高度
+                zIndex: 30,
+              }}
+            >
+              <MTypedInputBar
+                me={me}
+                onError={(msg) =>
+                  setToast({ kind: "error", text: msg })
+                }
+              />
+            </div>
+          ) : null}
 
           {/* ===== Dock (sticky 底部 controls) ===== */}
           {data.status === "ongoing" ? (

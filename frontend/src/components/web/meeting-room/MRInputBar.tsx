@@ -5,26 +5,60 @@
  *
  *  - sparkle 按钮: 召唤 AI (placeholder onClick)
  *  - compass 按钮: 问主持人
+ *  - **speaker 选择 chip**: 默认 me, leader/admin 可代别人 (v1.4.0 Phase A 后置)
  *  - 输入框: @ 触发 mention popup (列 Mira + 4 AI 专家)
- *  - mic-fill 按钮: 语音输入 (UI only)
- *  - 发送按钮
+ *  - mic-fill 按钮: 语音输入 (上层 useWebMeetingStt hook 已 wire toggleMic)
+ *  - 发送按钮 → 真 WS text_message (v1.4.0 Phase A 后置)
  *
  * 设计源: `meeting-room-web.jsx:1127-1209`.
+ *
+ * v1.4.0 Phase A 后置 (PM 拍 2026-05-27): 真接 backend text_message —
+ *  - onSendText(text, speakerId) — 上层 调 sendJson({action:"text_message",...})
+ *  - speakerOptions 来源 上层 listUsers + me 权限计算
+ *  - canBorrow (leader/admin) 控制 是否能 选别人
  */
 
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo } from "react";
 import { MR_HOST, MR_AGENTS_IN_MEETING, MR_AI_IDS } from "./data";
 import { MRHostAvatar, MRAIAvatar, MRIcon } from "./atoms";
+
+export type SpeakerOption = {
+  id: string;
+  name: string;
+};
 
 export type MRInputBarProps = {
   onSummon?: () => void;
   onAskHost?: () => void;
+  /** v1.4.0 Phase A 后置: 真接 WS text_message. 上层 sendJson 调用 wraps 在 onSendText 里. */
+  onSendText?: (text: string, speakerId: string | null) => void;
+  /** 当前 用户 (默认 speaker). 缺省 = onSendText 走 null speaker_user_id (后端 [?]) */
+  meSpeaker?: SpeakerOption | null;
+  /** 可选 代发 列表 (含 me + 全 workspace users). leader/admin 显, member 隐. */
+  speakerOptions?: SpeakerOption[];
+  /** leader/admin = true. 控制 speaker chip 是否 disabled. */
+  canBorrow?: boolean;
 };
 
-export function MRInputBar({ onSummon, onAskHost }: MRInputBarProps) {
+export function MRInputBar({
+  onSummon,
+  onAskHost,
+  onSendText,
+  meSpeaker,
+  speakerOptions,
+  canBorrow,
+}: MRInputBarProps) {
   const [text, setText] = useState("");
   const [showMention, setShowMention] = useState(false);
+  const [showSpeakerSheet, setShowSpeakerSheet] = useState(false);
+  const [speakerId, setSpeakerId] = useState<string | null>(meSpeaker?.id || null);
   const ref = useRef<HTMLInputElement>(null);
+
+  const currentSpeakerName = useMemo(() => {
+    const opts = speakerOptions || (meSpeaker ? [meSpeaker] : []);
+    const s = opts.find((u) => u.id === speakerId);
+    return s?.name || meSpeaker?.name || "未指定";
+  }, [speakerOptions, speakerId, meSpeaker]);
 
   const handleChange = (v: string) => {
     setText(v);
@@ -38,8 +72,11 @@ export function MRInputBar({ onSummon, onAskHost }: MRInputBarProps) {
   };
 
   const send = () => {
-    if (!text) return;
-    // UI mock — clear and pretend it's sent
+    if (!text.trim()) return;
+    if (onSendText) {
+      onSendText(text.trim(), speakerId);
+    }
+    // 无 onSendText (老 mock 行为) 也清空, 跟 Sprint 3 之前 一致.
     setText("");
   };
 
@@ -144,6 +181,46 @@ export function MRInputBar({ onSummon, onAskHost }: MRInputBarProps) {
         >
           <MRIcon name="compass" size={16} color="#FF9F0A" />
         </button>
+        {/* v1.4.0 Phase A 后置: speaker chip — leader/admin 可点弹 sheet 选 代发. */}
+        {meSpeaker ? (
+          <button
+            type="button"
+            onClick={() => canBorrow && setShowSpeakerSheet(true)}
+            disabled={!canBorrow}
+            data-testid="mr-speaker-chip"
+            title={
+              canBorrow
+                ? `当前 代发: ${currentSpeakerName} · 点击 切换`
+                : `当前: ${currentSpeakerName} (无 代发 权限)`
+            }
+            style={{
+              height: 28,
+              padding: "0 10px",
+              borderRadius: 14,
+              background: canBorrow ? "#fff" : "#F2F2F7",
+              border: "0.5px solid rgba(60,60,67,0.18)",
+              color: "#3C3C43",
+              fontSize: 12,
+              fontWeight: 500,
+              fontFamily: "inherit",
+              cursor: canBorrow ? "pointer" : "default",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              maxWidth: 130,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ color: "#8E8E93" }}>代</span>
+            <span>{currentSpeakerName}</span>
+            {canBorrow ? (
+              <span style={{ color: "#8E8E93", fontSize: 10 }}>▾</span>
+            ) : null}
+          </button>
+        ) : null}
         <input
           ref={ref}
           value={text}
@@ -185,6 +262,89 @@ export function MRInputBar({ onSummon, onAskHost }: MRInputBarProps) {
           发送
         </button>
       </div>
+
+      {/* v1.4.0 Phase A 后置: speaker 选择 sheet (canBorrow 才 弹) */}
+      {showSpeakerSheet && speakerOptions ? (
+        <div
+          data-testid="mr-speaker-sheet"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 80,
+            background: "rgba(0,0,0,0.30)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          onClick={() => setShowSpeakerSheet(false)}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 12,
+              minWidth: 320,
+              maxWidth: 420,
+              maxHeight: "70vh",
+              overflowY: "auto",
+              boxShadow: "0 16px 48px rgba(0,0,0,0.18)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: "16px 20px 8px",
+                borderBottom: "0.5px solid #E5E5EA",
+              }}
+            >
+              <div style={{ fontSize: 16, fontWeight: 600, color: "#1C1C1E" }}>
+                选择 代发 身份
+              </div>
+              <div style={{ marginTop: 4, fontSize: 12, color: "#8E8E93" }}>
+                为某位参会人代发文字 — 常用于 不便说话 / AI 自动测试 场景
+              </div>
+            </div>
+            <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+              {speakerOptions.map((u) => {
+                const isSelected = u.id === speakerId;
+                return (
+                  <li
+                    key={u.id}
+                    onClick={() => {
+                      setSpeakerId(u.id);
+                      setShowSpeakerSheet(false);
+                    }}
+                    style={{
+                      padding: "12px 20px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      cursor: "pointer",
+                      background: isSelected
+                        ? "rgba(0,122,255,0.06)"
+                        : "transparent",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 14,
+                        color: "#1C1C1E",
+                        fontWeight: isSelected ? 600 : 400,
+                      }}
+                    >
+                      {u.name}
+                    </span>
+                    {isSelected ? (
+                      <span style={{ color: "#007AFF", fontWeight: 700 }}>
+                        ✓
+                      </span>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

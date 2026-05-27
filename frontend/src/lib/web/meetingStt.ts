@@ -63,6 +63,9 @@ export type UseWebMeetingSttResult = {
   /** 最近一次 mic / WS error — UI 可弹 toast 或 banner */
   error: string | null;
   clearError: () => void;
+  /** v1.4.0 Phase A 后置: send JSON action 到 backend (text_message / invoke_agent / ...).
+   *  WS 没连 时 静默 丢 (sttSocket buffer + reconnect 后 flush). */
+  sendJson: (payload: unknown) => void;
 };
 
 export function useWebMeetingStt(meetingId: string): UseWebMeetingSttResult {
@@ -216,5 +219,10 @@ export function useWebMeetingStt(meetingId: string): UseWebMeetingSttResult {
 
   const clearError = useCallback(() => setError(null), []);
 
-  return { conn, micOn, toggleMic, liveLines, error, clearError };
+  // v1.4.0 Phase A 后置: 暴露 sendJson, 让 MRInputBar 走 WS text_message.
+  const sendJson = useCallback((payload: unknown) => {
+    sockRef.current?.sendJson(payload);
+  }, []);
+
+  return { conn, micOn, toggleMic, liveLines, error, clearError, sendJson };
 }
