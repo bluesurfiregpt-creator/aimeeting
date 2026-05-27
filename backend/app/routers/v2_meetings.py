@@ -310,3 +310,112 @@ async def list_v2_meetings(
         items.append(V2MeetingItem(**item_dict))
 
     return V2MeetingsListResponse(items=items, next_cursor=None)
+
+
+# ============================================================================
+# §6 (Sprint 3 Mobile Part 1) — GET /api/v2/meetings/{meeting_id}/agent-messages/{message_id}/citations
+# ============================================================================
+#
+# NORTH_STAR § 3.2 旗舰能力 (KB 引用侧栏): 用户在会议室点 AI 发言下方 "引用 N 条 KB"
+# → 这里 拉 单条 agent_message 的 citations list, 弹 KBCitationSheet 显原文.
+#
+# 跟老 /api/meetings/{id}/agent-messages (meetings.py:3407) 差别:
+#   - 老: list 全部 agent_message, 每条 含 citations — 网络包很大 (一场会几十条)
+#   - 新: 单条 lookup — payload 极小 (citations 通常 ≤5 条 + 每条 snippet ≤500B)
+#
+# ABAC: workspace_id filter + 校验 message 属于 此 meeting (跨 meeting 引用 抛 404).
+#
+# SCHEMA: 跟老 AgentCitationOut (meetings.py:3385) 复用.
+
+
+class V2AgentCitation(BaseModel):
+    """SCHEMA §6.1 — 单条 RAG 引用 (KB chunk).
+
+    跟 backend AgentCitationOut (meetings.py:3385) 字段一一对应, 复用.
+    distance = pgvector cosine 距离 [0, 2), 越小越像.
+    """
+    chunk_id: str
+    document_id: str
+    document_filename: str
+    chunk_index: int
+    snippet: str
+    distance: float
+
+
+class V2AgentCitationsResponse(BaseModel):
+    """SCHEMA §6.2 — 单条 agent message 的 citations payload."""
+    message_id: int
+    citations: List[V2AgentCitation]
+    citations_count: int
+
+
+@router.get(
+    "/meetings/{meeting_id}/agent-messages/{message_id}/citations",
+    response_model=V2AgentCitationsResponse,
+)
+async def get_v2_agent_message_citations(
+    meeting_id: str,
+    message_id: int,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> V2AgentCitationsResponse:
+    """单条 AI 发言的 KB 引用 list.
+
+    v1.4.0 Sprint 3 Mobile Part 1 (NORTH_STAR § 3.2 知识沉淀): mobile 会议室
+    点 AI 发言 "引用 N 条 KB" → 这里返回 citations 全文 → 弹 KBCitationSheet.
+
+    ABAC:
+      1. meeting.workspace_id == auth.workspace.id (跨 workspace 防穿透)
+      2. message.meeting_id == meeting_id (跨 meeting 防穿透)
+
+    边界:
+      - meeting / message 不存在 → 404
+      - 跨 workspace / 跨 meeting → 404 (不 leak 存在性)
+      - citations 字段 NULL / 非 list → 返 空 list (老数据兼容)
+      - citations 内 单条 缺字段 / 类型不对 → skip 该条 (legacy / malformed shape)
+    """
+    from fastapi import HTTPException
+    from ..models import MeetingAgentMessage
+
+    ws_id = auth.workspace.id
+
+    # ABAC 1: meeting 属于 caller workspace
+    m = (
+        await session.execute(
+            select(Meeting).where(
+                Meeting.id == meeting_id,
+                Meeting.workspace_id == ws_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not m:
+        raise HTTPException(404, "meeting not found")
+
+    # ABAC 2: message 属于此 meeting
+    msg = (
+        await session.execute(
+            select(MeetingAgentMessage).where(
+                MeetingAgentMessage.id == message_id,
+                MeetingAgentMessage.meeting_id == m.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not msg:
+        raise HTTPException(404, "agent message not found")
+
+    out_citations: List[V2AgentCitation] = []
+    if isinstance(msg.citations, list):
+        for c in msg.citations:
+            if not isinstance(c, dict):
+                continue
+            try:
+                out_citations.append(V2AgentCitation(**c))
+            except Exception:
+                # legacy / malformed shape — skip silently
+                continue
+
+    return V2AgentCitationsResponse(
+        message_id=msg.id,
+        citations=out_citations,
+        citations_count=len(out_citations),
+    )

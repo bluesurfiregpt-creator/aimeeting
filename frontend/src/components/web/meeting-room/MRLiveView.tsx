@@ -24,13 +24,19 @@
  *  - muted/video/hand/cc: 底部 toggle
  *  - ended/filter: modal 开关
  *  - showJump: scroll 离底时 FAB
+ *  - realLines / detail: backend 真数据 (Sprint 3 Web W1 接 E.E)
  *
- * **后端契约** (Saga E.E 后续):
- *  - WebSocket subscribe → 替换 setInterval timer + MR_MESSAGES 流式 append
- *  - GET /api/meetings/{id} → 替换 MR_AGENDA / agenda state
+ * **Sprint 3 Web W1 (Saga E.E 接通)**:
+ *  - 2.5s 轮询 `/api/m/meetings/{id}/transcript` + `/api/m/meetings/{id}` (同 mobile pattern)
+ *  - merge load (保留 streaming live line — backend 没传 streaming 时不会触发)
+ *  - active speaker pulse (W_TOKENS 紫 #5E5CE6, MR_TOKENS 浅色一致)
+ *  - fade-in 动画 (mrFadeIn keyframe, 已在 tokens.ts)
+ *  - OrchestrateStatusBanner 顶部显示 phase + 议程 + 当前发言
+ *  - 真数据 > 0 → 隐藏 mock MR_MESSAGES; 真数据 = 0 → fallback to mock (workspace 没真会议 时不空盘)
+ *  - 显示 "演示数据" pill 反幻觉 (PM 防 mock 假装真实)
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MR_MESSAGES,
   MR_AGENDA,
@@ -53,8 +59,15 @@ import {
   MRHostMessageView,
   MRRoundMessageView,
 } from "./MRMessages";
-import { MRHumanAvatar, MRIcon, MRWaveform } from "./atoms";
+import { MRHumanAvatar, MRWaveform } from "./atoms";
 import { MR_HUMANS_IN_MEETING } from "./data";
+import { api, type WebMeetingDetailOut, type WebTranscriptStreamLine } from "@/lib/api";
+import { MRRealAILine, MRRealHumanLine } from "./MRRealMessages";
+import { OrchestrateStatusBanner } from "./OrchestrateStatusBanner";
+
+/** Saga E.E pattern: 2.5s 轮询 — orchestrator 写 agent_message 后 不走 WS push,
+ *  必须 主动 拉. */
+const POLL_INTERVAL_MS = 2500;
 
 export type MRLiveViewProps = {
   meetingId: string;
@@ -63,7 +76,7 @@ export type MRLiveViewProps = {
 export function MRLiveView({ meetingId }: MRLiveViewProps) {
   useMRAnimations();
 
-  const [timer, setTimer] = useState("23:14");
+  const [timer, setTimer] = useState("00:00");
   const [muted, setMuted] = useState(false);
   const [video, setVideo] = useState(false);
   const [hand, setHand] = useState(false);
@@ -74,10 +87,58 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // ── timer tick (mock — 从 23:14 起步, +1s/sec)
+  // ─── Sprint 3 Web W1: backend 真接 state (Saga E.E pattern, 抄 mobile MeetingTranscriptView) ───
+  const [realLines, setRealLines] = useState<WebTranscriptStreamLine[]>([]);
+  const [detail, setDetail] = useState<WebMeetingDetailOut | null>(null);
+  const [realDataLoaded, setRealDataLoaded] = useState(false);
+  /** 后端是否有真数据 (real_lines > 0 OR detail.transcript_total > 0) — 决定 是否渲染 mock */
+  const hasRealData = realLines.length > 0;
+  /** 当前发言 agent_id (running 时 高亮 pulse) — 严格 Sprint 3 Web W1 active speaker pulse */
+  const activeSpeakerAgentId =
+    detail?.mode?.toLowerCase() === "auto" && detail?.orchestrate_phase === "running"
+      ? detail.current_speaker_agent_id
+      : null;
+
+  // ── 2.5s 轮询 — 抄 mobile MeetingTranscriptView pattern.
+  //    每次拉 detail (5 字段含 phase / current_speaker_agent_id) + transcript (按 created_at 正序).
+  //    merge 语义: 用 incoming 替换 lines (backend final), 没 streaming line 需要 留 (没 WS).
+  const load = useCallback(
+    async (silent = false) => {
+      try {
+        const [d, t] = await Promise.allSettled([
+          api.getWebMeetingDetail(meetingId),
+          api.getWebMeetingTranscript(meetingId),
+        ]);
+        if (d.status === "fulfilled") {
+          setDetail(d.value);
+        }
+        if (t.status === "fulfilled") {
+          setRealLines(t.value.lines);
+        }
+        if (d.status === "fulfilled" || t.status === "fulfilled") {
+          setRealDataLoaded(true);
+        }
+      } catch (e) {
+        if (!silent) console.warn("[MRLiveView] poll failed:", e);
+      }
+    },
+    [meetingId],
+  );
+
   useEffect(() => {
+    void load(false);
+    const h = setInterval(() => {
+      void load(true);
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(h);
+  }, [load]);
+
+  // ── timer tick — 真接成功用 detail.started_minutes_ago, 否则 fallback mock 23:14 起.
+  useEffect(() => {
+    const baseSec = detail
+      ? Math.max(0, detail.started_minutes_ago * 60)
+      : 23 * 60 + 14;
     const startMs = Date.now();
-    const baseSec = 23 * 60 + 14;
     const id = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startMs) / 1000);
       const total = baseSec + elapsed;
@@ -86,7 +147,7 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
       );
     }, 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [detail]);
 
   // ── auto-scroll 到底部 (mount)
   useEffect(() => {
@@ -154,10 +215,21 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
 
   // ── visible / matched (筛选后的总条数)
   const visibleCount = useMemo(() => {
+    if (hasRealData) {
+      // 真接模式: 筛选 backend 真 lines (key = agent_id for ai / speaker_name for user)
+      if (selected.size === 0) return realLines.length;
+      return realLines.filter((l) =>
+        selected.has(
+          l.kind === "agent"
+            ? l.agent_id || "ai-unknown"
+            : l.speaker_name || "user-unknown",
+        ),
+      ).length;
+    }
+    // mock 模式: 既有逻辑
     if (selected.size === 0) return MR_MESSAGES.length;
-    return MR_MESSAGES.filter((m) => mrMessageMatchesSelected(m, selected))
-      .length;
-  }, [selected]);
+    return MR_MESSAGES.filter((m) => mrMessageMatchesSelected(m, selected)).length;
+  }, [selected, hasRealData, realLines]);
 
   const toggleSpeaker = (k: string) => {
     const n = new Set(selected);
@@ -166,8 +238,19 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
     setSelected(n);
   };
 
-  // current meeting title from data — mock for now, q3-roadmap
-  const meetingTitle = meetingId === "q3-roadmap" ? "Q3 路线图对齐" : "会议进行中";
+  // current meeting title — 优先 backend, fallback mock
+  const meetingTitle =
+    detail?.title ||
+    (meetingId === "q3-roadmap" ? "Q3 路线图对齐" : "会议进行中");
+
+  /** 当前发言 agent 显示名 (banner + 滚动区底部 hint 共用) */
+  const activeSpeakerName = activeSpeakerAgentId
+    ? detail?.attending_agents.find((a) => a.agent_id === activeSpeakerAgentId)
+        ?.nickname ||
+      detail?.attending_agents.find((a) => a.agent_id === activeSpeakerAgentId)
+        ?.name ||
+      null
+    : null;
 
   return (
     <div
@@ -220,11 +303,13 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
             background: "#fff",
           }}
         >
+          {/* Sprint 3 Web W1: orchestrate phase banner (仅 auto 会议 + phase 非 null) */}
+          <OrchestrateStatusBanner detail={detail} />
           <MRFilterBanner
             selected={selected}
             onChange={setSelected}
             matched={visibleCount}
-            total={MR_MESSAGES.length}
+            total={hasRealData ? realLines.length : MR_MESSAGES.length}
             onOpen={() => setFilter(true)}
           />
           <div
@@ -239,6 +324,29 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
               position: "relative",
             }}
           >
+            {/* Sprint 3 Web W1: 真接没数据时, 显 "演示数据" pill 反幻觉 (PM § 7.5) */}
+            {realDataLoaded && !hasRealData && (
+              <div style={{ padding: "10px 28px 0" }}>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "4px 10px",
+                    borderRadius: 6,
+                    background: "rgba(94,92,230,0.10)",
+                    boxShadow: "inset 0 0 0 0.5px rgba(94,92,230,0.30)",
+                    color: "#5E5CE6",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: 0.3,
+                  }}
+                >
+                  演示数据 · 这场会议暂无真实转录
+                </span>
+              </div>
+            )}
+
             {visibleCount === 0 ? (
               <div
                 style={{
@@ -256,15 +364,67 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
                   试试再勾选一些人
                 </span>
               </div>
+            ) : hasRealData ? (
+              // ── 真接模式: 渲染 backend lines (按 created_at 正序) + active speaker pulse + fade-in ──
+              realLines.map((l, i) => {
+                const k =
+                  l.kind === "agent"
+                    ? l.agent_id || "ai-unknown"
+                    : l.speaker_name || "user-unknown";
+                if (selected.size > 0 && !selected.has(k)) return null;
+                return (
+                  <div key={`${l.kind}-${l.id}-${i}`} id={`mr-msg-${i}`}>
+                    {l.kind === "user" ? (
+                      <MRRealHumanLine line={l} />
+                    ) : (
+                      <MRRealAILine
+                        line={l}
+                        isActiveSpeaker={
+                          !!activeSpeakerAgentId && l.agent_id === activeSpeakerAgentId
+                        }
+                      />
+                    )}
+                  </div>
+                );
+              })
             ) : (
+              // ── Fallback mock 模式: 既有 R5.D 设计稿 mock (workspace 没真会议 时不空盘) ──
               MR_MESSAGES.map((m, i) => {
                 if (!mrMessageMatchesSelected(m, selected)) return null;
                 return <MessageRow key={i} idx={i} m={m} selected={selected} />;
               })
             )}
 
-            {/* "王俊 正在说话" — 跟设计稿一致, 仅在未筛选或选了 WJ 时显 */}
-            {(selected.size === 0 || selected.has("WJ")) && (
+            {/* 真接模式: 显示 "AI 正在发言" hint (取代 mock "王俊 正在说话") */}
+            {hasRealData && activeSpeakerName && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 28px 20px",
+                  fontSize: 12.5,
+                  color: "#5E5CE6",
+                  fontWeight: 600,
+                  animation: "mrFadeIn 280ms ease-out",
+                }}
+              >
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: "#5E5CE6",
+                    animation: "mrLivePulse 1.2s ease-in-out infinite",
+                  }}
+                />
+                <span>{activeSpeakerName} 正在发言</span>
+                <MRWaveform active />
+              </div>
+            )}
+
+            {/* mock 模式 "王俊 正在说话" — 真接模式 不渲染 (避免双 hint 冲突) */}
+            {!hasRealData && (selected.size === 0 || selected.has("WJ")) && (
               <div
                 style={{
                   display: "flex",

@@ -36,10 +36,10 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agent_glyphs import agent_to_ai_badge, agent_to_ai_source, normalize_insight_type
-from ..auth import AuthContext, get_current_auth
+from ..auth import AuthContext, get_current_auth, is_workspace_manager
 from ..db import get_session
 from ..memory_axis import AXES
-from ..models import Agent, AIInsight, LongTermMemory, Meeting, Task
+from ..models import Agent, AIInsight, LongTermMemory, Meeting, MemoryDraft, Task
 from ..task_urgency import derive_urgency, due_display
 from ..v2_helpers import group_insights_by_topic
 
@@ -538,6 +538,11 @@ class MemorySnapshot(BaseModel):
     types: List[str]
     count: int
     source_meeting_id: Optional[str] = None
+    # v1.4.0 Sprint 3 Mobile Part 2 (NORTH_STAR § 3.1 v1.1): 长期记忆出处链回.
+    # focus_anchor = MeetingTranscriptView data-mr-key (eg "agent-12345"). 由 group
+    # 内最新 insight 的 source_message_id 推, NULL = 跳 meeting 不锚定具体行.
+    # 链回路径: /m/insights snapshot row → /m/meetings/<source_meeting_id>?focus=<focus_anchor>&highlight=1
+    focus_anchor: Optional[str] = None
 
 
 class MemorySnapshotsResponse(BaseModel):
@@ -669,6 +674,17 @@ async def get_memory_snapshots(
                 if len(types) >= 3:
                     break
 
+        # v1.4.0 Sprint 3 Mobile Part 2 (NORTH_STAR § 3.1 v1.1): focus_anchor —
+        # 取 group 内 最新 insight 的 source_message_id → "agent-<id>" 锚点.
+        # 跟 MeetingTranscriptView LocalLine.key 生成规则 严格 一致.
+        # 没 source_message_id 的 (老 insight 不存) → None, 跳 meeting 不锚定.
+        focus_anchor: Optional[str] = None
+        # group_insights 已 按 created_at desc 排, 取第一个有 source_message_id 的
+        for ins in group_insights:
+            if ins.source_message_id is not None:
+                focus_anchor = f"agent-{ins.source_message_id}"
+                break
+
         snap = MemorySnapshot(
             id=snap_id,
             topic=topic,
@@ -676,6 +692,7 @@ async def get_memory_snapshots(
             types=types,
             count=len(group_insights),
             source_meeting_id=source_meeting_id,
+            focus_anchor=focus_anchor,
         )
         group_items.append((max_created, snap))
 
@@ -685,3 +702,429 @@ async def get_memory_snapshots(
     total_count = len(group_items)
 
     return MemorySnapshotsResponse(items=items, total_count=total_count)
+
+
+# ============================================================================
+# §4.5 (Sprint 3 Mobile Part 3) — GET /api/v2/memory/drafts (待审 tab)
+# ============================================================================
+#
+# NORTH_STAR § 4.2.1 工作流推进: mobile 允许 approve/reject (审核 ≠ 编辑).
+# 这里 surface MemoryDraft 待审 list 给 /m/insights 待审 tab.
+# v2 wrapper — 真接 endpoint, 跟老 /api/memory-drafts 复用 SQL filter 思路 但
+# 走 v2 SCHEMA shape (压扁字段, 不返 _resolve 用的 全部 join).
+#
+# ABAC: workspace_id filter + (primary_user_id == caller OR is_workspace_manager).
+# 跟 memory_drafts.list_drafts 一致.
+
+
+class MemoryDraftAIAvatar(BaseModel):
+    """跟 SnapshotAIAvatar 同形态 — list 头像复用."""
+    id: str
+    name: str
+    glyph: str
+    gradient_from: str
+    gradient_to: str
+
+
+class MemoryDraftItem(BaseModel):
+    """SCHEMA §4.5 — 待审 一条草稿.
+
+    紧凑 shape — list 卡 渲染 用. 详细 (含 source_line_ids / decision_reason)
+    走老 /api/memory-drafts/{id} 拉 (用户 进详情 时 再拉).
+    """
+    id: str
+    proposed_content: str
+    source_meeting_id: Optional[str] = None
+    source_meeting_title: Optional[str] = None
+    target_ais: List[MemoryDraftAIAvatar]
+    importance: float
+    data_classification: str
+    created_at: str
+
+
+class MemoryDraftsResponse(BaseModel):
+    items: List[MemoryDraftItem]
+    pending_count: int
+
+
+@router.get("/memory/drafts", response_model=MemoryDraftsResponse)
+async def get_memory_drafts(
+    status: str = Query("pending", description="pending | approved | rejected | expired"),
+    limit: int = Query(50, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> MemoryDraftsResponse:
+    """v1.4.0 Sprint 3 Mobile Part 3 (NORTH_STAR § 4.2.1) · 待审 list.
+
+    数据源:
+      MemoryDraft WHERE workspace_id = caller.ws + status = ?
+        + (primary_user_id = caller OR is_workspace_manager)
+      ORDER BY created_at DESC LIMIT N
+
+    ABAC:
+      1. workspace_id 严格 filter
+      2. 非 ws_manager 只看 自己 primary 的 draft
+      3. ws_manager (workspace_creator/leader) 可看 全 workspace
+
+    映射:
+      proposed_content       — MemoryDraft.proposed_content (LLM 抽出的候选记忆原文)
+      source_meeting_*       — 一次 IN query 拉 Meeting.title (跟老 list_drafts 一致)
+      target_ais             — target_agent_ids 一次 IN query 拉 Agent badges
+      importance             — proposed_importance (0.0-1.0 float)
+      data_classification    — proposed_data_classification (general/sensitive/etc)
+      created_at             — ISO 8601 UTC string
+
+    边界:
+      - empty workspace / 没待审 → items=[], pending_count=0
+      - 老 draft target_agent_ids 内 agent 被删 → 该 entry skip (不 raise)
+      - status 非法 enum → 400 (跟老 memory_drafts.list_drafts 一致)
+    """
+    if status not in ("pending", "approved", "rejected", "expired"):
+        from fastapi import HTTPException
+        raise HTTPException(400, "invalid status filter (pending|approved|rejected|expired)")
+
+    ws_id = auth.workspace.id
+    user_id = auth.user.id
+    is_ws_mgr = await is_workspace_manager(session, auth)
+
+    stmt = (
+        select(MemoryDraft)
+        .where(
+            MemoryDraft.workspace_id == ws_id,
+            MemoryDraft.status == status,
+        )
+        .order_by(desc(MemoryDraft.created_at))
+        .limit(limit)
+    )
+    if not is_ws_mgr:
+        stmt = stmt.where(MemoryDraft.primary_user_id == user_id)
+
+    drafts = list((await session.execute(stmt)).scalars().all())
+
+    if not drafts:
+        return MemoryDraftsResponse(items=[], pending_count=0)
+
+    # 批量 拉 Meeting title + Agent badges
+    meeting_ids = {d.source_meeting_id for d in drafts if d.source_meeting_id}
+    meetings_by_id: dict = {}
+    if meeting_ids:
+        m_rows = (
+            await session.execute(
+                select(Meeting).where(Meeting.id.in_(meeting_ids))
+            )
+        ).scalars().all()
+        meetings_by_id = {str(m.id): m for m in m_rows}
+
+    # target_agent_ids 是 JSON list[str] — 累 所有
+    import uuid as _uuid
+    all_agent_uuids: set = set()
+    for d in drafts:
+        for aid in d.target_agent_ids or []:
+            try:
+                all_agent_uuids.add(_uuid.UUID(aid))
+            except (ValueError, TypeError):
+                continue
+    agents_by_id: dict = {}
+    if all_agent_uuids:
+        a_rows = (
+            await session.execute(
+                select(Agent).where(Agent.id.in_(all_agent_uuids))
+            )
+        ).scalars().all()
+        agents_by_id = {a.id: a for a in a_rows}
+
+    items: List[MemoryDraftItem] = []
+    for d in drafts:
+        # target_ais
+        target_ais: List[MemoryDraftAIAvatar] = []
+        for aid in d.target_agent_ids or []:
+            try:
+                u = _uuid.UUID(aid)
+            except (ValueError, TypeError):
+                continue
+            agent = agents_by_id.get(u)
+            if not agent:
+                continue  # 被删的 agent skip
+            badge = agent_to_ai_badge(agent)
+            target_ais.append(
+                MemoryDraftAIAvatar(
+                    id=str(agent.id),
+                    name=agent.nickname or agent.name,
+                    glyph=badge["glyph"],
+                    gradient_from=badge["gradient_from"],
+                    gradient_to=badge["gradient_to"],
+                )
+            )
+
+        # source_meeting
+        src_meeting_id: Optional[str] = None
+        src_meeting_title: Optional[str] = None
+        if d.source_meeting_id:
+            src_meeting_id = str(d.source_meeting_id)
+            m = meetings_by_id.get(src_meeting_id)
+            if m:
+                src_meeting_title = m.title or "未命名会议"
+
+        items.append(
+            MemoryDraftItem(
+                id=str(d.id),
+                proposed_content=d.proposed_content,
+                source_meeting_id=src_meeting_id,
+                source_meeting_title=src_meeting_title,
+                target_ais=target_ais,
+                importance=float(d.proposed_importance),
+                data_classification=d.proposed_data_classification,
+                created_at=d.created_at.astimezone(timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z"),
+            )
+        )
+
+    # pending_count — 只算 pending status 的总数 (跟 segmented badge 一致)
+    pending_count_stmt = select(func.count(MemoryDraft.id)).where(
+        MemoryDraft.workspace_id == ws_id,
+        MemoryDraft.status == "pending",
+    )
+    if not is_ws_mgr:
+        pending_count_stmt = pending_count_stmt.where(
+            MemoryDraft.primary_user_id == user_id
+        )
+    pending_count = int((await session.execute(pending_count_stmt)).scalar() or 0)
+
+    return MemoryDraftsResponse(items=items, pending_count=pending_count)
+
+
+# ============================================================================
+# §4.6 (Sprint 3 Mobile Part 3) — GET /api/v2/memory/library (记忆库 tab)
+# ============================================================================
+#
+# 已批准入库的 LongTermMemory list — mobile 仅查看 (不删, 不改).
+# NORTH_STAR § 4.2.1: 移动允许 查看 记忆库 (审核也算工作流推进), 但不能编辑.
+
+
+class MemoryLibraryItem(BaseModel):
+    """SCHEMA §4.6 — 一条 已入库 长期记忆."""
+    id: str
+    content: str
+    axis_tag: Optional[str] = None  # 6 个固定 或 NULL (未分类)
+    importance: float
+    data_classification: str
+    source_meeting_id: Optional[str] = None
+    source_meeting_title: Optional[str] = None
+    primary_ai: Optional[MemoryDraftAIAvatar] = None  # primary agent (memory_agent_link is_primary=true)
+    created_at: str
+
+
+class MemoryLibraryResponse(BaseModel):
+    items: List[MemoryLibraryItem]
+    total_count: int
+    axes_with_count: dict  # {"数据洞察": 3, "产品策略": 5, ...} — 给前端 chip filter 用
+
+
+@router.get("/memory/library", response_model=MemoryLibraryResponse)
+async def get_memory_library(
+    axis_tag: Optional[str] = Query(None, description="过滤 axis tag — 6 个之一"),
+    limit: int = Query(50, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> MemoryLibraryResponse:
+    """v1.4.0 Sprint 3 Mobile Part 3 (NORTH_STAR § 4.2.1) · 记忆库 list.
+
+    数据源:
+      LongTermMemory WHERE workspace_id = caller.ws
+      ORDER BY created_at DESC LIMIT N
+      (无 user-level filter — workspace 全员 共享 长期记忆库, NORTH_STAR § 3.1)
+
+    ABAC: workspace_id 严格 filter (跨 ws 严防).
+
+    映射:
+      content              — LongTermMemory.content
+      axis_tag             — 6 轴之一 (T5 keyword) 或 NULL
+      importance           — 0.0-1.0
+      data_classification  — general/internal/sensitive/restricted/secret
+      source_meeting_*     — 跟 drafts 一致, 一次 IN query 拉 Meeting.title
+      primary_ai           — agent_id (老字段, deprecated 但 fallback). 后续可走 memory_agent_link
+      created_at           — ISO 8601 UTC
+
+    axes_with_count: 每个 axis 的 count, 给前端 chip 过滤显数字.
+
+    边界:
+      - empty workspace → items=[], total_count=0
+      - axis_tag 非法 → 不报错, 兜底 0 结果
+      - axis_tag NULL → 不 filter, 返 全集
+    """
+    ws_id = auth.workspace.id
+
+    stmt = (
+        select(LongTermMemory)
+        .where(LongTermMemory.workspace_id == ws_id)
+        .order_by(desc(LongTermMemory.created_at))
+        .limit(limit)
+    )
+    if axis_tag:
+        stmt = stmt.where(LongTermMemory.axis_tag == axis_tag)
+
+    rows = list((await session.execute(stmt)).scalars().all())
+
+    # axes_with_count — 不受 axis_tag filter 影响, 总览 6 轴 各 count + NULL
+    count_stmt = (
+        select(LongTermMemory.axis_tag, func.count(LongTermMemory.id))
+        .where(LongTermMemory.workspace_id == ws_id)
+        .group_by(LongTermMemory.axis_tag)
+    )
+    axes_with_count_raw = list((await session.execute(count_stmt)).all())
+    axes_with_count: dict = {}
+    for axis_name, c in axes_with_count_raw:
+        # 跳过 NULL — 不计入 6 轴 chip, 仅 total 算
+        if axis_name is None:
+            continue
+        axes_with_count[axis_name] = int(c)
+
+    if not rows:
+        # Empty workspace — items 空 但 axes_with_count 仍 给 (可能全 0, 但 shape 一致)
+        return MemoryLibraryResponse(items=[], total_count=0, axes_with_count=axes_with_count)
+
+    # 批量 拉 Meeting title + Agent badges
+    meeting_ids = {r.source_meeting_id for r in rows if r.source_meeting_id}
+    meetings_by_id: dict = {}
+    if meeting_ids:
+        m_rows = (
+            await session.execute(
+                select(Meeting).where(Meeting.id.in_(meeting_ids))
+            )
+        ).scalars().all()
+        meetings_by_id = {str(m.id): m for m in m_rows}
+
+    agent_ids = {r.agent_id for r in rows if r.agent_id}
+    agents_by_id: dict = {}
+    if agent_ids:
+        a_rows = (
+            await session.execute(
+                select(Agent).where(Agent.id.in_(agent_ids))
+            )
+        ).scalars().all()
+        agents_by_id = {a.id: a for a in a_rows}
+
+    items: List[MemoryLibraryItem] = []
+    for r in rows:
+        primary_ai: Optional[MemoryDraftAIAvatar] = None
+        if r.agent_id:
+            agent = agents_by_id.get(r.agent_id)
+            if agent:
+                badge = agent_to_ai_badge(agent)
+                primary_ai = MemoryDraftAIAvatar(
+                    id=str(agent.id),
+                    name=agent.nickname or agent.name,
+                    glyph=badge["glyph"],
+                    gradient_from=badge["gradient_from"],
+                    gradient_to=badge["gradient_to"],
+                )
+
+        src_meeting_id: Optional[str] = None
+        src_meeting_title: Optional[str] = None
+        if r.source_meeting_id:
+            src_meeting_id = str(r.source_meeting_id)
+            m = meetings_by_id.get(src_meeting_id)
+            if m:
+                src_meeting_title = m.title or "未命名会议"
+
+        items.append(
+            MemoryLibraryItem(
+                id=str(r.id),
+                content=r.content,
+                axis_tag=r.axis_tag,
+                importance=float(r.importance),
+                data_classification=r.data_classification,
+                source_meeting_id=src_meeting_id,
+                source_meeting_title=src_meeting_title,
+                primary_ai=primary_ai,
+                created_at=r.created_at.astimezone(timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z"),
+            )
+        )
+
+    # total_count — 受 axis filter 影响 (前端 list 总数; 不是 全 workspace)
+    total_count_stmt = select(func.count(LongTermMemory.id)).where(
+        LongTermMemory.workspace_id == ws_id,
+    )
+    if axis_tag:
+        total_count_stmt = total_count_stmt.where(
+            LongTermMemory.axis_tag == axis_tag
+        )
+    total_count = int((await session.execute(total_count_stmt)).scalar() or 0)
+
+    return MemoryLibraryResponse(
+        items=items,
+        total_count=total_count,
+        axes_with_count=axes_with_count,
+    )
+
+
+# ============================================================================
+# §4.7 (Sprint 3 Mobile Part 3) — POST /api/v2/memory/drafts/{id}/approve|reject
+# ============================================================================
+#
+# v2 wrapper — 调用 老 memory_drafts router 的 approve / reject logic 复用.
+# mobile 直接 调老的 /api/memory-drafts/{id}/approve 也行, 但 经 v2 命名空间
+# 让 mobile 不依赖 老 endpoint url shape (将来 老 endpoint 升级 mobile 不破).
+#
+# Approve / reject 的 真实 SQL 改动 (写 long_term_memory + audit_log) 在
+# memory_drafts.py:267 / 336 — 这里 delegate 调用 + 返 简化 shape.
+
+
+class MemoryDraftActionOut(BaseModel):
+    id: str
+    status: str
+    committed_memory_id: Optional[str] = None
+
+
+class MemoryDraftRejectIn(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/memory/drafts/{draft_id}/approve", response_model=MemoryDraftActionOut)
+async def approve_v2_memory_draft(
+    draft_id: str,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> MemoryDraftActionOut:
+    """Mobile approve wrapper — delegate 到 memory_drafts.approve_draft.
+
+    NORTH_STAR § 4.2.1: mobile 允许 approve (审批 ≠ 编辑).
+    """
+    from .memory_drafts import approve_draft as legacy_approve
+
+    out = await legacy_approve(draft_id=draft_id, session=session, auth=auth)
+    return MemoryDraftActionOut(
+        id=str(out.id),
+        status=out.status,
+        committed_memory_id=str(out.committed_memory_id) if out.committed_memory_id else None,
+    )
+
+
+@router.post("/memory/drafts/{draft_id}/reject", response_model=MemoryDraftActionOut)
+async def reject_v2_memory_draft(
+    draft_id: str,
+    body: MemoryDraftRejectIn,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> MemoryDraftActionOut:
+    """Mobile reject wrapper — delegate 到 memory_drafts.reject_draft.
+
+    NORTH_STAR § 4.2.1: mobile 允许 reject. body.reason optional (跟老 endpoint 一致).
+    """
+    from .memory_drafts import reject_draft as legacy_reject
+    from .memory_drafts import RejectIn
+
+    out = await legacy_reject(
+        draft_id=draft_id,
+        payload=RejectIn(reason=body.reason),
+        session=session,
+        auth=auth,
+    )
+    return MemoryDraftActionOut(
+        id=str(out.id),
+        status=out.status,
+        committed_memory_id=str(out.committed_memory_id) if out.committed_memory_id else None,
+    )

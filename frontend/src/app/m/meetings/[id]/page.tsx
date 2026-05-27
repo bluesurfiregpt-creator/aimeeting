@@ -32,7 +32,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, use } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { KBCitationSheet, type KBCitation } from "@/components/mobile/v2";
 import NativeMeetingEntry from "@/components/mobile/NativeMeetingEntry";
 import StageChipsRow from "@/components/mobile/StageChipsRow";
 import StickyActionBar from "@/components/mobile/StickyActionBar";
@@ -113,7 +114,58 @@ function MeetingDetailInner({ id }: { id: string }) {
   // 注入本 Saga 动画 keyframes
   useInjectAnimations();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const conn = useMeetingWsConn();
+
+  // v1.4.0 Sprint 3 Mobile Part 2 (NORTH_STAR § 3.1 v1.1): URL ?focus=<key>&highlight=1
+  // 由 /m/insights snapshot 跳转过来 — MeetingTranscriptView 内 滚 + 闪 3 秒.
+  // focus key 格式: "agent-<id>" (AI 发言) | "user-<id>" (真人发言) | "host-banner-..." (host card)
+  // 跟 LocalLine.key 严格 一致 (MeetingTranscriptView 用 data-mr-key="<key>" 标锚点).
+  const focusKey = searchParams?.get("focus") ?? null;
+
+  // v1.4.0 Sprint 3 Mobile Part 1 (NORTH_STAR § 3.2): KB 引用侧栏 state.
+  // 用户点 AI 发言 "引用 N 条 KB" → setCitationTarget → 拉 API → 弹 sheet.
+  const [citationTarget, setCitationTarget] = useState<{
+    messageId: number;
+    speakerLabel: string;
+  } | null>(null);
+  const [citations, setCitations] = useState<KBCitation[]>([]);
+  const [citationsLoading, setCitationsLoading] = useState(false);
+  const [citationSheetOpen, setCitationSheetOpen] = useState(false);
+
+  const handleCitationClick = useCallback(
+    async (messageId: number, speakerLabel: string) => {
+      // 1. 立即打开 sheet (loading 态显占位)
+      setCitationTarget({ messageId, speakerLabel });
+      setCitations([]);
+      setCitationsLoading(true);
+      setCitationSheetOpen(true);
+      // 2. 拉 citations — v2 endpoint 单条 lookup, payload 小
+      try {
+        const r = await fetch(
+          `/api/v2/meetings/${id}/agent-messages/${messageId}/citations`,
+          { credentials: "include", headers: { accept: "application/json" } },
+        );
+        if (!r.ok) {
+          // 静默兜底 — sheet 显示 MAEmpty "本条 AI 发言无引用"
+          setCitations([]);
+          return;
+        }
+        const data = (await r.json()) as { citations: KBCitation[] };
+        setCitations(data.citations || []);
+      } catch {
+        setCitations([]);
+      } finally {
+        setCitationsLoading(false);
+      }
+    },
+    [id],
+  );
+
+  const handleCloseCitationSheet = useCallback(() => {
+    setCitationSheetOpen(false);
+    // 不立即 reset target — 留给 sheet 动画 完成 后 自然 unmount, 避免 闪
+  }, []);
 
   const [data, setData] = useState<MobileMeetingDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1134,6 +1186,8 @@ function MeetingDetailInner({ id }: { id: string }) {
                   ? data.current_speaker_agent_id
                   : null
               }
+              onCitationClick={handleCitationClick}
+              focusKey={focusKey}
               filter={{ selected: filterSelected }}
               onMatchedCountChange={(matched, total) => {
                 setMatchedCount(matched);
@@ -1276,6 +1330,16 @@ function MeetingDetailInner({ id }: { id: string }) {
           onClose={() => setPreviewingMaterial(null)}
         />
       ) : null}
+
+      {/* v1.4.0 Sprint 3 Mobile Part 1 (NORTH_STAR § 3.2): KB 引用侧栏 — AI 发言
+          点 "引用 N 条 KB" → 弹此 sheet. 半屏, 不全屏. */}
+      <KBCitationSheet
+        open={citationSheetOpen}
+        onClose={handleCloseCitationSheet}
+        citations={citations}
+        speakerLabel={citationTarget?.speakerLabel}
+        loading={citationsLoading}
+      />
 
       <LeaveMeetingSheet
         open={leaveOpen}

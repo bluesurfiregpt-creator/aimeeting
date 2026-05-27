@@ -103,6 +103,24 @@ const ANIMATION_KEYFRAMES = `
   0%, 100% { box-shadow: 0 0 0 2px rgba(94,92,230,0.30), 0 0 0 4px rgba(94,92,230,0.15); }
   50%      { box-shadow: 0 0 0 2px rgba(94,92,230,0.55), 0 0 0 8px rgba(94,92,230,0); }
 }
+/* v1.4.0 Sprint 3 Mobile Part 2 (NORTH_STAR § 3.1 v1.1): 记忆出处链回 高亮 3 秒.
+   URL ?focus=<key>&highlight=1 → 滚到锚点 + add 'mr-focus-highlight' class →
+   触发本 keyframe 闪 3 次 紫→黄→紫 → 3050ms 后 移除 class.
+   背景脉冲 + outline 双层, 既显眼 又 不破坏 list 颜色契约. */
+@keyframes mr-focusHighlight {
+  0%   { background-color: rgba(94,92,230,0.00); outline: 0 solid rgba(255,159,10,0); outline-offset: 0; }
+  10%  { background-color: rgba(255,159,10,0.18); outline: 3px solid rgba(255,159,10,0.55); outline-offset: 0; }
+  35%  { background-color: rgba(94,92,230,0.16); outline: 3px solid rgba(94,92,230,0.55); outline-offset: 0; }
+  60%  { background-color: rgba(255,159,10,0.18); outline: 3px solid rgba(255,159,10,0.55); outline-offset: 0; }
+  85%  { background-color: rgba(94,92,230,0.12); outline: 2px solid rgba(94,92,230,0.30); outline-offset: 0; }
+  100% { background-color: rgba(94,92,230,0.00); outline: 0 solid rgba(255,159,10,0); outline-offset: 0; }
+}
+.mr-focus-highlight {
+  animation: mr-focusHighlight 3000ms ease-in-out 1 forwards;
+  border-radius: 12px;
+  scroll-margin-top: 80px;
+  scroll-margin-bottom: 120px;
+}
 `;
 
 const STYLE_TAG_ID = "mr-v2-keyframes";

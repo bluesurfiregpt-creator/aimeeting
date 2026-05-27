@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { V2TodaySnapshotResponse } from "@/lib/api";
 import { W_TOKENS } from "../tokens";
 import { WAIBadge, WAvatar, WIcon, WSparkle, type WIconName } from "../atoms";
 
@@ -17,7 +18,11 @@ import { WAIBadge, WAvatar, WIcon, WSparkle, type WIconName } from "../atoms";
  *  - 字号整体上调, 复用双 token (light/dark 自动适配)
  *
  * **Scope**: hardcode mock 数据 (来自 round-6 设计稿 web-home.jsx 第 720 行 HOME_MEETINGS).
- * 后续 Saga 接 workspace stats API.
+ *
+ * **Sprint 3 Web W1 (Saga T1-T2 真接)**:
+ *   parent WebHome 拉 /api/v2/today/live-meeting + /api/v2/today/snapshot
+ *   传给本组件; 没数据 时 fallback to mock HOME_MEETINGS (workspace 还没沉淀
+ *   真实 meeting 时 视觉不空盘, 加 "演示数据" pill 反幻觉).
  */
 type LiveMeeting = {
   id: string;
@@ -28,7 +33,12 @@ type LiveMeeting = {
   duration: number;
   participants: string[];
   ais: string[];
+  miraNote?: string;
 };
+
+/** Sprint 3 Web W1: 父级 WebHome 传入. backend 数据 normalize 过, 字段跟
+ *  内部 LiveMeeting 几乎一致 (额外加 miraNote). */
+export type MeetingsPulseLiveData = LiveMeeting;
 type UpcomingMeeting = {
   id: string;
   title: string;
@@ -109,20 +119,62 @@ const miniLink = {
   gap: 2,
 };
 
-export function MeetingsPulse() {
-  const m = HOME_MEETINGS;
-  const pct = Math.min(100, (m.live.elapsed / m.live.duration) * 100);
+export type MeetingsPulseProps = {
+  /** Sprint 3 Web W1: 真接 /api/v2/today/live-meeting 后 父级传; null = 后端没 live, 用 mock 数据 + 演示 pill */
+  liveData?: MeetingsPulseLiveData | null;
+  /** /api/v2/today/snapshot, 用于 3 stat tile (今日/即将/历史 数). null = fallback mock */
+  snapshot?: V2TodaySnapshotResponse | null;
+  /** 至少 1 个 today API 通 — 别 demoPill, 否则 加 "演示数据" 反幻觉 pill */
+  usingRealData?: boolean;
+};
+
+export function MeetingsPulse({
+  liveData = null,
+  snapshot = null,
+  usingRealData = false,
+}: MeetingsPulseProps = {}) {
+  // 真接成功用 backend, 否则 fallback to mock HOME_MEETINGS.live
+  const live: LiveMeeting = liveData ?? HOME_MEETINGS.live;
+  const m = HOME_MEETINGS; // upcoming + history 列仍 mock (Saga T6 续接)
+  const totals = {
+    live: liveData ? 1 : HOME_MEETINGS.totals.live,
+    upcoming: HOME_MEETINGS.totals.upcoming,
+    // /api/v2/today/snapshot 没直接给 历史会议数, 用 meetings_today fallback (含历史 + live)
+    history: snapshot?.meetings_today ?? HOME_MEETINGS.totals.history,
+  };
+  const isDemo = !usingRealData;
+  const pct = Math.min(100, (live.elapsed / Math.max(1, live.duration)) * 100);
   const ringCircumference = 2 * Math.PI * 28;
 
   return (
     <div style={{ marginTop: 18 }}>
+      {isDemo && (
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "4px 10px",
+            borderRadius: 6,
+            background: "rgba(124,92,250,0.10)",
+            boxShadow: "inset 0 0 0 0.5px rgba(124,92,250,0.30)",
+            color: "#C4B5FD",
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: 0.3,
+            marginBottom: 10,
+          }}
+        >
+          演示数据 · workspace 还没沉淀真实会议
+        </div>
+      )}
       {/* 3 stat tiles */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 14 }}>
         <StatTile
           icon="bolt"
           iconColor="#86EFAC"
           label="进行中"
-          value={m.totals.live}
+          value={totals.live}
           pulseHint="LIVE"
           href="/meeting"
         />
@@ -130,14 +182,14 @@ export function MeetingsPulse() {
           icon="clock"
           iconColor={W_TOKENS.cyan}
           label="今日即将开始"
-          value={m.totals.upcoming}
+          value={totals.upcoming}
           href="/workstation/new"
         />
         <StatTile
           icon="history"
           iconColor="#C4B5FD"
           label="历史会议"
-          value={m.totals.history}
+          value={totals.history}
           sub="本月"
           href="/workstation/meeting/q3-roadmap"
         />
@@ -145,7 +197,10 @@ export function MeetingsPulse() {
 
       <div style={{ display: "grid", gridTemplateColumns: "5fr 4fr", gap: 14 }}>
         {/* LIVE big card — packed, decorative, info-rich */}
-        <Link href="/meeting" style={liveCardStyle as React.CSSProperties}>
+        <Link
+          href={live.id ? `/meeting/${live.id}/live` : "/meeting"}
+          style={liveCardStyle as React.CSSProperties}
+        >
           {/* live progress ribbon at top */}
           <div
             style={{
@@ -243,10 +298,10 @@ export function MeetingsPulse() {
                       lineHeight: 1,
                     }}
                   >
-                    {m.live.elapsed}
+                    {live.elapsed}
                   </span>
                   <span style={{ fontSize: 9, color: W_TOKENS.textMuted, marginTop: 2 }}>
-                    / {m.live.duration} 分
+                    / {live.duration} 分
                   </span>
                 </div>
               </div>
@@ -280,7 +335,7 @@ export function MeetingsPulse() {
                     />
                     LIVE
                   </span>
-                  <span style={{ fontSize: 11.5, color: W_TOKENS.textMuted }}>{m.live.sub}</span>
+                  <span style={{ fontSize: 11.5, color: W_TOKENS.textMuted }}>{live.sub}</span>
                 </div>
                 <div
                   style={{
@@ -296,7 +351,7 @@ export function MeetingsPulse() {
                     WebkitBoxOrient: "vertical",
                   }}
                 >
-                  {m.live.title}
+                  {live.title}
                 </div>
                 <div
                   style={{
@@ -309,7 +364,7 @@ export function MeetingsPulse() {
                   }}
                 >
                   <span style={{ width: 4, height: 4, borderRadius: "50%", background: "#22c55e" }} />
-                  正在讨论 · {m.live.topic}
+                  正在讨论 · {live.topic}
                 </div>
               </div>
             </div>
@@ -382,20 +437,21 @@ export function MeetingsPulse() {
                   whiteSpace: "nowrap",
                 }}
               >
-                <strong style={{ color: "#FFB340" }}>Mira</strong> 正在记录关键点…
+                <strong style={{ color: "#FFB340" }}>Mira</strong>{" "}
+                {live.miraNote ?? "正在记录关键点…"}
               </span>
             </div>
 
             {/* Bottom: participants + big green CTA */}
             <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 11 }}>
               <div style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
-                {m.live.participants.map((id, i) => (
+                {live.participants.map((id, i) => (
                   <span key={id} style={{ marginLeft: i === 0 ? 0 : -8, zIndex: 10 - i }}>
                     <WAvatar id={id} size={26} ring={W_TOKENS.surface} />
                   </span>
                 ))}
                 <span style={{ marginLeft: -8, zIndex: 1 }}>
-                  {m.live.ais.map((aid, i) => (
+                  {live.ais.map((aid, i) => (
                     <span key={aid} style={{ marginLeft: i === 0 ? 0 : -6 }}>
                       <WAIBadge id={aid} size={22} radius={6} />
                     </span>
@@ -404,11 +460,11 @@ export function MeetingsPulse() {
               </div>
               <span style={{ fontSize: 11.5, color: W_TOKENS.textMuted, lineHeight: 1.3 }}>
                 <strong style={{ color: W_TOKENS.textPrimary, fontWeight: 700 }}>
-                  {m.live.participants.length} 人
+                  {live.participants.length} 人
                 </strong>
                 {" · "}
                 <strong style={{ color: "#C4B5FD", fontWeight: 700 }}>
-                  {m.live.ais.length} 位 AI
+                  {live.ais.length} 位 AI
                 </strong>
                 {" 正参会"}
               </span>

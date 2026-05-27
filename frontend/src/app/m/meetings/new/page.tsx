@@ -697,6 +697,8 @@ function PreviewView({
           alignItems: "center",
           justifyContent: "space-between",
           marginBottom: 10,
+          flexWrap: "wrap",
+          gap: 6,
         }}
       >
         <span
@@ -718,7 +720,29 @@ function PreviewView({
               boxShadow: "0 0 7px rgba(94,92,230,0.55)",
             }}
           />
-          Mira 已起草 · 可继续编辑
+          Mira 信心 {Math.round(draft.confidence * 100)}%
+          {/* v1.4.0 Sprint 3 Mobile Part 4 · NORTH_STAR § 7.5 不让 mock 假装真实.
+              当前 /api/v2/mira/draft-meeting 是 1.1s sleep 的 mock, 不接 LLM.
+              加紫色 "演示" chip 让用户清楚 这是 V1 展示态, 不是真 NLU. */}
+          <span
+            data-testid="mira-mock-badge"
+            title="V1 演示 · 接 LLM 后会真实生成"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              padding: "2px 7px",
+              borderRadius: 6,
+              background: "rgba(94,92,230,0.12)",
+              color: "#5E5CE6",
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: 0.2,
+              border: "0.5px solid rgba(94,92,230,0.30)",
+              marginLeft: 4,
+            }}
+          >
+            演示
+          </span>
         </span>
         <button
           type="button"
@@ -735,6 +759,21 @@ function PreviewView({
         >
           重新描述 ›
         </button>
+      </div>
+      {/* v1.4.0 Sprint 3 Mobile Part 4 · 演示说明 (NORTH_STAR § 7.5) */}
+      <div
+        style={{
+          marginBottom: 12,
+          padding: "8px 10px",
+          borderRadius: 8,
+          background: "rgba(94,92,230,0.06)",
+          border: "0.5px solid rgba(94,92,230,0.18)",
+          fontSize: 11.5,
+          color: "#5E5CE6",
+          lineHeight: 1.45,
+        }}
+      >
+        V1 演示 · 接 LLM 后会真实生成方案. 当前内容来自固定模板.
       </div>
 
       {/* 卡 1 — 主题 */}

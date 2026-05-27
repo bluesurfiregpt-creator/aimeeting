@@ -126,6 +126,12 @@ type Props = {
   /** v1.4.0 Saga E.E: 当前 orchestrator 发言 agent_id (running 时高亮 pulse).
    *  null = 没人在发言 / 不是 auto 会议. */
   activeSpeakerAgentId?: string | null;
+  /** v1.4.0 Sprint 3 Mobile Part 1 (NORTH_STAR § 3.2): AI 发言下方 "引用 N 条 KB"
+   *  chip 点击回调. 父级 拿 message_id + 拉 citations + 弹 KBCitationSheet. */
+  onCitationClick?: (messageId: number, speakerLabel: string) => void;
+  /** v1.4.0 Sprint 3 Mobile Part 2 (NORTH_STAR § 3.1 v1.1): URL ?focus=<key>
+   *  → 滚到对应 line + 黄/紫 高亮 3 秒. focusKey 由 URL searchParams 解析. */
+  focusKey?: string | null;
 };
 
 export default function MeetingTranscriptView({
@@ -138,6 +144,8 @@ export default function MeetingTranscriptView({
   onScrollPosChange,
   pollIntervalMs = 0,
   activeSpeakerAgentId = null,
+  onCitationClick,
+  focusKey = null,
 }: Props): ReactElement {
   const [lines, setLines] = useState<LocalLine[]>([]);
   const [meta, setMeta] = useState<Pick<MobileTranscriptOut, "total_user_lines" | "total_agent_lines"> | null>(null);
@@ -427,6 +435,36 @@ export default function MeetingTranscriptView({
     onRegisterJump(jump);
   }, [onRegisterJump]);
 
+  // v1.4.0 Sprint 3 Mobile Part 2 (NORTH_STAR § 3.1 v1.1): focus + 高亮 3 秒.
+  // 当 URL ?focus=<key> 解析进来 (page.tsx searchParams), 等 transcript 渲染完
+  // 找 data-mr-key 锚点 → scrollIntoView (center) + 加 'mr-focus-highlight' className
+  // → 触发 mr-focusHighlight 3s keyframe (橙黄→紫渐变闪 3 次) → 完后 remove.
+  // autoScroll 临时 关 (避免 抢锚点); animation 完成 后 用户 自由 滚 时 自动 恢复.
+  useEffect(() => {
+    if (!focusKey) return;
+    // wait 2 tick — 渲染列表 + IntersectionObserver attach 完
+    const handle = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const target = document.querySelector<HTMLElement>(
+          `[data-mr-key="${CSS.escape(focusKey)}"]`,
+        );
+        if (!target) return;
+        autoScrollRef.current = false; // 防 jumpTo 期间 autoScroll 抢
+        target.scrollIntoView({ block: "center", behavior: "smooth" });
+        target.classList.add("mr-focus-highlight");
+        // 3000ms 后 移除 className (跟 keyframe duration 一致)
+        const cleanupTimer = window.setTimeout(() => {
+          target.classList.remove("mr-focus-highlight");
+        }, 3050);
+        // 存 cleanup — 组件 unmount 时 清
+        (target as HTMLElement & { _mrHighlightCleanup?: number })._mrHighlightCleanup =
+          cleanupTimer;
+      });
+    });
+    return () => cancelAnimationFrame(handle);
+    // 只 在 focusKey 变化 + lines 加载完 后 触发. lines 长度作为 ready 信号.
+  }, [focusKey, lines.length]);
+
   if (loading && lines.length === 0) {
     return (
       <div style={{ padding: 16 }}>
@@ -561,6 +599,7 @@ export default function MeetingTranscriptView({
                       !!activeSpeakerAgentId &&
                       l.agent_id === activeSpeakerAgentId
                     }
+                    onCitationClick={onCitationClick}
                   />
                 )}
               </div>
@@ -696,10 +735,15 @@ function HumanMessage({ line }: { line: LocalLine }) {
 function AIMessage({
   line,
   isActiveSpeaker = false,
+  onCitationClick,
 }: {
   line: LocalLine;
   /** v1.4.0 Saga E.E: orchestrator 标记 此 agent 正在发言 → border pulse 紫 + 'AI 思考中' 提示. */
   isActiveSpeaker?: boolean;
+  /** v1.4.0 Sprint 3 Mobile Part 1 (NORTH_STAR § 3.2): citations chip 点击回调.
+   *  父级 收到 后 拉 /api/v2/meetings/{m}/agent-messages/{message_id}/citations
+   *  + 弹 KBCitationSheet. line.id = MeetingAgentMessage.id (backend 主键). */
+  onCitationClick?: (messageId: number, speakerLabel: string) => void;
 }) {
   const display = line.agent_nickname?.trim() || line.agent_name || "AI";
   const role = line.trigger ? TRIGGER_LABEL[line.trigger] || line.trigger : "";
@@ -841,19 +885,51 @@ function AIMessage({
           </div>
 
           {line.citations_count > 0 ? (
-            <div
-              style={{
-                marginTop: 8,
-                fontSize: 12,
-                color: MR_COLORS.textTertiary,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 4,
-              }}
-            >
-              <MRIcon name="note" size={11} color={MR_COLORS.textTertiary} />
-              引用 {line.citations_count} 条 KB
-            </div>
+            onCitationClick && line.id > 0 ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCitationClick(
+                    line.id,
+                    `${display}${line.at_minute >= 0 ? ` · ${fmtMinute(line.at_minute)}` : ""}`,
+                  );
+                }}
+                data-testid="ai-citations-chip"
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  color: MR_COLORS.systemPurple,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  background: "rgba(94,92,230,0.10)",
+                  border: "0.5px solid rgba(94,92,230,0.25)",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  fontWeight: 500,
+                }}
+              >
+                <MRIcon name="note" size={11} color={MR_COLORS.systemPurple} />
+                引用 {line.citations_count} 条 KB →
+              </button>
+            ) : (
+              <div
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  color: MR_COLORS.textTertiary,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <MRIcon name="note" size={11} color={MR_COLORS.textTertiary} />
+                引用 {line.citations_count} 条 KB
+              </div>
+            )
           ) : null}
         </div>
       </div>

@@ -626,6 +626,208 @@ export type LineageOut = {
   };
 };
 
+// R6.5 桑基 — POST /api/lineage/sankey (PM 拍板 4 列流: KB → AI → Memory → Meeting).
+// 后端 backend/app/routers/lineage.py:507 SankeyOut.
+export type SankeyApiNodeType = "kb" | "agent" | "memory" | "meeting";
+export type SankeyApiNode = {
+  id: string;
+  label: string;
+  type: SankeyApiNodeType;
+  meta?: Record<string, unknown> | null;
+};
+export type SankeyApiLink = {
+  source: string; // node.id
+  target: string; // node.id
+  value: number;
+};
+export type SankeyApiOut = {
+  nodes: SankeyApiNode[];
+  links: SankeyApiLink[];
+};
+
+// ─── v1.4.0 Saga T1-T2 · /api/v2/today/* (Sprint 3 Web W1: WebHome 真接) ───
+// 跟 mobile 同套 endpoint, web 直接复用.
+
+export type V2Attendee = {
+  type: "human" | "ai";
+  id: string;
+  name: string;
+  color: string;
+  glyph?: string | null;
+  gradient_to?: string | null;
+};
+
+export type V2AIBadge = {
+  id: string;
+  name: string;
+  glyph: string;
+  gradient_from: string;
+  gradient_to: string;
+};
+
+export type V2MeetingItem = {
+  id: string;
+  title: string;
+  topic_summary: string;
+  status: "upcoming" | "live" | "finished" | "processed" | string;
+  started_at?: string | null;
+  scheduled_for: string;
+  ended_at?: string | null;
+  elapsed_minutes?: number | null;
+  countdown_seconds?: number | null;
+  decision_count: number;
+  attendees: V2Attendee[];
+  human_count: number;
+  ai_count: number;
+  ai_badges: V2AIBadge[];
+};
+
+export type V2TodayLiveMeetingResponse = {
+  meeting: V2MeetingItem | null;
+  mira_note: string | null;
+};
+
+export type V2TodaySnapshotResponse = {
+  meetings_today: number;
+  pending_tasks: number;
+  ai_insights_today: number;
+  decisions_today: number;
+};
+
+export type V2BriefChip = {
+  label: string;
+  color: string;
+};
+
+export type V2TodayBriefResponse = {
+  id: string;
+  generated_at: string;
+  title: string;
+  summary_text: string;
+  chips: V2BriefChip[];
+  target_meeting_id: string;
+};
+
+export type V2TodayInsightAISource = {
+  id: string;
+  name: string;
+  glyph: string;
+  color: string;
+};
+
+export type V2TodayInsightItem = {
+  id: string;
+  type: string;
+  ai_source: V2TodayInsightAISource;
+  title: string;
+  body: string;
+  source_meeting: string;
+  source_meeting_id: string;
+  created_at: string;
+};
+
+export type V2TodayInsightsResponse = {
+  items: V2TodayInsightItem[];
+};
+
+export type V2TodayDecisionItem = {
+  id: string;
+  title: string;
+  decided_at: string;
+  meeting_id: string;
+};
+
+export type V2TodayDecisionsResponse = {
+  items: V2TodayDecisionItem[];
+  total_count: number;
+};
+
+// ─── v1.4.0 Saga E.E · /api/m/meetings/{id} + /transcript (Sprint 3 Web W1 复用) ───
+// Web R5.D 会议室直接复用 mobile.py 的 endpoint (schema 跟 web 需求 1:1, 包含 5
+// 个 orchestrate 字段). 一份 backend, 双端 client 各拉. 不新建 /api/web/* 路由.
+
+export type WebTranscriptStreamLine = {
+  kind: "user" | "agent";
+  id: number;
+  text: string;
+  at_minute: number;
+  created_at: string;
+  speaker_name: string | null;
+  speaker_status: string | null;
+  agent_id: string | null;
+  agent_name: string | null;
+  agent_nickname: string | null;
+  agent_color: string | null;
+  trigger: string | null;
+  citations_count: number;
+};
+
+export type WebMeetingTranscriptOut = {
+  meeting_id: string;
+  title: string;
+  status: string;
+  started_at: string | null;
+  total_user_lines: number;
+  total_agent_lines: number;
+  lines: WebTranscriptStreamLine[];
+};
+
+export type WebAgentMini = {
+  agent_id: string;
+  name: string;
+  nickname?: string | null;
+  domain?: string | null;
+  color?: string | null;
+  role?: string | null;
+};
+
+export type WebMeetingAgendaItem = {
+  idx: number;
+  title: string;
+  time_budget_min: number | null;
+  status: string;
+  elapsed_min: number | null;
+};
+
+export type WebAIInsightBrief = {
+  id: string;
+  agent_id: string;
+  agent_name: string;
+  agent_nickname: string | null;
+  type: string;
+  content: string;
+};
+
+export type WebMeetingHumanLine = {
+  speaker_name: string;
+  text: string;
+  at_minute: number;
+};
+
+export type WebMeetingDetailOut = {
+  meeting_id: string;
+  title: string;
+  status: string;
+  started_minutes_ago: number;
+  can_control: boolean;
+  agenda_items: WebMeetingAgendaItem[];
+  current_agenda_idx: number | null;
+  is_agenda_complete: boolean;
+  current_topic_title: string | null;
+  current_topic_elapsed_min: number | null;
+  current_topic_insights: WebAIInsightBrief[];
+  current_topic_recent_lines: WebMeetingHumanLine[];
+  transcript_total: number;
+  other_topics_count: number;
+  attending_agents: WebAgentMini[];
+  // v1.4.0 Saga E.E (Sprint 2-3) — orchestrate state in meeting detail aggregate.
+  mode: string;
+  orchestrate_phase: string | null;
+  current_speaker_agent_id: string | null;
+  orchestrate_turn_count: number;
+  orchestrate_completed_agenda_count: number;
+};
+
 // v26.5-02c: KB 沉淀审批草稿
 export type SedimentationDraft = {
   id: string;
@@ -2403,6 +2605,31 @@ export const api = {
   getLineage: () => jget<LineageOut>("/api/lineage"),
   getAgentLineage: (agentId: string) =>
     jget<LineageOut>(`/api/lineage/agent/${agentId}`),
+
+  // R6.5 桑基血缘图 (4 列流: KB → AI → Memory → Meeting) — Sprint 3 Web W1 真接.
+  // 后端 lineage.py:567/581 GET/POST 同义, 这里用 GET 走 jget (简洁 + cache:'no-store').
+  getSankeyLineage: () => jget<SankeyApiOut>("/api/lineage/sankey"),
+
+  // ─── v1.4.0 Saga T1-T2 · /api/v2/today/* (Sprint 3 Web W1: WebHome 真接) ───
+  // 跟 mobile 同套 endpoint, web 直接复用 (R6 首页 DiscoveryBox + MeetingsPulse + HomeFeedTabs 切真).
+  getTodayBrief: () => jget<V2TodayBriefResponse>("/api/v2/today/brief"),
+  getTodayLiveMeeting: () =>
+    jget<V2TodayLiveMeetingResponse>("/api/v2/today/live-meeting"),
+  getTodaySnapshot: () =>
+    jget<V2TodaySnapshotResponse>("/api/v2/today/snapshot"),
+  getTodayInsights: () =>
+    jget<V2TodayInsightsResponse>("/api/v2/today/insights"),
+  getTodayDecisions: () =>
+    jget<V2TodayDecisionsResponse>("/api/v2/today/decisions"),
+
+  // ─── v1.4.0 Saga E.E · web 会议室真接 (Sprint 3 Web W1) ───
+  // 直接复用 mobile.py 的 endpoint, 因为 schema 1:1 满足 web 需求
+  // (5 个 orchestrate 字段 mode / phase / current_speaker_agent_id / turn_count / completed_agenda_count).
+  // 同 endpoint 双端 client 拉, 不新建 /api/web/meetings/*.
+  getWebMeetingDetail: (id: string) =>
+    jget<WebMeetingDetailOut>(`/api/m/meetings/${id}`),
+  getWebMeetingTranscript: (id: string) =>
+    jget<WebMeetingTranscriptOut>(`/api/m/meetings/${id}/transcript`),
 
   // v26.6-01: AI 模板生成器
   previewAgentTemplate: (body: {

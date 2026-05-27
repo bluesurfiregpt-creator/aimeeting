@@ -66,6 +66,76 @@ export const C_AGENT = "#C4B5FD";
 export const C_MEM = "#A78BFA";
 export const C_MEET = "#FF99B6";
 
+const COLOR_BY_TYPE: Record<SankeyNodeType, string> = {
+  kb: C_KB,
+  agent: C_AGENT,
+  memory: C_MEM,
+  meeting: C_MEET,
+};
+
+const EMOJI_BY_TYPE: Record<SankeyNodeType, string> = {
+  kb: "📚",
+  agent: "",
+  memory: "🧠",
+  meeting: "📅",
+};
+
+/**
+ * Sprint 3 Web W1: 把 backend `/api/lineage/sankey` 返回的 SankeyApiOut
+ * 适配到 LineagePane 既有的 SankeyData 形状 (ECharts 用 `name` 当 id).
+ *
+ * 转换:
+ *  - api.node.id → SankeyNode._internalId (内部 idMap 用, 不交给 ECharts)
+ *  - api.node.label → SankeyNode.name (ECharts 节点唯一 key, 也是显示文本)
+ *  - api.link.source/target (是 node.id) → 改成 source/target = 对应 node.label
+ *  - 自动加 emoji 前缀 (跟 mock buildSankey 风格一致, 给 KB/记忆/会议 加图标)
+ *  - color 按 type 推断 (默认色板); 已有 emoji 前缀的 label 不会重复加
+ *
+ * 同 label 重名 dedup: 跟 mock buildSankey 的 seenNames 一致 — 同名节点
+ * 合成一个 (例如多个 agent 返回了同名 KB "·种子知识 A", 只保留一个).
+ */
+export function adaptApiSankey(api: {
+  nodes: Array<{ id: string; label: string; type: SankeyNodeType; meta?: Record<string, unknown> | null }>;
+  links: Array<{ source: string; target: string; value: number }>;
+}): SankeyData {
+  const nodes: SankeyNode[] = [];
+  const links: SankeyLink[] = [];
+  const seenNames = new Set<string>();
+  const idToLabel: Record<string, string> = {};
+
+  for (const n of api.nodes) {
+    const emoji = EMOJI_BY_TYPE[n.type] || "";
+    const rawLabel = (n.label || "").trim() || n.id;
+    const hasEmoji = !!emoji && rawLabel.startsWith(emoji);
+    const finalLabel = emoji && !hasEmoji ? `${emoji} ${rawLabel}` : rawLabel;
+    if (seenNames.has(finalLabel)) {
+      // 重名 — 让 link 用同一个 label, 不重复创建节点
+      idToLabel[n.id] = finalLabel;
+      continue;
+    }
+    seenNames.add(finalLabel);
+    idToLabel[n.id] = finalLabel;
+    nodes.push({
+      name: finalLabel,
+      _internalId: n.id,
+      type: n.type,
+      itemStyle: { color: COLOR_BY_TYPE[n.type] || C_AGENT, borderColor: "rgba(255,255,255,0.30)", borderWidth: 0.5 },
+      label: { color: "#fafafc", fontSize: 11, fontWeight: 500 },
+      meta: (n.meta || undefined) as SankeyNode["meta"],
+    });
+  }
+
+  for (const l of api.links) {
+    const s = idToLabel[l.source];
+    const t = idToLabel[l.target];
+    // 跳过 dangling link (源 或 目标不在 nodes 里 — 后端理论上不会发, 但防御性写一下)
+    if (!s || !t) continue;
+    links.push({ source: s, target: t, value: Math.max(1, l.value || 1) });
+  }
+
+  return { nodes, links };
+}
+
 const SANKEY_AGENTS = ["FALAO", "SHU", "ARIA", "STRATOS", "SAGE", "ZHAOJIE", "LEX", "TALLY"];
 
 export function buildSankey(): SankeyData {

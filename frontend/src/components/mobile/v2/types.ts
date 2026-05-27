@@ -263,11 +263,69 @@ export type V2MemorySnapshot = {
   types: string[];
   count: number;
   source_meeting_id?: string;
+  /** v1.4.0 Sprint 3 Mobile Part 2 (NORTH_STAR § 3.1 v1.1): 出处链回锚点.
+   *  eg "agent-12345" — MeetingTranscriptView data-mr-key. None = 跳 meeting 不锚定. */
+  focus_anchor?: string | null;
 };
 
 export type V2MemorySnapshotsResponse = {
   items: V2MemorySnapshot[];
   total_count: number;
+};
+
+// ─────── §4.5 + §4.6 + §4.7 Sprint 3 Mobile Part 3 — Memory drafts + library ───────
+
+/** SCHEMA §4.5/§4.6 — Memory draft / library item 共用 的 AI badge 形态. */
+export type V2MemoryDraftAIAvatar = {
+  id: string;
+  name: string;
+  glyph: string;
+  gradient_from: string;
+  gradient_to: string;
+};
+
+/** SCHEMA §4.5 — 待审 一条草稿. */
+export type V2MemoryDraftItem = {
+  id: string;
+  proposed_content: string;
+  source_meeting_id?: string | null;
+  source_meeting_title?: string | null;
+  target_ais: V2MemoryDraftAIAvatar[];
+  importance: number;
+  data_classification: string;
+  created_at: string;
+};
+
+export type V2MemoryDraftsResponse = {
+  items: V2MemoryDraftItem[];
+  pending_count: number;
+};
+
+/** SCHEMA §4.6 — 记忆库 一条 已入库 长期记忆. */
+export type V2MemoryLibraryItem = {
+  id: string;
+  content: string;
+  axis_tag?: string | null;
+  importance: number;
+  data_classification: string;
+  source_meeting_id?: string | null;
+  source_meeting_title?: string | null;
+  primary_ai?: V2MemoryDraftAIAvatar | null;
+  created_at: string;
+};
+
+export type V2MemoryLibraryResponse = {
+  items: V2MemoryLibraryItem[];
+  total_count: number;
+  /** {"数据洞察": 3, "产品策略": 5, ...} — 给前端 chip filter 用 */
+  axes_with_count: Record<string, number>;
+};
+
+/** SCHEMA §4.7 — approve / reject 返回 shape (压扁). */
+export type V2MemoryDraftActionOut = {
+  id: string;
+  status: string;
+  committed_memory_id?: string | null;
 };
 
 // ─────── §5 Saga P — Profile + 新建会议 ───────

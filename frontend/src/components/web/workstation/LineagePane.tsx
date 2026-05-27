@@ -38,6 +38,7 @@ import { W_TOKENS } from "../tokens";
 import { WIcon, WButton, WAIBadge, WSparkle } from "../atoms";
 import { W_AGENTS } from "../data/agents";
 import {
+  adaptApiSankey,
   buildSankey,
   C_KB,
   C_AGENT,
@@ -46,6 +47,7 @@ import {
   type SankeyData,
   type SankeyNode,
 } from "../data/sankey";
+import { api } from "@/lib/api";
 import { PaneHeader } from "./PaneHeader";
 
 // ECharts 注册一次, 模块级.
@@ -177,7 +179,36 @@ function SankeyChart({ data, onSelect, height = 620, large = false }: SankeyChar
 export function LineagePane({ embedded = false }: { embedded?: boolean }) {
   const [fullscreen, setFullscreen] = useState(false);
   const [selected, setSelected] = useState<SankeyNode | null>(null);
-  const data = useMemo(() => buildSankey(), []);
+  // Sprint 3 Web W1 (P0-3): 切真接 /api/lineage/sankey. 缺数据 / 后端 5xx 时
+  // fallback mock (workspace 还没沉淀真实 KB/AI/Memory 时 视觉不空盘).
+  // 后端无 KB/Agent/Memory → 也返 {nodes:[], links:[]}, 触发同一份 fallback.
+  const mockData = useMemo(() => buildSankey(), []);
+  const [data, setData] = useState<SankeyData>(mockData);
+  const [usingFallback, setUsingFallback] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const apiOut = await api.getSankeyLineage();
+        if (cancelled) return;
+        // 后端 sankey 4 类节点都为 0 → 空数据, fallback to mock 而不是渲染空白桑基
+        if (!apiOut.nodes.length || !apiOut.links.length) {
+          console.warn("[LineagePane] /api/lineage/sankey 返回空 (workspace 无 KB/Memory 沉淀), 渲染 mock");
+          setUsingFallback(true);
+          return;
+        }
+        setData(adaptApiSankey(apiOut));
+        setUsingFallback(false);
+      } catch (e) {
+        console.warn("[LineagePane] /api/lineage/sankey 拉取失败, 渲染 mock:", e);
+        // 维持 fallback mock — 不动 data
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const counts = useMemo(
     () => ({
@@ -196,17 +227,41 @@ export function LineagePane({ embedded = false }: { embedded?: boolean }) {
     </WButton>
   );
 
+  // Sprint 3 Web W1: workspace 没真实沉淀时显示 "演示数据" pill (PM 反幻觉, 别让客户误以为是真接)
+  const demoBadge = usingFallback ? (
+    <span
+      style={{
+        fontSize: 10.5,
+        fontWeight: 700,
+        color: "#C4B5FD",
+        background: "rgba(124,92,250,0.10)",
+        padding: "2px 8px",
+        borderRadius: 5,
+        letterSpacing: 0.3,
+        boxShadow: "inset 0 0 0 0.5px rgba(124,92,250,0.30)",
+      }}
+    >
+      演示数据
+    </span>
+  ) : null;
+
   return (
     <>
       {!embedded && (
         <PaneHeader
           title="全景血缘图 · 桑基视图"
           sub="知识从书架 → AI 专家 → 长期记忆 → 会议 的完整流向。线条粗细 = 流量强度。"
-          extra={fullscreenBtn}
+          extra={
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              {demoBadge}
+              {fullscreenBtn}
+            </div>
+          }
         />
       )}
       {embedded && (
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          {demoBadge}
           {fullscreenBtn}
         </div>
       )}

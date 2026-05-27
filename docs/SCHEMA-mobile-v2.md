@@ -439,13 +439,139 @@ Echo (◇) #BF5AF2 → #5E5CE6 · 知识管理
       ],
       "types": ["洞察", "建议"],
       "count": 2,
-      "source_meeting_id": "uuid"
+      "source_meeting_id": "uuid",
+      "focus_anchor": "agent-12345"
     }
     // ... 25 条 (跟现有 25 条快照对齐)
   ],
   "total_count": 25
 }
 ```
+
+**v1.4.0 Sprint 3 Mobile Part 2 加 `focus_anchor`** (NORTH_STAR § 3.1 v1.1): 出处链回锚点.
+推自 group 内最新 insight 的 `source_message_id`, 拼成 `agent-<id>` 字符串.
+跟 MeetingTranscriptView `data-mr-key` 严格 一致 — 跳转 URL:
+`/m/meetings/<source_meeting_id>?focus=<focus_anchor>&highlight=1` 后, transcript view
+滚到锚点 + 黄/紫 高亮闪 3 秒. 老 insight (`source_message_id` NULL) 此字段 `null`,
+退到 跳 meeting 不锚定.
+
+### 4.5 `GET /api/v2/memory/drafts` (Sprint 3 Mobile Part 3 · 待审 tab)
+
+**Query**: `?status=pending&limit=50` (status: pending | approved | rejected | expired)
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "proposed_content": "电梯改造的预算上限是 3 亿, 不能突破",
+      "source_meeting_id": "uuid",
+      "source_meeting_title": "电梯改造方案决策会",
+      "target_ais": [
+        {"id":"uuid","name":"Lex","glyph":"§","gradient_from":"#FF9F0A","gradient_to":"#FFB340"}
+      ],
+      "importance": 0.85,
+      "data_classification": "internal",
+      "created_at": "2026-05-26T10:00:00Z"
+    }
+  ],
+  "pending_count": 3
+}
+```
+
+**ABAC**: workspace_id filter + (primary_user_id = caller OR is_workspace_manager).
+跟老 `/api/memory-drafts` (v26.5-Lineage) 一致.
+
+### 4.6 `GET /api/v2/memory/library` (Sprint 3 Mobile Part 3 · 记忆库 tab)
+
+**Query**: `?axis_tag=数据洞察&limit=50` (axis_tag 可选, 6 个固定 + NULL)
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "content": "客户反馈搜索改版后 P0 投诉 -42%, 体验改善显著",
+      "axis_tag": "数据洞察",
+      "importance": 0.9,
+      "data_classification": "internal",
+      "source_meeting_id": "uuid",
+      "source_meeting_title": "搜索改版上线复盘会",
+      "primary_ai": {
+        "id":"uuid","name":"Sage","glyph":"✦",
+        "gradient_from":"#5E5CE6","gradient_to":"#AF52DE"
+      },
+      "created_at": "2026-05-20T14:30:00Z"
+    }
+  ],
+  "total_count": 12,
+  "axes_with_count": {
+    "数据洞察": 3,
+    "产品策略": 5,
+    "UX 体验": 2,
+    "法规合规": 1,
+    "财务建模": 1
+  }
+}
+```
+
+**ABAC**: workspace_id filter (workspace 全员共享, NORTH_STAR § 3.1).
+
+### 4.7 `POST /api/v2/memory/drafts/{id}/approve | /reject` (Sprint 3 Mobile Part 3)
+
+NORTH_STAR § 4.2.1: mobile 允许 approve/reject (审核 ≠ 编辑).
+
+**Approve body**: 无.  **Reject body**: `{"reason": "..."}` (optional).
+
+**Response**:
+```json
+{
+  "id": "uuid",
+  "status": "approved",
+  "committed_memory_id": "uuid"
+}
+```
+
+Delegate 到 老 `/api/memory-drafts/{id}/approve|reject` 内部逻辑 (memory_drafts.py:267/336).
+v2 wrapper 只 压扁 response shape, 让 mobile 不依赖 老 endpoint url.
+
+---
+
+## 6. Sprint 3 Mobile Part 1 — KB 引用侧栏 (NORTH_STAR § 3.2)
+
+### 6.1 `GET /api/v2/meetings/{meeting_id}/agent-messages/{message_id}/citations`
+
+会议室 AI 发言下方 "引用 N 条 KB" → 弹 KBCitationSheet → 拉此 endpoint.
+
+```json
+{
+  "message_id": 12345,
+  "citations": [
+    {
+      "chunk_id": "uuid",
+      "document_id": "uuid",
+      "document_filename": "深圳市物业管理条例 2025.pdf",
+      "chunk_index": 7,
+      "snippet": "第三十二条 物业服务企业应当按照…",
+      "distance": 0.32
+    }
+  ],
+  "citations_count": 1
+}
+```
+
+**ABAC** (双层防穿透):
+1. `meeting.workspace_id == auth.workspace.id` — 跨 workspace 抛 404
+2. `message.meeting_id == meeting_id` — 跨 meeting 抛 404 (不 leak 存在性)
+
+**字段** (跟老 `AgentCitationOut` meetings.py:3385 复用):
+- `chunk_id` — uuid
+- `document_id` — uuid (前端 link → `/workspace/kb/documents/<id>`, target="_blank")
+- `document_filename` — 显示名 (truncate ellipsis)
+- `chunk_index` — int (0-based, 前端显 `段落 #N+1`)
+- `snippet` — chunk 原文 (≤500B, frontend `-webkit-line-clamp: 3`)
+- `distance` — pgvector cosine 距离 [0, 2), 越小越像. 前端 chip 文案:
+  `< 0.35 高度相关` / `< 0.6 相关` / `else 参考` (不显原始数字, 避免技术化).
 
 ---
 

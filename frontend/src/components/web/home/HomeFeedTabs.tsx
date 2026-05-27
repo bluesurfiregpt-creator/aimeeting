@@ -76,14 +76,29 @@ const TABS: TabSpec[] = [
 export function HomeFeedTabs({
   tab,
   onChange,
+  meetingsToday = null,
 }: {
   tab: HomeTab;
   onChange: (next: HomeTab) => void;
+  /** Sprint 3 Web W1: /api/v2/today/snapshot.meetings_today. null = fallback to mock 24. */
+  meetingsToday?: number | null;
 }) {
+  // Sprint 3 Web W1: 替换 "你的会议" tab 第 3 个 stat 的 hardcode 24 → 真接 snapshot.meetings_today.
+  // null = fallback to mock (workspace 无数据时 视觉不空盘).
+  const liveTabs = TABS.map((t) => {
+    if (t.id !== "meet" || meetingsToday == null) return t;
+    return {
+      ...t,
+      stats: t.stats.map((s, i) =>
+        i === 2 ? { ...s, num: meetingsToday, label: "今日会议" } : s,
+      ),
+    };
+  });
+
   return (
     <section style={{ marginTop: 56 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        {TABS.map((t) => (
+        {liveTabs.map((t) => (
           <TabButton key={t.id} t={t} on={tab === t.id} onClick={() => onChange(t.id)} />
         ))}
       </div>

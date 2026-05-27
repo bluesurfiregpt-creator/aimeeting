@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { V2TodayBriefResponse } from "@/lib/api";
 import { W_TOKENS } from "../tokens";
 import {
   W_AGENTS,
@@ -10,6 +11,11 @@ import {
 import { WAIBadge, WButton, WIcon, WPill } from "../atoms";
 
 type Stage = "idle" | "thinking" | "result";
+
+export type DiscoveryBoxProps = {
+  /** Sprint 3 Web W1: 父级 WebHome 拉 /api/v2/today/brief 传入. null = fallback to mock 默认文案. */
+  brief?: V2TodayBriefResponse | null;
+};
 
 /**
  * 对话式发现 — round-6 重写.
@@ -30,7 +36,7 @@ type Stage = "idle" | "thinking" | "result";
  *
  * "立即开始这场会议" / "空白会议" → 跳 /meeting.
  */
-export function DiscoveryBox() {
+export function DiscoveryBox({ brief = null }: DiscoveryBoxProps = {}) {
   const [stage, setStage] = useState<Stage>("idle");
   const [prompt, setPrompt] = useState("");
   // Track theme so we can use a light-mode-native palette instead of forcing dark
@@ -201,7 +207,7 @@ export function DiscoveryBox() {
                 lineHeight: 1.45,
               }}
             >
-              告诉我你要解决什么 · 我帮你召唤合适的专家
+              {brief?.summary_text || "告诉我你要解决什么 · 我帮你召唤合适的专家"}
             </div>
             <div
               style={{
@@ -211,6 +217,7 @@ export function DiscoveryBox() {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 6,
+                flexWrap: "wrap",
               }}
             >
               <span
@@ -223,7 +230,29 @@ export function DiscoveryBox() {
                   animation: "wPulse 1.5s ease-in-out infinite",
                 }}
               />
-              智能议程 + 专家阵容 · 平均 1.4 秒出方案
+              {brief && brief.chips.length > 0 ? (
+                <>
+                  {brief.chips.slice(0, 3).map((chip, i) => (
+                    <span
+                      key={i}
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: chip.color,
+                        background: `${chip.color}1A`,
+                        padding: "1px 7px",
+                        borderRadius: 4,
+                        letterSpacing: 0.2,
+                        boxShadow: `inset 0 0 0 0.5px ${chip.color}40`,
+                      }}
+                    >
+                      {chip.label}
+                    </span>
+                  ))}
+                </>
+              ) : (
+                "智能议程 + 专家阵容 · 平均 1.4 秒出方案"
+              )}
             </div>
           </div>
           {stage === "result" && (

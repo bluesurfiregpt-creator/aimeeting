@@ -30,6 +30,9 @@ export { default as MMemoryRadar } from "./MMemoryRadar";
 export { default as MASheet } from "./MASheet";
 export { default as MScrollPicker } from "./MScrollPicker";
 export { default as MAIRosterGrid } from "./MAIRosterGrid";
+// v1.4.0 Sprint 3 Mobile Part 1 — KB 引用侧滑 sheet (NORTH_STAR § 3.2)
+export { default as KBCitationSheet } from "./KBCitationSheet";
+export type { KBCitation } from "./KBCitationSheet";
 
 export type { V2IconName } from "./MAIcon";
 export type { V2SegmentedTab } from "./MASegmented";
@@ -78,6 +81,13 @@ export type {
   V2SnapshotAIAvatar,
   V2MemorySnapshot,
   V2MemorySnapshotsResponse,
+  // Sprint 3 Mobile Part 3 (NORTH_STAR § 4.2.1) — drafts + library
+  V2MemoryDraftAIAvatar,
+  V2MemoryDraftItem,
+  V2MemoryDraftsResponse,
+  V2MemoryLibraryItem,
+  V2MemoryLibraryResponse,
+  V2MemoryDraftActionOut,
   // §5 profile (Saga P-1)
   V2ProfileAIStats,
   V2ProfileVoiceprintsStats,
