@@ -1489,6 +1489,12 @@ class LongTermMemory(Base):
     # 行号 = meeting_transcript.id. 跟 MemoryDraft.source_line_ids 一脉, 通过 时 复制.
     # 老 memory (升级 前 创建) 此字段 NULL, 前端 fallback 不渲 chip.
     source_line_ids: Mapped[Optional[list[int]]] = mapped_column(JSON, nullable=True)
+    # v1.4.0 Saga T5 (Phase 2 W3): MemoryRadar 6 轴聚合 keyword 分类标签.
+    # 6 个合法值: 数据洞察 / 产品策略 / UX 体验 / 法规合规 / 财务建模 / 客户体验.
+    # NULL = 未分类 (老数据, V1 keyword 没匹配到关键词 — 不计入 radar 6 轴).
+    # V1: keyword 匹配 (memory_axis.classify_memory_to_axis), 60-70% 准确.
+    # V1.5: LLM 聚类回填 (推迟).
+    axis_tag: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

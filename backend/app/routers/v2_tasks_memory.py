@@ -38,7 +38,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..agent_glyphs import agent_to_ai_badge, agent_to_ai_source, normalize_insight_type
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
-from ..models import Agent, AIInsight, Meeting, Task
+from ..memory_axis import AXES
+from ..models import Agent, AIInsight, LongTermMemory, Meeting, Task
 from ..task_urgency import derive_urgency, due_display
 from ..v2_helpers import group_insights_by_topic
 
@@ -422,35 +423,100 @@ class RadarData(BaseModel):
 
 
 @router.get("/memory/radar", response_model=RadarData)
-async def get_memory_radar() -> RadarData:
-    """雷达 hero 数据 — PM 2=a 6 轴写死."""
+async def get_memory_radar(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> RadarData:
+    """v1.4.0 Saga T5 (Phase 2 W3) · MemoryRadar 6 轴真接.
+
+    PM 决策 3 = 两阶段:
+      V1 (本): keyword 匹配 (memory_axis.classify_memory_to_axis), 60-70% 准确
+      V1.5 (延后): LLM 聚类回填 qwen-max
+
+    ABAC: LongTermMemory.workspace_id == auth.workspace.id (全 query)
+          my_values 额外 curated_by_user_id == auth.user.id
+
+    SCHEMA §4.3 严格:
+      - axes 6 个固定顺序 (memory_axis.AXES) 跟前端 SVG 顶点 index 对齐
+      - my_values[i] = 当前用户在 axes[i] 的 memory count
+      - team_values[i] = 全 workspace 在 axes[i] 的 memory count (含 my)
+      - axis_metrics 前 2 个: "你最强 {axis} {count}" + "可补充 {axis} 团队+{diff}"
+      - Empty workspace fallback: 全 0 + axis_metrics=[]
+    """
+    ws_id = auth.workspace.id
+    user_id = auth.user.id
+
+    # 6 个 my COUNT
+    my_values: list[int] = []
+    for axis in AXES:
+        stmt = select(func.count(LongTermMemory.id)).where(
+            LongTermMemory.workspace_id == ws_id,
+            LongTermMemory.axis_tag == axis,
+            LongTermMemory.curated_by_user_id == user_id,
+        )
+        r = await session.execute(stmt)
+        my_values.append(int(r.scalar() or 0))
+
+    # 6 个 team COUNT (含 my — "团队" 包含自己, my_values 是 "你单独" 维度)
+    team_values: list[int] = []
+    for axis in AXES:
+        stmt = select(func.count(LongTermMemory.id)).where(
+            LongTermMemory.workspace_id == ws_id,
+            LongTermMemory.axis_tag == axis,
+        )
+        r = await session.execute(stmt)
+        team_values.append(int(r.scalar() or 0))
+
+    # total_memories: 有 axis_tag 的 memory 总数 (NULL 不计)
+    stmt_total = select(func.count(LongTermMemory.id)).where(
+        LongTermMemory.workspace_id == ws_id,
+        LongTermMemory.axis_tag.isnot(None),
+    )
+    r = await session.execute(stmt_total)
+    total_memories = int(r.scalar() or 0)
+
+    # total_axes_covered: 有数据的轴数
+    total_axes_covered = sum(1 for v in team_values if v > 0)
+
+    # axis_metrics — 前 2 个:
+    #   [0] "你最强": my_values 最高的 axis
+    #   [1] "可补充": team_diff 最大的 axis (team 比你多最多)
+    axis_metrics: list[RadarAxisMetric] = []
+
+    # 你最强
+    if any(v > 0 for v in my_values):
+        best_my_idx = max(range(6), key=lambda i: my_values[i])
+        axis_metrics.append(
+            RadarAxisMetric(
+                axis_name=AXES[best_my_idx],
+                my_count=my_values[best_my_idx],
+                team_diff=team_values[best_my_idx] - my_values[best_my_idx],
+                label=f"{AXES[best_my_idx]} {my_values[best_my_idx]}",
+            )
+        )
+
+    # 可补充
+    diffs = [team_values[i] - my_values[i] for i in range(6)]
+    if any(d > 0 for d in diffs):
+        best_diff_idx = max(range(6), key=lambda i: diffs[i])
+        # 避免跟"你最强"是同一个 axis
+        if not axis_metrics or AXES[best_diff_idx] != axis_metrics[0].axis_name:
+            axis_metrics.append(
+                RadarAxisMetric(
+                    axis_name=AXES[best_diff_idx],
+                    my_count=my_values[best_diff_idx],
+                    team_diff=diffs[best_diff_idx],
+                    label=f"{AXES[best_diff_idx]} 团队+{diffs[best_diff_idx]}",
+                )
+            )
+
     return RadarData(
-        total_memories=100,
-        total_axes_covered=6,
-        axes=[
-            "数据洞察",
-            "产品策略",
-            "UX 体验",
-            "法规合规",
-            "财务建模",
-            "客户体验",
-        ],
-        my_values=[32, 24, 18, 8, 12, 6],
-        team_values=[28, 30, 22, 14, 16, 10],
-        axis_metrics=[
-            RadarAxisMetric(
-                axis_name="数据洞察",
-                my_count=32,
-                team_diff=4,
-                label="数据洞察 32",
-            ),
-            RadarAxisMetric(
-                axis_name="财务建模",
-                my_count=12,
-                team_diff=4,
-                label="财务建模 团队+4",
-            ),
-        ],
+        total_memories=total_memories,
+        total_axes_covered=total_axes_covered,
+        axes=AXES,
+        my_values=my_values,
+        team_values=team_values,
+        axis_metrics=axis_metrics,
     )
 
 

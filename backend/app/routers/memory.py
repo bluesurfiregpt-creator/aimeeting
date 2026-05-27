@@ -223,6 +223,10 @@ async def create_memory(
     except EmbeddingError as e:
         raise HTTPException(503, f"embedding service unavailable: {e}")
 
+    # v1.4.0 Saga T5: keyword 分类到 6 轴 (用于 /api/v2/memory/radar 聚合).
+    # 命中 0 关键词 → axis_tag=None (不计入 radar). V1.5 LLM 聚类回填.
+    from ..memory_axis import classify_memory_to_axis
+
     m = LongTermMemory(
         scope=payload.scope,
         scope_ref=payload.scope_ref,
@@ -235,6 +239,7 @@ async def create_memory(
         agent_id=aids[0] if aids else None,
         curated_by_user_id=auth.user.id,
         curated_at=datetime.utcnow(),
+        axis_tag=classify_memory_to_axis(payload.content),
     )
     session.add(m)
     await session.flush()

@@ -174,6 +174,9 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     ("user", "wx_unionid", "VARCHAR(128)"),
     # v27.2 手机号 登录: 跟 email 并列, 11 位 CN 手机号 存原值 (无 +86 前缀).
     ("user", "phone", "VARCHAR(16)"),
+    # v1.4.0 Saga T5 (Phase 2 W3): MemoryRadar 6 轴 keyword 分类标签.
+    # NULL = 未分类 (老数据). V1 keyword 匹配 → 6 个合法值之一.
+    ("long_term_memory", "axis_tag", "VARCHAR(32)"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).
@@ -749,6 +752,9 @@ async def init_db() -> None:
             # ix_ai_insight_ws_created 已覆盖 workspace_id + created_at DESC.
             # 加 partial index 给 human_decision IS NULL OR 'accepted' 的 broad pool (无需新 SQL,
             # 复用 ix_ai_insight_ws_created 即可).
+            # v1.4.0 Saga T5 (Phase 2 W3): /memory/radar 6 轴聚合 (LongTermMemory.axis_tag).
+            # 6 个 my COUNT + 6 个 team COUNT 都走这个复合索引.
+            "CREATE INDEX IF NOT EXISTS ix_long_term_memory_ws_axis ON long_term_memory (workspace_id, axis_tag) WHERE axis_tag IS NOT NULL",
         ]:
             try:
                 await conn.execute(text(sql))
