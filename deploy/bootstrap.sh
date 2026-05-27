@@ -70,10 +70,20 @@ certbot certonly --webroot -w /var/www/certbot \
     -d "$DOMAIN"
 
 # Replace bootstrap config with the production one (caller copies it before running).
+#
+# v1.4.0 Sprint 3 retro (2026-05-27): 目标 文件名 改 为 `aimeeting` (无 `.conf` 后缀).
+# 历史 prod active symlink 是 `/etc/nginx/sites-available/aimeeting` (手动 setup
+# 时 漏了 `.conf` 后缀), bootstrap 此前 写到 `aimeeting.conf` 路径 → 两份 配置
+# 不同步, prod 漏 了 `location /ws/` 块 ~1 个月, 所有 mobile WS 连接 静默 timeout,
+# Sprint 3 WS broadcast 在 prod 没人 收到. 见 docs/release/v1.4.0-sprint3-retro.md.
+#
+# 修复后: bootstrap 写到 `aimeeting` (跟 active symlink 对齐), 后续 server 重装
+# 跑 bootstrap 就能自动 拿到 repo 里的 完整 nginx config (含 /ws/ 块).
 if [ -f "$APP_DIR/deploy/nginx/aimeeting.conf" ]; then
-    cp "$APP_DIR/deploy/nginx/aimeeting.conf" /etc/nginx/sites-available/aimeeting.conf
-    ln -sf /etc/nginx/sites-available/aimeeting.conf /etc/nginx/sites-enabled/aimeeting.conf
+    cp "$APP_DIR/deploy/nginx/aimeeting.conf" /etc/nginx/sites-available/aimeeting
+    ln -sf /etc/nginx/sites-available/aimeeting /etc/nginx/sites-enabled/aimeeting
     rm -f /etc/nginx/sites-enabled/aimeeting-bootstrap.conf
+    rm -f /etc/nginx/sites-enabled/aimeeting.conf  # 旧 link 清掉, 避免双份配置
     nginx -t && systemctl reload nginx
 fi
 
