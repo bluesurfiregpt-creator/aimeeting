@@ -1,7 +1,7 @@
-# aimeeting · NORTH_STAR (产品宪法 v1.2.3)
+# aimeeting · NORTH_STAR (产品宪法 v1.2.4)
 
-> **版本**: v1.2.3 (会议室双 theme 例外 override, 2026-05-28)
-> **历史**: v1.0 → v1.1 → v1.2 (大会师 8 痛点) → v1.2.1 (§ 8.6 路径规范) → v1.2.2 (Phase A 收尾 + § 8.7 双盲) → **v1.2.3 (本次: § 7.1.1 会议室双 theme 例外, PM 显式 override § 7.1)**
+> **版本**: v1.2.4 (中文表达规范 sticky, 2026-05-28)
+> **历史**: v1.0 → v1.1 → v1.2 (大会师 8 痛点) → v1.2.1 (§ 8.6 路径规范) → v1.2.2 (Phase A 收尾 + § 8.7 双盲) → v1.2.3 (§ 7.1.1 会议室双 theme override) → **v1.2.4 (本次: § 8.8 中文表达规范, PM 多次提醒后 sticky)**
 > **来源**: PM 主导 8 大客户痛点表述 + Code Archaeology 校准 + Phase 1-2 + Sprint 1-3 + **Phase A 7 项 + 双盲测试 Round 1+2 GREEN** ship 历史
 > **演进机制**: 每个 Saga 收尾时反思, **或 PM 主导"大会师"重新对齐**, 由 PM 决策升级版本 (见第 9 节)
 > **本文档是产品 truth source** — 任何 Saga changelist / spec 必须先对齐 NORTH_STAR, 不一致以 NORTH_STAR 为准.
@@ -630,6 +630,30 @@ PM 真实需求 (PM 原话 2026-05-27):
 4. **metric 多维度** — 不要 单一 binary fail/pass, 给 numeric (count / latency / 文本 grep 命中数), PM 看 趋势
 5. **保留 完整 events 列表** — 出 retro 时 能 grep 原始 WS frame, 不靠 摘要
 6. **支持 多 runner 标识** (`--runner claude|kimi`) — 同 schema 输出 方便 对账
+
+### 8.8 中文表达规范 — **强约束**(PM 多次提醒 2026-05-28 sticky)
+
+PM 反馈 Claude 的 AskUserQuestion 选项 + 部分 commit message 出现「无规律空格 + 火星文 + 罕字错字」,像文言文,读起来很怪。
+
+#### 4 条规则
+
+1. **中文之间不加空格**:对用户聊天 + AskUserQuestion 选项 + UI label 一律不加。代码注释 / commit message 历史风格可继续加(项目约定)。
+2. **只用常用字**:不允许罕字组合(eg「搳 / 拚 / 梧 / 逆中 / 担收」)。所有动词、名词用常见词。
+3. **AskUserQuestion 调用前自查一遍**:像不像真人对话?读起来卡不卡?像文言文 / 火星文就重写。
+4. **commit message 也别火星文**:中文加空格 OK,但罕字不行,stick to 普通话 + 技术词。
+
+#### 反例(2026-05-28 触发 sticky)
+
+PM 看到我写的:
+- 「Chat 双盲 报 2 个真问题. 你 **搳**?」(搳 应为 选)
+- 「点点是不是 **抵赖年** 脚本」(抵赖年 应为 网络问题)
+- 「Phase A subagent 多次 **梧** 运行 都 **逆中**」(梧 应为 想 / 中途;逆中 应为 终止)
+
+#### 触发时机(对 Claude 自己)
+
+- 写 AskUserQuestion → 调 tool 前 mental read 一遍
+- 写 用户聊天回复 → 不允许中文加空格 + 不允许罕字
+- 写 commit message → 检查没罕字才 git commit
 
 ---
 
