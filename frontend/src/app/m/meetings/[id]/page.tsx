@@ -590,6 +590,26 @@ function MeetingDetailInner({ id }: { id: string }) {
           pushBanner(banner, tNow);
           break;
         }
+        case "agent_recommendation": {
+          // v1.4.0 Phase A · 5 (NORTH_STAR § 6.1 痛点 6): orchestrator 推荐 下一位
+          // AI 专家 接力. 跟 dissent (检测 反对 才触发) 不同 — recommend 在 每次 AI
+          // 发言 后 都可能 出现, 是 "Mira 接力 调度" 主动行为. 用 route 橙色 tone +
+          // 文字 "Mira 推荐 ARIA 接力 — <reason>" 不打扰但 让用户 能 一键 接受.
+          const banner: BannerData = {
+            kind: "recommend",
+            tone: "route",
+            title: `Mira 推荐 ${e.agent_nickname || e.agent_name} 接力`,
+            body: e.reason,
+            t: tLabel,
+            agentId: e.agent_id,
+            agentName: e.agent_nickname || e.agent_name,
+            agentColor: e.agent_color,
+            invokeQuery: undefined,
+            autoSummonSec: null,
+          };
+          pushBanner(banner, tNow);
+          break;
+        }
         case "orchestrate_phase_change": {
           // v1.4.0 Saga E.E2 (Sprint 3): auto 会议 orchestrator state 增量 推到
           // detail (省 2.5s 轮询). 只 patch 受影响 的 4 个字段; 其余 detail

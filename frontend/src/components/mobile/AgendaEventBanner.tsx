@@ -36,7 +36,11 @@ export type BannerKind =
   | "stuck"
   | "dissent"
   | "decision_summary"
-  | "advance_suggested";
+  | "advance_suggested"
+  // v1.4.0 Phase A · 5 (NORTH_STAR § 6.1 痛点 6): AI 主持人 UI 交互 ——
+  // orchestrator 推荐 下一位 AI 专家 接力 时, 显示 inline banner + CTA 召唤.
+  // 跟 dissent (反对 触发) 区分: recommend 是 "Mira 推荐 X 来接力", 不一定 有 分歧.
+  | "recommend";
 
 export type BannerData = {
   kind: BannerKind;
@@ -472,12 +476,20 @@ function DefaultLevel({
   onDismiss: () => void;
 }) {
   const tone = data.tone as keyof typeof TONE_META;
-  const meta = TONE_META[tone];
+  const baseMeta = TONE_META[tone];
+  // v1.4.0 Phase A · 5: recommend kind 复用 route tone 但 显示 "Mira 接力推荐" + sparkle icon
+  const meta =
+    data.kind === "recommend"
+      ? { icon: "sparkle" as MRIconName, color: baseMeta.color, label: "Mira 接力推荐" }
+      : baseMeta;
 
   const isAdvance = data.kind === "advance_suggested";
+  const isRecommend = data.kind === "recommend";
   const ctaLabel = isAdvance
     ? "立刻推进 →"
-    : `召唤 ${data.agentName}`;
+    : isRecommend
+      ? `接力 → ${data.agentName}`
+      : `召唤 ${data.agentName}`;
   const ctaHidden = isAdvance && data.canAdvance === false;
   const handleCta = () => {
     if (isAdvance && onAdvanceAgenda) {
