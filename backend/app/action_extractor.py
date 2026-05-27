@@ -33,7 +33,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import SessionLocal
-from .llm_direct import LlmError, get_active_provider, stream_chat
+from .llm_direct import LlmError, get_active_provider, resolve_model_id, stream_chat
 from .models import Meeting, MeetingActionItem, MeetingTranscript, User
 from .task_sync import add_action_with_task, delete_tasks_for_meeting_summary_actions
 
@@ -254,13 +254,16 @@ async def extract_and_store_actions(
             )
 
         chunks: list[str] = []
+        # v1.4.0 Saga R preflight: 用 active provider 配的 model_id (避免 prod
+        # deepseek-v4-pro active 时 硬发 "qwen-max-latest" → 400 unknown model).
+        model_id = resolve_model_id(provider, purpose="action_extractor")
         try:
-            # v25.11: 用 qwen-max + temperature=0 + top_p=0.1 反幻觉
+            # v25.11: temperature=0 + top_p=0.1 反幻觉
             async for c in stream_chat(
                 provider=provider,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                model_override="qwen-max-latest",
+                model_override=model_id,
                 temperature=0.0,
                 top_p=0.1,
             ):

@@ -31,7 +31,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import SessionLocal
-from .llm_direct import LlmError, get_active_provider, stream_chat
+from .llm_direct import LlmError, get_active_provider, resolve_model_id, stream_chat
 from .models import Agent, Meeting, MeetingAgentMessage, MeetingTranscript, User
 
 logger = logging.getLogger(__name__)
@@ -156,6 +156,9 @@ MIN_TRANSCRIPT_CHARS = 300  # 之前 60,中文 300 字才有总结价值
 
 # v25.7-#2: 纪要专用 LLM(qwen-max-latest 中文政务 + 结构化 + 反幻觉最强)
 # 不依赖 user 在 /admin/models 里选的 model — 那个保留给 起草/问数 等快任务.
+# v1.4.0 Saga R preflight: 历史 hardcode "qwen-max-latest" 在 prod deepseek active 时
+# → API 400 unknown model. 改成 fallback 兜底, 实际 model 走 active provider.model_id
+# (resolve_model_id below). 这个 常量 仅 作 last-resort 兜底.
 SUMMARY_MODEL_OVERRIDE = "qwen-max-latest"
 
 
@@ -227,13 +230,16 @@ async def generate_summary(
     )
 
     chunks: list[str] = []
+    # v1.4.0 Saga R preflight: 用 active provider 自己 配的 model_id (e.g. deepseek-v4-pro),
+    # SUMMARY_MODEL_OVERRIDE 仅 兜底. resolve_model_id 已经 处理 env / fallback 链.
+    model_id = resolve_model_id(provider, purpose="summary")
     try:
-        # v25.7-#2: 强制 qwen-max-latest + temperature=0 + top_p=0.1 — 反幻觉
+        # v25.7-#2: temperature=0 + top_p=0.1 — 反幻觉
         async for c in stream_chat(
             provider=provider,
             system_prompt=SUMMARY_SYSTEM_PROMPT,
             user_prompt=user_prompt,
-            model_override=SUMMARY_MODEL_OVERRIDE,
+            model_override=model_id,
             temperature=0.0,
             top_p=0.1,
         ):

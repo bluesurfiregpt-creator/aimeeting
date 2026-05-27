@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import uuid
 from typing import Any, AsyncIterator, Optional
 
 import httpx
@@ -27,16 +29,112 @@ from .models import ModelProviderConfig
 logger = logging.getLogger(__name__)
 
 
+# v1.4.0 Saga R preflight: hardcoded final fallback. 历史上 backend 所有 LLM 调用
+# 都 强制 model_override="qwen-max-latest", 但 prod active provider 可能是
+# deepseek / openai → API 会返回 400 unknown model. 现在 走 get_active_model_id
+# 取 active provider 自己 配的 model_id (e.g. "deepseek-v4-pro"), 这里 只 当 全部
+# fallback 都没命中时 兜底.
+_HARDCODED_FALLBACK_MODEL = "qwen-max-latest"
+
+
 class LlmError(RuntimeError):
     pass
 
 
-async def get_active_provider(db: AsyncSession) -> Optional[ModelProviderConfig]:
+async def get_active_provider(
+    db: AsyncSession,
+    workspace_id: Optional[uuid.UUID] = None,
+) -> Optional[ModelProviderConfig]:
+    """Return the currently active ModelProviderConfig row.
+
+    If `workspace_id` is given, prefer the active row scoped to that workspace.
+    Falls back to any active row (legacy global path) when no workspace match.
+    """
+    if workspace_id is not None:
+        scoped = (
+            await db.execute(
+                select(ModelProviderConfig).where(
+                    ModelProviderConfig.is_active.is_(True),
+                    ModelProviderConfig.workspace_id == workspace_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if scoped is not None:
+            return scoped
     return (
         await db.execute(
             select(ModelProviderConfig).where(ModelProviderConfig.is_active.is_(True))
         )
     ).scalar_one_or_none()
+
+
+async def get_active_model_id(
+    session: AsyncSession,
+    workspace_id: Optional[uuid.UUID] = None,
+    purpose: str = "general",  # v1.4.0 reserved for future per-purpose routing
+) -> str:
+    """Return the model_id to send to the LLM provider.
+
+    v1.4.0 Saga R preflight: 历史 hardcoded "qwen-max-latest" 在 deepseek-v4-pro
+    active 时 → 400 unknown model. 改成 读 active provider.model_id (prod 实际 配的).
+
+    Fallback chain:
+      1. workspace_id-scoped active provider.model_id (if found + non-empty)
+      2. any active provider.model_id (legacy global, if found + non-empty)
+      3. env DEFAULT_LLM_MODEL (system override, useful for tests / migrations)
+      4. hardcoded "qwen-max-latest" (final fallback, log warning)
+
+    `purpose` is a reserved free-form label (general / agent / orchestrator / ...)
+    for future per-purpose routing. v1.4.0 returns the same id regardless of purpose.
+    """
+    provider = await get_active_provider(session, workspace_id=workspace_id)
+    if provider is not None:
+        model_id = (provider.model_id or "").strip()
+        if model_id:
+            return model_id
+
+    env_default = (os.environ.get("DEFAULT_LLM_MODEL") or "").strip()
+    if env_default:
+        logger.info(
+            "get_active_model_id: no active provider.model_id, "
+            "using DEFAULT_LLM_MODEL=%s",
+            env_default,
+        )
+        return env_default
+
+    logger.warning(
+        "get_active_model_id: no active provider AND no DEFAULT_LLM_MODEL — "
+        "falling back to hardcoded %r (workspace=%s purpose=%s). "
+        "Configure /admin/models to fix.",
+        _HARDCODED_FALLBACK_MODEL, workspace_id, purpose,
+    )
+    return _HARDCODED_FALLBACK_MODEL
+
+
+def resolve_model_id(
+    provider: Optional[ModelProviderConfig],
+    purpose: str = "general",
+) -> str:
+    """Sync convenience: pick model_id from an already-loaded provider.
+
+    Mirrors `get_active_model_id`'s fallback chain but skips DB lookup —
+    callers that already hold a `provider` (e.g. inside the same session
+    that just called `get_active_provider`) use this to avoid a second
+    round trip.
+    """
+    if provider is not None:
+        model_id = (provider.model_id or "").strip()
+        if model_id:
+            return model_id
+    env_default = (os.environ.get("DEFAULT_LLM_MODEL") or "").strip()
+    if env_default:
+        return env_default
+    logger.warning(
+        "resolve_model_id: provider missing model_id and no DEFAULT_LLM_MODEL — "
+        "falling back to %r (purpose=%s)",
+        _HARDCODED_FALLBACK_MODEL, purpose,
+    )
+    return _HARDCODED_FALLBACK_MODEL
 
 
 async def stream_chat(

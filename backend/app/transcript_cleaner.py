@@ -31,12 +31,14 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import SessionLocal
-from .llm_direct import LlmError, get_active_provider, stream_chat
+from .llm_direct import LlmError, get_active_provider, resolve_model_id, stream_chat
 from .models import Agent, Meeting, MeetingAttendee, MeetingTranscript, User
 
 logger = logging.getLogger(__name__)
 
 
+# v1.4.0 Saga R preflight: hardcode 是历史最终兜底, 实际跑 走 active provider.model_id
+# (resolve_model_id below).
 CLEANER_MODEL = "qwen-max-latest"
 MAX_LINES_PER_BATCH = 80   # 长会议 拆批
 MIN_LINES_TO_CLEAN = 5     # 太短不调 LLM
@@ -151,6 +153,9 @@ async def clean_meeting_transcripts(meeting_id: uuid.UUID) -> int:
         logger.warning("transcript_cleaner: no LLM provider, skip")
         return 0
 
+    # v1.4.0 Saga R preflight: 走 active provider.model_id, CLEANER_MODEL 仅 兜底.
+    cleaner_model = resolve_model_id(provider, purpose="transcript_cleaner")
+
     # 分批(每批 MAX_LINES_PER_BATCH 行)
     total_updated = 0
     for batch_start in range(0, len(rows), MAX_LINES_PER_BATCH):
@@ -169,7 +174,7 @@ async def clean_meeting_transcripts(meeting_id: uuid.UUID) -> int:
                 provider=provider,
                 system_prompt=CLEANER_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
-                model_override=CLEANER_MODEL,
+                model_override=cleaner_model,
                 temperature=0.0,
                 top_p=0.1,
             ):

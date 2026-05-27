@@ -47,7 +47,7 @@ from .auto_meeting_state import (
     running_elapsed_seconds,
 )
 from .db import SessionLocal
-from .llm_direct import LlmError, get_active_provider, stream_chat
+from .llm_direct import LlmError, get_active_provider, resolve_model_id, stream_chat
 from .models import Agent, Meeting, MeetingAgentMessage, MeetingConsensus
 
 logger = logging.getLogger(__name__)
@@ -295,10 +295,17 @@ async def _call_llm(
     system_prompt: str,
     user_prompt: str,
     *,
-    model_override: str = "qwen-max-latest",
+    model_override: Optional[str] = None,
     temperature: float = 0.3,
 ) -> tuple[str, int, float]:
-    """Returns (content, token_estimate, elapsed_sec). Raises LlmError."""
+    """Returns (content, token_estimate, elapsed_sec). Raises LlmError.
+
+    v1.4.0 Saga R preflight: model_override 默认 None → 走 active provider.model_id
+    (resolve_model_id 兜底链). 历史 hardcode "qwen-max-latest" 在 prod deepseek-v4-pro
+    active 时 API 400 unknown model.
+    """
+    if model_override is None:
+        model_override = resolve_model_id(provider, purpose="orchestrator")
     t0 = time.time()
     chunks: list[str] = []
     async for chunk in stream_chat(

@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .chunker import split_text
 from .db import SessionLocal
 from .embeddings import EmbeddingError, compute_embeddings
-from .llm_direct import LlmError, get_active_provider, stream_chat
+from .llm_direct import LlmError, get_active_provider, resolve_model_id, stream_chat
 from .models import (
     Agent,
     KnowledgeBase,
@@ -169,12 +169,15 @@ async def generate_closure_summary(task_id: uuid.UUID) -> str:
         user_prompt = "\n".join(parts)
 
         chunks: list[str] = []
+        # v1.4.0 Saga R preflight: 走 active provider.model_id (避免 prod
+        # deepseek active 时 硬发 qwen-max-latest → 400).
+        model_id = resolve_model_id(provider, purpose="task_consolidator")
         try:
             async for c in stream_chat(
                 provider=provider,
                 system_prompt=_SUMMARY_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
-                model_override="qwen-max-latest",
+                model_override=model_id,
                 temperature=0.0,
                 top_p=0.1,
             ):
