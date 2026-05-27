@@ -195,13 +195,18 @@ export default function MeetingTranscriptView({
   // v1.4.0 Saga E.E (Sprint 2-3): 2.5s 轮询 transcript — auto 会议 用.
   // PM 决策 Q2 = WS 不上, 用 setInterval 拉 /m/meetings/{id}/transcript.
   // hybrid 会议 走 WS, pollIntervalMs=0 → 不启动 interval.
+  //
+  // v1.4.0 Saga E.E2 (Sprint 3) 升级: orchestrator 在 _save_message 后 broadcast
+  // agent_message_start/chunk/end (跟 manual summon 路径同一份 schema, 既有
+  // handleEvent 已 listen). WS 正常 时 不轮询; 掉线 时 才 fallback 到 2.5s.
   useEffect(() => {
     if (!pollIntervalMs || pollIntervalMs <= 0) return;
+    if (conn === "connected") return; // WS 接管 — 不开 fallback 轮询
     const h = setInterval(() => {
       void load(false);
     }, pollIntervalMs);
     return () => clearInterval(h);
-  }, [load, pollIntervalMs]);
+  }, [load, pollIntervalMs, conn]);
 
   const prevConnRef = useRef<typeof conn>(conn);
   useEffect(() => {

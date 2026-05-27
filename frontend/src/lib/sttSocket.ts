@@ -179,6 +179,22 @@ export type AgendaDecisionSummaryEvent = {
   reason: string;
 };
 
+/** v1.4.0 Saga E.E2 (Sprint 3): auto 会议 orchestrator 状态 增量 — 替代
+ *  Sprint 2-3 的 2.5s 轮询. orchestrator 在 _update_phase 写完 DB 后 broadcast.
+ *  字段 跟 MobileMeetingDetail.{orchestrate_phase, current_speaker_agent_id,
+ *  current_agenda_idx, orchestrate_turn_count} 对齐 — page.tsx 直接 setData merge. */
+export type OrchestratePhaseChangeEvent = {
+  type: "orchestrate_phase_change";
+  /** idle / running / paused / done / failed / cancelled */
+  phase: string | null;
+  /** orchestrator 当前发言 agent (running 时); 终态 / 切议程 间隙 = null */
+  current_speaker_agent_id: string | null;
+  /** orchestrator 当前在跑的 议程 idx; 终态可能保留最后值 */
+  current_agenda_idx: number | null;
+  /** 当前 议程 已发言 轮数 */
+  turn_count: number;
+};
+
 /** Synthetic event the wrapper emits on its own (not from the wire) so
  *  the UI can show "重连中…" / "已重连" without snooping at WS state. */
 export type ReconnectEvent = {
@@ -204,6 +220,7 @@ export type SttEvent =
   | AgendaAdvancedEvent
   | AgendaAdvanceSuggestedEvent
   | AgendaDecisionSummaryEvent
+  | OrchestratePhaseChangeEvent
   | ReconnectEvent;
 
 export interface SttSocket {

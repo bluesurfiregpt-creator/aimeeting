@@ -267,7 +267,10 @@ async def _update_phase(
             update(Meeting).where(Meeting.id == meeting_id).values(auto_state=new_state)
         )
         await db.commit()
-        return new_state["phase"]
+    # v1.4.0 Saga E.E2 (Sprint 3): 推 给 mobile, 替代 2.5s 轮询. broadcast 放
+    # 在 with 块 外, 避免 broadcast 慢 把 DB session 撑住.
+    await _broadcast_phase_change(meeting_id, new_state)
+    return new_state["phase"]
 
 
 async def _wait_if_paused(meeting_id: uuid.UUID) -> str:
@@ -283,6 +286,93 @@ async def _wait_if_paused(meeting_id: uuid.UUID) -> str:
         if phase != PHASE_PAUSED:
             return phase
         await asyncio.sleep(PAUSE_CHECK_INTERVAL_SEC)
+
+
+# ============================================================================
+# v1.4.0 Saga E.E2 (Sprint 3) — WS broadcast helpers
+#
+# Sprint 2-3 用 2.5s 轮询 让 mobile 端 看到 orchestrator 写 的 agent_message +
+# auto_state phase 变化. Sprint 3 接 既有 meeting WS bus (session_state.broadcast)
+# 主动推, P95 延迟 5-17s → <500ms.
+#
+# ABAC: session_state.broadcast 只 推 给 已经 注册 到 meeting room 的 WS clients,
+# 而 注册 走 /ws/stt endpoint 的 workspace_id 校验 (Meeting.workspace_id ==
+# auth_workspace_id), 所以 跨 workspace 用户 进不到 这个 房间 = 收不到 broadcast.
+#
+# fallback: 既有 2.5s 轮询 在 mobile 端 仍 保留 (WS 掉线 时 兜底), 见 page.tsx /
+# MeetingTranscriptView.tsx 的 conn !== "connected" 门闸.
+# ============================================================================
+
+
+async def _broadcast_agent_message(
+    meeting_id: uuid.UUID,
+    agent: Agent,
+    text: str,
+) -> None:
+    """orchestrator 写完 DB 后, 把 agent_message_start / chunk / end 推到 房间.
+
+    blob-style: orchestrator 用 _call_llm 收齐 完整 reply 再 写 DB, 此处 只能
+    一次性 拿到 完整 text. 既有 mobile transcript view (handleEvent 已 listen
+    agent_message_*) 把 chunk 当 typing 动画 一帧 渲染, 用户 感知 上 消息 在
+    LLM 完成后 几十 ms 出现.
+
+    chunk schema 跟 agent_router.py manual summon 路径 一致 (同一份 SttEvent
+    union, 见 frontend/src/lib/sttSocket.ts), 故 既有 listener 不改 就能 收.
+    """
+    from .session_state import broadcast
+    agent_id_str = str(agent.id)
+    agent_color = agent.color or "violet"
+    try:
+        await broadcast(meeting_id, {
+            "type": "agent_message_start",
+            "agent_id": agent_id_str,
+            "agent_name": agent.name,
+            "agent_nickname": agent.nickname,
+            "agent_color": agent_color,
+        })
+        await broadcast(meeting_id, {
+            "type": "agent_message_chunk",
+            "agent_id": agent_id_str,
+            "chunk": text,
+        })
+        await broadcast(meeting_id, {
+            "type": "agent_message_end",
+            "agent_id": agent_id_str,
+            "text": text,
+        })
+    except Exception:
+        # WS broadcast 失败 不能 拖 死 orchestrator 主流程 — 静默 + log
+        logger.exception(
+            "orchestrator broadcast agent_message failed meeting=%s agent=%s",
+            meeting_id, agent.name,
+        )
+
+
+async def _broadcast_phase_change(
+    meeting_id: uuid.UUID,
+    new_state: dict[str, Any],
+) -> None:
+    """orchestrator state 写完 DB 后, 把 phase / 当前发言 / 议程 idx / turn_count
+    增量 推 给 mobile OrchestrateStatusBanner — 让 banner 立刻 切换, 省 2.5s
+    轮询 闪烁.
+
+    payload 字段 故意 跟 MobileMeetingDetail.{orchestrate_phase,
+    current_speaker_agent_id, current_agenda_idx, orchestrate_turn_count}
+    严格对齐, 方便 frontend setData merge.
+    """
+    from .session_state import broadcast
+    try:
+        await broadcast(meeting_id, {
+            "type": "orchestrate_phase_change",
+            "phase": new_state.get("phase"),
+            "current_speaker_agent_id": new_state.get("current_speaker_agent_id"),
+            "current_agenda_idx": new_state.get("current_agenda_idx"),
+            "turn_count": int(new_state.get("turn_count") or 0),
+        })
+    except Exception:
+        logger.exception(
+            "orchestrator broadcast phase_change failed meeting=%s", meeting_id,
+        )
 
 
 # ============================================================================
@@ -473,6 +563,8 @@ async def _run_agenda_item(
         )
         intro_msg_id = intro_msg.id
         await db.commit()
+    # v1.4.0 Saga E.E2 (Sprint 3): DB 落盘 后 推 WS, mobile 端 立刻 看到 主持人 intro.
+    await _broadcast_agent_message(meeting_id, moderator, intro)
 
     # 拉本议程项目前为止 的全部 messages(便于 prompt context)
     async def _load_messages() -> list[MeetingAgentMessage]:
@@ -541,6 +633,9 @@ async def _run_agenda_item(
             )
             last_msg_id = new_msg.id
             await db.commit()
+        # v1.4.0 Saga E.E2 (Sprint 3): expert reply 推 WS — 跟 intro/wrap_up 用 同
+        # 一份 schema, mobile 已 listen.
+        await _broadcast_agent_message(meeting_id, next_agent, reply)
         speaker_seq_ids.append(next_agent.id)
 
         # 推进 turn_count + current_speaker_agent_id 到 auto_state
@@ -564,6 +659,9 @@ async def _run_agenda_item(
                 st["turn_count"] = turn + 1
                 await db.execute(update(Meeting).where(Meeting.id == meeting_id).values(auto_state=st))
                 await db.commit()
+            # v1.4.0 Saga E.E2 (Sprint 3): 内联 state 更新 路径 也 推 一次, 否则
+            # 这条 走 fallback 的 turn 会让 mobile 端 漏掉 current_speaker 变化.
+            await _broadcast_phase_change(meeting_id, st)
 
         # 3. 每 ADEQUACY_CHECK_AFTER_TURN 轮后 让 moderator 判
         if (turn + 1) >= ADEQUACY_CHECK_AFTER_TURN:
@@ -608,6 +706,8 @@ async def _run_agenda_item(
                 trigger_payload={"stage": "wrap_up"},
             )
             await db.commit()
+        # v1.4.0 Saga E.E2 (Sprint 3): wrap_up 推 WS — mobile 立刻 看到 主持人 收口.
+        await _broadcast_agent_message(meeting_id, moderator, wrap)
     except LlmError as e:
         logger.warning("orchestrator wrap_up 失败 meeting=%s: %s", meeting_id, e)
 
@@ -927,6 +1027,11 @@ async def _run_auto_meeting(meeting_id: uuid.UUID) -> None:
             mm.ended_at = datetime.now(timezone.utc)
             mm.summary_md = summary_md
             await db.commit()
+
+        # v1.4.0 Saga E.E2 (Sprint 3): 终态 phase (done / done w timeout) 也 推
+        # 一下, mobile OrchestrateStatusBanner 立刻 切到 "已结束". 否则 用户 等
+        # 下一轮 fallback 轮询 才看到.
+        await _broadcast_phase_change(meeting_id, new_st)
 
         # 触发 action_extractor (它会读 summary_md + 抽 topic_keywords + 派给 agent)
         # v26.3: 显式传 mode='auto' — 让 prompt 跳过"AI 发言不算依据"规则,

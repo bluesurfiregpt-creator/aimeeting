@@ -537,6 +537,30 @@ function MeetingDetailInner({ id }: { id: string }) {
           pushBanner(banner, tNow);
           break;
         }
+        case "orchestrate_phase_change": {
+          // v1.4.0 Saga E.E2 (Sprint 3): auto 会议 orchestrator state 增量 推到
+          // detail (省 2.5s 轮询). 只 patch 受影响 的 4 个字段; 其余 detail
+          // 字段 仍 走 fallback 轮询 / 用户主动 reload (议程标题 / can_control 等
+          // 不会因 orchestrator turn 改变).
+          //
+          // current_agenda_idx 来自 orchestrator state — 跟 meeting.current_agenda_idx
+          // (手动 advanceAgenda 走 endpoint) 在 auto 模式 下 由 orchestrator
+          // 自己 推进, 这里 直接 跟 orchestrator 同步.
+          setData((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              orchestrate_phase: e.phase,
+              current_speaker_agent_id: e.current_speaker_agent_id,
+              current_agenda_idx:
+                e.current_agenda_idx !== null
+                  ? e.current_agenda_idx
+                  : prev.current_agenda_idx,
+              orchestrate_turn_count: e.turn_count,
+            };
+          });
+          break;
+        }
         default:
           break;
       }
@@ -598,16 +622,22 @@ function MeetingDetailInner({ id }: { id: string }) {
   // v1.4.0 Saga E.E (Sprint 2-3): auto 会议 2.5s 轮询 meeting detail —
   // backend 把 orchestrate_phase + current_speaker_agent_id 揉进 detail 返回,
   // 不再 单独 调 /orchestrate/state (省 round-trip).
-  // PM 决策 Q2 = WS 不上, 用 setInterval. 仅在 mode='auto' && phase 非 终态 时跑.
-  // dep 仅看 mode + phase 终态 flag (避免 data 引用变化 → setInterval 每 2.5s
-  // 被重启). 终态切换通过下一次 poll 写回 setData 触发 effect re-run, 自动 stop.
+  //
+  // v1.4.0 Saga E.E2 (Sprint 3) 升级: WS bus 接 orchestrate_phase_change 事件 →
+  // 轮询 退到 fallback (conn !== 'connected' 才跑). WS 正常 时 完全 不轮询, P95
+  // 延迟 5-17s → <500ms. WS 掉线 时 自动 切回 2.5s 拉, 保 Sprint 2-3 体验下限.
+  //
+  // 终态切换通过 WS phase_change 或下一次 fallback poll 写回 setData 触发 effect
+  // re-run, 自动 stop.
   const isAutoMode = data?.mode === "auto";
   const isOrchestrateFinal =
     data?.orchestrate_phase === "done" ||
     data?.orchestrate_phase === "failed" ||
     data?.orchestrate_phase === "cancelled";
+  const wsConnected = conn === "connected";
   useEffect(() => {
     if (!isAutoMode || isOrchestrateFinal) return;
+    if (wsConnected) return; // WS 接管 — 不开 fallback 轮询
     const h = setInterval(() => {
       mApi
         .getMeetingDetail(id)
@@ -617,7 +647,7 @@ function MeetingDetailInner({ id }: { id: string }) {
         });
     }, 2500);
     return () => clearInterval(h);
-  }, [id, isAutoMode, isOrchestrateFinal]);
+  }, [id, isAutoMode, isOrchestrateFinal, wsConnected]);
 
   // ─── speaker 集合 (filter sheet 用) ───
   const filterSpeakers = useMemo<{
