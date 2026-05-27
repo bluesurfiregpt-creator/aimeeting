@@ -715,6 +715,18 @@ async def init_db() -> None:
             'CREATE UNIQUE INDEX IF NOT EXISTS ix_user_wx_unionid ON "user" (wx_unionid) WHERE wx_unionid IS NOT NULL',
             # v27.2 phone 登录: phone 偏分 unique index (同 wx_openid 模式).
             'CREATE UNIQUE INDEX IF NOT EXISTS ix_user_phone ON "user" (phone) WHERE phone IS NOT NULL',
+            # v1.4.0 Saga T1 (Phase 2 W1): /api/v2/* 真接 endpoint 索引补充.
+            # AIInsight 查询: (workspace + created_at) + (workspace + type + created_at)
+            # 命中 /today/snapshot (decisions_today) + /today/insights + /profile/ai-stats.
+            "CREATE INDEX IF NOT EXISTS ix_ai_insight_ws_created ON ai_insight (workspace_id, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_ai_insight_ws_decision ON ai_insight (workspace_id, human_decision, created_at DESC) WHERE human_decision IS NOT NULL",
+            # Task 查询: (workspace + assignee + status + due_at) 命中 /tasks/priority-banner
+            # + /today/snapshot.pending_tasks. assignee_user_id + status + due_at 高频组合.
+            "CREATE INDEX IF NOT EXISTS ix_task_ws_assignee_status_due ON task (workspace_id, assignee_user_id, status, due_at)",
+            # Meeting 查询: (workspace + started_at) + (workspace + ended_at) 命中
+            # /today/snapshot.meetings_today (今天 started or ended 都计入).
+            "CREATE INDEX IF NOT EXISTS ix_meeting_ws_started ON meeting (workspace_id, started_at) WHERE started_at IS NOT NULL",
+            "CREATE INDEX IF NOT EXISTS ix_meeting_ws_ended ON meeting (workspace_id, ended_at) WHERE ended_at IS NOT NULL",
         ]:
             try:
                 await conn.execute(text(sql))

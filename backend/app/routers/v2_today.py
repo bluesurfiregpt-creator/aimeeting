@@ -1,14 +1,19 @@
 """
-v1.4.0 · Saga N (Phase 1 · W2) · Mobile App v2 — Today 命名空间.
+v1.4.0 · Saga N (Phase 1 · W2) + Saga T1 (Phase 2 · W1) · Mobile App v2 — Today 命名空间.
 
-Mock endpoint, Phase 1 全部写死 mock JSON (PM 5=a 拍板).
 契约: docs/SCHEMA-mobile-v2.md §3 (today/* 全部 7 个 endpoint).
+
+Phase 1 (Saga N · 全部 mock): brief / live-meeting / snapshot / pending-tasks /
+                              insights / decisions / experts.
+Phase 2 (Saga T1 · 真接 DB): snapshot + insights — 走 ABAC + workspace filter.
+                              其余 5 个留 mock 给 T2-T4 真接.
 
 约定:
   - 与 老 /api/m/* (mobile.py) 隔离, 走 /api/v2/today/* 命名空间
   - 与 §2 meetings 共用 V2Attendee / V2AIBadge / V2MeetingItem schema (从
     v2_meetings 复用避免重复)
-  - 不挂 auth gate. Phase 1 mock 数据均匿名可拉
+  - 真接 endpoint 走 get_current_auth + workspace.id filter (Saga T1 起强制)
+  - mock endpoint Phase 1 anon 暂留, 后续 sub-saga 转真时一并上 ABAC
   - 字段命名 snake_case · 时间 ISO 8601 UTC · enum 跟 schema 严格一致
 
 仿真场景: 福田住建局 demo workspace · Q3 路线图 / 搜索体验评审 / 客户访谈
@@ -20,11 +25,22 @@ AI 10 个 (v1.4.0 Saga Q · Phase 1 P0 修复, 严格按设计稿 mobile-shared.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, time, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..agent_glyphs import (
+    DECISION_INSIGHT_TYPES,
+    agent_to_ai_source,
+    normalize_insight_type,
+)
+from ..auth import AuthContext, get_current_auth
+from ..db import get_session
+from ..models import AIInsight, Agent, Meeting, Task
 from .v2_meetings import (
     V2MeetingItem,
     _LIVE_MEETING,
@@ -32,6 +48,23 @@ from .v2_meetings import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v2/today", tags=["mobile-v2-today"])
+
+
+# ============================================================================
+# Saga T1 helpers — Today 0:00 UTC / 今天 23:59:59 UTC 窗口.
+# ============================================================================
+
+
+def _today_window_utc() -> tuple[datetime, datetime]:
+    """返回 (今天 00:00 UTC, 今天 23:59:59 UTC) 元组.
+
+    Saga T1 决策: 用 UTC 边界, 不用 server 本地时区. 跟 demo workspace seed 时间
+    一致 (seed 是 UTC). Phase 2 后续若 PM 要 切到 UTC+8, 在这一处改即可.
+    """
+    now = datetime.now(timezone.utc)
+    start = datetime.combine(now.date(), time.min, tzinfo=timezone.utc)
+    end = datetime.combine(now.date(), time.max, tzinfo=timezone.utc)
+    return start, end
 
 
 # ============================================================================
@@ -108,16 +141,93 @@ class SnapshotResponse(BaseModel):
 
 
 @router.get("/snapshot", response_model=SnapshotResponse)
-async def get_today_snapshot() -> SnapshotResponse:
+async def get_today_snapshot(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> SnapshotResponse:
     """4 格 stat tile — 场会议 / 待处理 / AI 洞察 / 已决策.
 
-    v1.4.0 Saga Q (Phase 1 P0): pending_tasks 从 3 改 6, 跟设计稿一致.
+    v1.4.0 Saga T1 (Phase 2 W1): mock → 真接 4 个 COUNT (ABAC + workspace filter).
+
+    数据源:
+      meetings_today    — Meeting WHERE workspace_id + (started_at OR ended_at)
+                          落在今天窗口 (今天开过会的 都算 — 跟 SCHEMA §3.3 "今天"
+                          语义一致)
+      pending_tasks     — Task WHERE workspace_id + assignee = caller +
+                          status IN (open / dispatched / accepted / in_progress)
+                          (Task 状态机 v18+ 实际有 8 个 status, 'pending' / 'tracking'
+                          是 SCHEMA enum, 在后端 map 到 真状态机)
+      ai_insights_today — AIInsight WHERE workspace_id + created_at >= 今天 0:00
+      decisions_today   — AIInsight WHERE workspace_id + type IN (决策/决策建议) +
+                          created_at >= 今天 0:00 (Phase 2 决策源 沿用 AIInsight,
+                          见 Planning §3.2 决策 A)
+
+    边界: empty workspace → 4 个 0, 不 raise.
     """
+    ws_id = auth.workspace.id
+    today_start, today_end = _today_window_utc()
+
+    # 1) meetings_today — 今天有过会议状态变化的 (started_at 或 ended_at 落今天)
+    # 用 OR 兼容 "今天开始 还没结束" + "今天结束 是昨天开始" 两种 case.
+    meetings_today = (
+        await session.execute(
+            select(func.count(Meeting.id)).where(
+                Meeting.workspace_id == ws_id,
+                or_(
+                    and_(
+                        Meeting.started_at >= today_start,
+                        Meeting.started_at <= today_end,
+                    ),
+                    and_(
+                        Meeting.ended_at >= today_start,
+                        Meeting.ended_at <= today_end,
+                    ),
+                ),
+            )
+        )
+    ).scalar_one()
+
+    # 2) pending_tasks — 派给 caller 的 未办结 task. Task 状态机 active 状态:
+    #    open / dispatched / accepted / in_progress / submitted
+    #    (done / archived / cancelled 不算 pending)
+    pending_tasks = (
+        await session.execute(
+            select(func.count(Task.id)).where(
+                Task.workspace_id == ws_id,
+                Task.assignee_user_id == auth.user.id,
+                Task.status.in_(
+                    ("open", "dispatched", "accepted", "in_progress", "submitted")
+                ),
+            )
+        )
+    ).scalar_one()
+
+    # 3) ai_insights_today — 今天产出的所有 AI 洞察
+    ai_insights_today = (
+        await session.execute(
+            select(func.count(AIInsight.id)).where(
+                AIInsight.workspace_id == ws_id,
+                AIInsight.created_at >= today_start,
+            )
+        )
+    ).scalar_one()
+
+    # 4) decisions_today — 今天决策类 insight (type IN '决策' / '决策建议')
+    decisions_today = (
+        await session.execute(
+            select(func.count(AIInsight.id)).where(
+                AIInsight.workspace_id == ws_id,
+                AIInsight.created_at >= today_start,
+                AIInsight.type.in_(DECISION_INSIGHT_TYPES),
+            )
+        )
+    ).scalar_one()
+
     return SnapshotResponse(
-        meetings_today=4,
-        pending_tasks=6,
-        ai_insights_today=4,
-        decisions_today=2,
+        meetings_today=int(meetings_today or 0),
+        pending_tasks=int(pending_tasks or 0),
+        ai_insights_today=int(ai_insights_today or 0),
+        decisions_today=int(decisions_today or 0),
     )
 
 
@@ -294,9 +404,83 @@ _INSIGHTS = [
 
 
 @router.get("/insights", response_model=InsightsResponse)
-async def get_today_insights() -> InsightsResponse:
-    """AI 智囊·今日 — 3 条 (决策 / 风险 / 洞察)."""
-    return InsightsResponse(items=_INSIGHTS)
+async def get_today_insights(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> InsightsResponse:
+    """AI 智囊·今日 — 今天产出的 AI insight top 10.
+
+    v1.4.0 Saga T1 (Phase 2 W1): mock → 真接 (ABAC + workspace filter).
+
+    SQL:
+      SELECT AIInsight, Agent, Meeting
+      JOIN Agent ON ai.agent_id = agent.id
+      JOIN Meeting ON ai.meeting_id = meeting.id
+      WHERE ai.workspace_id = ? AND ai.created_at >= 今天 0:00
+        AND (ai.human_decision IS NULL OR ai.human_decision = 'accepted')
+      ORDER BY ai.created_at DESC LIMIT 10
+
+    映射:
+      - SCHEMA §3.5 字段 title = AIInsight.content (DB 是一句话结论)
+      - SCHEMA §3.5 字段 body  = AIInsight.evidence (依据)
+      - SCHEMA enum type     = normalize_insight_type(ai.type) — DB '决策建议'
+                               → SCHEMA '决策'; '建议' → '思路'
+      - ai_source            = agent_to_ai_source(agent) — 10 个固定 AI glyph 表
+
+    过滤策略 (跟 task spec status='accepted' 对齐):
+      AIInsight 模型 用 human_decision 字段 (NULL=pending / accepted / rejected).
+      SCHEMA §3.5 mock 展示 全 当日 insight feed, 不限 已 accept.
+      折中: 排除 human_decision='rejected' 已 显式拒的, 保留 NULL (pending) +
+      'accepted' — 这样 "AI 智囊" 不会 因为 用户 没审 而 空盘.
+
+    边界: empty → items=[], 不 raise.
+    """
+    ws_id = auth.workspace.id
+    today_start, _ = _today_window_utc()
+
+    rows = (
+        await session.execute(
+            select(AIInsight, Agent, Meeting.title)
+            .join(Agent, Agent.id == AIInsight.agent_id)
+            .outerjoin(Meeting, Meeting.id == AIInsight.meeting_id)
+            .where(
+                AIInsight.workspace_id == ws_id,
+                AIInsight.created_at >= today_start,
+                # 排除 已 显式拒绝 的 insight (rejected 不再 feed). NULL + 'accepted' 都 算.
+                or_(
+                    AIInsight.human_decision.is_(None),
+                    AIInsight.human_decision == "accepted",
+                ),
+            )
+            .order_by(desc(AIInsight.created_at))
+            .limit(10)
+        )
+    ).all()
+
+    items: List[InsightItem] = []
+    for ins, agent, meeting_title in rows:
+        ai_source_dict = agent_to_ai_source(agent)
+        items.append(
+            InsightItem(
+                id=str(ins.id),
+                type=normalize_insight_type(ins.type),
+                ai_source=InsightAISource(
+                    id=ai_source_dict["id"],
+                    name=ai_source_dict["name"],
+                    glyph=ai_source_dict["glyph"],
+                    color=ai_source_dict["color"],
+                ),
+                title=ins.content or "",
+                body=ins.evidence or "",
+                source_meeting=meeting_title or "",
+                source_meeting_id=str(ins.meeting_id) if ins.meeting_id else "",
+                created_at=ins.created_at.astimezone(timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z"),
+            )
+        )
+
+    return InsightsResponse(items=items)
 
 
 # ============================================================================

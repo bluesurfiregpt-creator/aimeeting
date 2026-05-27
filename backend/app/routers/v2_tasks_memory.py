@@ -1,13 +1,19 @@
 """
-v1.4.0 · Saga O (Phase 1 · W3) · Mobile App v2 — Tasks + Memory 命名空间.
+v1.4.0 · Saga O (Phase 1 · W3) + Saga T1 (Phase 2 · W1) · Mobile App v2 — Tasks + Memory.
 
-Mock endpoint, Phase 1 全部 写死 mock JSON (PM 5=a 拍板).
 契约: docs/SCHEMA-mobile-v2.md §4 (tasks + memory 全部 4 个 endpoint).
+
+Phase 1 (Saga O · 全部 mock): priority-banner / tasks/grouped / memory/radar /
+                              memory/snapshots.
+Phase 2 (Saga T1 · 真接 DB): priority-banner — ABAC + workspace filter.
+                              其余 3 个留 mock 给 T2 (tasks/grouped) / T3 (memory/
+                              snapshots) / T5 (memory/radar) 真接.
 
 约定:
   - 与 老 /api/m/tasks + /api/m/memory 隔离, 走 /api/v2/tasks/* + /api/v2/memory/*
   - 与 §2 meetings / §3 today 共用 mock 数据风格 (福田住建局)
-  - 不挂 auth gate. Phase 1 mock 数据均匿名可拉
+  - 真接 endpoint 走 get_current_auth + workspace.id filter (Saga T1 起强制)
+  - mock endpoint Phase 1 anon 暂留
   - 字段命名 snake_case · 时间 ISO 8601 UTC · enum 跟 schema 严格一致
 
 仿真场景: 福田住建局 demo workspace
@@ -19,13 +25,34 @@ AI 10 个 (v1.4.0 Saga Q · Phase 1 P0, 严格按设计稿 mobile-shared.jsx:24-
 from __future__ import annotations
 
 import logging
+from datetime import datetime, time, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..auth import AuthContext, get_current_auth
+from ..db import get_session
+from ..models import Task
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v2", tags=["mobile-v2-tasks-memory"])
+
+
+# ============================================================================
+# Saga T1 · Task urgency derive (Planning §3.1, SCHEMA §0 urgency enum).
+# ============================================================================
+#
+# Task.urgency 不持久化, 后端 derive from Task.due_at vs now.
+#   urgent — due_at - now <= 0 or 落在 今天 (T1 中, banner 端 任何 今天 到期 算紧急)
+#   today  — (T2 sub-saga 起 拆开 用)
+#   week   — due_at 落在 7 天内
+#   none   — 其他 (没 due_at 或 > 7 天)
+#
+# T1 priority-banner 只用 urgent 一个判定 (今天到期且未办结). T2 真接
+# /tasks/grouped + /today/pending-tasks 时再加 today/week/none 三个 case.
 
 
 # ============================================================================
@@ -41,13 +68,102 @@ class PriorityBannerResponse(BaseModel):
 
 
 @router.get("/tasks/priority-banner", response_model=PriorityBannerResponse)
-async def get_tasks_priority_banner() -> PriorityBannerResponse:
-    """Mira 优先级 banner — 今日必做 + AI 建议 计数."""
+async def get_tasks_priority_banner(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> PriorityBannerResponse:
+    """Mira 优先级 banner — 今日必做 + AI 建议 计数.
+
+    v1.4.0 Saga T1 (Phase 2 W1): mock → 真接 (ABAC + workspace filter).
+
+    数据源:
+      urgent_task_count   — Task WHERE workspace_id + assignee = caller +
+                            due_at <= 今天 23:59 + status active (含已 overdue)
+      summary_text        — "{count} 项今日必做 · 优先拍板「{top.title}」"
+                            top = ORDER BY due_at ASC LIMIT 1 (最紧急的 1 个)
+      ai_suggestion_count — Task WHERE workspace_id + assignee = caller +
+                            source_type='meeting' (会议产生的待办 = AI 建议任务)
+      ai_suggestion_text  — "AI 找到 {count} 项任务可触发"
+
+    边界:
+      - empty workspace / 没紧急任务 → 降级 文案 "今天没有紧急任务,继续保持"
+      - source_type='meeting' 0 个 → ai_suggestion_text "AI 暂未找到可触发任务"
+    """
+    ws_id = auth.workspace.id
+    user_id = auth.user.id
+
+    now = datetime.now(timezone.utc)
+    today_end = datetime.combine(now.date(), time.max, tzinfo=timezone.utc)
+
+    # 1) urgent_task_count — 今日到期 + 未办结
+    active_statuses = ("open", "dispatched", "accepted", "in_progress", "submitted")
+    urgent_count = (
+        await session.execute(
+            select(func.count(Task.id)).where(
+                Task.workspace_id == ws_id,
+                Task.assignee_user_id == user_id,
+                Task.due_at.is_not(None),
+                Task.due_at <= today_end,
+                Task.status.in_(active_statuses),
+            )
+        )
+    ).scalar_one() or 0
+    urgent_count = int(urgent_count)
+
+    # 2) summary_text — 拿最紧急的 1 个 title
+    summary_text: str
+    if urgent_count == 0:
+        summary_text = "今天没有紧急任务,继续保持"
+    else:
+        top_task = (
+            await session.execute(
+                select(Task)
+                .where(
+                    Task.workspace_id == ws_id,
+                    Task.assignee_user_id == user_id,
+                    Task.due_at.is_not(None),
+                    Task.due_at <= today_end,
+                    Task.status.in_(active_statuses),
+                )
+                .order_by(Task.due_at.asc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+        title_hint = ""
+        if top_task is not None:
+            # title 优先, fallback content 前 40 字 (跟 Meeting/ActionItem 一致)
+            title_hint = (top_task.title or top_task.content or "")[:40].strip()
+        if title_hint:
+            summary_text = f"{urgent_count} 项今日必做 · 优先拍板「{title_hint}」"
+        else:
+            summary_text = f"{urgent_count} 项今日必做"
+
+    # 3) ai_suggestion_count — 来自会议的 task (会议 action_extractor 产出)
+    # 用 Task.source_type='meeting' 一处过滤 (Task 模型注释 §716: meeting 类型
+    # source_ref 含 {meeting_id, action_item_id})
+    ai_suggestion_count = (
+        await session.execute(
+            select(func.count(Task.id)).where(
+                Task.workspace_id == ws_id,
+                Task.assignee_user_id == user_id,
+                Task.source_type == "meeting",
+                Task.status.in_(active_statuses),
+            )
+        )
+    ).scalar_one() or 0
+    ai_suggestion_count = int(ai_suggestion_count)
+
+    if ai_suggestion_count == 0:
+        ai_suggestion_text = "AI 暂未找到可触发任务"
+    else:
+        ai_suggestion_text = f"AI 找到 {ai_suggestion_count} 项任务可触发"
+
     return PriorityBannerResponse(
-        urgent_task_count=1,
-        summary_text="1 项今日必做 · 11:30 前拍板「协作功能能否进入 Q3」",
-        ai_suggestion_count=2,
-        ai_suggestion_text="AI 找到 2 项任务可触发",
+        urgent_task_count=urgent_count,
+        summary_text=summary_text,
+        ai_suggestion_count=ai_suggestion_count,
+        ai_suggestion_text=ai_suggestion_text,
     )
 
 
