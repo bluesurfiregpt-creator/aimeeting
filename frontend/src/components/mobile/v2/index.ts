@@ -1,12 +1,13 @@
 /**
- * v1.4.0 · Saga M1 + Saga N · Mobile App v2 atoms barrel export.
+ * v1.4.0 · Saga M1 + Saga N + Saga O · Mobile App v2 atoms barrel export.
  *
  * 跟 v1 (shared/) 隔离, 走 SCHEMA-mobile-v2.md 契约.
  * Saga N/O/P 直接 `import { MAvatar, MAGlowBanner, ... } from "@/components/mobile/v2"`.
  *
  * 命名: 跟设计源 jsx 一致 (MAvatar / MAIBadge / MAvatarStack / MASegmented /
  * MAGlowBanner / MAIcon / MiraPulseNotice / MAEmpty / MAPill / MASection /
- * MeetingFullCard · Saga N 加: MStatTile · MExpertCard).
+ * MeetingFullCard · Saga N 加: MStatTile · MExpertCard ·
+ * Saga O 加: MTaskRow · MInsightCard · MMemoryRadar).
  */
 
 export { default as MAvatar } from "./MAvatar";
@@ -22,6 +23,9 @@ export { default as MASection } from "./MASection";
 export { default as MeetingFullCard } from "./MeetingFullCard";
 export { default as MStatTile } from "./MStatTile";
 export { default as MExpertCard } from "./MExpertCard";
+export { default as MTaskRow } from "./MTaskRow";
+export { default as MInsightCard } from "./MInsightCard";
+export { default as MMemoryRadar } from "./MMemoryRadar";
 
 export type { V2IconName } from "./MAIcon";
 export type { V2SegmentedTab } from "./MASegmented";
@@ -55,4 +59,15 @@ export type {
   V2ExpertRecentMeeting,
   V2Expert,
   V2ExpertsResponse,
+  // §4 tasks + memory (Saga O)
+  V2PriorityBanner,
+  V2TaskStatus,
+  V2TaskItem,
+  V2TaskGroup,
+  V2TasksGroupedResponse,
+  V2RadarAxisMetric,
+  V2RadarData,
+  V2SnapshotAIAvatar,
+  V2MemorySnapshot,
+  V2MemorySnapshotsResponse,
 } from "./types";

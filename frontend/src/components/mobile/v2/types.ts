@@ -1,7 +1,7 @@
 /**
- * v1.4.0 · Saga M + Saga N · Mobile App v2 schema 类型.
+ * v1.4.0 · Saga M + Saga N + Saga O · Mobile App v2 schema 类型.
  *
- * 跟 docs/SCHEMA-mobile-v2.md §1 + §2 (Saga M) + §3 (Saga N) 一一对应.
+ * 跟 docs/SCHEMA-mobile-v2.md §1 + §2 (Saga M) + §3 (Saga N) + §4 (Saga O) 一一对应.
  * Phase 1 由 backend /api/v2/* 返回 mock JSON, Phase 2 后端真接时类型不变.
  *
  * 命名 snake_case (跟 backend 一致).
@@ -195,4 +195,77 @@ export type V2Expert = {
 
 export type V2ExpertsResponse = {
   experts: V2Expert[];
+};
+
+// ─────── §4 Saga O — Tasks + Memory ───────
+
+// §4.1 priority-banner (Mira 优先级 hero)
+export type V2PriorityBanner = {
+  urgent_task_count: number;
+  summary_text: string;
+  ai_suggestion_count: number;
+  ai_suggestion_text: string;
+};
+
+// §4.2 tasks/grouped — 任务状态 + 单 task + 分组
+export type V2TaskStatus = "pending" | "tracking" | "done";
+
+export type V2TaskItem = {
+  id: string;
+  title: string;
+  urgency: V2Urgency;
+  ai_source: V2AISource;
+  due_at: string;
+  due_display: string;
+  status: V2TaskStatus;
+  source_meeting?: string;
+  source_meeting_id?: string;
+};
+
+export type V2TaskGroup = {
+  meeting_id: string;
+  meeting_title: string;
+  tasks: V2TaskItem[];
+};
+
+export type V2TasksGroupedResponse = {
+  groups: V2TaskGroup[];
+};
+
+// §4.3 memory/radar — 雷达 hero
+export type V2RadarAxisMetric = {
+  axis_name: string;
+  my_count: number;
+  team_diff: number;
+  label: string;
+};
+
+export type V2RadarData = {
+  total_memories: number;
+  total_axes_covered: number;
+  axes: string[];
+  my_values: number[];
+  team_values: number[];
+  axis_metrics: V2RadarAxisMetric[];
+};
+
+// §4.4 memory/snapshots — 快照 list 升级
+export type V2SnapshotAIAvatar = {
+  glyph: string;
+  gradient_from: string;
+  gradient_to: string;
+};
+
+export type V2MemorySnapshot = {
+  id: string;
+  topic: string;
+  ai_avatars: V2SnapshotAIAvatar[];
+  types: string[];
+  count: number;
+  source_meeting_id?: string;
+};
+
+export type V2MemorySnapshotsResponse = {
+  items: V2MemorySnapshot[];
+  total_count: number;
 };

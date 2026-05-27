@@ -1,265 +1,241 @@
 "use client";
 
 /**
- * v27.0-mobile · /m/tasks v3.
+ * v1.4.0 · Saga O / M4 · /m/tasks v2 全面升级.
  *
- * 改动 (跟 v2 比):
- *   - PageHeader 大标题 "任务"
- *   - 顶部 segment 切状态: [等你处理(N)] [跟踪中(N)] [已完成(N)]
- *     去折叠 ▾, 一次只看一组
- *   - 字号 / 间距 升级
+ * 设计源 1:1:
+ *   - /tmp/aimeeting-design-research/aimeeting/project/mobile-screens.jsx (TasksView)
+ *   - /tmp/aimeeting-design-research/design-shots/tasks.png + tasks-scroll.png
  *
- * v1.4.0 Saga K · 浅色化 (跟 /m today + /m/me 一致, iOS 浅色).
+ * 改动 (vs Saga K):
+ *   - PageHeader "任务" + subtitle (priority banner 文本)
+ *   - 加 MAGlowBanner tone="priority" — Mira 优先级 hero (调 /api/v2/tasks/priority-banner)
+ *   - MASegmented [等你处理(N) / 跟踪中(N) / 已完成(N)]
+ *   - 按会议分组 (调 /api/v2/tasks/grouped?status=...)
+ *   - 每组 meeting_title header + MTaskRow × N
+ *   - 数据源 mock — Phase 2 backend 真接 (V2 SCHEMA §4.1 + §4.2)
+ *
+ * 风格守门: MR_COLORS 浅 iOS · 跟 Saga M Meetings + Saga N Today 视觉延续.
  */
 
-import { useCallback, useMemo, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
+
 import PageHeader from "@/components/mobile/PageHeader";
-import SegmentControl from "@/components/mobile/SegmentControl";
-import RejectFeedbackSheet from "@/components/mobile/RejectFeedbackSheet";
-import Toast from "@/components/mobile/Toast";
-import { TaskCardFull, TaskRowCompact } from "@/components/mobile/TaskCard";
-import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
-import { mApi } from "@/lib/mobile/api";
-import { mutateCache, useCachedFetch } from "@/lib/mobile/swrCache";
-import type { MobileTaskItem, MobileTasksOut } from "@/lib/mobile/types";
+import {
+  MASegmented,
+  MAEmpty,
+  MAGlowBanner,
+  MTaskRow,
+  type V2TasksGroupedResponse,
+  type V2PriorityBanner,
+} from "@/components/mobile/v2";
 
-type Tab = "pending" | "tracking" | "done";
+type Status = "pending" | "tracking" | "done";
 
-export default function MobileTasksPage() {
-  const [tab, setTab] = useState<Tab>("pending");
-  // P8 SWR cache: 切回 立即显 cache, 后台 refresh
-  const { data, error, isRefreshing, refetch } =
-    useCachedFetch<MobileTasksOut>("m:tasks", () => mApi.getTasks());
-  const loading = !data && isRefreshing;
-  // 单条 row 正在调 API 中 — 禁双击
-  const [busyId, setBusyId] = useState<string | null>(null);
-  // P4.5: draft 驳回时弹 sheet (action item 不弹, 直接 cancel)
-  const [rejectSheetItem, setRejectSheetItem] = useState<MobileTaskItem | null>(null);
-  const [toast, setToast] = useState<{
-    kind: "success" | "error";
-    text: string;
-  } | null>(null);
+async function jget<T>(path: string): Promise<T> {
+  const r = await fetch(path, {
+    credentials: "include",
+    headers: { accept: "application/json" },
+  });
+  if (!r.ok) throw new Error(`${path} → ${r.status}`);
+  return (await r.json()) as T;
+}
 
-  // 调 action API 后用 refetch 静默拉新; 即用即返
-  const reload = useCallback(async () => {
-    const fresh = await mApi.getTasks();
-    mutateCache("m:tasks", fresh);
-    refetch();
-  }, [refetch]);
+export default function MobileTasksPage(): ReactElement {
+  const [active, setActive] = useState<Status>("pending");
+  const [banner, setBanner] = useState<V2PriorityBanner | null>(null);
+  const [grouped, setGrouped] = useState<
+    Record<Status, V2TasksGroupedResponse | null>
+  >({
+    pending: null,
+    tracking: null,
+    done: null,
+  });
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
-  /** 共用 CTA handler: 调 API → refetch → toast.
-   *  P4.5: draft 类的 secondary "驳回" 不直接走, 改弹 sheet 让用户写 feedback.
-   */
-  const runCta = useCallback(
-    async (
-      item: MobileTaskItem,
-      action: "primary" | "secondary",
-      okText: string,
-    ) => {
-      // P4.5: draft + 驳回 → 弹 sheet 让用户决定 discard vs feedback.
-      if (item.kind === "approve_draft" && action === "secondary") {
-        setRejectSheetItem(item);
-        return;
-      }
-      const rowKey = `${item.kind}-${item.id}`;
-      if (busyId) return;
-      setBusyId(rowKey);
-      try {
-        if (item.kind === "confirm") {
-          if (!item.source_meeting_id) {
-            throw new Error("missing source_meeting_id");
-          }
-          await mApi.patchActionItem(
-            item.source_meeting_id,
-            item.id,
-            action === "primary" ? "done" : "cancelled",
-          );
-        } else if (item.kind === "approve_draft") {
-          if (action === "primary") {
-            await mApi.approveMemoryDraft(item.id);
-          } else {
-            // unreachable — secondary intercepted above
-            await mApi.rejectMemoryDraft(item.id);
-          }
-        } else {
-          throw new Error(`unsupported kind: ${item.kind}`);
-        }
-        await reload();
-        setToast({ kind: "success", text: okText });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setToast({ kind: "error", text: `操作失败: ${msg}` });
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [busyId, reload],
-  );
-
-  /** P4.5: sheet 提交回调. feedback 空 → kind=discard, 非空 → kind=feedback. */
-  const handleRejectSubmit = useCallback(
-    async (feedback: string) => {
-      if (!rejectSheetItem) return;
-      const item = rejectSheetItem;
-      const rowKey = `${item.kind}-${item.id}`;
-      setBusyId(rowKey);
-      try {
-        await mApi.rejectMemoryDraft(item.id, feedback || undefined);
-        setRejectSheetItem(null);
-        await reload();
-        setToast({
-          kind: "success",
-          text: feedback ? "已驳回并反馈" : "已驳回",
-        });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setToast({ kind: "error", text: `驳回失败: ${msg}` });
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [rejectSheetItem, reload],
-  );
-
-  const groups = useMemo(() => {
-    if (!data) return { pending: [], tracking: [], done: [] };
-    return {
-      pending: data.items.filter((i) => i.group === "pending"),
-      tracking: data.items.filter((i) => i.group === "tracking"),
-      done: data.items.filter((i) => i.group === "done"),
+  // 拉所有 status (3 个) + priority banner 一次性, 切 segment 无需重拉
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      jget<V2PriorityBanner>("/api/v2/tasks/priority-banner"),
+      jget<V2TasksGroupedResponse>("/api/v2/tasks/grouped?status=pending"),
+      jget<V2TasksGroupedResponse>("/api/v2/tasks/grouped?status=tracking"),
+      jget<V2TasksGroupedResponse>("/api/v2/tasks/grouped?status=done"),
+    ])
+      .then(([b, p, t, d]) => {
+        if (cancelled) return;
+        setBanner(b);
+        setGrouped({ pending: p, tracking: t, done: d });
+        setLoading(false);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : String(e));
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
     };
-  }, [data]);
+  }, []);
 
-  const current = groups[tab] || [];
+  // segmented tab counts — 统计每个 status 下的总任务数
+  const counts = useMemo(() => {
+    function totalOf(g: V2TasksGroupedResponse | null): number {
+      if (!g) return 0;
+      return g.groups.reduce((acc, gr) => acc + gr.tasks.length, 0);
+    }
+    return {
+      pending: totalOf(grouped.pending),
+      tracking: totalOf(grouped.tracking),
+      done: totalOf(grouped.done),
+    };
+  }, [grouped]);
+
+  const activeGroups = grouped[active]?.groups ?? [];
 
   return (
-    <div>
-      <PageHeader title="任务">
-        <SegmentControl<Tab>
-          value={tab}
-          onChange={setTab}
-          items={[
-            { value: "pending", label: "等你处理", count: groups.pending.length },
-            { value: "tracking", label: "跟踪中", count: groups.tracking.length },
-            { value: "done", label: "已完成", count: groups.done.length },
-          ]}
-        />
-      </PageHeader>
+    <div
+      style={{
+        minHeight: "100%",
+        background: "#F2F2F7",
+        paddingBottom: 20,
+      }}
+    >
+      <PageHeader
+        title="任务"
+        subtitle={
+          banner
+            ? `${banner.urgent_task_count} 项紧急 · ${banner.ai_suggestion_count} 条 AI 建议`
+            : undefined
+        }
+      />
 
+      {/* Mira 优先级 hero — 紫渐变 */}
+      {banner ? (
+        <div style={{ padding: "12px 16px 8px" }}>
+          <MAGlowBanner
+            tone="priority"
+            icon="sparkle"
+            eyebrow="MIRA · 优先级"
+            title={banner.summary_text}
+            body={banner.ai_suggestion_text}
+          />
+        </div>
+      ) : null}
+
+      {/* Segmented */}
+      <div style={{ padding: "6px 16px 8px" }}>
+        <MASegmented
+          tabs={[
+            { id: "pending", label: "等你处理", count: counts.pending },
+            { id: "tracking", label: "跟踪中", count: counts.tracking },
+            { id: "done", label: "已完成", count: counts.done },
+          ]}
+          active={active}
+          onChange={(id) => setActive(id as Status)}
+        />
+      </div>
+
+      {/* 内容区 */}
       {loading ? (
-        <div className="space-y-3 px-4 pb-6 pt-3">
-          <div
-            className="h-48 animate-pulse rounded-2xl"
-            style={{ background: "rgba(60,60,67,0.04)" }}
+        <SkeletonList />
+      ) : error ? (
+        <div style={{ padding: "20px 16px" }}>
+          <MAEmpty
+            icon="flag"
+            title="加载失败"
+            body={error}
           />
-          <div
-            className="h-48 animate-pulse rounded-2xl"
-            style={{ background: "rgba(60,60,67,0.04)" }}
+        </div>
+      ) : activeGroups.length === 0 ? (
+        <div style={{ padding: "32px 16px" }}>
+          <MAEmpty
+            icon="check"
+            title={emptyTitle(active)}
+            body={emptyBody(active)}
           />
-        </div>
-      ) : error || !data ? (
-        <div className="space-y-3 px-6 py-10 text-center">
-          <p
-            className="text-[16px]"
-            style={{ color: MR_COLORS.textPrimary }}
-          >
-            未能加载
-          </p>
-          <p
-            className="text-[14px]"
-            style={{ color: MR_COLORS.textTertiary }}
-          >
-            {error}
-          </p>
-          {error?.includes("401") ? (
-            <Link
-              href="/login"
-              className="inline-flex h-12 items-center justify-center rounded-xl px-6 text-[15px] font-medium text-white"
-              style={{ background: MR_COLORS.systemBlue }}
-            >
-              去登录
-            </Link>
-          ) : (
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="inline-flex h-12 items-center justify-center rounded-xl px-6 text-[15px]"
-              style={{
-                background: MR_COLORS.bgWhite,
-                border: `0.5px solid ${MR_COLORS.hairlineStrong}`,
-                color: MR_COLORS.textPrimary,
-              }}
-            >
-              重试
-            </button>
-          )}
-        </div>
-      ) : current.length === 0 ? (
-        <div
-          className="mx-4 mt-3 rounded-2xl px-6 py-12 text-center"
-          style={{
-            background: MR_COLORS.bgWhite,
-            border: `0.5px dashed ${MR_COLORS.hairlineStrong}`,
-          }}
-        >
-          <p
-            className="text-[16px]"
-            style={{ color: MR_COLORS.textSecondary }}
-          >
-            {tab === "pending"
-              ? "✓ 待办全处理完"
-              : tab === "tracking"
-              ? "没有跟踪中的任务"
-              : "还没有已完成的任务"}
-          </p>
-          {tab === "pending" ? (
-            <p
-              className="mt-2 text-[13px]"
-              style={{ color: MR_COLORS.textTertiary }}
-            >
-              会议结束后, AI 抽出的待办会出现在这里
-            </p>
-          ) : null}
-        </div>
-      ) : tab === "pending" ? (
-        <div className="space-y-3 px-4 pb-6 pt-3">
-          {current.map((it) => {
-            const rowKey = `${it.kind}-${it.id}`;
-            const isBusy = busyId === rowKey;
-            return (
-              <TaskCardFull
-                key={rowKey}
-                item={it}
-                busy={isBusy}
-                onPrimary={() =>
-                  runCta(it, "primary", `已${it.cta_primary || "操作"}`)
-                }
-                onSecondary={() =>
-                  runCta(it, "secondary", `已${it.cta_secondary || "操作"}`)
-                }
-              />
-            );
-          })}
         </div>
       ) : (
-        <div className="space-y-2 px-4 pb-6 pt-3">
-          {current.map((it) => (
-            <TaskRowCompact key={`${it.kind}-${it.id}`} item={it} />
+        <div style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 16 }}>
+          {activeGroups.map((g) => (
+            <section key={g.meeting_id}>
+              <h3
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: "#8E8E93",
+                  letterSpacing: 0.3,
+                  textTransform: "uppercase",
+                  padding: "4px 4px 8px",
+                  margin: 0,
+                }}
+              >
+                {g.meeting_title}
+              </h3>
+              <div
+                style={{
+                  background: "#fff",
+                  borderRadius: 14,
+                  overflow: "hidden",
+                  border: "0.5px solid rgba(60,60,67,0.10)",
+                  boxShadow: "0 1px 0 rgba(60,60,67,0.04)",
+                }}
+              >
+                {g.tasks.map((t, i) => (
+                  <MTaskRow
+                    key={t.id}
+                    task={t}
+                    last={i === g.tasks.length - 1}
+                  />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}
-      <RejectFeedbackSheet
-        open={rejectSheetItem !== null}
-        draftTitle={rejectSheetItem?.title || ""}
-        busy={busyId === `${rejectSheetItem?.kind}-${rejectSheetItem?.id}`}
-        onClose={() => setRejectSheetItem(null)}
-        onSubmit={handleRejectSubmit}
-      />
+    </div>
+  );
+}
 
-      {toast ? (
-        <Toast kind={toast.kind} text={toast.text} onClose={() => setToast(null)} />
-      ) : null}
+function emptyTitle(s: Status): string {
+  if (s === "pending") return "待办全处理完";
+  if (s === "tracking") return "没有跟踪中的任务";
+  return "还没有已完成的任务";
+}
+
+function emptyBody(s: Status): string | undefined {
+  if (s === "pending") return "会议结束后, AI 抽出的待办会出现在这里";
+  if (s === "tracking") return "派给 AI 的任务在进展时会出现这里";
+  return undefined;
+}
+
+function SkeletonList(): ReactElement {
+  return (
+    <div style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 16 }}>
+      {[0, 1, 2].map((i) => (
+        <div key={i}>
+          <div
+            style={{
+              height: 12,
+              width: 120,
+              background: "rgba(60,60,67,0.06)",
+              borderRadius: 4,
+              marginBottom: 8,
+            }}
+          />
+          <div
+            style={{
+              background: "rgba(60,60,67,0.04)",
+              borderRadius: 14,
+              height: 96,
+              animation: "pulse 1.4s ease-in-out infinite",
+            }}
+          />
+        </div>
+      ))}
     </div>
   );
 }

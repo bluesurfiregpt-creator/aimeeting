@@ -34,7 +34,6 @@ import Link from "next/link";
 import PageHeader from "@/components/mobile/PageHeader";
 import {
   MAGlowBanner,
-  MAIBadge,
   MAIcon,
   MAEmpty,
   MAPill,
@@ -44,20 +43,20 @@ import {
   MStatTile,
   MeetingFullCard,
   MExpertCard,
+  MTaskRow,
+  MInsightCard,
   type V2BriefResponse,
   type V2LiveMeetingResponse,
   type V2SnapshotResponse,
   type V2PendingTasksResponse,
   type V2PendingTaskItem,
   type V2InsightsResponse,
-  type V2InsightItem,
   type V2DecisionsResponse,
   type V2DecisionItem,
   type V2ExpertsResponse,
   type V2MeetingItem,
   type V2MeetingsListResponse,
-  type V2Urgency,
-  type V2InsightType,
+  type V2TaskItem,
   type V2PillTone,
 } from "@/components/mobile/v2";
 
@@ -398,9 +397,9 @@ function MeetView({
               }}
             >
               {pending.items.map((t, i) => (
-                <PendingTaskRow
+                <MTaskRow
                   key={t.id}
-                  task={t}
+                  task={pendingToTask(t)}
                   last={i === pending.items.length - 1}
                 />
               ))}
@@ -468,7 +467,7 @@ function MeetView({
             }}
           >
             {insights.items.map((it) => (
-              <InsightCard key={it.id} insight={it} />
+              <MInsightCard key={it.id} insight={it} />
             ))}
           </div>
         )}
@@ -589,121 +588,22 @@ function MiraNotePill({ text }: { text: string }): ReactElement {
 }
 
 // ============================================================================
-// PendingTaskRow — 等你处理 单行
+// pendingToTask — V2PendingTaskItem → V2TaskItem 适配器
+// (pending-tasks endpoint 还没 status 字段, 今日页里都是 pending)
 // ============================================================================
 
-const URGENCY_TONE: Record<V2Urgency, V2PillTone> = {
-  urgent: "urgent",
-  today: "today",
-  week: "week",
-  none: "neutral",
-};
-const URGENCY_LABEL: Record<V2Urgency, string> = {
-  urgent: "紧急",
-  today: "今日",
-  week: "本周",
-  none: "—",
-};
-
-function PendingTaskRow({
-  task,
-  last,
-}: {
-  task: V2PendingTaskItem;
-  last: boolean;
-}): ReactElement {
-  const dueColor =
-    task.urgency === "urgent"
-      ? "#FF3B30"
-      : task.urgency === "today"
-      ? "#FF9F0A"
-      : "#8E8E93";
-  return (
-    <Link
-      href={`/m/meetings/${task.source_meeting_id}`}
-      style={{
-        display: "flex",
-        alignItems: "flex-start",
-        gap: 11,
-        padding: "11px 14px",
-        borderBottom: last ? "none" : "0.5px solid rgba(60,60,67,0.10)",
-        textDecoration: "none",
-        color: "inherit",
-      }}
-    >
-      <div
-        style={{
-          width: 20,
-          height: 20,
-          borderRadius: "50%",
-          border: "1.6px solid #C7C7CC",
-          marginTop: 1,
-          flexShrink: 0,
-        }}
-      />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: 14,
-            fontWeight: 500,
-            color: "#1C1C1E",
-            lineHeight: 1.35,
-          }}
-        >
-          {task.title}
-        </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            marginTop: 5,
-            flexWrap: "wrap",
-          }}
-        >
-          <MAPill
-            tone={URGENCY_TONE[task.urgency]}
-            label={URGENCY_LABEL[task.urgency]}
-          />
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              fontSize: 11,
-              color: "#8E8E93",
-            }}
-          >
-            <MAIBadge
-              name={task.ai_source.name}
-              glyph={task.ai_source.glyph}
-              gradient_from={task.ai_source.color}
-              gradient_to={task.ai_source.color}
-              size={13}
-              ring="transparent"
-            />
-            {task.ai_source.name}
-          </span>
-          <span style={{ fontSize: 11, color: "#C7C7CC" }}>·</span>
-          <span style={{ fontSize: 11, color: "#8E8E93" }}>
-            {task.source_meeting}
-          </span>
-        </div>
-      </div>
-      <span
-        style={{
-          fontSize: 11,
-          color: dueColor,
-          fontWeight: 600,
-          marginTop: 2,
-          flexShrink: 0,
-          whiteSpace: "nowrap",
-        }}
-      >
-        {task.due_display}
-      </span>
-    </Link>
-  );
+function pendingToTask(t: V2PendingTaskItem): V2TaskItem {
+  return {
+    id: t.id,
+    title: t.title,
+    urgency: t.urgency,
+    ai_source: t.ai_source,
+    due_at: t.due_at,
+    due_display: t.due_display,
+    status: "pending",
+    source_meeting: t.source_meeting,
+    source_meeting_id: t.source_meeting_id,
+  };
 }
 
 // ============================================================================
@@ -848,112 +748,6 @@ function formatCountdownShort(s: number): string {
   const m = Math.floor((s % 3600) / 60);
   if (h > 0) return `${h}h ${m}m`;
   return `${m} 分`;
-}
-
-// ============================================================================
-// InsightCard — AI 智囊 单卡
-// ============================================================================
-
-const INSIGHT_TYPE_COLOR: Record<V2InsightType, { fg: string; bg: string }> = {
-  突破: { fg: "#34C759", bg: "rgba(52,199,89,0.12)" },
-  决策: { fg: "#5E5CE6", bg: "rgba(94,92,230,0.12)" },
-  风险: { fg: "#FF3B30", bg: "rgba(255,59,48,0.12)" },
-  洞察: { fg: "#0A84FF", bg: "rgba(10,132,255,0.12)" },
-  思路: { fg: "#AF52DE", bg: "rgba(175,82,222,0.12)" },
-};
-
-function InsightCard({
-  insight,
-}: {
-  insight: V2InsightItem;
-}): ReactElement {
-  const it = insight;
-  const tc = INSIGHT_TYPE_COLOR[it.type];
-  return (
-    <Link
-      href={`/m/meetings/${it.source_meeting_id}`}
-      style={{
-        background: "#fff",
-        borderRadius: 14,
-        overflow: "hidden",
-        border: "0.5px solid rgba(60,60,67,0.10)",
-        display: "block",
-        textDecoration: "none",
-        color: "inherit",
-        boxShadow: "0 1px 0 rgba(60,60,67,0.04)",
-      }}
-    >
-      <div style={{ padding: "12px 14px 12px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-          <MAIBadge
-            name={it.ai_source.name}
-            glyph={it.ai_source.glyph}
-            gradient_from={it.ai_source.color}
-            gradient_to={it.ai_source.color}
-            size={26}
-            ring="transparent"
-          />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: "#1C1C1E",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              {it.ai_source.name}
-              <span
-                style={{
-                  fontSize: 10.5,
-                  fontWeight: 700,
-                  letterSpacing: 0.3,
-                  color: tc.fg,
-                  background: tc.bg,
-                  padding: "1px 6px",
-                  borderRadius: 4,
-                }}
-              >
-                {it.type}
-              </span>
-            </div>
-            <div style={{ fontSize: 11, color: "#8E8E93", marginTop: 1 }}>
-              {it.source_meeting}
-            </div>
-          </div>
-        </div>
-        <div
-          style={{
-            marginTop: 9,
-            fontSize: 14.5,
-            fontWeight: 600,
-            color: "#1C1C1E",
-            lineHeight: 1.35,
-            letterSpacing: -0.1,
-          }}
-        >
-          {it.title}
-        </div>
-        <div
-          style={{
-            marginTop: 4,
-            fontSize: 13,
-            color: "#3C3C43",
-            lineHeight: 1.5,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            display: "-webkit-box",
-            WebkitLineClamp: 1,
-            WebkitBoxOrient: "vertical",
-          }}
-        >
-          {it.body}
-        </div>
-      </div>
-    </Link>
-  );
 }
 
 // ============================================================================
