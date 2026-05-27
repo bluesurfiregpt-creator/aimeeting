@@ -1,0 +1,25 @@
+{
+  "name": "chat-A · 跟 Mira 多 turn 临时聊",
+  "agent_name": "Mira",
+  "description": "痛点 7 真实场景: 用户 不在会议里, 临时 想 找 Mira 问问题. 3 turn 多轮 对话, 验证: 流式 chunk 完整 / 多 turn 上下文 衔接 / Mira 主持立场 风格 / 立场守门 (不和稀泥)",
+  "turns": [
+    {
+      "text": "我们 公司 在 评估 是 不是 要 把 B 组 实验 灰度 放 到 20% 真实 流量. 你 怎么 看?",
+      "expected": {
+        "note": "开场 — Mira 应给 综合 立场, 不和稀泥"
+      }
+    },
+    {
+      "text": "如果 数据 团队 说 P95 延迟 在 1.18s, SLA 上限 1.5s, 还有 9pp 余量, 这个 边界 你觉得 够吗?",
+      "expected": {
+        "note": "Followup — 应 引用 上一 turn 的 灰度 上下文, 给 出具体 判断"
+      }
+    },
+    {
+      "text": "如果 我们 推进 20% 灰度, 法务 那边 需要 同步 更新 隐私政策 第 4.2 条, 这个 你 建议 怎么 安排 节奏?",
+      "expected": {
+        "note": "Followup 2 — 应 给 行动建议 (eg 跟 隐私 review 打包), 立场鲜明"
+      }
+    }
+  ]
+}
