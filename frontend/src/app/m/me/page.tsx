@@ -564,6 +564,7 @@ function MiraAIStatsHero({
 }: {
   data: V2ProfileAIStats;
 }) {
+  const router = useRouter();
   const pct = Math.round(data.adoption_rate * 100);
   const popPct = Math.round(data.most_popular_ai.adoption_pct * 100);
   return (
@@ -583,6 +584,8 @@ function MiraAIStatsHero({
         />
       }
       body={`最热门的专家是 ${data.most_popular_ai.name}(${popPct}%)。采纳率 ${pct}% 超过团队平均线。`}
+      cta={`💬 跟 ${data.most_popular_ai.name} 临时聊聊`}
+      onCta={() => router.push(`/m/chat/${data.most_popular_ai.id}`)}
     />
   );
 }

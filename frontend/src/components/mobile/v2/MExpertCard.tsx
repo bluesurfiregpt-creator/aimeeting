@@ -19,6 +19,7 @@
  */
 
 import { useState, type ReactElement } from "react";
+import Link from "next/link";
 
 import MAIBadge from "./MAIBadge";
 import MAIcon from "./MAIcon";
@@ -224,6 +225,33 @@ export default function MExpertCard({
             >
               {e.task_count > 0 ? `${e.task_count} 项待处理` : "未分配"}
             </div>
+
+            {/* v1.4.0 Phase B · 8 (NORTH_STAR § 6.2 痛点 7): NEW-C 1-on-1 chat 入口.
+              * 跳 /m/chat/<agent_id> 触发 backend invoke_agent_for_chat (v26.13.1).
+              * sessionStorage 持久化, 关闭即清. */}
+            <Link
+              href={`/m/chat/${e.id}`}
+              data-testid="m-expert-chat-cta"
+              style={{
+                marginTop: 12,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                height: 36,
+                borderRadius: 18,
+                background: "rgba(0,122,255,0.08)",
+                border: "0.5px solid rgba(0,122,255,0.30)",
+                color: "#007AFF",
+                fontSize: 13,
+                fontWeight: 600,
+                textDecoration: "none",
+                fontFamily: "inherit",
+              }}
+            >
+              <span>💬</span>
+              <span>跟 {e.name} 聊聊</span>
+            </Link>
           </div>
         ) : null}
       </div>
