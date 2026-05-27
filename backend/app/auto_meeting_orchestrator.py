@@ -31,6 +31,7 @@ from typing import Any, Optional
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .conflict_detector import maybe_mark_superseded
 from .auto_meeting_state import (
     AUTO_ACTION_COMPLETE,
     AUTO_ACTION_FAIL,
@@ -440,6 +441,20 @@ def _format_messages(messages: list[MeetingAgentMessage], window: int = 8) -> st
 # ============================================================================
 
 
+async def _safe_mark_superseded(meeting_id: uuid.UUID, new_message_id: int) -> None:
+    """v1.4.0 Phase B · 9: fire-and-forget conflict detector wrapper.
+
+    swallow 所有 exception — LLM judge 失败 / 网络 抖动 / etc 不挡 orchestrate.
+    """
+    try:
+        await maybe_mark_superseded(meeting_id, new_message_id)
+    except Exception:
+        logger.exception(
+            "conflict_detector fire-and-forget failed (meeting=%s, msg=%d)",
+            meeting_id, new_message_id,
+        )
+
+
 async def _save_message(
     db: AsyncSession,
     meeting_id: uuid.UUID,
@@ -637,6 +652,12 @@ async def _run_agenda_item(
         # 一份 schema, mobile 已 listen.
         await _broadcast_agent_message(meeting_id, next_agent, reply)
         speaker_seq_ids.append(next_agent.id)
+
+        # v1.4.0 Phase B · 9 NEW-A 简版: fire-and-forget LLM judge — 检测 本发言
+        # 是否 推翻 前面 某条 同议程 AI 发言, 自动 标 旧 message status='superseded'.
+        # 不 阻塞 orchestrate 循环 (LLM ~2-5s); UI 下次 2.5s 轮询 拿到 status 更新.
+        # 失败 swallow, 不挡 主流程.
+        asyncio.create_task(_safe_mark_superseded(meeting_id, last_msg_id))
 
         # 推进 turn_count + current_speaker_agent_id 到 auto_state
         try:

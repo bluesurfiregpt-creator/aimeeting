@@ -1995,6 +1995,10 @@ class TranscriptStreamLine(BaseModel):
     agent_color: Optional[str] = None
     trigger: Optional[str] = None            # manual | auto_orchestrator | keyword | at_mention
     citations_count: int = 0                 # 简化, 不返完整 citations (前端 mvp 不展开)
+    # v1.4.0 Phase B · 9 NEW-A 简版: agent message 立场被后续 message 覆盖 时 标
+    # superseded. UI 灰化 + 标 "已被覆盖". 仅 kind="agent" 时填.
+    status: Optional[str] = None             # "active" | "superseded" (老数据 NULL 当 active)
+    superseded_by_message_id: Optional[int] = None  # 覆盖本发言的 message.id, UI 可链接跳转
 
 
 class MobileTranscriptOut(BaseModel):
@@ -2115,6 +2119,9 @@ async def get_mobile_transcript(
             agent_color=ag_color,
             trigger=a.trigger,
             citations_count=cite_n,
+            # v1.4.0 Phase B · 9 NEW-A: 立场对立 自动标 superseded
+            status=getattr(a, "status", None) or "active",
+            superseded_by_message_id=getattr(a, "superseded_by_message_id", None),
         ))
 
     # 6. 合并排序: 按 created_at 正序

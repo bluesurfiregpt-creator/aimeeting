@@ -805,6 +805,10 @@ export type WebTranscriptStreamLine = {
   agent_color: string | null;
   trigger: string | null;
   citations_count: number;
+  // v1.4.0 Phase B · 9 NEW-A 简版 立场冲突: agent message 被 后续 message 推翻 时
+  // status 改 "superseded". UI 灰化 + 标 "已被覆盖". 老数据 (字段 不存在) 当 active.
+  status?: "active" | "superseded" | null;
+  superseded_by_message_id?: number | null;
 };
 
 export type WebMeetingTranscriptOut = {

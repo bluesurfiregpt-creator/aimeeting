@@ -181,6 +181,11 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     # v1.4.0 Saga T5 (Phase 2 W3): MemoryRadar 6 轴 keyword 分类标签.
     # NULL = 未分类 (老数据). V1 keyword 匹配 → 6 个合法值之一.
     ("long_term_memory", "axis_tag", "VARCHAR(32)"),
+    # v1.4.0 Phase B · 9 NEW-A 简版 冲突: LLM judge 自动 标 旧发言 为 superseded.
+    # status='active' (default) / 'superseded'. superseded_by_message_id 指向
+    # 覆盖 本发言 的 新 message.id (BigInteger FK self-ref, SET NULL on delete).
+    ("meeting_agent_message", "status", "VARCHAR(16) NOT NULL DEFAULT 'active'"),
+    ("meeting_agent_message", "superseded_by_message_id", "BIGINT"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

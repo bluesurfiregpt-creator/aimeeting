@@ -447,18 +447,20 @@ async def _call_dify_and_stream(
         except NameError:
             cits = []
         if full:
+            new_message_id: Optional[int] = None
             try:
                 async with SessionLocal() as db:
-                    db.add(
-                        MeetingAgentMessage(
-                            meeting_id=meeting_id,
-                            agent_id=agent.id,
-                            text=full,
-                            trigger=trigger,
-                            trigger_payload=trigger_payload,
-                            citations=cits or None,
-                        )
+                    new_msg = MeetingAgentMessage(
+                        meeting_id=meeting_id,
+                        agent_id=agent.id,
+                        text=full,
+                        trigger=trigger,
+                        trigger_payload=trigger_payload,
+                        citations=cits or None,
                     )
+                    db.add(new_msg)
+                    await db.flush()
+                    new_message_id = new_msg.id
                     # v26.12-Home: agent 被 调用 + 真返回 内容 → invoke_count +1.
                     # atomic UPDATE 避免 多进程 race condition (老 invoke_count + 1
                     # 这种 read-modify-write 会 丢 计数).
@@ -470,6 +472,19 @@ async def _call_dify_and_stream(
                     await db.commit()
             except Exception:
                 logger.exception("persist agent message failed")
+
+            # v1.4.0 Phase B · 9 NEW-A 简版: fire-and-forget conflict detect.
+            # 失败 swallow, 不挡 主流程. Hybrid/manual 模式 也 加, 让 用户 @ 多
+            # AI 时 也 触发 superseded marking.
+            if new_message_id is not None:
+                from .conflict_detector import maybe_mark_superseded
+                async def _fire_conflict_detect():
+                    try:
+                        await maybe_mark_superseded(meeting_id, new_message_id)
+                    except Exception:
+                        logger.exception("conflict_detector (agent_router) failed")
+                import asyncio
+                asyncio.create_task(_fire_conflict_detect())
         await on_message({
             "type": "agent_message_end",
             "agent_id": str(agent.id),

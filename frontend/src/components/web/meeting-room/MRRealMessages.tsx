@@ -146,11 +146,15 @@ export function MRRealAILine({
   // 检查 mock MR_AGENTS_IN_MEETING 是否有此 agent_id; 没有 → 直接用 grad 渲染
   const mockKey = line.agent_id || "";
   const mockAgent = MR_AGENTS_IN_MEETING[mockKey];
+  // v1.4.0 Phase B · 9 NEW-A: 立场被推翻 → 灰化 + 标 "已被覆盖"
+  const isSuperseded = line.status === "superseded";
   return (
     <div
       style={{
         padding: "8px 28px",
         animation: "mrFadeIn 280ms ease-out",
+        opacity: isSuperseded ? 0.5 : 1,
+        transition: "opacity 200ms ease",
       }}
     >
       <div
@@ -162,7 +166,9 @@ export function MRRealAILine({
             : MR_TOKENS.shadowSubtle,
           border: isActiveSpeaker
             ? "0.5px solid #5E5CE6"
-            : MR_TOKENS.borderHair2Strong,
+            : isSuperseded
+              ? "0.5px dashed rgba(60,60,67,0.40)"
+              : MR_TOKENS.borderHair2Strong,
           maxWidth: 720,
           position: "relative",
           overflow: "hidden",
@@ -255,6 +261,34 @@ export function MRRealAILine({
           >
             {line.text}
           </div>
+
+          {/* v1.4.0 Phase B · 9 NEW-A: 立场被推翻 → 标 "已被覆盖" chip */}
+          {isSuperseded && (
+            <div
+              data-testid="mr-msg-superseded-badge"
+              style={{
+                marginTop: 8,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "3px 8px",
+                borderRadius: 6,
+                background: "rgba(60,60,67,0.10)",
+                color: MR_TOKENS.fgTertiary,
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: 0.2,
+              }}
+            >
+              <MRIcon name="check" size={11} color={MR_TOKENS.fgTertiary} />
+              已被覆盖
+              {line.superseded_by_message_id && (
+                <span style={{ color: MR_TOKENS.fgQuaternary, marginLeft: 2 }}>
+                  · 见 #{line.superseded_by_message_id}
+                </span>
+              )}
+            </div>
+          )}
 
           {line.citations_count > 0 && (
             <div

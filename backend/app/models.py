@@ -586,6 +586,17 @@ class MeetingAgentMessage(Base):
     # collector / wrap_up 能高效查"本议程所有发言".
     # mode='hybrid' / 'human' 时可留 NULL(老数据没此概念).
     agenda_idx: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    # v1.4.0 Phase B · 9 NEW-A 简版 冲突: LLM judge 检测后续发言 跟 本发言 立场对立 时,
+    # 本发言 自动标 superseded; UI 灰化 + 标 "已被覆盖". superseded_by_message_id
+    # 指向 覆盖 本发言 的 新发言, 让 UI 能 链接 跳转.
+    # status ∈ {active, superseded}. ON DELETE SET NULL — 覆盖发言删了 本发言 status
+    # 仍 superseded (只 断 link), 但 通常 不删 transcript.
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    superseded_by_message_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey("meeting_agent_message.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
