@@ -64,6 +64,8 @@ import { MR_HUMANS_IN_MEETING } from "./data";
 import { api, type WebMeetingDetailOut, type WebTranscriptStreamLine } from "@/lib/api";
 import { MRRealAILine, MRRealHumanLine } from "./MRRealMessages";
 import { OrchestrateStatusBanner } from "./OrchestrateStatusBanner";
+// v1.4.0 Phase A · 6 (NORTH_STAR § 6.1): Web R5.D 会议室 mic + STT WS.
+import { useWebMeetingStt } from "@/lib/web/meetingStt";
 
 /** Saga E.E pattern: 2.5s 轮询 — orchestrator 写 agent_message 后 不走 WS push,
  *  必须 主动 拉. */
@@ -76,8 +78,16 @@ export type MRLiveViewProps = {
 export function MRLiveView({ meetingId }: MRLiveViewProps) {
   useMRAnimations();
 
+  // v1.4.0 Phase A · 6: 开 WS + mic 控制 hook. mute toggle 由 micOn 反向 derive.
+  const { conn: wsConn, micOn, toggleMic, liveLines, error: micError, clearError } =
+    useWebMeetingStt(meetingId);
+
   const [timer, setTimer] = useState("00:00");
-  const [muted, setMuted] = useState(false);
+  // muted 旧 state: 现在 跟 hook 同步 (muted = !micOn). 保留 state 兼容 BottomBar API.
+  const muted = !micOn;
+  const setMuted = useCallback(() => {
+    void toggleMic();
+  }, [toggleMic]);
   const [video, setVideo] = useState(false);
   const [hand, setHand] = useState(false);
   const [cc, setCC] = useState(true);
@@ -278,6 +288,66 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
         onJumpToAgenda={jumpToAgenda}
         meetingTitle={meetingTitle}
       />
+
+      {/* v1.4.0 Phase A · 6: mic 错误 banner — 权限拒 / 不安全上下文 / 设备不可用 等. */}
+      {micError ? (
+        <div
+          style={{
+            background: "rgba(255,59,48,0.10)",
+            borderBottom: "0.5px solid rgba(255,59,48,0.30)",
+            padding: "8px 24px",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontSize: 13,
+            color: "#FF3B30",
+          }}
+          role="alert"
+          data-testid="mr-mic-error"
+        >
+          <span style={{ flex: 1 }}>⚠ {micError}</span>
+          <button
+            type="button"
+            onClick={clearError}
+            aria-label="关闭"
+            style={{
+              background: "none",
+              border: "none",
+              color: "#FF3B30",
+              cursor: "pointer",
+              fontSize: 16,
+              padding: 0,
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+
+      {/* v1.4.0 Phase A · 6: WS 连接状态 小条 — connecting / reconnecting / giving_up 时显示. */}
+      {wsConn !== "idle" && wsConn !== "connected" ? (
+        <div
+          style={{
+            background:
+              wsConn === "giving_up" ? "rgba(255,59,48,0.08)" : "rgba(255,159,10,0.08)",
+            borderBottom:
+              wsConn === "giving_up"
+                ? "0.5px solid rgba(255,59,48,0.20)"
+                : "0.5px solid rgba(255,159,10,0.20)",
+            padding: "4px 24px",
+            fontSize: 11.5,
+            color: wsConn === "giving_up" ? "#FF3B30" : "#FF9F0A",
+            textAlign: "center",
+          }}
+          data-testid="mr-ws-state"
+          data-ws-state={wsConn}
+        >
+          {wsConn === "connecting" && "连接中…"}
+          {wsConn === "reconnecting" && "重连中…"}
+          {wsConn === "giving_up" && "连接断开 (重试 失败), 请 刷新 页面"}
+        </div>
+      ) : null}
 
       <div
         style={{
