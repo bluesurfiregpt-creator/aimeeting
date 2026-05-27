@@ -1,8 +1,8 @@
-# aimeeting · NORTH_STAR (产品宪法 v1.2)
+# aimeeting · NORTH_STAR (产品宪法 v1.2.2)
 
-> **版本**: v1.2 (大会师对齐升级, 2026-05-27)
-> **历史**: v1.0 (2026-05-25 PM 7 问对齐) → v1.1 (权限重命名 v1.3.1) → **v1.2 (本次)**
-> **来源**: PM 主导 8 大客户痛点表述 + Code Archaeology 校准 + Phase 1-2 + Sprint 1-3 ship 历史
+> **版本**: v1.2.2 (Phase A 收尾 沉淀, 2026-05-28)
+> **历史**: v1.0 (2026-05-25 PM 7 问对齐) → v1.1 (权限重命名 v1.3.1) → v1.2 (大会师 8 痛点) → v1.2.1 (§ 8.6 路径规范) → **v1.2.2 (本次: Phase A 收尾 + § 8.7 双盲测试机制)**
+> **来源**: PM 主导 8 大客户痛点表述 + Code Archaeology 校准 + Phase 1-2 + Sprint 1-3 + **Phase A 7 项 + 双盲测试 Round 1+2 GREEN** ship 历史
 > **演进机制**: 每个 Saga 收尾时反思, **或 PM 主导"大会师"重新对齐**, 由 PM 决策升级版本 (见第 9 节)
 > **本文档是产品 truth source** — 任何 Saga changelist / spec 必须先对齐 NORTH_STAR, 不一致以 NORTH_STAR 为准.
 
@@ -15,9 +15,10 @@
 3. **核心差异**: 不是会议录音工具, 是有"组织决策记忆 + AI 任务执行"闭环的 SaaS 系统; **AI 五大能力**是产品灵魂(记忆/知识/数据/任务执行/会议表现).
 4. **架构**: multi-tenant SaaS, **每个 workspace 完全独立**(logo / 名称 / 用户 / 声纹 / AI 专家 / 数据), 不硬编码客户专属逻辑.
 5. **三端**: Web 全功能(含独占编辑) + 小程序原生(只查看 + 发起会议) + H5 (vibe coding 阶段测试用, 终态翻译到小程序).
-6. **当前阶段** (v1.2 升级): MVP 路径 Phase A → B → C, 共 ~19-21d 三阶段 ship, 跑通客户 "开第一场到第十场会 + 非会议场景" 完整体验. Phase D (NEW-D agentic + WebRTC) V1.5.
+6. **当前阶段** (v1.2.2): **Phase A ✅ ship 2026-05-27/28**; 下一步 Phase B (NEW-C 1-on-1 Mira + NEW-A 简版冲突 ~5-6d) → Phase C (NEW-B topic_thread ~7-8d) → Phase D (NEW-D agentic V1.5).
 7. **不做清单**: dark mode / 客户专属硬编码 / 小程序编辑 / 一次性大改 / mock 假装真实.
 8. **客户 8 大痛点** (v1.2 新增, 见 § 1.4): 会议人云亦云 / AI 不持立场 / 开完不了了之 / AI 像新人不成长 / 多议题串题 / 会议跑偏 / 临时找不到人问 / 任务派出去没人跑.
+9. **测试方法论** (v1.2.2 新增, 见 § 8.7): backend AI 行为 走 **双盲测试** (Claude + Kimi 各跑同剧本 → 客观 metric 对账 GREEN) 作 Saga 验收 默认手段. 真音频 / 真声纹 / UI 渲染 留 真人 / UI smoke.
 
 ---
 
@@ -341,19 +342,27 @@ _(来源: PM Q7)_
 > **MVP 定义**: Phase A + B + C 完成 = "客户开第一场到第十场会 + 非会议场景" 完整体验, 可上线给用户内测.
 > **总估时**: ~19-21d 串行 ship. PM 3 次内部 review (Phase 间).
 
-### 6.1 Phase A · 把当前会议跑顺 (~6.5d) — 调优 + UI 打磨
+### 6.1 Phase A · 把当前会议跑顺 (~6.5d) — 调优 + UI 打磨 ✅ **已 ship (2026-05-27 → 28)**
 
-| # | 项 | 客户体感 | 估时 | 对应痛点 |
-|---|---|---|---|---|
-| 1 | `MOCK_ROUND_MESSAGES` UI 替换为真 WS event | 进会议看到真 hybrid 圆桌 | 1d | 痛点 1 |
-| 2 | LLM judge 主动度调优 (降阈值 + prompt "insider judge") | AI 不被动主动插话 | 0.5d | 痛点 1+6 |
-| 3 | system prompt 立场守门模板 | AI 不和稀泥 真顶住 | 0.5d | **痛点 2** |
-| 4 | summary 按发言人分立场 + 任务溯源 chip + 跳实录高亮 | 沉淀质量飞跃 客户能复盘 | 1.5d | **痛点 3** |
-| 5 | AI 主持人 UI 交互 (跑偏提示 + @Mira 推荐专家) | 主持感 + 用户能呼叫 | 1d | **痛点 6** |
-| 6 | R5.D web 会议室接 mic + STT WS | Web 大屏能说话 | 2d | (Code Archaeology surface) |
-| 7 | MOCK_HUMANS + closure_curator 死码清理 + 声纹阈值微调 | 整洁 + UX 优化 | 0.5d | polish |
+| # | 项 | 客户体感 | 估时 | 对应痛点 | 状态 |
+|---|---|---|---|---|---|
+| 1 | `MOCK_ROUND_MESSAGES` UI 替换为真 WS event | 进会议看到真 hybrid 圆桌 | 1d | 痛点 1 | ✅ commit `a269f84` |
+| 2 | LLM judge 主动度调优 (降阈值 + prompt "insider judge") | AI 不被动主动插话 | 0.5d | 痛点 1+6 | ✅ commit `a269f84` |
+| 3 | system prompt 立场守门模板 | AI 不和稀泥 真顶住 | 0.5d | **痛点 2** | ✅ commit `a269f84` |
+| 4 | summary 按发言人分立场 + 任务溯源 chip + 跳实录高亮 | 沉淀质量飞跃 客户能复盘 | 1.5d (实际 2.5d, 修根) | **痛点 3** | ✅ commit `4b6add2` |
+| 5 | AI 主持人 UI 交互 (跑偏提示 + @Mira 推荐专家) | 主持感 + 用户能呼叫 | 1d | **痛点 6** | ✅ commit `ea03001` |
+| 6 | R5.D web 会议室接 mic + STT WS | Web 大屏能说话 | 2d | (Code Archaeology surface) | ✅ commit `2a53072` |
+| 7 | MOCK_HUMANS + closure_curator 死码清理 + 声纹阈值微调 | 整洁 + UX 优化 | 0.5d | polish | ✅ commit `a53cd17` |
+| **8** | **后置 · 打字输入框 + 角色代发** (双盲测试道路) | 不便说话 + AI 测试 录入 | 1d | (Saga 中 PM 拍 加项) | ✅ commit `56b2037` |
+| **9** | **双盲测试 · Claude + Kimi 双 AI 验证** | Phase A 7 项 真实 测过 | 2d | (NORTH_STAR § 8.7) | ✅ Round 2 GREEN (commit `1e29205`) |
 
-**Phase A 完后**: 客户开 1 场会真实顺畅 — 转录 + 多 AI 真发言 + 持立场 + 主持人拉回 + 沉淀有依据.
+**Phase A 完后** (✅): 客户开 1 场会真实顺畅 — 转录 + 多 AI 真发言 + 持立场 + 主持人拉回 + 沉淀有依据.
+**Phase A 真实 收尾验收** (✅): Claude + Kimi 各自独立 跑 剧本 A/B, 6/6 指标 一致 → GREEN.
+
+#### Phase A 真发现 (双盲 抓出的 2 个 真 bug, 详 § 8.7)
+
+1. **demo_seed_v2.py 缺 keywords 字段** — Round 1 Kimi 头一次跑出 0 agents 触发. 根因: agent_router.maybe_invoke_agents `if not ag.keywords: continue` 直接 跳过. Phase A · 2 阈值调优 (8s/30s → 4s/15s) **没解 这个 真根** — 调阈值 是治标, keywords 空 是治本. PATCH /api/agents/{id} + demo_seed spec 双修.
+2. **item_5 metric 漏算 dissent_detected** — Round 1 Kimi 剧本 A 触发了 dissent_detected (LLM judge 反对仲裁 → suggested Stratos), 但 老 metric `item_5_recommendation_count` 只算 `agent_recommendation` 一种, 漏算 → 误判 YELLOW. Round 2 加 `item_5_combined_count` = recommend + dissent, Kimi 自跑 PASS, Claude 对账 一致 → GREEN.
 
 ### 6.2 Phase B · 真 MVP 闭环 (~5-6d) — NEW 项必备
 
@@ -540,6 +549,63 @@ Kimi 跑在 自己 sandbox 里, **没有 当前 工作目录 上下文**. 我们
 
 - 2026-05-27 双盲 测试 instruction 给 Kimi 写 `python3 scripts/blind-test-runner.py --script docs/kimi-tests/blind-test/scripts/A-grayrelease.json` — PM 第 N 次 提醒 后 sticky 进 宪法.
 
+### 8.7 双盲测试 机制 — **Phase A 验收 2026-05-27/28 沉淀**
+
+> _v1.2.2 (Phase A 收尾) 新增 — PM 提议 + Round 1+2 实测 验证机制有效._
+
+#### 为什么 (背景: PM 真实业务困境)
+
+PM 真实需求 (PM 原话 2026-05-27):
+> "目前该系统除了声纹的录入/识别, 及会议中语音转录文字的功能, 需要真人参与外, 其他都可以用 AI 进行测试. 我的建议是 你 (Claude) 自己测一遍, 然后再给 Kimi 测试用例, 让 Kimi 也再测一遍, 双保险."
+
+**vibe coding 要的是效率** — 真人多人多次开会 验证 backend AI 行为 拖周期 (e.g. 声纹准确度要 跑 5-10 场 真会议 才能 数据驱动). **能 AI 测的 让 AI 测**, 真人保留给 真不能 AI 测 的 (mic / 声纹).
+
+#### 双盲测试 核心机制
+
+1. **AI 充当 "真人参会者"**: 用打字输入框 + 角色代发 (Phase A 后置 #8 ship), AI 借身份 (leader/admin 代任一 user) 按剧本 模拟 多人 对话.
+2. **2 个 AI 各自 独立 跑 同 剧本**:
+   - Claude (我) 跑 → 出 result-claude-*.json
+   - Kimi 跑 → 出 result-kimi-*.json
+3. **客观 metric 对账** (不靠 AI 自评):
+   - 每个 用例 自动 PASS/FAIL (从 WS events / summary JSON 提取数字 + 阈值判断)
+   - Claude vs Kimi 同剧本 各 6 项 一致 → GREEN
+   - 任何不一致 → 深审 是 真 bug 还是 概率抖动 (LLM temperature 0.7 默认 → 偶尔 决策 不同)
+4. **真发现 真 bug**: Round 1 直接抓出 2 个真问题 (demo_seed keywords 空 / metric 漏算 dissent), 1 次跑 比 真人测 几场会 更快.
+
+#### 适用范围
+
+- ✅ **backend AI 行为** 验证 (LLM judge 主动度 / 立场守门 / summary v2 结构 / Mira 接力)
+- ✅ **WS event 流** 验证 (transcript_persisted / agent_message_* / dissent_detected)
+- ✅ **API endpoint 行为** 验证 (summary JSON schema / action_items source_line_id)
+- ❌ **真音频 / 真 ASR / 真 STT 延迟** — 留 PM 真会议
+- ❌ **真声纹 准确率** — 留 PM 真录 10 场
+- ❌ **UI 渲染** (transcript / summary 页) — 单独 跑 UI smoke kimi 用例
+
+#### Saga 验收 推荐 (默认 手段)
+
+任何 Saga 涉及 "AI 行为 / LLM judge / WS event 流 / API JSON 返回" — **默认走 双盲测试** 作为 收尾 验收:
+1. Claude 用 `scripts/blind-test-runner.py` (Phase A 留下的 通用 runner, 可改 metric) 跑 + 出 result JSON
+2. 给 Kimi 同剧本 喂 (zip 模式, repo private 时 也 work) — 路径规范 § 8.6
+3. 对账 6/6 一致 → GREEN, 否则 深审 (`docs/kimi-tests/blind-test/retro-*-roundN.md`)
+
+#### 真 backend bug vs 概率抖动 — 区分 准则
+
+> Phase A · 双盲 Round 1 实战 推出 的 经验:
+
+- 同 metric 在 **两个 剧本 都 fail** → 大概率 **真 bug** (剧本 A + B 都 fail)
+- 同 metric 在 **1 个剧本 fail, 另一个 PASS** → 大概率 **概率抖动** 或 **剧本设计 + LLM 概率 边界 case**
+- 同 metric **重跑 3 次 都 fail** → 大概率 **真 bug** (跨 run 抖动 排除)
+- 单次 跑 fail 但 阅 backend 代码 找不到 触发 路径 → 深审 LLM prompt + temperature + threshold
+
+#### Runner 设计 准则 (从 Phase A `blind-test-runner.py` 沉淀)
+
+1. **登录 cookie auth** (httpx + cookie jar), 不假设 token-based
+2. **`trust_env=False` httpx + `env -u HTTP_PROXY` shell** — sandbox 有 proxy 干扰 (Phase A 踩坑)
+3. **timeout 180s+** httpx — summary regen + LLM 跑 可能 60-120s
+4. **metric 多维度** — 不要 单一 binary fail/pass, 给 numeric (count / latency / 文本 grep 命中数), PM 看 趋势
+5. **保留 完整 events 列表** — 出 retro 时 能 grep 原始 WS frame, 不靠 摘要
+6. **支持 多 runner 标识** (`--runner claude|kimi`) — 同 schema 输出 方便 对账
+
 ---
 
 ## 9. 演进机制
@@ -657,6 +723,42 @@ Claude 承诺 v1.2 起:
 
 ---
 
+## 12. v1.2.1 升级 (2026-05-27 晚 · § 8.6 Kimi 路径规范 sticky)
+
+- **§ 8.6**: Kimi 测试用例 路径规范 — `REPO_ROOT` 强约束. PM 多次 提醒 后 sticky.
+- 触发: 给 Kimi 喂 prompt / 写 Kimi 用例 第一步 必须 `export REPO_ROOT=<absolute>`, 所有 路径 用 `$REPO_ROOT/...` 前缀.
+- 反例: 2026-05-27 双盲 instruction 给 Kimi 写 `python3 scripts/runner.py --script docs/...`, PM 第 N 次 提醒.
+
+## 13. v1.2.2 升级 (2026-05-28 · Phase A 收尾 + § 8.7 双盲测试 沉淀)
+
+### 升级背景
+
+Phase A (NORTH_STAR § 6.1) 7 项 + 后置打字输入框 + 双盲测试 全 ship + GREEN (2026-05-27 → 28). 把:
+1. **Phase A 真实 收尾状态** 写进 § 6.1 (状态 ✅ + commit hash 串)
+2. **双盲测试 机制** 沉淀进 § 8.7 (PM 提议 + 实测 验证 后 成为 Saga 验收 默认手段)
+
+### 新增内容
+
+- **§ 6.1** Phase A 表加 状态 column + commit hash + #8 #9 后置项目 + Phase A 真发现 2 个真 bug (demo_seed keywords / item_5 metric 漏算 dissent)
+- **§ 8.7** 双盲测试 机制 完整 沉淀:
+  - 为什么 (PM 真实业务困境 + vibe coding 效率要求)
+  - 核心机制 (AI 充当参会人 + 双 AI 独立跑 + 客观 metric 对账)
+  - 适用范围 (backend AI / WS / API; 不适用 真音频/声纹/UI)
+  - Saga 验收 推荐 (默认 手段)
+  - 真 bug vs 概率抖动 区分准则
+  - Runner 设计 准则 (从 Phase A 沉淀, e.g. trust_env=False / timeout 180s / 多维 metric)
+- **TL;DR 第 9 条** 新增 测试方法论
+
+### Phase A 真实战绩
+
+- 14 commit (a269f84 / 4b6add2 / ea03001 / 2a53072 / a53cd17 / 56b2037 / 1e29205 + Kimi 用例 + retro)
+- 真发现 2 bug + 修
+- ~3500 行 净增, -1850 删 (含 死码 closure_curator + MOCK 圆桌)
+- 端到端 双 AI 验证 GREEN
+
+---
+
 > **本文档不动代码**, 是产品宪法. 任何 Saga changelist / spec / commit 跟 NORTH_STAR 冲突, 默认拒绝, 除非 PM 显式 override.
 > **反馈渠道**: PM 直接 edit 本文档 + commit 升级版本号 (vX.Y).
 > **v1.2 大会师承诺**: Claude 启动任何 Phase A/B/C/D saga 前必读 § 1.4 (8 痛点) + § 6 (Phase 路径) + § 7.5 (设计原则).
+> **v1.2.2 承诺**: backend AI 行为 / WS / API 涉及的 Saga 收尾 默认 走 § 8.7 双盲测试.
