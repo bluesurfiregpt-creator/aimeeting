@@ -45,12 +45,34 @@ AGENT_GLYPHS: dict[str, tuple[str, str, str, str]] = {
     "Tally":   ("¥", "#64D2FF", "#0A84FF", "财务建模"),
 }
 
-# 中文别名 → 英文 key (Saga Q 决定 服务赵姐 = Zhaojie, 数小妙 = Shu, 法老张 = Falao).
-# 让 老 agent (DB seed 时 name 用 中文名) 也能映射到正确视觉规格.
+# 中文别名 → 英文 key
+# (1) Saga Q 决定 服务赵姐 = Zhaojie, 数小妙 = Shu, 法老张 = Falao (中文 nickname)
+# (2) Phase 2 Sprint 1 加 9 个业务名映射 — demo workspace 的 Agent.name 是 role_short
+#     (数据洞察 / 用户体验 / 工程架构 ...) 而不是品牌名 (Mira / Aria / Stratos).
+#     curl /api/v2/today/experts 看到真实 Agent 名是中文业务名, 需要别名映射才能命中
+#     AGENT_GLYPHS 拿到正确的 glyph + 渐变色.
 _AGENT_NAME_ALIAS: dict[str, str] = {
-    "服务赵姐": "Zhaojie",
-    "数小妙":   "Shu",
-    "法老张":   "Falao",
+    # 中文 nickname (Saga Q)
+    "服务赵姐":     "Zhaojie",
+    "数小妙":       "Shu",
+    "法老张":       "Falao",
+    # 中文业务名 = role_short 反向映射 (Sprint 1 Z 方案)
+    "数据洞察":     "Sage",
+    "用户体验":     "Aria",
+    "工程架构":     "Stratos",
+    "法规合规":     "Lex",
+    "客户体验":     "Zhaojie",
+    "财务建模":     "Tally",
+    "决策仲裁":     "Falao",
+    "数据 KPI":     "Shu",
+    "数据 kpi":     "Shu",   # 大小写兼容
+    "竞品研究":     "Scout",
+    "首席协调 AI":  "Mira",
+    "首席协调":     "Mira",   # 简写兼容
+    # 福田住建 demo 业务 AI (跟设计稿 10 个不严格对应, 选最接近的视觉)
+    "住房建设与土地整备AI专家": "Lex",   # 法规合规类
+    "住房建设":     "Lex",
+    "土地整备":     "Lex",
 }
 
 # fallback 视觉规格 — 当 Agent.name 不在 map 时退到这套.
