@@ -55,9 +55,29 @@
 - 版本号:跟 commit 里的 `feat(v26.3-XX)` 一致
 - 每次 commit + deploy 完成后,在告诉用户测试地址的同一条消息里,引用该用例文件路径
 
+### 路径规范 — **强约束**(PM 多次提醒 sticky)
+
+Kimi 跑在 sandbox 没有 cwd 上下文 → **任何 文件路径 / 命令 引用 必须 用绝对路径**.
+
+1. **测试用例顶部** 必须 定义 `REPO_ROOT` 变量:
+   ```bash
+   export REPO_ROOT=/some/absolute/path/to/aimeeting
+   ```
+
+2. **所有 命令 + 文件 引用** 用 `$REPO_ROOT/...` 前缀:
+   - ✅ `python3 $REPO_ROOT/scripts/runner.py --script $REPO_ROOT/docs/kimi-tests/...json`
+   - ❌ `python3 scripts/runner.py` / `cd 后 用 相对路径`
+
+3. **复述 / 输出 路径** 也 用 `$REPO_ROOT/...` 形式.
+
+4. **给 PM 喂 Kimi 的 prompt** 同样规则 — 不允许 写 `docs/...` 这种 cwd-依赖.
+
+详见 `docs/NORTH_STAR.md` § 8.6.
+
 ### 触发时机(对 Claude 自己)
 - 任何 `feat(*)` / `fix(*)` 落到生产 → 必产出
 - 纯文档 / 纯 typo / 不影响外部行为 的改动 → 可跳过,但在 commit message 里写明 `[no-kimi-test]`
+- 写 Kimi 用例 / 喂 Kimi prompt 第一步 — set `REPO_ROOT`,所有路径 加 `$REPO_ROOT/`
 
 ## 测试账号(全项目共享)
 

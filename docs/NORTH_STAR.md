@@ -503,6 +503,43 @@ round-4 全面切换到 iOS 浅色 (会议室 round-3 done, 主 tab round-4 in-p
 
 任何 `feat(*)` / `fix(*)` 落到生产 → 必产出 `docs/kimi-tests/<版本>-kimi.md`, 6 条死规矩反幻觉. 见 `CLAUDE.md` § 部署+测试流程.
 
+### 8.6 Kimi 测试用例 路径规范 — **强约束**
+
+> _PM 多次提醒 (2026-05-27 起): 给 Kimi 的命令 / 文件引用 不允许 用 相对路径._
+
+#### 为什么
+
+Kimi 跑在 自己 sandbox 里, **没有 当前 工作目录 上下文**. 我们 repo clone 路径 跟 Kimi sandbox 路径 不一样. 写 `python3 scripts/runner.py --script docs/kimi-tests/...json` Kimi 看到 不知道 在 哪个 dir 跑, 跑出来 找不到 文件 → 整个 用例 fail.
+
+#### 强约束 (违反 = 测试用例 重写)
+
+1. **每个 Kimi 测试用例 顶部 必须 定义 `REPO_ROOT`**:
+   ```bash
+   # 你 clone repo 后, set 这个 env var 为 repo 根目录 绝对路径:
+   export REPO_ROOT=/some/absolute/path/to/aimeeting
+   ```
+
+2. **所有 命令 / 文件 引用 都 用 `$REPO_ROOT/...` 形式**:
+   - ✅ `python3 $REPO_ROOT/scripts/runner.py --script $REPO_ROOT/docs/kimi-tests/...json`
+   - ❌ `python3 scripts/runner.py --script docs/kimi-tests/...json`
+   - ❌ `cd /opt/aimeeting && python3 ...` (除非 cd 后 全用 绝对路径)
+
+3. **复述 / 校验 路径 时 也 给 完整 `$REPO_ROOT/...`**:
+   - ✅ "result 写到 $REPO_ROOT/docs/kimi-tests/blind-test/results/run-kimi-A-xxx.json"
+   - ❌ "result 写到 docs/kimi-tests/blind-test/results/run-kimi-A-xxx.json"
+
+4. **配置 文件 (e.g. demo seed 路径 / runner --script 路径) 默认 用 `$REPO_ROOT` 前缀** — 不要 假设 Kimi `cd $REPO_ROOT` 已 在 cwd.
+
+#### 触发时机 (对 Claude 自己)
+
+- 任何 写 给 Kimi 的 测试用例 → **第一步** 就 在 用例顶部 写 `REPO_ROOT` 定义
+- 写 给 PM 喂 Kimi 的 prompt → 同样 用 `$REPO_ROOT/`
+- 历史 Kimi 用例 含 相对路径 的 → **路过 顺手 修** (不必专门 sprint, 但 review 阶段 看见 必须 改)
+
+#### 反例 (已 触发 多次 提醒)
+
+- 2026-05-27 双盲 测试 instruction 给 Kimi 写 `python3 scripts/blind-test-runner.py --script docs/kimi-tests/blind-test/scripts/A-grayrelease.json` — PM 第 N 次 提醒 后 sticky 进 宪法.
+
 ---
 
 ## 9. 演进机制
