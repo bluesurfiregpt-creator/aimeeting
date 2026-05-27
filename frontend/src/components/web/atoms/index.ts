@@ -14,3 +14,12 @@ export { WSection } from "./WSection";
 export { WPage, WSparkle } from "./WPage";
 export { WTopNav } from "./WTopNav";
 export { WModal } from "./WModal";
+export {
+  WCrystalIcon,
+  WBookshelfIcon,
+  WOrbIcon,
+  WTableIcon,
+  W_MENTAL_ICON_BY_ID,
+  type WMentalIconId,
+  type WMentalIconProps,
+} from "./WMentalIcons";

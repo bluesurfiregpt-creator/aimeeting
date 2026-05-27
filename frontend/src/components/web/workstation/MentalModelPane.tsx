@@ -1,11 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { W_TOKENS } from "../tokens";
 import { W_USER } from "../data/agents";
-import { WIcon, WSparkle } from "../atoms";
+import {
+  WIcon,
+  WSparkle,
+  W_MENTAL_ICON_BY_ID,
+  type WMentalIconId,
+} from "../atoms";
+import {
+  MENTAL_NODES,
+  MENTAL_NODE_ORDER,
+  type MentalNode,
+} from "../data/mentalModels";
 
 // LineagePane 用 echarts (~900KB gzip), 动态加载减少 mental pane first-load,
 // 同时避免 SSR 时 echarts 调用 window 报错.
@@ -26,17 +36,22 @@ const LineagePane = dynamic(() => import("./LineagePane").then((m) => ({ default
 });
 
 /**
- * AI 心智一览 pane (workstation 默认 landing). round-6 rewrite:
+ * AI 心智一览 pane (workstation 默认 landing).
  *
- * - 副标题加 "· 一页看完 AI 怎么思考、怎么记住、怎么使用"
- * - 标题改 "AI 心智一览" (吃掉独立 graph 入口)
- * - 删 4 张 QuickCard
- * - 新加 <MentalLiveSection /> 嵌入 LineagePane (Sankey, embedded)
+ * Saga O 改造 (设计稿: `Mental Model Icons.html`):
+ *  - 旧 emoji glyph FlowNode → 4 件拟物 SVG (紫水晶/书架/琥珀球/圆桌)
+ *  - 数字被抽到名字旁边 → 变大变粗 + 发光胶囊 → **可点击的入口**
+ *  - 点击数字胶囊 → 右侧 420px 抽屉滑出 (DrillPanel: 分类柱状 + 最近条目)
+ *  - 抽屉里 "查看全部 →" 跳到对应 workstation slug
  *
- * 紫渐变 hero box 保留 (4 个流程节点 AI 专家 → 书架 → 经验 → 会议).
+ * 不动:
+ *  - hero 紫渐变背景 / sparkle / footer "AI 引用 → 提炼 → 调用" 一句话
+ *  - 下方 MentalLiveSection (LineagePane embedded)
+ *  - props 契约 (export function MentalModelPane()))
  */
 export function MentalModelPane() {
   const router = useRouter();
+  const [drillId, setDrillId] = useState<WMentalIconId | null>(null);
 
   return (
     <>
@@ -73,9 +88,18 @@ export function MentalModelPane() {
         {W_USER.name} · {W_USER.workspace} · 一页看完 AI 怎么思考、怎么记住、怎么使用
       </div>
 
-      <MentalModelHero onJump={(slug) => router.push(`/workstation/${slug}`)} />
+      <MentalModelHero onOpen={(id) => setDrillId(id)} />
 
       <MentalLiveSection />
+
+      <DrillPanel
+        id={drillId}
+        onClose={() => setDrillId(null)}
+        onJump={(slug) => {
+          setDrillId(null);
+          router.push(`/workstation/${slug}`);
+        }}
+      />
     </>
   );
 }
@@ -139,46 +163,10 @@ function MentalLiveSection() {
   );
 }
 
-function MentalModelHero({ onJump }: { onJump: (slug: string) => void }) {
-  const NODES = [
-    {
-      id: "agents",
-      label: "AI 专家",
-      glyph: "◆",
-      tone: ["#5E5CE6", "#AF52DE"] as const,
-      desc: "在每场会议里 参与思考",
-      slug: "agents",
-      count: 32,
-    },
-    {
-      id: "kb",
-      label: "书架",
-      glyph: "📚",
-      tone: ["#0A84FF", "#5E5CE6"] as const,
-      desc: "需要时 查得到的资料",
-      slug: "kb",
-      count: 26,
-    },
-    {
-      id: "memory",
-      label: "经验",
-      glyph: "◐",
-      tone: ["#AF52DE", "#FF6482"] as const,
-      desc: "AI 已经 内化的事",
-      slug: "memory",
-      count: 100,
-    },
-    {
-      id: "meet",
-      label: "会议",
-      glyph: "◎",
-      tone: ["#FF6482", "#FFB340"] as const,
-      desc: "产出 上面 两者",
-      slug: null,
-      count: 21,
-    },
-  ];
-
+// ════════════════════════════════════════════
+// HERO — 紫渐变 + 4 件拟物 icon strip
+// ════════════════════════════════════════════
+function MentalModelHero({ onOpen }: { onOpen: (id: WMentalIconId) => void }) {
   return (
     <div
       style={{
@@ -260,6 +248,7 @@ function MentalModelHero({ onJump }: { onJump: (slug: string) => void }) {
         </div>
       </div>
 
+      {/* STRIP — 4 件拟物 icon, 数字胶囊可点击 */}
       <div
         style={{
           position: "relative",
@@ -269,12 +258,12 @@ function MentalModelHero({ onJump }: { onJump: (slug: string) => void }) {
           marginTop: 28,
         }}
       >
-        {NODES.map((n, i) => (
-          <FlowNode
-            key={n.id}
-            n={n}
-            last={i === NODES.length - 1}
-            onClick={() => n.slug && onJump(n.slug)}
+        {MENTAL_NODE_ORDER.map((id, i) => (
+          <MentalFlowNode
+            key={id}
+            node={MENTAL_NODES[id]}
+            last={i === MENTAL_NODE_ORDER.length - 1}
+            onOpen={() => onOpen(id)}
           />
         ))}
       </div>
@@ -304,22 +293,22 @@ function MentalModelHero({ onJump }: { onJump: (slug: string) => void }) {
   );
 }
 
-type FlowNodeProps = {
-  n: {
-    id: string;
-    label: string;
-    glyph: string;
-    tone: readonly [string, string];
-    desc: string;
-    slug: string | null;
-    count: number;
-  };
+// ════════════════════════════════════════════
+// FLOW NODE — icon + clickable count badge
+// ════════════════════════════════════════════
+function MentalFlowNode({
+  node,
+  last,
+  onOpen,
+}: {
+  node: MentalNode;
   last: boolean;
-  onClick: () => void;
-};
+  onOpen: () => void;
+}) {
+  const Icon = W_MENTAL_ICON_BY_ID[node.id];
+  const [hover, setHover] = useState(false);
+  const [hoverNum, setHoverNum] = useState(false);
 
-function FlowNode({ n, last, onClick }: FlowNodeProps) {
-  const [hovered, setHovered] = useState(false);
   return (
     <div
       style={{
@@ -329,12 +318,13 @@ function FlowNode({ n, last, onClick }: FlowNodeProps) {
         alignItems: "center",
       }}
     >
+      {/* connector → 流动小球箭头 */}
       {!last && (
         <div
           style={{
             position: "absolute",
-            top: 24,
-            left: "calc(50% + 28px)",
+            top: 56,
+            left: "calc(50% + 56px)",
             right: "-50%",
             height: 1,
             background:
@@ -370,79 +360,497 @@ function FlowNode({ n, last, onClick }: FlowNodeProps) {
           />
         </div>
       )}
-      <button
-        type="button"
-        onClick={onClick}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+
+      <div
         style={{
           position: "relative",
-          background: "none",
-          border: "none",
-          cursor: n.slug ? "pointer" : "default",
-          padding: 0,
-          fontFamily: "inherit",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: 9,
+          gap: 6,
           transition: "transform 200ms ease",
-          transform: hovered && n.slug ? "translateY(-3px)" : "none",
+          transform: hover ? "translateY(-4px)" : "none",
         }}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
       >
+        {/* SKEUOMORPHIC ICON — no outer frame */}
         <div
           style={{
-            width: 52,
-            height: 52,
-            borderRadius: 14,
-            background: `linear-gradient(135deg, ${n.tone[0]} 0%, ${n.tone[1]} 100%)`,
-            display: "inline-flex",
+            width: 112,
+            height: 112,
+            position: "relative",
+            display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            color: "#fff",
-            fontSize: 26,
-            boxShadow:
-              hovered && n.slug
-                ? `0 8px 24px ${n.tone[1]}55, inset 0 0 0 0.5px rgba(255,255,255,0.30)`
-                : `0 4px 14px ${n.tone[1]}30, inset 0 0 0 0.5px rgba(255,255,255,0.15)`,
-            transition: "box-shadow 200ms ease",
-            letterSpacing: -1,
+            transition: "transform 200ms ease, filter 200ms ease",
+            transform: hover ? "scale(1.04)" : "scale(1)",
+            filter: hover
+              ? `drop-shadow(0 12px 24px ${node.accent}44)`
+              : `drop-shadow(0 6px 18px ${node.accent}26)`,
           }}
         >
-          {n.glyph}
+          <Icon size={112} />
         </div>
-        <div style={{ textAlign: "center" }}>
+
+        {/* label + clickable count badge */}
+        <div style={{ textAlign: "center", marginTop: 2 }}>
           <div
             style={{
               fontSize: 14,
               fontWeight: 700,
               color: "#fff",
               letterSpacing: -0.1,
+              display: "inline-flex",
+              alignItems: "baseline",
+              gap: 9,
             }}
           >
-            {n.label}
-            <span
+            <span>{node.label}</span>
+
+            <button
+              type="button"
+              onClick={onOpen}
+              onMouseEnter={() => setHoverNum(true)}
+              onMouseLeave={() => setHoverNum(false)}
               style={{
-                fontWeight: 500,
-                color: "rgba(255,255,255,0.50)",
-                marginLeft: 5,
-                fontSize: 12,
+                position: "relative",
+                display: "inline-flex",
+                alignItems: "baseline",
+                gap: 4,
+                background: hoverNum
+                  ? `linear-gradient(180deg, ${node.accent}26, ${node.accent}10)`
+                  : "rgba(255,255,255,0.04)",
+                border: "none",
+                boxShadow: hoverNum
+                  ? `inset 0 0 0 0.5px ${node.accent}88, 0 4px 14px ${node.accent}33`
+                  : `inset 0 0 0 0.5px rgba(255,255,255,0.12)`,
+                borderRadius: 9,
+                padding: "3px 9px 4px",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                transition: "all 180ms ease",
+                transform: hoverNum ? "translateY(-1px)" : "none",
+                color: "#fff",
               }}
             >
-              {n.count}
-            </span>
+              <span
+                style={{
+                  fontSize: 22,
+                  fontWeight: 800,
+                  color: hoverNum ? "#fff" : node.accent,
+                  fontVariantNumeric: "tabular-nums",
+                  letterSpacing: -0.6,
+                  lineHeight: 1,
+                  textShadow: hoverNum
+                    ? `0 0 12px ${node.accent}99`
+                    : `0 0 8px ${node.accent}44`,
+                  transition: "all 180ms ease",
+                }}
+              >
+                {node.count}
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: hoverNum ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.55)",
+                  lineHeight: 1,
+                }}
+              >
+                {node.unit}
+              </span>
+              <svg
+                width="9"
+                height="9"
+                viewBox="0 0 9 9"
+                style={{
+                  marginLeft: 1,
+                  opacity: hoverNum ? 0.85 : 0.4,
+                  transform: hoverNum ? "translate(1px, -1px)" : "none",
+                  transition: "all 180ms ease",
+                }}
+              >
+                <path
+                  d="M 1 8 L 8 1 M 3 1 L 8 1 L 8 6"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
           </div>
-          <div
-            style={{
-              fontSize: 11.5,
-              color: "rgba(255,255,255,0.55)",
-              marginTop: 2,
-            }}
-          >
-            {n.desc}
+
+          <div style={{ fontSize: 11.5, color: "rgba(255,255,255,0.55)", marginTop: 5 }}>
+            {node.sub}
           </div>
         </div>
-      </button>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════
+// DRILL PANEL — 右侧 420px 抽屉
+// ════════════════════════════════════════════
+function DrillPanel({
+  id,
+  onClose,
+  onJump,
+}: {
+  id: WMentalIconId | null;
+  onClose: () => void;
+  onJump: (slug: string) => void;
+}) {
+  const [shown, setShown] = useState(false);
+
+  useEffect(() => {
+    if (id) {
+      setShown(false);
+      const t = setTimeout(() => setShown(true), 20);
+      return () => clearTimeout(t);
+    }
+    setShown(false);
+    return undefined;
+  }, [id]);
+
+  // ESC 关
+  useEffect(() => {
+    if (!id) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [id, onClose]);
+
+  if (!id) return null;
+  const d = MENTAL_NODES[id];
+  const Icon = W_MENTAL_ICON_BY_ID[id];
+  const total = d.breakdown.reduce((s, b) => s + b.v, 0);
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 50,
+        pointerEvents: "auto",
+      }}
+    >
+      {/* backdrop */}
+      <div
+        onClick={onClose}
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "rgba(8,6,18,0.55)",
+          backdropFilter: "blur(6px)",
+          WebkitBackdropFilter: "blur(6px)",
+          opacity: shown ? 1 : 0,
+          transition: "opacity 220ms ease",
+        }}
+      />
+
+      {/* panel */}
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: 420,
+          background: "linear-gradient(180deg, #1a1530 0%, #15102a 100%)",
+          boxShadow:
+            "-20px 0 60px rgba(0,0,0,0.55), inset 0 0 0 0.5px rgba(255,255,255,0.06)",
+          transform: shown ? "translateX(0)" : "translateX(100%)",
+          opacity: shown ? 1 : 0.5,
+          transition:
+            "transform 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
+        {/* header */}
+        <div
+          style={{
+            padding: "20px 22px 16px",
+            borderBottom: "0.5px solid rgba(255,255,255,0.08)",
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 14,
+            position: "relative",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              top: -40,
+              right: -40,
+              width: 200,
+              height: 200,
+              borderRadius: "50%",
+              background: `radial-gradient(circle, ${d.accent}33 0%, ${d.accent}00 65%)`,
+              pointerEvents: "none",
+            }}
+          />
+          <div style={{ flexShrink: 0, marginTop: -4 }}>
+            <Icon size={72} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+            <div
+              style={{
+                fontSize: 10.5,
+                fontWeight: 700,
+                color: "rgba(255,255,255,0.55)",
+                letterSpacing: 0.6,
+                textTransform: "uppercase",
+              }}
+            >
+              数据储备 · 可穿透查看
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", marginTop: 4 }}>
+              {d.label}
+            </div>
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "baseline",
+                gap: 5,
+                marginTop: 8,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 36,
+                  fontWeight: 800,
+                  color: d.accent,
+                  fontVariantNumeric: "tabular-nums",
+                  letterSpacing: -1.2,
+                  lineHeight: 1,
+                  textShadow: `0 0 18px ${d.accent}66`,
+                }}
+              >
+                {d.count}
+              </span>
+              <span style={{ fontSize: 13, color: "rgba(255,255,255,0.65)" }}>{d.unit}</span>
+            </div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginTop: 4 }}>
+              {d.sub}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭"
+            style={{
+              position: "absolute",
+              top: 14,
+              right: 14,
+              width: 26,
+              height: 26,
+              borderRadius: 7,
+              background: "rgba(255,255,255,0.06)",
+              border: "none",
+              color: "#fff",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 11 11">
+              <path
+                d="M 1 1 L 10 10 M 10 1 L 1 10"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        </div>
+
+        {/* breakdown */}
+        <div style={{ padding: "18px 22px 8px" }}>
+          <div
+            style={{
+              fontSize: 10.5,
+              fontWeight: 700,
+              color: "rgba(255,255,255,0.50)",
+              letterSpacing: 0.5,
+              textTransform: "uppercase",
+              marginBottom: 10,
+            }}
+          >
+            按分类
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {d.breakdown.map((b, i) => {
+              const pct = (b.v / total) * 100;
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span
+                    style={{
+                      flex: "0 0 80px",
+                      fontSize: 12.5,
+                      color: "rgba(255,255,255,0.80)",
+                    }}
+                  >
+                    {b.tag}
+                  </span>
+                  <div
+                    style={{
+                      flex: 1,
+                      height: 6,
+                      borderRadius: 3,
+                      background: "rgba(255,255,255,0.06)",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${pct}%`,
+                        height: "100%",
+                        background: `linear-gradient(90deg, ${d.accent}, ${d.accent}88)`,
+                        boxShadow: `0 0 6px ${d.accent}66`,
+                      }}
+                    />
+                  </div>
+                  <span
+                    style={{
+                      flex: "0 0 32px",
+                      textAlign: "right",
+                      fontSize: 12,
+                      color: "#fff",
+                      fontWeight: 600,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {b.v}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* recent */}
+        <div
+          style={{ padding: "14px 22px 18px", flex: 1, overflow: "auto", minHeight: 0 }}
+        >
+          <div
+            style={{
+              fontSize: 10.5,
+              fontWeight: 700,
+              color: "rgba(255,255,255,0.50)",
+              letterSpacing: 0.5,
+              textTransform: "uppercase",
+              marginTop: 6,
+              marginBottom: 10,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <span>最近 · 点击穿透</span>
+            {d.slug && (
+              <button
+                type="button"
+                onClick={() => d.slug && onJump(d.slug)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  fontSize: 10.5,
+                  color: d.accent,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  letterSpacing: 0.5,
+                  textTransform: "uppercase",
+                }}
+              >
+                查看全部 →
+              </button>
+            )}
+          </div>
+          {d.recent.map((r, i) => (
+            <RecentRow key={i} item={r} accent={d.accent} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecentRow({
+  item,
+  accent,
+}: {
+  item: { name: string; meta: string; updated: string };
+  accent: string;
+}) {
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        padding: "10px 12px",
+        borderRadius: 9,
+        background: hover ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.03)",
+        boxShadow: "inset 0 0 0 0.5px rgba(255,255,255,0.06)",
+        marginBottom: 7,
+        display: "flex",
+        alignItems: "center",
+        gap: 11,
+        cursor: "pointer",
+        transition: "background 140ms ease",
+      }}
+    >
+      <div
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          background: accent,
+          boxShadow: `0 0 6px ${accent}`,
+          flexShrink: 0,
+        }}
+      />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: "#fff",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {item.name}
+        </div>
+        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", marginTop: 2 }}>
+          {item.meta}
+        </div>
+      </div>
+      <span style={{ fontSize: 10.5, color: "rgba(255,255,255,0.40)", flexShrink: 0 }}>
+        {item.updated}
+      </span>
+      <svg width="9" height="9" viewBox="0 0 9 9" style={{ opacity: 0.45 }}>
+        <path
+          d="M 2 1 L 7 4.5 L 2 8"
+          fill="none"
+          stroke="#fff"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
     </div>
   );
 }
