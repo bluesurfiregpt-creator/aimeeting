@@ -36,10 +36,16 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .agent_glyphs import AGENT_GLYPHS
+from .chunker import split_text
+from .demo_kb_corpus_v2 import DEMO_KB_V2
+from .embeddings import EmbeddingError, compute_embeddings
 from .memory_axis import AXES, classify_memory_to_axis
 from .models import (
     Agent,
     AIInsight,
+    KnowledgeBase,
+    KnowledgeChunk,
+    KnowledgeDocument,
     LongTermMemory,
     Meeting,
     MeetingAttendee,
@@ -236,6 +242,12 @@ async def seed_demo_v2(session: AsyncSession) -> dict:
         "voiceprints_created": 0,
         "memories_created": 0,
         "axis_distribution": {},
+        # v1.4.0 Phase B · 8 NEW-C KB fix (Round 1 Kimi 验出 kb_hits=0):
+        "kbs_created": 0,
+        "kbs_reused": 0,
+        "kb_documents_created": 0,
+        "kb_chunks_created": 0,
+        "kb_embed_failed": 0,
     }
 
     # ---- Step 1: locate demo workspace ----------------------------------------
@@ -329,7 +341,7 @@ async def _seed_demo_v2_agents(
     workspace_id: uuid.UUID,
     report: dict,
 ) -> dict[str, Agent]:
-    """seed 10 英文品牌 Agent. 固定 UUID; 已存在 → 补 keywords (若空)."""
+    """seed 10 英文品牌 Agent. 固定 UUID; 已存在 → 补 keywords + KB (若空)."""
     out: dict[str, Agent] = {}
     for idx, (name, role, domain, persona, keywords) in enumerate(_DEMO_AGENTS_SPEC):
         agent_id = _demo_uuid("agent", idx + 1)
@@ -369,7 +381,127 @@ async def _seed_demo_v2_agents(
         report["agents_created"] += 1
 
     await session.flush()
+
+    # v1.4.0 Phase B · 8 NEW-C: KB seeding (Round 1 Kimi 双盲 发现 kb_hits=0)
+    # 给每个 agent 建 KB + 灌 docs + chunks + embeddings. Idempotent — 已绑 KB
+    # 跳过, 已建 KB 跳过 doc 重灌.
+    await _seed_demo_v2_kbs(session, workspace_id, out, report)
     return out
+
+
+async def _seed_demo_v2_kbs(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    agents_by_name: dict[str, Agent],
+    report: dict,
+) -> None:
+    """seed 10 英文品牌 Agent 的 KB + docs + chunks + embeddings.
+
+    Idempotent:
+    - 已 set `agent.knowledge_base_ids` → 跳过 该 agent
+    - `KB · {name}` 已存在 → 复用 (跳过 doc 灌, 避免 重)
+
+    embeddings 批量 调 DashScope text-embedding-v2 (25 / batch).
+    embedding 失败 不挡 seed — 记 `kb_embed_failed` 计数, 后续 可手动 补.
+    """
+    # 收集 已存在 的 KB by name (避免 重新建)
+    existing_kbs = (
+        await session.execute(
+            select(KnowledgeBase).where(KnowledgeBase.workspace_id == workspace_id)
+        )
+    ).scalars().all()
+    existing_kb_by_name = {kb.name: kb for kb in existing_kbs}
+
+    # 收集 所有 要 embed 的 chunks (跨 agent 批量)
+    all_chunks_to_embed: list[tuple[KnowledgeChunk, str]] = []
+
+    for agent_name, agent in agents_by_name.items():
+        # 已 绑 KB 跳过 (idempotent)
+        if agent.knowledge_base_ids:
+            continue
+
+        # 该 agent 是否有 demo 内容
+        docs_spec = DEMO_KB_V2.get(agent_name)
+        if not docs_spec:
+            continue
+
+        # 找 或 建 KB
+        kb_name = f"KB · {agent_name}"
+        kb = existing_kb_by_name.get(kb_name)
+        kb_is_new = False
+        if kb is None:
+            kb = KnowledgeBase(
+                workspace_id=workspace_id,
+                name=kb_name,
+                description=f"{agent_name} 的演示 KB ({agent.domain}).",
+                owner_agent_id=agent.id,
+            )
+            session.add(kb)
+            await session.flush()
+            existing_kb_by_name[kb_name] = kb
+            report["kbs_created"] += 1
+            kb_is_new = True
+        else:
+            report["kbs_reused"] += 1
+
+        # 绑 agent.knowledge_base_ids
+        agent.knowledge_base_ids = [kb.id]
+
+        # 灌 docs — 仅 当 该 KB 没 任何 文档 时 (idempotent: 已存在 docs 跳过)
+        if not kb_is_new:
+            existing_doc = (
+                await session.execute(
+                    select(KnowledgeDocument).where(KnowledgeDocument.kb_id == kb.id)
+                )
+            ).scalars().first()
+            if existing_doc is not None:
+                continue  # KB 已有 docs, 跳过 灌, 但 binding 已 做 (上面 agent.knowledge_base_ids)
+
+        # 这条 KB 没文档 (新建 或 老的 但 空) → 灌
+        for filename, _title, content in docs_spec:
+            doc = KnowledgeDocument(
+                kb_id=kb.id,
+                filename=filename,
+                mime_type="text/markdown",
+                byte_size=len(content.encode("utf-8")),
+                char_count=len(content),
+                chunk_count=0,  # 下面 更
+                status="ready",
+                data_classification="general",
+            )
+            session.add(doc)
+            await session.flush()
+            report["kb_documents_created"] += 1
+
+            # 切 chunks (target 400 字符 / overlap 40)
+            pieces = split_text(content, target_chars=400, overlap_chars=40)
+            for chunk_idx, piece in enumerate(pieces):
+                chunk = KnowledgeChunk(
+                    document_id=doc.id,
+                    kb_id=kb.id,
+                    chunk_index=chunk_idx,
+                    content=piece,
+                )
+                session.add(chunk)
+                all_chunks_to_embed.append((chunk, piece))
+                report["kb_chunks_created"] += 1
+            doc.chunk_count = len(pieces)
+
+    # 批量 embed (每批 25)
+    if all_chunks_to_embed:
+        BATCH = 25
+        for i in range(0, len(all_chunks_to_embed), BATCH):
+            batch = all_chunks_to_embed[i : i + BATCH]
+            texts = [t for _, t in batch]
+            try:
+                vectors = await compute_embeddings(texts)
+                for (chunk, _), vec in zip(batch, vectors):
+                    chunk.embedding = vec
+            except EmbeddingError as e:
+                logger.warning("demo_seed_v2 embedding batch %d failed: %s", i, e)
+                report["kb_embed_failed"] += len(batch)
+
+    await session.flush()
 
 
 async def _find_demo_users(session: AsyncSession) -> dict[str, User]:
