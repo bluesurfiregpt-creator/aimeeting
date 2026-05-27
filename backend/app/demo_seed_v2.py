@@ -93,19 +93,22 @@ DEMO_MEETING_DATA_SEC     = _demo_uuid("meeting", 5)
 # alias map 0 步命中, 视觉规格 (glyph/gradient) 立刻可用.
 # ============================================================================
 
-# Agent 名 → (role_short 中文短角色, 角色, 描述, dify_app_type)
-_DEMO_AGENTS_SPEC: list[tuple[str, str, str, str]] = [
-    # name,    role,        domain (跟 AGENT_GLYPHS role_short 一致),  persona
-    ("Mira",    "moderator", "首席协调 AI",  "你是首席协调 AI Mira, 串联议程 / 时间 / 决策, 中立可控."),
-    ("Aria",    "expert",    "用户体验",     "你是 用户体验 AI Aria, 关注用户旅程 / 易用 / 交互细节."),
-    ("Stratos", "expert",    "工程架构",     "你是 工程架构 AI Stratos, 关注系统稳定性 / 接口设计 / 性能."),
-    ("Sage",    "expert",    "数据洞察",     "你是 数据洞察 AI Sage, 关注指标 / 趋势 / 数据看板."),
-    ("Lex",     "expert",    "法规合规",     "你是 法规合规 AI Lex, 关注法律 / 隐私 / 审查 / 合规风险."),
-    ("Scout",   "expert",    "竞品研究",     "你是 竞品研究 AI Scout, 关注市场动态 / 友商进展."),
-    ("Falao",   "expert",    "决策仲裁",     "你是 决策仲裁 AI Falao, 多方权衡 / 拍板建议."),
-    ("Shu",     "expert",    "数据 KPI",     "你是 数据 KPI AI Shu, 关注绩效 / KPI 拆解 / 排名."),
-    ("Zhaojie", "expert",    "客户体验",     "你是 客户体验 AI Zhaojie (服务赵姐), 关注客户反馈 / 投诉 / NPS."),
-    ("Tally",   "expert",    "财务建模",     "你是 财务建模 AI Tally, 关注预算 / ROI / 现金流 / 成本核算."),
+# Agent 名 → (role_short 中文短角色, 角色, 描述, dify_app_type, keywords)
+# v1.4.0 Phase A 双盲测试 发现: 老 spec 缺 keywords, 导致 agent_router.maybe_invoke_agents
+# 的 _detect_keyword 命中 失败 — AI 永远 不主动 chime in (Phase A · 2 阈值调优 治标 不治本).
+# keywords 5-8 个 自然词, 跟 NORTH_STAR § 1.3 各 AI 角色一致.
+_DEMO_AGENTS_SPEC: list[tuple[str, str, str, str, list[str]]] = [
+    # name,    role,        domain,         persona,                                                            keywords
+    ("Mira",    "moderator", "首席协调 AI",  "你是首席协调 AI Mira, 串联议程 / 时间 / 决策, 中立可控.",                                       []),  # moderator 不该 被 keyword 召唤, 仅 @ 或 orchestrator recommend
+    ("Aria",    "expert",    "用户体验",     "你是 用户体验 AI Aria, 关注用户旅程 / 易用 / 交互细节.",                                          ["用户体验", "用户旅程", "易用", "交互", "UX", "界面"]),
+    ("Stratos", "expert",    "工程架构",     "你是 工程架构 AI Stratos, 关注系统稳定性 / 接口设计 / 性能.",                                     ["架构", "性能", "接口", "稳定性", "技术选型", "工程"]),
+    ("Sage",    "expert",    "数据洞察",     "你是 数据洞察 AI Sage, 关注指标 / 趋势 / 数据看板.",                                              ["数据", "指标", "趋势", "看板", "数据分析", "数据洞察"]),
+    ("Lex",     "expert",    "法规合规",     "你是 法规合规 AI Lex, 关注法律 / 隐私 / 审查 / 合规风险.",                                        ["法务", "合规", "隐私", "审查", "法律", "法规", "风险"]),
+    ("Scout",   "expert",    "竞品研究",     "你是 竞品研究 AI Scout, 关注市场动态 / 友商进展.",                                                 ["竞品", "友商", "市场", "对标"]),
+    ("Falao",   "expert",    "决策仲裁",     "你是 决策仲裁 AI Falao, 多方权衡 / 拍板建议.",                                                     ["仲裁", "拍板", "权衡", "决策"]),
+    ("Shu",     "expert",    "数据 KPI",     "你是 数据 KPI AI Shu, 关注绩效 / KPI 拆解 / 排名.",                                                ["KPI", "绩效", "排名", "考核"]),
+    ("Zhaojie", "expert",    "客户体验",     "你是 客户体验 AI Zhaojie (服务赵姐), 关注客户反馈 / 投诉 / NPS.",                                  ["客户", "投诉", "NPS", "服务", "客户反馈"]),
+    ("Tally",   "expert",    "财务建模",     "你是 财务建模 AI Tally, 关注预算 / ROI / 现金流 / 成本核算.",                                       ["预算", "ROI", "现金流", "成本", "财务"]),
 ]
 
 
@@ -326,14 +329,20 @@ async def _seed_demo_v2_agents(
     workspace_id: uuid.UUID,
     report: dict,
 ) -> dict[str, Agent]:
-    """seed 10 英文品牌 Agent. 固定 UUID, 已存在 skip."""
+    """seed 10 英文品牌 Agent. 固定 UUID; 已存在 → 补 keywords (若空)."""
     out: dict[str, Agent] = {}
-    for idx, (name, role, domain, persona) in enumerate(_DEMO_AGENTS_SPEC):
+    for idx, (name, role, domain, persona, keywords) in enumerate(_DEMO_AGENTS_SPEC):
         agent_id = _demo_uuid("agent", idx + 1)
         existing = (
             await session.execute(select(Agent).where(Agent.id == agent_id))
         ).scalar_one_or_none()
         if existing is not None:
+            # v1.4.0 Phase A 双盲测试 发现 老 seed 没 set keywords. 补一下,
+            # 否则 maybe_invoke_agents 永远 不命中. 仅 在 keywords 为空 时 补.
+            if (not existing.keywords) and keywords:
+                existing.keywords = keywords
+                report.setdefault("agents_keyword_backfill", 0)
+                report["agents_keyword_backfill"] += 1
             out[name] = existing
             report["agents_reused"] += 1
             continue
@@ -350,6 +359,7 @@ async def _seed_demo_v2_agents(
             boundary=f"业务范围: {domain}",
             color=gradient_from.lstrip("#")[:16],  # 截 16 字符内
             role=role,
+            keywords=keywords,  # v1.4.0 Phase A 双盲测试 fix: 必填, 否则 LLM judge 不命中
             is_active=True,
             dify_app_type="chatflow",
             stage="prod",

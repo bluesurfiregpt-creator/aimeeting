@@ -1,0 +1,85 @@
+{
+  "name": "A · 互联网灰度 B 组 20%",
+  "title": "盲测 A · B 组 20% 灰度评审",
+  "description": "PM 提议把 B 组实验从内测灰度放到 20% 真实流量, 需要 数据 / 法务 / UX 三方表态. 验证 LLM judge 主动度 + 立场守门 + Mira 接力 + summary v2.",
+  "agenda": [
+    {
+      "title": "B 组灰度 20% 数据现状评估",
+      "time_budget_min": 8,
+      "note": "讨论 当前 B 组 在 内测 阶段 的 数据指标 (有用率 / P95 延迟 / NPS) 是否 支持 推进 到 20%"
+    },
+    {
+      "title": "法务 + UX 风险盘点",
+      "time_budget_min": 7,
+      "note": "隐私政策 第 4.2 条 是否 需要 同步 更新; 1.5s P95 延迟 用户 是否 可接受"
+    },
+    {
+      "title": "决策 + 后续 owner",
+      "time_budget_min": 5,
+      "note": "若 推进, 谁 起草 隐私更新; 若 推后, 啥触发条件 才再 走"
+    }
+  ],
+  "agent_names": ["Aria", "Lex", "Sage"],
+  "post_wait_s": 15,
+  "steps": [
+    {
+      "delay_ms": 2000,
+      "speaker_name": "李局长",
+      "text": "今天讨论一个事 — B 组实验现在在内测, 我想看看能不能放到 20% 真实流量. 大家先说说各自的看法.",
+      "expected": { "note": "开场, 不强制 AI 反应" }
+    },
+    {
+      "delay_ms": 5000,
+      "speaker_name": "陈师宇",
+      "text": "从产品角度我支持推进 20%, 数据上 B 组有用率比 A 组高 11pp, NPS 也涨了, 这个量级值得放出去验证.",
+      "expected": {
+        "note": "应触发 Aria (数据 keyword + 有用率/NPS 数据语境)",
+        "agent_message_within_s": 8
+      }
+    },
+    {
+      "delay_ms": 6000,
+      "speaker_name": "冯磊",
+      "text": "工程这边有顾虑. B 组 P95 延迟 1.18s, 离 SLA 1.5s 只有 9pp 余量, 20% 流量上去 可能 撑不住, 要不要先观察一下数据再说?",
+      "expected": {
+        "note": "应触发 Aria 数据回应 或 立场反驳",
+        "agent_message_within_s": 8,
+        "agent_message_grep_avoid": ["都可以", "看情况", "两个都可以"]
+      }
+    },
+    {
+      "delay_ms": 7000,
+      "speaker_name": "韩雪",
+      "text": "我从 UX 调研角度提一下 — 我们访谈了 12 个用户, 9 个对延迟没明显感知, 但 11 个明显感受到摘要质量提升. 用户体验整体是正向的.",
+      "expected": {
+        "note": "应触发 Sage (UX / 用户体验 keyword)",
+        "agent_message_within_s": 8
+      }
+    },
+    {
+      "delay_ms": 8000,
+      "speaker_name": "陈师宇",
+      "text": "但我们还有一个隐私问题 — 灰度到 20% 会触发 隐私政策 第 4.2 条 的更新, 是不是要先走 法务?",
+      "expected": {
+        "note": "应触发 Lex (法务 / 隐私 keyword)",
+        "agent_message_within_s": 8,
+        "agent_message_grep_avoid": ["都可以", "看情况"]
+      }
+    },
+    {
+      "delay_ms": 8000,
+      "speaker_name": "李局长",
+      "text": "好, 那我倾向是这样 — 这周内推进 20% 灰度, 隐私更新 跟 下周 隐私 review 打包发, 同时 Aria 监控 SLA 余量, 触发 1.5s 就自动回 A. 大家有反对意见吗?",
+      "expected": {
+        "note": "决策提议 — 应触发 各 AI 立场表态 + 可能 触发 Mira agent_recommendation",
+        "agent_message_within_s": 10
+      }
+    },
+    {
+      "delay_ms": 6000,
+      "speaker_name": "冯磊",
+      "text": "我同意, 自动回 A 的预案能落地的话, 我没问题.",
+      "expected": { "note": "决议收口" }
+    }
+  ]
+}

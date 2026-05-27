@@ -1,0 +1,2943 @@
+{
+  "runner": "claude",
+  "script_name": "A · 互联网灰度 B 组 20%",
+  "script_path": "/Users/bluesurfire/Documents/claude/aimeeting/docs/kimi-tests/blind-test/scripts/A-grayrelease.json",
+  "meeting_id": "0b9bf11f-5753-48c7-9bf7-bad9378599df",
+  "started_at": "2026-05-27T14:40:44.706511+00:00",
+  "ended_at": "2026-05-27T14:43:45.948012+00:00",
+  "me": {
+    "user_id": "aa99b6a1-b287-447b-8ffc-0dfce9474872",
+    "name": "李局长",
+    "role": "leader"
+  },
+  "events": [
+    {
+      "ts": 1779892854.898422,
+      "type": "ws_first",
+      "payload": {
+        "type": "system",
+        "msg": "ready"
+      }
+    },
+    {
+      "ts": 1779892856.900121,
+      "type": "ws_send",
+      "payload": {
+        "step": 0,
+        "speaker_name": "李局长",
+        "speaker_user_id": "aa99b6a1-b287-447b-8ffc-0dfce9474872",
+        "text": "今天讨论一个事 — B 组实验现在在内测, 我想看看能不能放到 20% 真实流量. 大家先说说各自的看法.",
+        "expected": {
+          "note": "开场, 不强制 AI 反应"
+        }
+      }
+    },
+    {
+      "ts": 1779892857.268343,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript",
+        "text": "今天讨论一个事 — B 组实验现在在内测, 我想看看能不能放到 20% 真实流量. 大家先说说各自的看法.",
+        "is_final": true,
+        "start_ts": null,
+        "end_ts": null
+      }
+    },
+    {
+      "ts": 1779892857.2768629,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript_persisted",
+        "line_id": 4729,
+        "start_ms": null,
+        "end_ms": null,
+        "text": "今天讨论一个事 — B 组实验现在在内测, 我想看看能不能放到 20% 真实流量. 大家先说说各自的看法.",
+        "speaker_name": "李局长",
+        "speaker_status": "manual"
+      }
+    },
+    {
+      "ts": 1779892861.902522,
+      "type": "ws_send",
+      "payload": {
+        "step": 1,
+        "speaker_name": "陈师宇",
+        "speaker_user_id": "da7cac18-b20f-45e2-a3b3-56636b298acf",
+        "text": "从产品角度我支持推进 20%, 数据上 B 组有用率比 A 组高 11pp, NPS 也涨了, 这个量级值得放出去验证.",
+        "expected": {
+          "note": "应触发 Aria (数据 keyword + 有用率/NPS 数据语境)",
+          "agent_message_within_s": 8
+        }
+      }
+    },
+    {
+      "ts": 1779892862.2876348,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript",
+        "text": "从产品角度我支持推进 20%, 数据上 B 组有用率比 A 组高 11pp, NPS 也涨了, 这个量级值得放出去验证.",
+        "is_final": true,
+        "start_ts": null,
+        "end_ts": null
+      }
+    },
+    {
+      "ts": 1779892862.296132,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript_persisted",
+        "line_id": 4730,
+        "start_ms": null,
+        "end_ms": null,
+        "text": "从产品角度我支持推进 20%, 数据上 B 组有用率比 A 组高 11pp, NPS 也涨了, 这个量级值得放出去验证.",
+        "speaker_name": "陈师宇",
+        "speaker_status": "manual"
+      }
+    },
+    {
+      "ts": 1779892862.370135,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_start",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "agent_name": "Sage",
+        "agent_nickname": null,
+        "agent_color": "FF2D55"
+      }
+    },
+    {
+      "ts": 1779892867.904434,
+      "type": "ws_send",
+      "payload": {
+        "step": 2,
+        "speaker_name": "冯磊",
+        "speaker_user_id": "f2b1b973-56ff-4752-a303-ae42145d2efb",
+        "text": "工程这边有顾虑. B 组 P95 延迟 1.18s, 离 SLA 1.5s 只有 9pp 余量, 20% 流量上去 可能 撑不住, 要不要先观察一下数据再说?",
+        "expected": {
+          "note": "应触发 Aria 数据回应 或 立场反驳",
+          "agent_message_within_s": 8,
+          "agent_message_grep_avoid": [
+            "都可以",
+            "看情况",
+            "两个都可以"
+          ]
+        }
+      }
+    },
+    {
+      "ts": 1779892868.2709749,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript",
+        "text": "工程这边有顾虑. B 组 P95 延迟 1.18s, 离 SLA 1.5s 只有 9pp 余量, 20% 流量上去 可能 撑不住, 要不要先观察一下数据再说?",
+        "is_final": true,
+        "start_ts": null,
+        "end_ts": null
+      }
+    },
+    {
+      "ts": 1779892868.2790961,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript_persisted",
+        "line_id": 4731,
+        "start_ms": null,
+        "end_ms": null,
+        "text": "工程这边有顾虑. B 组 P95 延迟 1.18s, 离 SLA 1.5s 只有 9pp 余量, 20% 流量上去 可能 撑不住, 要不要先观察一下数据再说?",
+        "speaker_name": "冯磊",
+        "speaker_status": "manual"
+      }
+    },
+    {
+      "ts": 1779892874.9060202,
+      "type": "ws_send",
+      "payload": {
+        "step": 3,
+        "speaker_name": "韩雪",
+        "speaker_user_id": "d7535d43-f2ff-4eae-93bf-9f425e216d94",
+        "text": "我从 UX 调研角度提一下 — 我们访谈了 12 个用户, 9 个对延迟没明显感知, 但 11 个明显感受到摘要质量提升. 用户体验整体是正向的.",
+        "expected": {
+          "note": "应触发 Sage (UX / 用户体验 keyword)",
+          "agent_message_within_s": 8
+        }
+      }
+    },
+    {
+      "ts": 1779892876.004118,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "李"
+      }
+    },
+    {
+      "ts": 1779892876.004128,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "局长"
+      }
+    },
+    {
+      "ts": 1779892876.0041332,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892876.0041358,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "我"
+      }
+    },
+    {
+      "ts": 1779892876.004139,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "支持"
+      }
+    },
+    {
+      "ts": 1779892876.004143,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "现在"
+      }
+    },
+    {
+      "ts": 1779892876.0041459,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "放到"
+      }
+    },
+    {
+      "ts": 1779892876.004151,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "20"
+      }
+    },
+    {
+      "ts": 1779892876.0041542,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "%。"
+      }
+    },
+    {
+      "ts": 1779892876.004162,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "B"
+      }
+    },
+    {
+      "ts": 1779892876.0041652,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "组"
+      }
+    },
+    {
+      "ts": 1779892876.004168,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "有用"
+      }
+    },
+    {
+      "ts": 1779892876.004173,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript",
+        "text": "我从 UX 调研角度提一下 — 我们访谈了 12 个用户, 9 个对延迟没明显感知, 但 11 个明显感受到摘要质量提升. 用户体验整体是正向的.",
+        "is_final": true,
+        "start_ts": null,
+        "end_ts": null
+      }
+    },
+    {
+      "ts": 1779892876.004193,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript_persisted",
+        "line_id": 4732,
+        "start_ms": null,
+        "end_ms": null,
+        "text": "我从 UX 调研角度提一下 — 我们访谈了 12 个用户, 9 个对延迟没明显感知, 但 11 个明显感受到摘要质量提升. 用户体验整体是正向的.",
+        "speaker_name": "韩雪",
+        "speaker_status": "manual"
+      }
+    },
+    {
+      "ts": 1779892876.0041971,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "率高"
+      }
+    },
+    {
+      "ts": 1779892876.004201,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_start",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "agent_name": "Aria",
+        "agent_nickname": null,
+        "agent_color": "0A84FF"
+      }
+    },
+    {
+      "ts": 1779892876.004756,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "11"
+      }
+    },
+    {
+      "ts": 1779892876.004761,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "pp"
+      }
+    },
+    {
+      "ts": 1779892876.004765,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "且"
+      }
+    },
+    {
+      "ts": 1779892876.00477,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "N"
+      }
+    },
+    {
+      "ts": 1779892876.0047739,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "PS"
+      }
+    },
+    {
+      "ts": 1779892876.004777,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "提升"
+      }
+    },
+    {
+      "ts": 1779892876.00478,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892876.0047832,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "不是"
+      }
+    },
+    {
+      "ts": 1779892876.004786,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "噪音"
+      }
+    },
+    {
+      "ts": 1779892876.0047889,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892876.004792,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "是"
+      }
+    },
+    {
+      "ts": 1779892876.0047948,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "信号"
+      }
+    },
+    {
+      "ts": 1779892876.004798,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779892876.004843,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "但"
+      }
+    },
+    {
+      "ts": 1779892876.004847,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "放"
+      }
+    },
+    {
+      "ts": 1779892876.00485,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "量"
+      }
+    },
+    {
+      "ts": 1779892876.004853,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "必须"
+      }
+    },
+    {
+      "ts": 1779892876.004856,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "配"
+      }
+    },
+    {
+      "ts": 1779892876.0537999,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "两个"
+      }
+    },
+    {
+      "ts": 1779892876.05381,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "熔"
+      }
+    },
+    {
+      "ts": 1779892876.0538208,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "断"
+      }
+    },
+    {
+      "ts": 1779892876.053827,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "："
+      }
+    },
+    {
+      "ts": 1779892876.053832,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "第一"
+      }
+    },
+    {
+      "ts": 1779892876.053838,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892876.053843,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "实时"
+      }
+    },
+    {
+      "ts": 1779892876.053848,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "看"
+      }
+    },
+    {
+      "ts": 1779892876.053853,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "板"
+      }
+    },
+    {
+      "ts": 1779892876.053858,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "监控"
+      }
+    },
+    {
+      "ts": 1779892876.1070552,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "P"
+      }
+    },
+    {
+      "ts": 1779892876.371886,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "99"
+      }
+    },
+    {
+      "ts": 1779892876.371901,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "延迟"
+      }
+    },
+    {
+      "ts": 1779892876.3719099,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "和"
+      }
+    },
+    {
+      "ts": 1779892876.371927,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "报"
+      }
+    },
+    {
+      "ts": 1779892876.371935,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "错"
+      }
+    },
+    {
+      "ts": 1779892876.3719418,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "率"
+      }
+    },
+    {
+      "ts": 1779892876.371949,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892876.3719559,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "若"
+      }
+    },
+    {
+      "ts": 1779892876.371964,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "比"
+      }
+    },
+    {
+      "ts": 1779892876.3719869,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "A"
+      }
+    },
+    {
+      "ts": 1779892877.574676,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "组"
+      }
+    },
+    {
+      "ts": 1779892877.574684,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "恶化"
+      }
+    },
+    {
+      "ts": 1779892877.574689,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "超"
+      }
+    },
+    {
+      "ts": 1779892877.5747042,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "5"
+      }
+    },
+    {
+      "ts": 1779892877.574713,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "%"
+      }
+    },
+    {
+      "ts": 1779892877.574718,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "就"
+      }
+    },
+    {
+      "ts": 1779892877.574721,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "立刻"
+      }
+    },
+    {
+      "ts": 1779892877.5747252,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "回"
+      }
+    },
+    {
+      "ts": 1779892877.5747352,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "滚"
+      }
+    },
+    {
+      "ts": 1779892877.574738,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "；"
+      }
+    },
+    {
+      "ts": 1779892877.574751,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "第二"
+      }
+    },
+    {
+      "ts": 1779892877.574755,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892877.574763,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "次"
+      }
+    },
+    {
+      "ts": 1779892877.939329,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "留"
+      }
+    },
+    {
+      "ts": 1779892877.939338,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "数据"
+      }
+    },
+    {
+      "ts": 1779892877.939344,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "连续"
+      }
+    },
+    {
+      "ts": 1779892877.939348,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "两天"
+      }
+    },
+    {
+      "ts": 1779892877.939353,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "跌破"
+      }
+    },
+    {
+      "ts": 1779892877.939357,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "基线"
+      }
+    },
+    {
+      "ts": 1779892877.939362,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "也"
+      }
+    },
+    {
+      "ts": 1779892877.9393659,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "触发"
+      }
+    },
+    {
+      "ts": 1779892877.939371,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "暂停"
+      }
+    },
+    {
+      "ts": 1779892877.9393752,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779892877.93938,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "这样"
+      }
+    },
+    {
+      "ts": 1779892877.939384,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "风险"
+      }
+    },
+    {
+      "ts": 1779892877.9393878,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "可控"
+      }
+    },
+    {
+      "ts": 1779892877.939405,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892877.939415,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "也能"
+      }
+    },
+    {
+      "ts": 1779892877.93942,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "拿到"
+      }
+    },
+    {
+      "ts": 1779892877.939424,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "真实"
+      }
+    },
+    {
+      "ts": 1779892877.939429,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "流量"
+      }
+    },
+    {
+      "ts": 1779892877.939463,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "下的"
+      }
+    },
+    {
+      "ts": 1779892877.9394681,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "统计"
+      }
+    },
+    {
+      "ts": 1779892877.939472,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "结论"
+      }
+    },
+    {
+      "ts": 1779892877.939477,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779892877.9394932,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_end",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000004",
+        "text": "李局长，我支持现在放到20%。B组有用率高11pp且NPS提升，不是噪音，是信号。但放量必须配两个熔断：第一，实时看板监控P99延迟和报错率，若比A组恶化超5%就立刻回滚；第二，次留数据连续两天跌破基线也触发暂停。这样风险可控，也能拿到真实流量下的统计结论。",
+        "citations": []
+      }
+    },
+    {
+      "ts": 1779892881.2441611,
+      "type": "ws_recv",
+      "payload": {
+        "type": "dissent_detected",
+        "topic": "B组实验是否放量20%真实流量",
+        "parties": [
+          "陈师宇",
+          "冯磊"
+        ],
+        "suggested_agent_id": "00000000-0000-0000-0000-20a9e7000003",
+        "suggested_agent_name": "Stratos",
+        "suggested_agent_nickname": null,
+        "suggested_agent_color": "AF52DE",
+        "reason": "陈师宇支持用20%流量验证, 冯磊担心延迟可能撑不住"
+      }
+    },
+    {
+      "ts": 1779892882.907556,
+      "type": "ws_send",
+      "payload": {
+        "step": 4,
+        "speaker_name": "陈师宇",
+        "speaker_user_id": "da7cac18-b20f-45e2-a3b3-56636b298acf",
+        "text": "但我们还有一个隐私问题 — 灰度到 20% 会触发 隐私政策 第 4.2 条 的更新, 是不是要先走 法务?",
+        "expected": {
+          "note": "应触发 Lex (法务 / 隐私 keyword)",
+          "agent_message_within_s": 8,
+          "agent_message_grep_avoid": [
+            "都可以",
+            "看情况"
+          ]
+        }
+      }
+    },
+    {
+      "ts": 1779892882.956932,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "冯"
+      }
+    },
+    {
+      "ts": 1779892882.95694,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "磊"
+      }
+    },
+    {
+      "ts": 1779892883.019179,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892883.019189,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "你的"
+      }
+    },
+    {
+      "ts": 1779892883.345458,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "工程"
+      }
+    },
+    {
+      "ts": 1779892883.3454888,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "顾虑"
+      }
+    },
+    {
+      "ts": 1779892883.345501,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "我"
+      }
+    },
+    {
+      "ts": 1779892883.345508,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "理解"
+      }
+    },
+    {
+      "ts": 1779892883.345533,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892883.345539,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "但"
+      }
+    },
+    {
+      "ts": 1779892883.3455622,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "韩"
+      }
+    },
+    {
+      "ts": 1779892883.3455691,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "雪"
+      }
+    },
+    {
+      "ts": 1779892883.3455749,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "的用户"
+      }
+    },
+    {
+      "ts": 1779892883.3456142,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript",
+        "text": "但我们还有一个隐私问题 — 灰度到 20% 会触发 隐私政策 第 4.2 条 的更新, 是不是要先走 法务?",
+        "is_final": true,
+        "start_ts": null,
+        "end_ts": null
+      }
+    },
+    {
+      "ts": 1779892883.345632,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript_persisted",
+        "line_id": 4733,
+        "start_ms": null,
+        "end_ms": null,
+        "text": "但我们还有一个隐私问题 — 灰度到 20% 会触发 隐私政策 第 4.2 条 的更新, 是不是要先走 法务?",
+        "speaker_name": "陈师宇",
+        "speaker_status": "manual"
+      }
+    },
+    {
+      "ts": 1779892883.345643,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_start",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "agent_name": "Lex",
+        "agent_nickname": null,
+        "agent_color": "FF9F0A"
+      }
+    },
+    {
+      "ts": 1779892883.34565,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "数据"
+      }
+    },
+    {
+      "ts": 1779892883.345655,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "已经"
+      }
+    },
+    {
+      "ts": 1779892883.3844569,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "说明了"
+      }
+    },
+    {
+      "ts": 1779892883.38447,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "问题"
+      }
+    },
+    {
+      "ts": 1779892883.409765,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "："
+      }
+    },
+    {
+      "ts": 1779892883.409788,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "9"
+      }
+    },
+    {
+      "ts": 1779892883.708694,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "/"
+      }
+    },
+    {
+      "ts": 1779892883.708698,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "12"
+      }
+    },
+    {
+      "ts": 1779892883.708713,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "的人"
+      }
+    },
+    {
+      "ts": 1779892883.708716,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "对"
+      }
+    },
+    {
+      "ts": 1779892883.708719,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "延迟"
+      }
+    },
+    {
+      "ts": 1779892883.708721,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "无"
+      }
+    },
+    {
+      "ts": 1779892883.7087228,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "感知"
+      }
+    },
+    {
+      "ts": 1779892883.708725,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892883.7087271,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "而"
+      }
+    },
+    {
+      "ts": 1779892883.77103,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "11"
+      }
+    },
+    {
+      "ts": 1779892883.77466,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "/"
+      }
+    },
+    {
+      "ts": 1779892883.774668,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "12"
+      }
+    },
+    {
+      "ts": 1779892883.774674,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "明确"
+      }
+    },
+    {
+      "ts": 1779892883.774677,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "感受到"
+      }
+    },
+    {
+      "ts": 1779892884.074508,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "质量"
+      }
+    },
+    {
+      "ts": 1779892884.074518,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "提升"
+      }
+    },
+    {
+      "ts": 1779892884.074527,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779892884.074532,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "从"
+      }
+    },
+    {
+      "ts": 1779892884.074539,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "UX"
+      }
+    },
+    {
+      "ts": 1779892884.0745442,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "视角"
+      }
+    },
+    {
+      "ts": 1779892884.0745652,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892884.07458,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "这个"
+      }
+    },
+    {
+      "ts": 1779892884.137417,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "收益"
+      }
+    },
+    {
+      "ts": 1779892884.146742,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "远"
+      }
+    },
+    {
+      "ts": 1779892884.290841,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "大于"
+      }
+    },
+    {
+      "ts": 1779892884.2908642,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "风险"
+      }
+    },
+    {
+      "ts": 1779892884.917359,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779892884.917373,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "我"
+      }
+    },
+    {
+      "ts": 1779892884.91738,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "建议"
+      }
+    },
+    {
+      "ts": 1779892884.9173849,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "立即"
+      }
+    },
+    {
+      "ts": 1779892884.91739,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "放"
+      }
+    },
+    {
+      "ts": 1779892884.917397,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "20"
+      }
+    },
+    {
+      "ts": 1779892884.917403,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "%"
+      }
+    },
+    {
+      "ts": 1779892884.917408,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "流量"
+      }
+    },
+    {
+      "ts": 1779892884.9174132,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892884.917417,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "如果"
+      }
+    },
+    {
+      "ts": 1779892884.917422,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "上线"
+      }
+    },
+    {
+      "ts": 1779892884.9174368,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "后"
+      }
+    },
+    {
+      "ts": 1779892884.917443,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "P"
+      }
+    },
+    {
+      "ts": 1779892884.9174469,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "95"
+      }
+    },
+    {
+      "ts": 1779892884.917452,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "真的"
+      }
+    },
+    {
+      "ts": 1779892884.9174569,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "触"
+      }
+    },
+    {
+      "ts": 1779892884.917462,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "达"
+      }
+    },
+    {
+      "ts": 1779892884.9174669,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "S"
+      }
+    },
+    {
+      "ts": 1779892884.917523,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "LA"
+      }
+    },
+    {
+      "ts": 1779892884.9175282,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "临界"
+      }
+    },
+    {
+      "ts": 1779892884.917536,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "点"
+      }
+    },
+    {
+      "ts": 1779892884.91754,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892884.9175448,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "我们再"
+      }
+    },
+    {
+      "ts": 1779892885.279157,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "动态"
+      }
+    },
+    {
+      "ts": 1779892885.279167,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "调整"
+      }
+    },
+    {
+      "ts": 1779892885.2791731,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779892885.2791822,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_end",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000002",
+        "text": "冯磊，你的工程顾虑我理解，但韩雪的用户数据已经说明了问题：9/12的人对延迟无感知，而11/12明确感受到质量提升。从UX视角，这个收益远大于风险。我建议立即放20%流量，如果上线后P95真的触达SLA临界点，我们再动态调整。",
+        "citations": []
+      }
+    },
+    {
+      "ts": 1779892888.734373,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_recommendation",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "agent_name": "Lex",
+        "agent_nickname": null,
+        "agent_color": "FF9F0A",
+        "reason": "陈师宇提到隐私法务问题，听听法务的"
+      }
+    },
+    {
+      "ts": 1779892890.224422,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "陈"
+      }
+    },
+    {
+      "ts": 1779892890.2244322,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "师"
+      }
+    },
+    {
+      "ts": 1779892890.224437,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "宇"
+      }
+    },
+    {
+      "ts": 1779892890.224442,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892890.224448,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "必须"
+      }
+    },
+    {
+      "ts": 1779892890.682643,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "走"
+      }
+    },
+    {
+      "ts": 1779892890.682666,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "法"
+      }
+    },
+    {
+      "ts": 1779892890.682675,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "务"
+      }
+    },
+    {
+      "ts": 1779892890.682681,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892890.682688,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "而且"
+      }
+    },
+    {
+      "ts": 1779892890.682694,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "现在"
+      }
+    },
+    {
+      "ts": 1779892890.6827,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "就要"
+      }
+    },
+    {
+      "ts": 1779892890.682705,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "停"
+      }
+    },
+    {
+      "ts": 1779892890.68271,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779892890.682716,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "触发"
+      }
+    },
+    {
+      "ts": 1779892890.682734,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": " "
+      }
+    },
+    {
+      "ts": 1779892890.682741,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "4"
+      }
+    },
+    {
+      "ts": 1779892890.682793,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "."
+      }
+    },
+    {
+      "ts": 1779892890.6828,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "2"
+      }
+    },
+    {
+      "ts": 1779892890.682805,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": " "
+      }
+    },
+    {
+      "ts": 1779892890.682822,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "条"
+      }
+    },
+    {
+      "ts": 1779892890.682828,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "更新"
+      }
+    },
+    {
+      "ts": 1779892890.684886,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "意味着"
+      }
+    },
+    {
+      "ts": 1779892890.6848938,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "数据"
+      }
+    },
+    {
+      "ts": 1779892890.908857,
+      "type": "ws_send",
+      "payload": {
+        "step": 5,
+        "speaker_name": "李局长",
+        "speaker_user_id": "aa99b6a1-b287-447b-8ffc-0dfce9474872",
+        "text": "好, 那我倾向是这样 — 这周内推进 20% 灰度, 隐私更新 跟 下周 隐私 review 打包发, 同时 Aria 监控 SLA 余量, 触发 1.5s 就自动回 A. 大家有反对意见吗?",
+        "expected": {
+          "note": "决策提议 — 应触发 各 AI 立场表态 + 可能 触发 Mira agent_recommendation",
+          "agent_message_within_s": 10
+        }
+      }
+    },
+    {
+      "ts": 1779892891.049481,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "收集"
+      }
+    },
+    {
+      "ts": 1779892891.04949,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "范围"
+      }
+    },
+    {
+      "ts": 1779892891.0494971,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "或"
+      }
+    },
+    {
+      "ts": 1779892891.049502,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "使用"
+      }
+    },
+    {
+      "ts": 1779892891.0495129,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "目的"
+      }
+    },
+    {
+      "ts": 1779892891.04952,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "发生了变化"
+      }
+    },
+    {
+      "ts": 1779892891.049525,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892891.049529,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "不"
+      }
+    },
+    {
+      "ts": 1779892891.0495338,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "更新"
+      }
+    },
+    {
+      "ts": 1779892891.049539,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "授权"
+      }
+    },
+    {
+      "ts": 1779892891.0495439,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "就直接"
+      }
+    },
+    {
+      "ts": 1779892891.0495481,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "上"
+      }
+    },
+    {
+      "ts": 1779892891.0495539,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": " "
+      }
+    },
+    {
+      "ts": 1779892891.049559,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "20"
+      }
+    },
+    {
+      "ts": 1779892891.049593,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "%"
+      }
+    },
+    {
+      "ts": 1779892891.049598,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": " "
+      }
+    },
+    {
+      "ts": 1779892891.0496042,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "流量"
+      }
+    },
+    {
+      "ts": 1779892891.049608,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892891.049613,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "等于"
+      }
+    },
+    {
+      "ts": 1779892891.084231,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "把"
+      }
+    },
+    {
+      "ts": 1779892891.452159,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "用户"
+      }
+    },
+    {
+      "ts": 1779892891.452168,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "放在"
+      }
+    },
+    {
+      "ts": 1779892891.452192,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "未经"
+      }
+    },
+    {
+      "ts": 1779892891.4521978,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "同"
+      }
+    },
+    {
+      "ts": 1779892891.452205,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript",
+        "text": "好, 那我倾向是这样 — 这周内推进 20% 灰度, 隐私更新 跟 下周 隐私 review 打包发, 同时 Aria 监控 SLA 余量, 触发 1.5s 就自动回 A. 大家有反对意见吗?",
+        "is_final": true,
+        "start_ts": null,
+        "end_ts": null
+      }
+    },
+    {
+      "ts": 1779892891.452217,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript_persisted",
+        "line_id": 4734,
+        "start_ms": null,
+        "end_ms": null,
+        "text": "好, 那我倾向是这样 — 这周内推进 20% 灰度, 隐私更新 跟 下周 隐私 review 打包发, 同时 Aria 监控 SLA 余量, 触发 1.5s 就自动回 A. 大家有反对意见吗?",
+        "speaker_name": "李局长",
+        "speaker_status": "manual"
+      }
+    },
+    {
+      "ts": 1779892891.4522219,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "意的"
+      }
+    },
+    {
+      "ts": 1779892891.452235,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "状态"
+      }
+    },
+    {
+      "ts": 1779892891.45224,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892891.452244,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "这在"
+      }
+    },
+    {
+      "ts": 1779892891.452249,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "《"
+      }
+    },
+    {
+      "ts": 1779892891.473548,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "个人信息"
+      }
+    },
+    {
+      "ts": 1779892891.473561,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "保护"
+      }
+    },
+    {
+      "ts": 1779892891.473571,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "法"
+      }
+    },
+    {
+      "ts": 1779892891.473581,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "》"
+      }
+    },
+    {
+      "ts": 1779892891.817364,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "下"
+      }
+    },
+    {
+      "ts": 1779892891.817377,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "是"
+      }
+    },
+    {
+      "ts": 1779892891.817384,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "严重"
+      }
+    },
+    {
+      "ts": 1779892891.8173912,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "合规"
+      }
+    },
+    {
+      "ts": 1779892891.817405,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "缺陷"
+      }
+    },
+    {
+      "ts": 1779892891.817413,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779892891.81742,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "一旦"
+      }
+    },
+    {
+      "ts": 1779892891.817426,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "被"
+      }
+    },
+    {
+      "ts": 1779892891.8174322,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "投诉"
+      }
+    },
+    {
+      "ts": 1779892891.817439,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "或"
+      }
+    },
+    {
+      "ts": 1779892891.817447,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "抽"
+      }
+    },
+    {
+      "ts": 1779892892.324638,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "检"
+      }
+    },
+    {
+      "ts": 1779892892.3247511,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892892.3247628,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "处罚"
+      }
+    },
+    {
+      "ts": 1779892892.3247712,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "是按"
+      }
+    },
+    {
+      "ts": 1779892892.324779,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "业务"
+      }
+    },
+    {
+      "ts": 1779892892.324787,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "营收"
+      }
+    },
+    {
+      "ts": 1779892892.324815,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "百分比"
+      }
+    },
+    {
+      "ts": 1779892892.324831,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "罚"
+      }
+    },
+    {
+      "ts": 1779892892.324855,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "的"
+      }
+    },
+    {
+      "ts": 1779892892.324864,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892892.3248708,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "我们"
+      }
+    },
+    {
+      "ts": 1779892892.324878,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "承担"
+      }
+    },
+    {
+      "ts": 1779892892.647836,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "不起"
+      }
+    },
+    {
+      "ts": 1779892892.647847,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779892892.647852,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "建议"
+      }
+    },
+    {
+      "ts": 1779892892.647858,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "立即"
+      }
+    },
+    {
+      "ts": 1779892892.6478631,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "启动"
+      }
+    },
+    {
+      "ts": 1779892892.647868,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "法"
+      }
+    },
+    {
+      "ts": 1779892892.647873,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "务"
+      }
+    },
+    {
+      "ts": 1779892892.647878,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "审查"
+      }
+    },
+    {
+      "ts": 1779892892.647883,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892892.647888,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "更新"
+      }
+    },
+    {
+      "ts": 1779892892.647893,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "隐私"
+      }
+    },
+    {
+      "ts": 1779892892.6478982,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "政策"
+      }
+    },
+    {
+      "ts": 1779892892.647903,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "并"
+      }
+    },
+    {
+      "ts": 1779892892.694397,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "弹"
+      }
+    },
+    {
+      "ts": 1779892893.0425029,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "窗"
+      }
+    },
+    {
+      "ts": 1779892893.042519,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "等"
+      }
+    },
+    {
+      "ts": 1779892893.042531,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "用户"
+      }
+    },
+    {
+      "ts": 1779892893.042538,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "重新"
+      }
+    },
+    {
+      "ts": 1779892893.0425441,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "授权"
+      }
+    },
+    {
+      "ts": 1779892893.042551,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779892893.0425558,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "完成"
+      }
+    },
+    {
+      "ts": 1779892893.045164,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "之前"
+      }
+    },
+    {
+      "ts": 1779892893.1431391,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "不要"
+      }
+    },
+    {
+      "ts": 1779892893.143156,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "放"
+      }
+    },
+    {
+      "ts": 1779892894.106391,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "量"
+      }
+    },
+    {
+      "ts": 1779892894.106401,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779892894.106414,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_end",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "text": "陈师宇，必须走法务，而且现在就要停。触发 4.2 条更新意味着数据收集范围或使用目的发生了变化，不更新授权就直接上 20% 流量，等于把用户放在未经同意的状态，这在《个人信息保护法》下是严重合规缺陷。一旦被投诉或抽检，处罚是按业务营收百分比罚的，我们承担不起。建议立即启动法务审查，更新隐私政策并弹窗等用户重新授权，完成之前不要放量。",
+        "citations": []
+      }
+    },
+    {
+      "ts": 1779892896.91057,
+      "type": "ws_send",
+      "payload": {
+        "step": 6,
+        "speaker_name": "冯磊",
+        "speaker_user_id": "f2b1b973-56ff-4752-a303-ae42145d2efb",
+        "text": "我同意, 自动回 A 的预案能落地的话, 我没问题.",
+        "expected": {
+          "note": "决议收口"
+        }
+      }
+    },
+    {
+      "ts": 1779892897.337276,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript",
+        "text": "我同意, 自动回 A 的预案能落地的话, 我没问题.",
+        "is_final": true,
+        "start_ts": null,
+        "end_ts": null
+      }
+    },
+    {
+      "ts": 1779892897.3481548,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript_persisted",
+        "line_id": 4735,
+        "start_ms": null,
+        "end_ms": null,
+        "text": "我同意, 自动回 A 的预案能落地的话, 我没问题.",
+        "speaker_name": "冯磊",
+        "speaker_status": "manual"
+      }
+    }
+  ],
+  "summary_md_len": 609,
+  "summary_md_excerpt": "## 会议主题\n盲测 A · B 组 20% 灰度评审\n\n## 概览\n针对B组实验灰度放量，产品、工程、UX团队与AI专家分别从数据、延迟、用户体验和合规性展开讨论。产品有用率与NPS提升显著，但工程延迟余量小，UX用户反馈积极。最终决定本周推进20%灰度，并将隐私更新与下周审核打包，由Aria监控延迟自动回退。\n\n## 关键要点\n- B组有用率与NPS显著优于A组，具备灰度放量的数据基础\n- 工程延迟余量不足，需密切监控并设置自动回退触发\n- 隐私政策更新须同步推进，确保合规\n\n## 已形成决策\n- 【B组实验20%灰度推进评审】本周内推进20%灰度，隐私更新与下周隐私review打包发，Aria监控SLA余量，触发1.5s自动回A\n\n## 分歧事项\n- 【B组实验20%灰度推进评审】支持: 李局长, 陈师宇, 冯磊, 韩雪, Sage, Aria | 反对: Lex\n\n## 风险提醒\n- P95延迟1.18s距SLA 1.5s仅余量9pp，20%流量可能导致超SLA — 提出人: 冯磊\n- 未完成隐私政策更新及用户授权直接放量，违反《个人信息保护法》，存在合规处罚风险 — 提出人: Lex\n\n## 待办事项\n- [ ] 本周内推进B组20%灰度\n- [ ] 将隐私更新与下周隐私审核打包发出\n- [ ] Aria监控SLA余量，P95达1.5s自动回A — 负责: Aria\n\n## 下一步建议\n无",
+  "summary_json": {
+    "risks": [
+      {
+        "text": "P95延迟1.18s距SLA 1.5s仅余量9pp，20%流量可能导致超SLA",
+        "raised_by": "冯磊",
+        "source_line_id": 4731
+      },
+      {
+        "text": "未完成隐私政策更新及用户授权直接放量，违反《个人信息保护法》，存在合规处罚风险",
+        "raised_by": "Lex",
+        "source_line_id": null
+      }
+    ],
+    "title": "盲测 A · B 组 20% 灰度评审",
+    "topics": [
+      {
+        "topic": "B组实验20%灰度推进评审",
+        "summary": "多角色就B组放量至20%真实流量发表意见，最终决定本周执行并制定监控与隐私配套方案。",
+        "decision": "本周内推进20%灰度，隐私更新与下周隐私review打包发，Aria监控SLA余量，触发1.5s自动回A",
+        "speakers": [
+          {
+            "points": [
+              "提议B组实验放至20%真实流量进行验证",
+              "决定本周推进灰度，隐私更新与review打包，Aria监控自动回A"
+            ],
+            "stance": "support",
+            "agent_id": null,
+            "speaker_name": "李局长",
+            "speaker_type": "human",
+            "source_line_ids": [
+              4729,
+              4734
+            ],
+            "source_message_ids": []
+          },
+          {
+            "points": [
+              "B组有用率比A组高11pp，NPS提升，值得放量验证",
+              "灰度到20%会触发隐私政策4.2条更新，需走法务"
+            ],
+            "stance": "support",
+            "agent_id": null,
+            "speaker_name": "陈师宇",
+            "speaker_type": "human",
+            "source_line_ids": [
+              4730,
+              4733
+            ],
+            "source_message_ids": []
+          },
+          {
+            "points": [
+              "B组P95延迟1.18s，距SLA仅余量9pp，20%流量可能撑不住",
+              "同意自动回A预案"
+            ],
+            "stance": "support",
+            "agent_id": null,
+            "speaker_name": "冯磊",
+            "speaker_type": "human",
+            "source_line_ids": [
+              4731,
+              4735
+            ],
+            "source_message_ids": []
+          },
+          {
+            "points": [
+              "12名用户中9人无延迟感知，11人感知摘要质量提升，整体正向"
+            ],
+            "stance": "support",
+            "agent_id": null,
+            "speaker_name": "韩雪",
+            "speaker_type": "human",
+            "source_line_ids": [
+              4732
+            ],
+            "source_message_ids": []
+          },
+          {
+            "points": [
+              "支持放量，建议实时监控P99延迟和报错率恶化5%回滚",
+              "建议次留连续两天跌破基线暂停"
+            ],
+            "stance": "support",
+            "agent_id": null,
+            "speaker_name": "Sage",
+            "speaker_type": "ai",
+            "source_line_ids": [],
+            "source_message_ids": [
+              684
+            ]
+          },
+          {
+            "points": [
+              "用户数据表明延迟感知低、质量提升明显，建议立即放20%流量",
+              "若P95触达临界点再动态调整"
+            ],
+            "stance": "support",
+            "agent_id": null,
+            "speaker_name": "Aria",
+            "speaker_type": "ai",
+            "source_line_ids": [],
+            "source_message_ids": [
+              685
+            ]
+          },
+          {
+            "points": [
+              "触发4.2条意味着数据收集范围或目的变化，不更新授权就放量违法",
+              "需立即启动法务审查、更新隐私政策并弹窗等用户重新授权，完成前不放量"
+            ],
+            "stance": "block",
+            "agent_id": null,
+            "speaker_name": "Lex",
+            "speaker_type": "ai",
+            "source_line_ids": [],
+            "source_message_ids": [
+              686
+            ]
+          }
+        ],
+        "action_items": [
+          {
+            "text": "本周内推进B组20%灰度",
+            "owner": null,
+            "due_date": null,
+            "source_line_id": 4734
+          },
+          {
+            "text": "将隐私更新与下周隐私审核打包发出",
+            "owner": null,
+            "due_date": null,
+            "source_line_id": 4734
+          },
+          {
+            "text": "Aria监控SLA余量，P95达1.5s自动回A",
+            "owner": "Aria",
+            "due_date": null,
+            "source_line_id": 4734
+          }
+        ]
+      }
+    ],
+    "overview": "针对B组实验灰度放量，产品、工程、UX团队与AI专家分别从数据、延迟、用户体验和合规性展开讨论。产品有用率与NPS提升显著，但工程延迟余量小，UX用户反馈积极。最终决定本周推进20%灰度，并将隐私更新与下周审核打包，由Aria监控延迟自动回退。",
+    "next_steps": [],
+    "key_takeaways": [
+      "B组有用率与NPS显著优于A组，具备灰度放量的数据基础",
+      "工程延迟余量不足，需密切监控并设置自动回退触发",
+      "隐私政策更新须同步推进，确保合规"
+    ]
+  },
+  "summary_status": "ready",
+  "transcript_lines_count": 10,
+  "results": {
+    "item_2_proactive_count": 3,
+    "item_2_avg_latency_s": 0.67,
+    "item_2_latencies_s": [
+      0.47,
+      1.1,
+      0.44
+    ],
+    "item_3_stance_violations": [],
+    "item_3_stance_strong": [
+      "agent=00000000 word='建议'",
+      "agent=00000000 word='建议'"
+    ],
+    "item_3_agent_text_lengths": {
+      "00000000-0000-0000-0000-20a9e7000004": 129,
+      "00000000-0000-0000-0000-20a9e7000002": 113,
+      "00000000-0000-0000-0000-20a9e7000005": 167
+    },
+    "item_4_summary_has_ai_speakers": true,
+    "item_4_action_items_with_source": 3,
+    "item_4_summary_json_present": true,
+    "item_4_topic_count": 1,
+    "item_5_recommendation_count": 1
+  }
+}

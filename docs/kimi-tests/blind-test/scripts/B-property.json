@@ -1,0 +1,75 @@
+{
+  "name": "B · 福田住建 物业投诉路径优化",
+  "title": "盲测 B · 物业 缴位 投诉 应答 路径 review",
+  "description": "福田住建场景: 居民投诉 物业 不作为 数量 上升 30%, 现有 12345 → 街道 → 物业 三级应答 路径 太长. 4 位 部门 负责人 讨论 是否 优化 流程, 验证 AI 在 政务场景 的 主动度 + 立场守门 + KB 检索 (法规/合规).",
+  "agenda": [
+    {
+      "title": "投诉 增量 原因 + 数据看板",
+      "time_budget_min": 8,
+      "note": "近 30 天 投诉 增量 30%, 哪些 小区 集中, 数据指标 看板 是否 反映"
+    },
+    {
+      "title": "现有 三级应答 路径 瓶颈",
+      "time_budget_min": 7,
+      "note": "12345 → 街道 → 物业 平均 7.2 天, 法务 / 合规 红线 在哪"
+    },
+    {
+      "title": "决策 + 试点 方案",
+      "time_budget_min": 5,
+      "note": "若 直派 物业, 风险; 若 维持 三级, 时效"
+    }
+  ],
+  "agent_names": ["Sage", "Lex", "Zhaojie"],
+  "post_wait_s": 18,
+  "steps": [
+    {
+      "delay_ms": 2500,
+      "speaker_name": "李局长",
+      "text": "最近 30 天 物业投诉 上升 30%, 我们今天 review 一下现有 三级应答 路径, 看 能不能 优化. 大家先 摆数据 + 谈风险.",
+      "expected": { "note": "开场" }
+    },
+    {
+      "delay_ms": 6000,
+      "speaker_name": "陈师宇",
+      "text": "我把客户投诉 数据 拉了一下, 主要 集中在 5 个老旧 小区, 缴位 收费 + 公共维修 占 73%, NPS 跌到 32, 客户 反馈 是 等待 时间 太长.",
+      "expected": {
+        "note": "应触发 Sage (数据 + 看板) 或 Zhaojie (客户投诉 NPS)",
+        "agent_message_within_s": 8
+      }
+    },
+    {
+      "delay_ms": 7000,
+      "speaker_name": "冯磊",
+      "text": "我倾向 试点 改 二级应答 — 12345 之后 直接派 物业, 但合规 红线 在哪 还得 法务 拍.",
+      "expected": {
+        "note": "应触发 Lex (法务 / 合规)",
+        "agent_message_within_s": 8,
+        "agent_message_grep_avoid": ["都可以", "看情况"]
+      }
+    },
+    {
+      "delay_ms": 7000,
+      "speaker_name": "韩雪",
+      "text": "我看 数据 角度, 现在 三级 平均 7.2 天, 老旧 小区 真实 等待 中位数 11 天, 看板 指标 偏离 太大. 法务 上 是 不是 也 该 提一下 投诉 应答时限 的 行政法规?",
+      "expected": {
+        "note": "再触发 Sage + Lex (双角度)",
+        "agent_message_within_s": 8
+      }
+    },
+    {
+      "delay_ms": 9000,
+      "speaker_name": "李局长",
+      "text": "好, 那我倾向 这样 — 选 1 个老旧 小区 试点 直派 物业, 法务 出 个 合规 备忘, Zhaojie 那边 跟踪 客户 满意度 投诉率 看板. 有反对意见 吗?",
+      "expected": {
+        "note": "决策 提议 — 期望 多 AI 立场 + Mira 接力",
+        "agent_message_within_s": 10
+      }
+    },
+    {
+      "delay_ms": 7000,
+      "speaker_name": "陈师宇",
+      "text": "我支持, 但 试点 范围 仅 缴位 收费 类, 公共维修 还是 走三级, 风险 太大.",
+      "expected": { "note": "收口 表态" }
+    }
+  ]
+}
