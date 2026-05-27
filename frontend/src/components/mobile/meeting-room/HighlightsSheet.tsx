@@ -18,7 +18,8 @@ import { MR_COLORS } from "./styles";
 export type HighlightItem = {
   /** 跳转 key (data-mr-key, e.g. "agent-12" / "host-banner-1") */
   jumpKey: string;
-  type: "agenda" | "drift" | "strong" | "route" | "round" | "decision";
+  // v1.4.0 Phase A · 1: "round" 已撤 (旧 mock 圆桌 highlight chip).
+  type: "agenda" | "drift" | "strong" | "route" | "decision";
   icon: MRIconName;
   color: string;
   label: string;

@@ -86,7 +86,8 @@ import {
   hasNewMaterial,
   type Material,
 } from "@/components/mobile/meeting-room/materials";
-import { MOCK_ROUND_MESSAGES } from "@/components/mobile/meeting-room/mock/roundtable";
+// v1.4.0 Phase A · 1 (NORTH_STAR § 6.1): MOCK_ROUND_MESSAGES 已撤 — hybrid/human
+// 不再混 demo 圆桌卡, 真 agent_message_* WS event 接管.
 import { mApi } from "@/lib/mobile/api";
 import type { MeetingAttachmentOut } from "@/lib/mobile/types";
 import {
@@ -736,17 +737,13 @@ function MeetingDetailInner({ id }: { id: string }) {
     return m;
   }, [filterSpeakers]);
 
-  // ─── speaker 发言计数 (mock 因没接真实 transcript, 用近似值) ───
+  // ─── speaker 发言计数 ───
+  // v1.4.0 Phase A · 1: 旧 mock round 计数已撤; filterCounts 仅 host card 来源.
+  // 真 user/agent line 计数 由 MeetingTranscriptView 内部 lines state 自行 derive
+  // (filter 不预先 显数, 命中后 banner 显 X/Y 即可).
   const filterCounts: Record<string, number> = useMemo(() => {
     const c: Record<string, number> = {};
     c["host"] = hostCards.length;
-    // mock round 给每个 expert + host 各 +1
-    MOCK_ROUND_MESSAGES.forEach((r) => {
-      c["host"] = (c["host"] || 0) + 1;
-      r.experts.forEach((e) => {
-        c[`mock-${e.who}`] = (c[`mock-${e.who}`] || 0) + 1;
-      });
-    });
     return c;
   }, [hostCards.length]);
 
@@ -806,17 +803,9 @@ function MeetingDetailInner({ id }: { id: string }) {
         });
       }
     });
-    MOCK_ROUND_MESSAGES.forEach((r) => {
-      hl.push({
-        jumpKey: r.key,
-        type: "round",
-        icon: "sparkle",
-        color: MR_COLORS.systemPurple,
-        label: `AI 圆桌 · ${r.experts.length} 位`,
-        title: r.topic,
-        t: r.t,
-      });
-    });
+    // v1.4.0 Phase A · 1: 旧 mock round highlight chip 已撤. 真 agent_message_*
+    // WS event 直接进 transcript lines, 不再 在 highlights 派生 "AI 圆桌"
+    // (NEW-A roundtable assembly 是 Phase B/C 任务, 这里 honest 留白).
     return hl;
   }, [hostCards]);
 
@@ -1164,12 +1153,9 @@ function MeetingDetailInner({ id }: { id: string }) {
             <MeetingTranscriptView
               meetingId={id}
               hostCards={hostCards}
-              /* v1.4.0 Saga E.E (Sprint 2-3): auto 模式 — 真 orchestrator agent_messages 接管 timeline,
-               *  不再 显 mock 圆桌 (避免 demo + real 数据 双重 渲染).
-               *  hybrid/human 模式 仍 显 mock 1 张 (保留 round-3 既有 UX demo). */
-              roundMessages={
-                data.mode === "auto" ? [] : MOCK_ROUND_MESSAGES
-              }
+              /* v1.4.0 Phase A · 1 (NORTH_STAR § 6.1): MOCK_ROUND_MESSAGES UI 已撤.
+               *  所有 模式 (auto / hybrid / human) 一律 走 真 agent_message_* WS event
+               *  或 /transcript 拉 final lines. 不再 注入 demo 圆桌卡. */
               /* v1.4.0 Saga E.E: 仅 auto && 非终态 时 拉 transcript (orchestrator 不走 WS,
                *  必须 主动 poll). hybrid 走 WS, pollIntervalMs=0 即 disabled. */
               pollIntervalMs={

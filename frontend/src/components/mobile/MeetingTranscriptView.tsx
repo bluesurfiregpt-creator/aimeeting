@@ -40,8 +40,9 @@ import {
 import MRIcon from "./shared/Icon";
 import { MR_COLORS } from "./meeting-room/styles";
 import ChapterDivider from "./meeting-room/ChapterDivider";
-import RoundMessage from "./meeting-room/RoundMessage";
-import type { MockRoundMessage } from "./meeting-room/mock/roundtable";
+// v1.4.0 Phase A · 1 (NORTH_STAR § 6.1): MOCK_ROUND_MESSAGES UI 已撤,
+// hybrid/human 模式不再 显 demo 圆桌卡 — 真 agent_message_* WS event 覆盖该 UX.
+// RoundMessage + mock/roundtable 文件已删 (旧的 1 张固定演示卡 Sprint 2-3 起冗余).
 
 /** 内部行表征 — 带 streaming + key. */
 type LocalLine = TranscriptStreamLine & {
@@ -109,8 +110,6 @@ type Props = {
   meetingId: string;
   /** 父级注入的 host cards + chapters (按 at_minute 排) */
   hostCards?: TimelineHostItem[];
-  /** mock round messages (TD2 — 永久 1 张, 永远在末尾) */
-  roundMessages?: MockRoundMessage[];
   /** 筛选 (selected set; size=0 = 不筛) */
   filter?: FilterState;
   /** 父级总匹配数回调 — 用于 FilterBanner 显 X/Y */
@@ -137,7 +136,6 @@ type Props = {
 export default function MeetingTranscriptView({
   meetingId,
   hostCards = [],
-  roundMessages = [],
   filter,
   onMatchedCountChange,
   onRegisterJump,
@@ -362,11 +360,11 @@ export default function MeetingTranscriptView({
     });
   }, [lines.length, hostCards.length]);
 
-  // 构建合并 timeline (lines + hostCards + roundMessages)
+  // 构建合并 timeline (lines + hostCards)
+  // v1.4.0 Phase A · 1: 旧 roundMessages 已撤 (demo 卡), 真 agent_message_* 直接进 lines.
   type TimelineEntry =
     | { kind: "line"; line: LocalLine; sortAt: number }
-    | { kind: "host"; item: TimelineHostItem; sortAt: number }
-    | { kind: "round"; round: MockRoundMessage; sortAt: number };
+    | { kind: "host"; item: TimelineHostItem; sortAt: number };
 
   const merged: TimelineEntry[] = [];
   lines.forEach((l, i) => {
@@ -384,16 +382,10 @@ export default function MeetingTranscriptView({
       sortAt: h.at_minute * 1000 + 500 + i, // host card 排到同分钟末
     });
   });
-  roundMessages.forEach((r, i) => {
-    merged.push({
-      kind: "round",
-      round: r,
-      sortAt: r.at_minute_anchor * 1000 + 900 + i,
-    });
-  });
   merged.sort((a, b) => a.sortAt - b.sortAt);
 
   // 筛选 (基于父级 filter)
+  // v1.4.0 Phase A · 1: TimelineEntry 已无 "round" kind, 仅 line / host.
   const passesFilter = (entry: TimelineEntry): boolean => {
     if (!filter || filter.selected.size === 0) return true;
     const sel = filter.selected;
@@ -401,13 +393,8 @@ export default function MeetingTranscriptView({
       const k = speakerKeyOfLine(entry.line);
       return sel.has(k);
     }
-    if (entry.kind === "host") {
-      return sel.has("host");
-    }
-    // round: 显示当 host 或任一 expert 被选中
-    const r = entry.round;
-    const keys = ["host", ...r.experts.map((e) => `mock-${e.who}`)];
-    return keys.some((k) => sel.has(k));
+    // host
+    return sel.has("host");
   };
   const visible = merged.filter(passesFilter);
 
@@ -605,31 +592,23 @@ export default function MeetingTranscriptView({
               </div>
             );
           }
-          if (entry.kind === "host") {
-            const h = entry.item;
-            return (
-              <div key={h.key} data-mr-key={h.key}>
-                {h.kind === "chapter" ? (
-                  <ChapterDivider
-                    data={{
-                      newAgendaNumber: h.newAgendaNumber,
-                      totalAgenda: h.totalAgenda,
-                      newAgendaTitle: h.newAgendaTitle,
-                      agendaMinutes: h.agendaMinutes,
-                      t: h.t,
-                    }}
-                  />
-                ) : (
-                  h.render()
-                )}
-              </div>
-            );
-          }
-          // round
-          const r = entry.round;
+          // host (chapter / inline banner)
+          const h = entry.item;
           return (
-            <div key={r.key} data-mr-key={r.key}>
-              <RoundMessage round={r} />
+            <div key={h.key} data-mr-key={h.key}>
+              {h.kind === "chapter" ? (
+                <ChapterDivider
+                  data={{
+                    newAgendaNumber: h.newAgendaNumber,
+                    totalAgenda: h.totalAgenda,
+                    newAgendaTitle: h.newAgendaTitle,
+                    agendaMinutes: h.agendaMinutes,
+                    t: h.t,
+                  }}
+                />
+              ) : (
+                h.render()
+              )}
             </div>
           );
         })

@@ -50,9 +50,12 @@ from .models import Agent, Meeting, MeetingTranscript, User
 logger = logging.getLogger(__name__)
 
 
-LOOKBACK_LINES = 8
-DETECT_INTERVAL_S = 25     # at most one detection per ~25s per meeting
-SUPPRESS_AFTER_FIRE_S = 60  # if dissent fires, suppress for 60s
+# v1.4.0 Phase A · 2 (NORTH_STAR § 6.1 · 痛点 1+6): 降阈值 + 加 lookback ——
+# 让 dissent detector 跑 更勤 (15s 一次 vs 25s), fire 后 冷却 短 (45s vs 60s),
+# 看 更多 上文 (10 行 vs 8 行 — 抓 中长 期 分歧, 不 只是 隔壁 两句对话).
+LOOKBACK_LINES = 10        # was 8
+DETECT_INTERVAL_S = 15     # was 25 — 让 LLM judge 跑 更勤
+SUPPRESS_AFTER_FIRE_S = 45  # was 60 — fire 后 冷却 短一些
 
 
 @dataclass
