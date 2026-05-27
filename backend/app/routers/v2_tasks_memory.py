@@ -1,5 +1,5 @@
 """
-v1.4.0 · Saga O (Phase 1 · W3) + Saga T1/T2 (Phase 2 · W1/W2) · Mobile App v2 — Tasks + Memory.
+v1.4.0 · Saga O (Phase 1 · W3) + Saga T1/T2/T3 (Phase 2 · W1/W2/W3) · Mobile App v2 — Tasks + Memory.
 
 契约: docs/SCHEMA-mobile-v2.md §4 (tasks + memory 全部 4 个 endpoint).
 
@@ -8,7 +8,7 @@ Phase 1 (Saga O · 全部 mock): priority-banner / tasks/grouped / memory/radar 
 Phase 2 真接 DB:
   Saga T1 · priority-banner — ABAC + workspace filter.
   Saga T2 · tasks/grouped — ABAC + GROUP BY source_meeting.
-  Saga T3 (后续) · memory/snapshots.
+  Saga T3 · memory/snapshots — ABAC + JOIN AIInsight + Agent + Meeting.
   Saga T5 (后续) · memory/radar.
 
 约定:
@@ -32,14 +32,15 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..agent_glyphs import agent_to_ai_source
+from ..agent_glyphs import agent_to_ai_badge, agent_to_ai_source, normalize_insight_type
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
-from ..models import Agent, Meeting, Task
+from ..models import Agent, AIInsight, Meeting, Task
 from ..task_urgency import derive_urgency, due_display
+from ..v2_helpers import group_insights_by_topic
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v2", tags=["mobile-v2-tasks-memory"])
@@ -478,71 +479,143 @@ class MemorySnapshotsResponse(BaseModel):
     total_count: int
 
 
-# AI 头像 速查表 — v1.4.0 Saga Q (Phase 1 P0): 10 个 严格按设计稿 mobile-shared.jsx:24-34.
-_AI_AVATAR = {
-    "Mira":    SnapshotAIAvatar(glyph="◎", gradient_from="#FFB340", gradient_to="#FF9F0A"),
-    "Falao":   SnapshotAIAvatar(glyph="⚖", gradient_from="#FF9F0A", gradient_to="#FF6482"),
-    "Shu":     SnapshotAIAvatar(glyph="∑", gradient_from="#5E5CE6", gradient_to="#AF52DE"),
-    "Zhaojie": SnapshotAIAvatar(glyph="♥", gradient_from="#FF6482", gradient_to="#FF375F"),
-    "Aria":    SnapshotAIAvatar(glyph="⌬", gradient_from="#0A84FF", gradient_to="#5E5CE6"),
-    "Stratos": SnapshotAIAvatar(glyph="◆", gradient_from="#AF52DE", gradient_to="#FF375F"),
-    "Sage":    SnapshotAIAvatar(glyph="✦", gradient_from="#FF2D55", gradient_to="#AF52DE"),
-    "Scout":   SnapshotAIAvatar(glyph="◈", gradient_from="#34C759", gradient_to="#30B0C7"),
-    "Lex":     SnapshotAIAvatar(glyph="§", gradient_from="#FF9F0A", gradient_to="#FFB340"),
-    "Tally":   SnapshotAIAvatar(glyph="¥", gradient_from="#64D2FF", gradient_to="#0A84FF"),
-}
-
-
-def _ss(idx: int, topic: str, ai_names: List[str], types: List[str], count: int, meeting_id: Optional[str]) -> MemorySnapshot:
-    """简易 snapshot 构造器."""
-    return MemorySnapshot(
-        id=f"snap-{idx:03d}",
-        topic=topic,
-        ai_avatars=[_AI_AVATAR[n] for n in ai_names if n in _AI_AVATAR],
-        types=types,
-        count=count,
-        source_meeting_id=meeting_id,
-    )
-
-
-# 25 条 mock 快照, 跟现有 25 条对齐 (覆盖 福田住建局 各议题)
-# v1.4.0 Saga Q (Phase 1 P0): 全部 ai_names 改用设计稿 10 个 AI.
-# 替换: Hummingbird → Zhaojie · Aria-7 → Shu · Phoenix → Scout · Saga → Tally · Echo → Tally
-_SNAPSHOTS: List[MemorySnapshot] = [
-    _ss(1, "数据安全合规风险评估会", ["Sage", "Lex"], ["洞察", "建议"], 2, "m-finished-data-compliance"),
-    _ss(2, "电梯改造方案决策会", ["Tally", "Stratos"], ["决策"], 4, "m-finished-elevator-upgrade"),
-    _ss(3, "Q3 路线图对齐", ["Stratos", "Mira"], ["决策", "风险"], 3, "m-live-q3-roadmap"),
-    _ss(4, "搜索体验评审 #4", ["Sage", "Aria"], ["洞察", "建议"], 5, "m-upcoming-search-review-4"),
-    _ss(5, "客户访谈 · Hummingbird 反馈", ["Zhaojie", "Sage"], ["洞察"], 2, "m-upcoming-hummingbird-feedback"),
-    _ss(6, "摘要模型 A/B 复盘", ["Shu", "Aria"], ["突破", "洞察"], 4, "m-finished-ab-review"),
-    _ss(7, "Q1 投诉趋势复盘", ["Sage", "Shu"], ["洞察"], 3, "m-finished-q1-complaint"),
-    _ss(8, "物业巡检流程优化", ["Scout", "Stratos"], ["建议"], 2, None),
-    _ss(9, "业主满意度专题会", ["Zhaojie"], ["洞察"], 1, None),
-    _ss(10, "新员工合规培训 复盘", ["Lex", "Falao"], ["建议"], 1, None),
-    _ss(11, "Q2 KPI 中期回顾", ["Stratos", "Tally"], ["决策"], 3, None),
-    _ss(12, "数据看板原型评审", ["Aria", "Sage"], ["建议"], 2, None),
-    _ss(13, "节能改造 二期方案", ["Stratos", "Tally"], ["决策", "风险"], 4, None),
-    _ss(14, "供应商合规 排查", ["Lex", "Falao"], ["风险"], 2, None),
-    _ss(15, "客户增长 半年规划", ["Zhaojie", "Shu"], ["决策"], 3, None),
-    _ss(16, "记忆库 沉淀 规则梳理", ["Mira"], ["建议"], 1, None),
-    _ss(17, "Q4 协作功能 PRD 评审", ["Stratos", "Aria", "Mira"], ["决策"], 5, None),
-    _ss(18, "AI 摘要 prompt 优化", ["Sage", "Aria"], ["突破"], 2, None),
-    _ss(19, "投诉响应 SLA 调整", ["Scout"], ["决策"], 1, None),
-    _ss(20, "数据资产 命名规范", ["Sage", "Shu"], ["建议"], 2, None),
-    _ss(21, "用户调研 招募 流程", ["Zhaojie"], ["建议"], 1, None),
-    _ss(22, "财务对账 自动化方案", ["Tally"], ["建议"], 1, None),
-    _ss(23, "新版搜索 性能基线", ["Sage", "Stratos"], ["突破"], 3, None),
-    _ss(24, "合规自检 checklist", ["Lex", "Falao"], ["建议"], 1, None),
-    _ss(25, "Mira 早晨简报 模板 V2", ["Mira"], ["建议"], 1, None),
-]
+# T3: insight broad pool 状态 — accepted (已确认入库) + pending (NULL human_decision).
+# 排除 rejected (用户 已 显式拒); accepted + pending 都算 "快照" 范畴.
+_SNAPSHOT_INSIGHT_DECISIONS: tuple[str, ...] = ("accepted",)  # NULL 单独 处理
 
 
 @router.get("/memory/snapshots", response_model=MemorySnapshotsResponse)
 async def get_memory_snapshots(
-    limit: int = Query(20, ge=1, le=100),
-    cursor: Optional[str] = Query(None, description="opaque cursor, ignored in mock"),
+    limit: int = Query(25, ge=1, le=100),
+    cursor: Optional[str] = Query(None, description="opaque cursor, 当前未实现"),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
 ) -> MemorySnapshotsResponse:
-    """记忆 快照 list — 25 条 mock 议题."""
-    # cursor 当前 mock 忽略, 直接 按 limit 截
-    items = _SNAPSHOTS[:limit]
-    return MemorySnapshotsResponse(items=items, total_count=len(_SNAPSHOTS))
+    """记忆 快照 list — 按 议题 (meeting) 分组的 AIInsight.
+
+    v1.4.0 Saga T3 (Phase 2 W3): mock → 真接 (ABAC + workspace filter).
+
+    数据源:
+      AIInsight WHERE workspace_id + human_decision IN (NULL, 'accepted')
+                ORDER BY created_at DESC (broad 集合)
+      Python 端 group by meeting_id (走 v2_helpers.group_insights_by_topic)
+      Meeting / Agent 各 一次 IN query 批拉, 避免 N+1.
+
+    映射 (SCHEMA §4.4):
+      id                = "snap-<meeting_id>"  (group 稳定 id; 没 meeting → "snap-orphan-<first_insight_id>")
+      topic             = Meeting.title  (orphan group: "未关联议题")
+      ai_avatars        = 去重 Agent → agent_to_ai_badge 取 {glyph,gradient_from,gradient_to}
+      types             = 去重 normalize_insight_type · 最多 3 个 (设计稿一致)
+      count             = group 内 AIInsight 数
+      source_meeting_id = meeting_id (orphan → None)
+
+    排序: group 内 max(created_at) desc (最新议题 排前).
+
+    边界:
+      - empty workspace / 无 insight → items=[], total_count=0
+      - meeting_id IS NULL → 归 "orphan" group, source_meeting_id=None
+    """
+    ws_id = auth.workspace.id
+
+    # 1) 拉 broad 集合 — accepted + pending (NULL human_decision), 排除 rejected
+    insights = (
+        await session.execute(
+            select(AIInsight)
+            .where(
+                AIInsight.workspace_id == ws_id,
+                # accepted 或 NULL — 显式排除 rejected
+                (AIInsight.human_decision.is_(None))
+                | (AIInsight.human_decision == "accepted"),
+            )
+            .order_by(desc(AIInsight.created_at))
+        )
+    ).scalars().all()
+
+    if not insights:
+        return MemorySnapshotsResponse(items=[], total_count=0)
+
+    # 2) Python 端 group by meeting_id (helper)
+    grouped = group_insights_by_topic(insights)
+
+    # 3) 批量 加载 meetings (topic) + agents (avatars). dedupe ids 一次性 IN query.
+    meeting_ids = {ins.meeting_id for ins in insights if ins.meeting_id}
+    agent_ids = {ins.agent_id for ins in insights if ins.agent_id}
+
+    meetings_by_id: dict = {}
+    if meeting_ids:
+        m_rows = (
+            await session.execute(
+                select(Meeting).where(Meeting.id.in_(meeting_ids))
+            )
+        ).scalars().all()
+        meetings_by_id = {str(m.id): m for m in m_rows}
+
+    agents_by_id: dict = {}
+    if agent_ids:
+        a_rows = (
+            await session.execute(
+                select(Agent).where(Agent.id.in_(agent_ids))
+            )
+        ).scalars().all()
+        agents_by_id = {a.id: a for a in a_rows}
+
+    # 4) Build group 列表 + 按 max(created_at) desc 排序
+    group_items: List[tuple[datetime, MemorySnapshot]] = []
+    for group_key, group_insights in grouped.items():
+        # max created_at — 给排序用
+        max_created = max(ins.created_at for ins in group_insights)
+
+        # topic 文本: meeting.title 或 "未关联议题" (orphan)
+        if group_key == "orphan":
+            topic = "未关联议题"
+            source_meeting_id: Optional[str] = None
+            snap_id = f"snap-orphan-{group_insights[0].id}"
+        else:
+            m = meetings_by_id.get(group_key)
+            topic = (m.title if m else "已删除会议") or "未命名会议"
+            source_meeting_id = group_key
+            snap_id = f"snap-{group_key}"
+
+        # ai_avatars: group 内 unique Agent → agent_to_ai_badge → 取 3 字段
+        seen_agent_ids: set = set()
+        avatars: List[SnapshotAIAvatar] = []
+        for ins in group_insights:
+            if ins.agent_id and ins.agent_id not in seen_agent_ids:
+                seen_agent_ids.add(ins.agent_id)
+                agent = agents_by_id.get(ins.agent_id)
+                badge = agent_to_ai_badge(agent)
+                avatars.append(
+                    SnapshotAIAvatar(
+                        glyph=badge["glyph"],
+                        gradient_from=badge["gradient_from"],
+                        gradient_to=badge["gradient_to"],
+                    )
+                )
+
+        # types: group 内 unique normalize_insight_type · 最多 3 个
+        seen_types: set = set()
+        types: List[str] = []
+        for ins in group_insights:
+            t = normalize_insight_type(ins.type)
+            if t not in seen_types:
+                seen_types.add(t)
+                types.append(t)
+                if len(types) >= 3:
+                    break
+
+        snap = MemorySnapshot(
+            id=snap_id,
+            topic=topic,
+            ai_avatars=avatars,
+            types=types,
+            count=len(group_insights),
+            source_meeting_id=source_meeting_id,
+        )
+        group_items.append((max_created, snap))
+
+    # 5) 按 max(created_at) desc 排序, 截 limit
+    group_items.sort(key=lambda x: x[0], reverse=True)
+    items = [snap for _, snap in group_items[:limit]]
+    total_count = len(group_items)
+
+    return MemorySnapshotsResponse(items=items, total_count=total_count)

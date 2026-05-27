@@ -732,6 +732,23 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS ix_meeting_ws_status_started ON meeting (workspace_id, status, started_at)",
             # AIInsight (meeting_id, type) 命中 decision_count 批量 + /today/decisions
             "CREATE INDEX IF NOT EXISTS ix_ai_insight_meeting_type ON ai_insight (meeting_id, type)",
+            # v1.4.0 Saga T3+T4 (Phase 2 W3): /memory/snapshots + /today/experts 索引.
+            #
+            # /today/experts last_active_at 双 max:
+            #   (a) MeetingAttendee JOIN Meeting GROUP BY agent_id → max(Meeting.started_at)
+            #       现有 ix_meeting_attendee_agent_id (agent_id) WHERE agent_id IS NOT NULL
+            #       已覆盖 agent_id IN filter; Meeting.started_at 排序走 ix_meeting_ws_started.
+            #   (b) AIInsight WHERE agent_id GROUP BY agent_id → max(created_at)
+            #       现 缺 (agent_id, created_at) 复合 — 加新索引.
+            "CREATE INDEX IF NOT EXISTS ix_ai_insight_agent_created ON ai_insight (agent_id, created_at DESC)",
+            # /today/experts task_count: Task WHERE assignee_agent_id IN + status + workspace_id.
+            # 现 task 表 ix_task_ws_assignee_status_due 走 assignee_user_id, 不命中 agent_id.
+            # 加 (workspace_id, assignee_agent_id, status) 命中 GROUP BY assignee_agent_id.
+            "CREATE INDEX IF NOT EXISTS ix_task_ws_assignee_agent_status ON task (workspace_id, assignee_agent_id, status) WHERE assignee_agent_id IS NOT NULL",
+            # /memory/snapshots: AIInsight WHERE workspace_id + human_decision filter.
+            # ix_ai_insight_ws_created 已覆盖 workspace_id + created_at DESC.
+            # 加 partial index 给 human_decision IS NULL OR 'accepted' 的 broad pool (无需新 SQL,
+            # 复用 ix_ai_insight_ws_created 即可).
         ]:
             try:
                 await conn.execute(text(sql))

@@ -1,10 +1,19 @@
 """
-v1.4.0 · Saga T2 (Phase 2 W2) · Mobile App v2 — Meeting build helper.
+v1.4.0 · Saga T2 / T3+T4 (Phase 2 W2 / W3) · Mobile App v2 — 共享 helper.
 
-把 ORM Meeting + attendees + insights → SCHEMA §2.2 V2MeetingItem dict.
-两处 复用 (避免 重复):
-  - /api/v2/meetings (§2.2) — list 所有 状态 meeting
-  - /api/v2/today/live-meeting (§3.2) — 单个 live meeting
+T2 build_meeting_item: 把 ORM Meeting + attendees + insights → SCHEMA §2.2
+  V2MeetingItem dict. 两处 复用 (避免 重复):
+    - /api/v2/meetings (§2.2) — list 所有 状态 meeting
+    - /api/v2/today/live-meeting (§3.2) — 单个 live meeting
+
+T3+T4 扩展 (本次):
+  humanize_timestamp(ts, now) — "刚刚" / "X 分钟前" / "X 小时前" / "X 天前".
+    给 §3.7 experts.last_active_display 用. 跟 task_urgency.due_display 一脉相承
+    (中文 humanize, 但 这是 历史时刻 不是 未来 due, 所以 单独函数 不强加 到
+    task_urgency 里).
+  group_insights_by_topic(insights) — 按 meeting_id 分组 (SCHEMA §4.4 topic).
+    AIInsight 没 topic 列, 只能 用 meeting_id 当 group key. caller 给 Meeting
+    title 当 topic 文本.
 
 提取统一 helper 是 因为 §2.2 和 §3.2 共享 同一 schema, 任何 字段 / 计算 (elapsed
 / countdown / decision_count) 改动 要在 一处 生效, 不能 各自 inline 写.
@@ -54,7 +63,7 @@ from .agent_glyphs import (
     agent_to_attendee,
     user_to_attendee,
 )
-from .models import Agent, Meeting, User
+from .models import Agent, AIInsight, Meeting, User
 
 
 # ============================================================================
@@ -177,3 +186,126 @@ def build_meeting_item(
         "ai_count": ai_count,
         "ai_badges": ai_badges,
     }
+
+
+# ============================================================================
+# T3+T4 helper · humanize_timestamp — 历史时刻 中文相对时间
+# ============================================================================
+#
+# 跟 task_urgency.due_display 区别:
+#   due_display     是 未来 due (今天 11:30 / 明天 / 本周三 / 下周)
+#   humanize_timestamp 是 过去 时刻 (刚刚 / X 分钟前 / X 小时前 / X 天前)
+#
+# 给 SCHEMA §3.7 experts.last_active_display 用. 设计稿样例:
+#   "刚刚" (≤ 5 分钟)
+#   "15 分钟前"
+#   "30 分钟前"
+#   "1 小时前"
+#   "昨天"
+#   "5 天前"
+#   "7 天前"
+
+
+def humanize_timestamp(ts: Optional[datetime], now: Optional[datetime] = None) -> str:
+    """v1.4.0 Saga T4 · 历史时刻 → 中文相对时间.
+
+    规则 (跟设计稿 mock 文案 对齐):
+      ts IS NULL                    → "暂无活动"
+      ts > now                      → "刚刚" (兜底, 未来时刻 不应出现)
+      now - ts <= 5 分钟             → "刚刚"
+      5 分钟 < diff <= 60 分钟       → "X 分钟前"
+      1 小时 < diff <= 24 小时       → "X 小时前"
+      1 天 < diff <= 2 天 (=今昨界) → "昨天"
+      2 天 < diff <= 30 天           → "X 天前"
+      > 30 天                       → "MM-DD" (eg "04-15")
+
+    边界:
+      now=None → 用 datetime.now(timezone.utc)
+      tz-naive → 兜底 UTC (避免 caller 传 naive 时 crash)
+    """
+    if ts is None:
+        return "暂无活动"
+
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    # tz-aware 防御
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+
+    delta_seconds = (now - ts).total_seconds()
+
+    # 未来时刻 兜底 "刚刚" (不应出现, 但防 时钟漂移)
+    if delta_seconds < 0:
+        return "刚刚"
+
+    # ≤ 5 分钟
+    if delta_seconds <= 5 * 60:
+        return "刚刚"
+
+    # 5 分钟 ~ 60 分钟 — X 分钟前
+    if delta_seconds < 60 * 60:
+        minutes = int(delta_seconds // 60)
+        return f"{minutes} 分钟前"
+
+    # 1 小时 ~ 24 小时 — X 小时前
+    if delta_seconds < 24 * 60 * 60:
+        hours = int(delta_seconds // 3600)
+        return f"{hours} 小时前"
+
+    # 计算 天数差 (按日期边界, 不按 24 小时滚动)
+    today = now.date()
+    ts_date = ts.date()
+    delta_days = (today - ts_date).days
+
+    # 1 天前 (昨天)
+    if delta_days <= 1:
+        return "昨天"
+
+    # 2 ~ 30 天
+    if delta_days <= 30:
+        return f"{delta_days} 天前"
+
+    # > 30 天 — "MM-DD" 兜底
+    return ts.strftime("%m-%d")
+
+
+# ============================================================================
+# T3 helper · group_insights_by_topic — AIInsight 按 meeting_id 分组
+# ============================================================================
+#
+# SCHEMA §4.4 memory/snapshots 每条 是 "议题 group", 含 多个 insight.
+# DB 端 AIInsight 没 topic 列 (只 topic_idx int), 所以 group key = meeting_id —
+# 同一个会议 的所有 insight 算同一个 议题. caller 端 拿 Meeting.title 当 topic
+# 文本显示.
+#
+# 边界:
+#   meeting_id IS NULL 的 insight → 归 "orphan" key (跟 tasks/grouped 一致 sentinel).
+
+
+_ORPHAN_TOPIC_KEY = "orphan"
+
+
+def group_insights_by_topic(
+    insights: Sequence[AIInsight],
+) -> dict[str, list[AIInsight]]:
+    """v1.4.0 Saga T3 · AIInsight list → { meeting_id: [insight, ...] } 分组.
+
+    AIInsight 没 topic 列, 只能 用 meeting_id 当 group key.
+    caller 端 拿 Meeting.title 当 topic 文本显示.
+
+    特殊 key:
+      "orphan" — meeting_id IS NULL 的 insight (老数据可能).
+
+    顺序: dict 保留 输入顺序 (Python 3.7+ dict 保插入序). 排序 由 caller 端控.
+    """
+    grouped: dict[str, list[AIInsight]] = {}
+    for ins in insights:
+        if ins.meeting_id is None:
+            key = _ORPHAN_TOPIC_KEY
+        else:
+            key = str(ins.meeting_id)
+        grouped.setdefault(key, []).append(ins)
+    return grouped

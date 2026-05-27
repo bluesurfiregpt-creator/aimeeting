@@ -1,5 +1,5 @@
 """
-v1.4.0 · Saga N (Phase 1 · W2) + Saga T1/T2 (Phase 2 · W1/W2) · Mobile App v2 — Today.
+v1.4.0 · Saga N (Phase 1 · W2) + Saga T1/T2/T4 (Phase 2 · W1/W2/W3) · Mobile App v2 — Today.
 
 契约: docs/SCHEMA-mobile-v2.md §3 (today/* 全部 7 个 endpoint).
 
@@ -8,7 +8,7 @@ Phase 1 (Saga N · 全部 mock): brief / live-meeting / snapshot / pending-tasks
 Phase 2 真接 DB:
   Saga T1 · snapshot + insights — ABAC + workspace filter.
   Saga T2 · live-meeting + pending-tasks + decisions — ABAC + JOIN + Task derive.
-  Saga T4 (后续) · experts.
+  Saga T4 · experts — ABAC + JOIN MeetingAttendee/AIInsight, last_active_at 双 max.
   Saga T6 (后续) · brief (LLM).
 
 约定:
@@ -37,7 +37,10 @@ from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agent_glyphs import (
+    AGENT_GLYPHS,
     DECISION_INSIGHT_TYPES,
+    agent_role_short,
+    agent_to_ai_badge,
     agent_to_ai_source,
     normalize_insight_type,
 )
@@ -45,7 +48,7 @@ from ..auth import AuthContext, get_current_auth
 from ..db import get_session
 from ..models import AIInsight, Agent, Meeting, MeetingAttendee, Task, User
 from ..task_urgency import derive_urgency, due_display
-from ..v2_helpers import build_meeting_item
+from ..v2_helpers import build_meeting_item, humanize_timestamp
 from .v2_meetings import V2MeetingItem, _load_meeting_extras
 
 logger = logging.getLogger(__name__)
@@ -556,22 +559,39 @@ _INSIGHTS = [
 ]
 
 
+# T4 强化: type 权重排序 — SCHEMA §3.5 enum 优先级.
+# 决策 + 风险 (重要) > 突破 + 洞察 (有价值) > 思路 (一般).
+# DB 端 normalize 前的 type 值都映射到此 (含 DB '决策建议' → SCHEMA '决策').
+_INSIGHT_TYPE_WEIGHTS: dict[str, int] = {
+    "决策":   3,
+    "风险":   3,
+    "突破":   2,
+    "洞察":   2,
+    "思路":   1,
+}
+
+
 @router.get("/insights", response_model=InsightsResponse)
 async def get_today_insights(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ) -> InsightsResponse:
-    """AI 智囊·今日 — 今天产出的 AI insight top 10.
+    """AI 智囊·今日 — 今天产出的 AI insight top 6.
 
     v1.4.0 Saga T1 (Phase 2 W1): mock → 真接 (ABAC + workspace filter).
+    v1.4.0 Saga T4 (Phase 2 W3): 强化 — type 权重排序 (决策/风险 > 突破/洞察 > 思路),
+                                  limit 10 → 6 (跟设计稿 today 显示一致).
 
     SQL:
       SELECT AIInsight, Agent, Meeting
       JOIN Agent ON ai.agent_id = agent.id
-      JOIN Meeting ON ai.meeting_id = meeting.id
+      LEFT JOIN Meeting ON ai.meeting_id = meeting.id
       WHERE ai.workspace_id = ? AND ai.created_at >= 今天 0:00
         AND (ai.human_decision IS NULL OR ai.human_decision = 'accepted')
-      ORDER BY ai.created_at DESC LIMIT 10
+
+    排序: 在 query 时 fetch broad pool (今日全量), Python 端按
+      (type_weight DESC, created_at DESC) 排, 截 limit=6. 比 SQL CASE 排序简单
+      易读, 当日 insight 数量 不会 大 (单 workspace 单日 < 100).
 
     映射:
       - SCHEMA §3.5 字段 title = AIInsight.content (DB 是一句话结论)
@@ -605,13 +625,24 @@ async def get_today_insights(
                     AIInsight.human_decision == "accepted",
                 ),
             )
+            # SQL 端 仍 按 created_at desc — Python 端 再 加 type 权重稳定 二级 sort
             .order_by(desc(AIInsight.created_at))
-            .limit(10)
         )
     ).all()
 
+    # T4 强化: Python 端 按 (type_weight desc, created_at desc) 重排, 截 top 6.
+    # 标量 排序 比 SQL CASE 简单, 当日 insight 数量 < 100 不会 性能 问题.
+    def _sort_key(row: tuple) -> tuple:
+        ins, _agent, _title = row
+        normalized = normalize_insight_type(ins.type)
+        weight = _INSIGHT_TYPE_WEIGHTS.get(normalized, 1)
+        # 高 weight 排前 → 负数 (python sort asc); 高 created_at 排前 → 负时间戳
+        return (-weight, -ins.created_at.timestamp())
+
+    sorted_rows = sorted(rows, key=_sort_key)[:6]
+
     items: List[InsightItem] = []
-    for ins, agent, meeting_title in rows:
+    for ins, agent, meeting_title in sorted_rows:
         ai_source_dict = agent_to_ai_source(agent)
         items.append(
             InsightItem(
@@ -748,10 +779,42 @@ class ExpertsResponse(BaseModel):
     experts: List[ExpertItem]
 
 
+# v1.4.0 Saga T4 (Phase 2 W3): Empty workspace fallback — 走 AGENT_GLYPHS 10 个.
+# 真接 endpoint workspace 无 Agent 时 返这套 demo, 保前端 不空盘 (跟 mobile-shared.jsx
+# + agent_glyphs.AGENT_GLYPHS 一致). 不加 _synthetic flag (SCHEMA 没字段, 走日志标).
+
+
+def _build_fallback_experts() -> List["ExpertItem"]:
+    """Empty workspace 兜底: AGENT_GLYPHS 10 个 → ExpertItem demo.
+
+    跟 mobile-shared.jsx:24-34 顺序一致. last_active_at 全 ""一个空字符串,
+    last_active_display = "暂无活动". 没 recent_meetings + 0 task_count.
+    """
+    items: List[ExpertItem] = []
+    for name, (glyph, gradient_from, gradient_to, role_short) in AGENT_GLYPHS.items():
+        items.append(
+            ExpertItem(
+                id=f"ai-{name.lower()}",
+                name=name,
+                glyph=glyph,
+                gradient_from=gradient_from,
+                gradient_to=gradient_to,
+                role_short=role_short,
+                last_active_at="",
+                last_active_display="暂无活动",
+                recent_meetings=[],
+                task_count=0,
+            )
+        )
+    return items
+
+
 # v1.4.0 Saga Q (Phase 1 P0): 10 个 AI 严格按设计稿 mobile-shared.jsx:24-34.
 # 顺序 last_active_at desc 排序.
 # 删: Phoenix ▲ / Saga ◐ / Aria-7 ◉ / Hummingbird ♪ / Echo ◇ (非设计稿)
 # 加: Falao ⚖ / Shu ∑ / Zhaojie ♥ / Tally ¥ / Scout ◈ (设计稿固定 10)
+#
+# T4 之后 仅 当 Phase 1 mock 引用使用 (备份 留 git history 不删 — 但 endpoint 已转真).
 _EXPERTS = [
     ExpertItem(
         id="ai-mira",
@@ -972,6 +1035,195 @@ _EXPERTS = [
 
 
 @router.get("/experts", response_model=ExpertsResponse)
-async def get_today_experts() -> ExpertsResponse:
-    """专家视角 — 10 个 AI, 按 last_active_at desc 排序."""
-    return ExpertsResponse(experts=_EXPERTS)
+async def get_today_experts(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> ExpertsResponse:
+    """专家视角 — workspace 内所有 AI Agent, 按 last_active_at desc 排序.
+
+    v1.4.0 Saga T4 (Phase 2 W3): mock → 真接 (ABAC + workspace filter).
+
+    数据源:
+      Agent WHERE workspace_id = ws_id  (workspace 全部 AI)
+      每个 agent:
+        last_active_at = max(
+          max(Meeting.started_at JOIN MeetingAttendee WHERE agent_id=a.id),
+          max(AIInsight.created_at WHERE agent_id=a.id)
+        )
+        recent_meetings = Meeting JOIN MeetingAttendee WHERE agent_id=a.id
+                          ORDER BY started_at desc LIMIT 3
+        task_count = Task WHERE assignee_agent_id=a.id + status active
+
+    映射 (SCHEMA §3.7):
+      id/glyph/gradient_from/gradient_to = agent_to_ai_badge(agent)
+      role_short = agent_role_short(agent)
+      last_active_display = humanize_timestamp(last_active_at, now)
+
+    排序: last_active_at desc, NULL 排最后.
+
+    边界:
+      - empty workspace / 无 Agent → 走 _build_fallback_experts() 返 10 个 demo
+        (跟 mobile-shared.jsx + agent_glyphs.AGENT_GLYPHS 一致, 保前端不空盘)
+      - Agent 无最近活动 → last_active_at="" + display="暂无活动"
+    """
+    ws_id = auth.workspace.id
+    now = datetime.now(timezone.utc)
+
+    # 1) 拉 workspace 全部 Agent
+    agents = (
+        await session.execute(
+            select(Agent).where(Agent.workspace_id == ws_id)
+        )
+    ).scalars().all()
+
+    if not agents:
+        # Empty workspace fallback (跟 mobile-shared.jsx 一致 demo 10 个).
+        logger.info("v2/today/experts: workspace=%s 无 Agent, 返 fallback demo 10", ws_id)
+        return ExpertsResponse(experts=_build_fallback_experts())
+
+    agent_ids = [a.id for a in agents]
+
+    # 2) last_active_at 计算 — 双 source max:
+    #    (a) Meeting.started_at JOIN MeetingAttendee where agent_id
+    #    (b) AIInsight.created_at where agent_id
+    # 用 GROUP BY agent_id 批拉.
+    meeting_active_rows = (
+        await session.execute(
+            select(
+                MeetingAttendee.agent_id,
+                func.max(Meeting.started_at).label("last_meeting"),
+            )
+            .join(Meeting, Meeting.id == MeetingAttendee.meeting_id)
+            .where(
+                MeetingAttendee.agent_id.in_(agent_ids),
+                Meeting.started_at.is_not(None),
+            )
+            .group_by(MeetingAttendee.agent_id)
+        )
+    ).all()
+    meeting_last_by_agent: dict = {row[0]: row[1] for row in meeting_active_rows}
+
+    insight_active_rows = (
+        await session.execute(
+            select(
+                AIInsight.agent_id,
+                func.max(AIInsight.created_at).label("last_insight"),
+            )
+            .where(
+                AIInsight.agent_id.in_(agent_ids),
+                AIInsight.workspace_id == ws_id,
+            )
+            .group_by(AIInsight.agent_id)
+        )
+    ).all()
+    insight_last_by_agent: dict = {row[0]: row[1] for row in insight_active_rows}
+
+    # 3) recent_meetings — Meeting JOIN MeetingAttendee, 每个 agent top 3 by started_at desc.
+    # 一次性 拉 所有 (agent_id, meeting) 对, Python 端 按 agent_id 分组 + 截 top 3.
+    recent_rows = (
+        await session.execute(
+            select(MeetingAttendee.agent_id, Meeting)
+            .join(Meeting, Meeting.id == MeetingAttendee.meeting_id)
+            .where(
+                MeetingAttendee.agent_id.in_(agent_ids),
+                Meeting.workspace_id == ws_id,
+                Meeting.started_at.is_not(None),
+            )
+            .order_by(desc(Meeting.started_at))
+        )
+    ).all()
+    # Python 端聚合 — 每 agent 最多 3 个 meeting
+    recent_by_agent: dict = {}
+    for agent_id, m in recent_rows:
+        lst = recent_by_agent.setdefault(agent_id, [])
+        if len(lst) < 3:
+            lst.append(m)
+
+    # 4) task_count — Task assignee_agent_id IN (...) + status active. GROUP BY agent_id.
+    active_statuses = ("open", "dispatched", "accepted", "in_progress", "submitted")
+    task_count_rows = (
+        await session.execute(
+            select(
+                Task.assignee_agent_id,
+                func.count(Task.id),
+            )
+            .where(
+                Task.workspace_id == ws_id,
+                Task.assignee_agent_id.in_(agent_ids),
+                Task.status.in_(active_statuses),
+            )
+            .group_by(Task.assignee_agent_id)
+        )
+    ).all()
+    task_count_by_agent: dict = {row[0]: int(row[1] or 0) for row in task_count_rows}
+
+    # 5) Build ExpertItem list
+    expert_items: List[ExpertItem] = []
+    for agent in agents:
+        # last_active_at — 取 meeting + insight 2 max 中的 max
+        m_last = meeting_last_by_agent.get(agent.id)
+        i_last = insight_last_by_agent.get(agent.id)
+        candidates = [t for t in (m_last, i_last) if t is not None]
+        last_active_at_dt = max(candidates) if candidates else None
+
+        # last_active_at ISO Z + display 中文 humanize
+        if last_active_at_dt:
+            last_active_at_str = (
+                last_active_at_dt.astimezone(timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
+        else:
+            last_active_at_str = ""
+        last_active_display = humanize_timestamp(last_active_at_dt, now)
+
+        # recent_meetings — Meeting → ExpertRecentMeeting shape (joined_at=meeting.started_at)
+        recent_list = recent_by_agent.get(agent.id, [])
+        recent_meetings = [
+            ExpertRecentMeeting(
+                id=str(m.id),
+                title=m.title or "未命名会议",
+                joined_at=(
+                    m.started_at.astimezone(timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z")
+                    if m.started_at
+                    else ""
+                ),
+            )
+            for m in recent_list
+        ]
+
+        badge = agent_to_ai_badge(agent)
+        expert_items.append(
+            ExpertItem(
+                id=badge["id"],
+                name=badge["name"],
+                glyph=badge["glyph"],
+                gradient_from=badge["gradient_from"],
+                gradient_to=badge["gradient_to"],
+                role_short=agent_role_short(agent),
+                last_active_at=last_active_at_str,
+                last_active_display=last_active_display,
+                recent_meetings=recent_meetings,
+                task_count=task_count_by_agent.get(agent.id, 0),
+            )
+        )
+
+    # 6) 按 last_active_at desc 排序, "" (无活动) 排最后
+    def _sort_key(item: ExpertItem) -> tuple:
+        # 无活动 → 排最后. has_activity=0 排前面 (sort asc), 时间戳 desc.
+        if not item.last_active_at:
+            return (1, 0.0)
+        # 解 ISO Z → 时间戳, 负值让 大时间排前
+        try:
+            ts = datetime.fromisoformat(
+                item.last_active_at.replace("Z", "+00:00")
+            ).timestamp()
+            return (0, -ts)
+        except ValueError:
+            return (1, 0.0)
+
+    expert_items.sort(key=_sort_key)
+
+    return ExpertsResponse(experts=expert_items)
