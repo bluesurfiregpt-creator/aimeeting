@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api } from "@/lib/api";
+import { api, type WebMeetingSummaryV2 } from "@/lib/api";
 import { toast } from "@/lib/toast";
+// v1.4.0 Phase A · 4 (NORTH_STAR § 6.1 痛点 3): summary v2 结构化渲染.
+import SummaryV2View from "./SummaryV2View";
 
 // v25.16: 加 'loading' 区分 "页面刚打开还在拉数据" vs "真的 LLM 在跑"
 // 之前默认 status='pending' 导致首次加载就显示 "LLM 通常 5-30 秒..." 误导文案.
@@ -23,6 +25,8 @@ export default function SummaryCard({
   onStatusChange?: (status: Status) => void;
 }) {
   const [summary, setSummary] = useState<string | null>(null);
+  // v1.4.0 Phase A · 4: 结构化 summary v2 — 新会议有, 老会议是 null.
+  const [summaryJson, setSummaryJson] = useState<WebMeetingSummaryV2 | null>(null);
   const [status, setStatus] = useState<Status>("loading");  // v25.16
   const [skipMessage, setSkipMessage] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
@@ -36,6 +40,7 @@ export default function SummaryCard({
     try {
       const r = await api.getMeetingSummary(meetingId);
       setSummary(r.summary_md);
+      setSummaryJson(r.summary_json);
       setStatus(r.status as Status);
       setSkipMessage(r.message ?? null);
       return r.status as Status;
@@ -55,6 +60,7 @@ export default function SummaryCard({
     // v25.19: refreshKey 变化时,先 reset 显示状态(让用户立刻看到 骨架屏)
     if (refreshKey > 0) {
       setSummary(null);
+      setSummaryJson(null);
       setStatus("pending");
     }
     const tick = async () => {
@@ -232,7 +238,13 @@ export default function SummaryCard({
         </div>
       </header>
 
-      {summary ? (
+      {summaryJson ? (
+        /* v1.4.0 Phase A · 4: 新会议 结构化 渲染 (topic + stance + 任务溯源 chip).
+         *  老会议 summary_json=null → 落 下面 markdown 兜底 分支. */
+        <article className="mt-4">
+          <SummaryV2View data={summaryJson} meetingId={meetingId} />
+        </article>
+      ) : summary ? (
         <article className="mt-4 prose-invert max-w-none text-sm text-zinc-200">
           <Markdown>{summary}</Markdown>
         </article>

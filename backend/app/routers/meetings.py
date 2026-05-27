@@ -1083,8 +1083,14 @@ async def get_meeting_briefing(
 
 class SummaryOut(BaseModel):
     """summary_md is None when not yet generated; status tells the front-end
-    whether to keep polling."""
+    whether to keep polling.
+
+    v1.4.0 Phase A · 4 (NORTH_STAR § 6.1 痛点 3): added `summary_json` —
+    structured topic-grouped view with per-speaker stance + task lineage.
+    Old meetings have summary_json=None; client falls back to markdown.
+    """
     summary_md: str | None
+    summary_json: dict | None = None  # v1.4.0 Phase A · 4
     status: str  # 'pending' | 'ready' | 'failed' | 'unconfigured' | 'skipped'
     message: str | None = None  # human-readable note for skipped/failed
 
@@ -1097,7 +1103,11 @@ async def get_meeting_summary(
 ):
     m = await _load_owned_meeting(meeting_id, session, auth)
     if m.summary_md and not m.summary_md.startswith("<!--"):
-        return SummaryOut(summary_md=m.summary_md, status="ready")
+        return SummaryOut(
+            summary_md=m.summary_md,
+            summary_json=m.summary_json,
+            status="ready",
+        )
     # The summary_generator may write a <!-- summary:skipped: ... --> marker
     # when the transcript is too thin; surface it as a terminal 'skipped'
     # state so the front-end stops polling and shows a friendly message.

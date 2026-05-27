@@ -102,6 +102,10 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     #   mode = human / hybrid / auto;auto_state JSON 存调度状态
     ("meeting", "mode", "VARCHAR(16) DEFAULT 'hybrid'"),
     ("meeting", "auto_state", "JSON"),
+    # v1.4.0 Phase A · 4 (NORTH_STAR § 6.1 痛点 3): summary v2 — 结构化 JSON
+    # 按 topic 分组 + 每 speaker 立场 + 任务溯源 link 回 transcript line.
+    # 保留 summary_md backward compat. JSONB 比 JSON 索引/查询友好, 跟 agenda 同型.
+    ("meeting", "summary_json", "JSONB"),
     # v26.3: agent message 加线程化 + 议程索引
     ("meeting_agent_message", "reply_to_agent_message_id", "BIGINT"),
     ("meeting_agent_message", "agenda_idx", "INTEGER"),

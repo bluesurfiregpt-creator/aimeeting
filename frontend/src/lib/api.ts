@@ -258,6 +258,51 @@ export type AgendaItem = {
   note?: string | null;
 };
 
+// v1.4.0 Phase A · 4 (NORTH_STAR § 6.1 痛点 3): 结构化 summary v2 - Web 端.
+// 跟 mobile types.MeetingSummaryV2 schema 完全 一致 (后端 同一 endpoint 输出).
+// 不 复用 mobile types 是 因为 Web 跟 mobile 类型系统 各自 独立 (双 token).
+export type WebSummaryV2Stance = "support" | "caution" | "block" | "neutral";
+
+export type WebSummaryV2Speaker = {
+  speaker_name: string;
+  speaker_type: "human" | "ai";
+  agent_id: string | null;
+  stance: WebSummaryV2Stance;
+  points: string[];
+  source_line_ids: number[];
+  source_message_ids: number[];
+};
+
+export type WebSummaryV2ActionItem = {
+  text: string;
+  owner: string | null;
+  due_date: string | null;
+  source_line_id: number | null;
+};
+
+export type WebSummaryV2Topic = {
+  topic: string;
+  summary: string;
+  speakers: WebSummaryV2Speaker[];
+  decision: string | null;
+  action_items: WebSummaryV2ActionItem[];
+};
+
+export type WebSummaryV2Risk = {
+  text: string;
+  raised_by: string | null;
+  source_line_id: number | null;
+};
+
+export type WebMeetingSummaryV2 = {
+  title: string;
+  overview: string;
+  topics: WebSummaryV2Topic[];
+  key_takeaways: string[];
+  risks: WebSummaryV2Risk[];
+  next_steps: string[];
+};
+
 export type Meeting = {
   id: string;
   title: string;
@@ -2853,8 +2898,10 @@ export const api = {
     jpost<SedimentationDraft>(`/api/sedimentation-drafts/${id}/reject`, { reason }),
 
   getMeetingSummary: (id: string) =>
+    // v1.4.0 Phase A · 4 (NORTH_STAR § 6.1 痛点 3): + summary_json (结构化 v2).
     jget<{
       summary_md: string | null;
+      summary_json: WebMeetingSummaryV2 | null;
       status: "pending" | "ready" | "failed" | "unconfigured" | "skipped";
       message?: string | null;
     }>(`/api/meetings/${id}/summary`),

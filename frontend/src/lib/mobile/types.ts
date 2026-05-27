@@ -290,8 +290,58 @@ export type MobileTranscriptOut = {
 /** GET /api/meetings/{id}/summary 返回 */
 export type MeetingSummaryOut = {
   summary_md: string | null;
+  /** v1.4.0 Phase A · 4 (NORTH_STAR § 6.1 痛点 3): 结构化 summary v2.
+   *  老会议没此字段 (null) → client fallback 渲染 summary_md markdown. */
+  summary_json: MeetingSummaryV2 | null;
   status: "pending" | "ready" | "skipped" | "failed" | string;
   message?: string | null;
+};
+
+/** v1.4.0 Phase A · 4: summary v2 结构化, 按 topic 分组 + 每 speaker 立场. */
+export type SummaryV2Stance = "support" | "caution" | "block" | "neutral";
+
+export type SummaryV2SpeakerType = "human" | "ai";
+
+export type SummaryV2Speaker = {
+  speaker_name: string;
+  speaker_type: SummaryV2SpeakerType;
+  agent_id: string | null;
+  stance: SummaryV2Stance;
+  points: string[];
+  /** MeetingTranscript.id refs — 用于 任务溯源 chip 跳 实录 ?focus=line-<id>. */
+  source_line_ids: number[];
+  /** MeetingAgentMessage.id refs — AI 发言 出处. */
+  source_message_ids: number[];
+};
+
+export type SummaryV2ActionItem = {
+  text: string;
+  owner: string | null;
+  due_date: string | null;
+  source_line_id: number | null;
+};
+
+export type SummaryV2Topic = {
+  topic: string;
+  summary: string;
+  speakers: SummaryV2Speaker[];
+  decision: string | null;
+  action_items: SummaryV2ActionItem[];
+};
+
+export type SummaryV2Risk = {
+  text: string;
+  raised_by: string | null;
+  source_line_id: number | null;
+};
+
+export type MeetingSummaryV2 = {
+  title: string;
+  overview: string;
+  topics: SummaryV2Topic[];
+  key_takeaways: string[];
+  risks: SummaryV2Risk[];
+  next_steps: string[];
 };
 
 /** GET /api/meetings/{id}/actions 返回的简化版 (mobile 用) */

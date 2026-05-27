@@ -335,6 +335,40 @@ class Meeting(Base):
     recording_oss_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     pyannote_job_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     summary_md: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # v1.4.0 Phase A · 4 (NORTH_STAR § 6.1 · 痛点 3): summary v2 — 结构化
+    # JSON, 按 topic 分组 + 每 speaker 立场 + 任务溯源 link 回 transcript line.
+    # 保留 summary_md (markdown legacy) backward compat. 老会议没 summary_json
+    # 则 frontend fallback 渲染 markdown.
+    #
+    # Schema:
+    #   {
+    #     "topics": [
+    #       {
+    #         "topic": str,                  # 议题名 (≤ 30 字)
+    #         "summary": str,                # 议题概述 1-2 句
+    #         "speakers": [{
+    #           "speaker_name": str,
+    #           "speaker_type": "human" | "ai",
+    #           "agent_id": str | None,      # AI 才有
+    #           "stance": "support" | "caution" | "block" | "neutral",
+    #           "points": [str],
+    #           "source_line_ids": [int],    # MeetingTranscript.id (human)
+    #           "source_message_ids": [int], # MeetingAgentMessage.id (ai)
+    #         }],
+    #         "decision": str | None,        # 该议题 已达成 决定 (无则 null)
+    #         "action_items": [{
+    #           "text": str,
+    #           "owner": str | None,
+    #           "due_date": str | None,      # ISO yyyy-mm-dd
+    #           "source_line_id": int | None # 任务出处 (跳实录用)
+    #         }],
+    #       }
+    #     ],
+    #     "key_takeaways": [str],
+    #     "risks": [{ "text": str, "raised_by": str | None, "source_line_id": int | None }],
+    #     "next_steps": [str],
+    #   }
+    summary_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     # v27.0-mobile P19: 会议 brief — 用户写一段诉求 / 背景 / 目标 / 期望产出.
     # 对 mode=auto 尤其重要 — LLM moderator 拿这段当 context 引导 AI 讨论,
     # 否则只看 agenda title 一句话, 容易跑偏 / 抽象.

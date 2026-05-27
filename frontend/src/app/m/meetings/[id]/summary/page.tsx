@@ -24,6 +24,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { MaterialsInline } from "@/components/mobile/meeting-room/materials";
 import Toast from "@/components/mobile/Toast";
+// v1.4.0 Phase A · 4 (NORTH_STAR § 6.1 痛点 3): summary v2 结构化渲染.
+// summary.summary_json 非 null 时 走 MSummaryV2, 老会议 fallback markdown.
+import MSummaryV2 from "@/components/mobile/MSummaryV2";
 import { mApi } from "@/lib/mobile/api";
 import { invalidateCache } from "@/lib/mobile/swrCache";
 import type {
@@ -70,7 +73,7 @@ export default function MeetingSummaryPage({
       return s.status;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setSummary({ summary_md: null, status: "failed", message: msg });
+      setSummary({ summary_md: null, summary_json: null, status: "failed", message: msg });
       return "failed";
     }
   }, [id]);
@@ -97,6 +100,7 @@ export default function MeetingSummaryPage({
       if (pollCountRef.current >= MAX_POLLS) {
         setSummary({
           summary_md: null,
+          summary_json: null,
           status: "failed",
           message: "超时未生成 (5 分钟), 请稍后刷新页面",
         });
@@ -252,6 +256,10 @@ export default function MeetingSummaryPage({
                   ↻ 重试
                 </button>
               </div>
+            ) : summary.summary_json ? (
+              /* v1.4.0 Phase A · 4: 新会议 有 summary_json → 结构化 渲染.
+               *  老会议 (summary_json=null) 落 下面 markdown 兜底 分支. */
+              <MSummaryV2 data={summary.summary_json} meetingId={id} />
             ) : summary.summary_md ? (
               <div className="markdown-body text-[14px] leading-relaxed text-[#1C1C1E]">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
