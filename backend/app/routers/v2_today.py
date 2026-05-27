@@ -1,12 +1,15 @@
 """
-v1.4.0 · Saga N (Phase 1 · W2) + Saga T1 (Phase 2 · W1) · Mobile App v2 — Today 命名空间.
+v1.4.0 · Saga N (Phase 1 · W2) + Saga T1/T2 (Phase 2 · W1/W2) · Mobile App v2 — Today.
 
 契约: docs/SCHEMA-mobile-v2.md §3 (today/* 全部 7 个 endpoint).
 
 Phase 1 (Saga N · 全部 mock): brief / live-meeting / snapshot / pending-tasks /
                               insights / decisions / experts.
-Phase 2 (Saga T1 · 真接 DB): snapshot + insights — 走 ABAC + workspace filter.
-                              其余 5 个留 mock 给 T2-T4 真接.
+Phase 2 真接 DB:
+  Saga T1 · snapshot + insights — ABAC + workspace filter.
+  Saga T2 · live-meeting + pending-tasks + decisions — ABAC + JOIN + Task derive.
+  Saga T4 (后续) · experts.
+  Saga T6 (后续) · brief (LLM).
 
 约定:
   - 与 老 /api/m/* (mobile.py) 隔离, 走 /api/v2/today/* 命名空间
@@ -40,11 +43,10 @@ from ..agent_glyphs import (
 )
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
-from ..models import AIInsight, Agent, Meeting, Task
-from .v2_meetings import (
-    V2MeetingItem,
-    _LIVE_MEETING,
-)
+from ..models import AIInsight, Agent, Meeting, MeetingAttendee, Task, User
+from ..task_urgency import derive_urgency, due_display
+from ..v2_helpers import build_meeting_item
+from .v2_meetings import V2MeetingItem, _load_meeting_extras
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v2/today", tags=["mobile-v2-today"])
@@ -88,7 +90,7 @@ class BriefResponse(BaseModel):
 
 @router.get("/brief", response_model=BriefResponse)
 async def get_today_brief() -> BriefResponse:
-    """Mira 早间简报 — Phase 1 写死 mock."""
+    """Mira 早间简报 — Phase 1 写死 mock. Saga T6 (NLU) 转真接."""
     return BriefResponse(
         id="brief-2026-05-27",
         generated_at="2026-05-27T08:00:00Z",
@@ -102,7 +104,8 @@ async def get_today_brief() -> BriefResponse:
             BriefChip(label="Q3 协作功能", color="#7A5AF0"),
             BriefChip(label="预读 Sage 评审稿", color="#AF52DE"),
         ],
-        target_meeting_id=_LIVE_MEETING.id,
+        # target_meeting_id Saga T6 时改成查 DB 当日 第一 ongoing meeting.id
+        target_meeting_id="m-live-q3-roadmap",
     )
 
 
@@ -117,14 +120,83 @@ class LiveMeetingResponse(BaseModel):
 
 
 @router.get("/live-meeting", response_model=LiveMeetingResponse)
-async def get_today_live_meeting() -> LiveMeetingResponse:
+async def get_today_live_meeting(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> LiveMeetingResponse:
     """当前 live 会议 + Mira 笔记. 无 live 时 meeting=null.
 
-    v1.4.0 Saga Q (Phase 1 P0): mira_note 改为跟设计稿一致 ("12 个关键点 · 3 个待你确认").
+    v1.4.0 Saga T2 (Phase 2 W2): mock → 真接 (ABAC + workspace filter).
+
+    数据源:
+      Meeting WHERE workspace_id + status='ongoing' ORDER BY started_at DESC LIMIT 1
+      attendees / decisions 通过 v2_meetings._load_meeting_extras 批量加载.
+      mira_note: AIInsight COUNT (今会 + 全部) + COUNT (今会 + human_decision pending).
+                  当前 走 真实 数字 + 模板, Saga T6 转 LLM 生成.
+
+    边界:
+      - 无 ongoing meeting → meeting=null, mira_note=null
+      - 有 meeting 但 0 个 insight → mira_note="Mira 已记录 0 个关键点 · 0 个待你确认"
     """
+    ws_id = auth.workspace.id
+
+    # 1) 拿 当前 workspace 的 ongoing meeting (live), 最近 1 个
+    live_meeting = (
+        await session.execute(
+            select(Meeting)
+            .where(
+                Meeting.workspace_id == ws_id,
+                Meeting.status == "ongoing",
+            )
+            .order_by(Meeting.started_at.desc().nulls_last())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    if live_meeting is None:
+        return LiveMeetingResponse(meeting=None, mira_note=None)
+
+    # 2) 批量 加载 attendees + decisions
+    humans_by_meeting, agents_by_meeting, decisions_by_meeting = (
+        await _load_meeting_extras(session, [live_meeting])
+    )
+
+    mid = str(live_meeting.id)
+    item_dict = build_meeting_item(
+        live_meeting,
+        human_users=humans_by_meeting.get(mid, []),
+        ai_agents=agents_by_meeting.get(mid, []),
+        decision_count=decisions_by_meeting.get(mid, 0),
+    )
+
+    # 3) mira_note — 当前 走 真实 insight 数字
+    #   N = AIInsight WHERE meeting_id=this + workspace_id (关键点 = 全部 insight)
+    #   M = AIInsight WHERE meeting_id=this + worth_remembering=true + human_decision IS NULL
+    #       (待你确认 = AI 推过 但 用户 没审 的, 严格按 P21 流)
+    total_keypoints = (
+        await session.execute(
+            select(func.count(AIInsight.id)).where(
+                AIInsight.workspace_id == ws_id,
+                AIInsight.meeting_id == live_meeting.id,
+            )
+        )
+    ).scalar_one() or 0
+    pending_review = (
+        await session.execute(
+            select(func.count(AIInsight.id)).where(
+                AIInsight.workspace_id == ws_id,
+                AIInsight.meeting_id == live_meeting.id,
+                AIInsight.worth_remembering.is_(True),
+                AIInsight.human_decision.is_(None),
+            )
+        )
+    ).scalar_one() or 0
+
+    mira_note = f"Mira 已记录 {int(total_keypoints)} 个关键点 · {int(pending_review)} 个待你确认"
+
     return LiveMeetingResponse(
-        meeting=_LIVE_MEETING,
-        mira_note="Mira 已记录 12 个关键点 · 3 个待你确认",
+        meeting=V2MeetingItem(**item_dict),
+        mira_note=mira_note,
     )
 
 
@@ -259,63 +331,144 @@ class PendingTasksResponse(BaseModel):
     total_count: int
 
 
-_PENDING_TASKS = [
-    PendingTaskItem(
-        id="t-q3-collab",
-        title="拍板「协作功能能否进入 Q3」",
-        source_meeting="Q3 路线图对齐",
-        source_meeting_id="m-live-q3-roadmap",
-        urgency="today",
-        ai_source=PendingTaskAISource(
-            id="ai-stratos",
-            name="Stratos",
-            glyph="◆",
-            color="#AF52DE",
-        ),
-        due_at="2026-05-27T11:30:00Z",
-        due_display="今天 11:30",
-    ),
-    PendingTaskItem(
-        id="t-sage-chip",
-        title="审核 Sage 搜索结果页 chip 顺序变更",
-        source_meeting="搜索体验评审",
-        source_meeting_id="m-upcoming-search-review-4",
-        urgency="today",
-        ai_source=PendingTaskAISource(
-            id="ai-sage",
-            name="Sage",
-            glyph="✦",
-            color="#5E5CE6",
-        ),
-        due_at="2026-05-27T14:00:00Z",
-        due_display="今天 14:00",
-    ),
-    PendingTaskItem(
-        id="t-hummingbird-reply",
-        title="回复客户关于摘要质量的疑问",
-        source_meeting="客户访谈",
-        source_meeting_id="m-upcoming-hummingbird-feedback",
-        urgency="week",
-        # v1.4.0 Saga Q: Hummingbird → 服务赵姐 (设计稿固定阵容)
-        ai_source=PendingTaskAISource(
-            id="ai-zhaojie",
-            name="服务赵姐",
-            glyph="♥",
-            color="#FF6482",
-        ),
-        due_at="2026-05-29T18:00:00Z",
-        due_display="本周",
-    ),
-]
+# T2 active task status — 同 T1 priority-banner.
+_ACTIVE_TASK_STATUSES: tuple[str, ...] = (
+    "open",
+    "dispatched",
+    "accepted",
+    "in_progress",
+    "submitted",
+)
 
 
 @router.get("/pending-tasks", response_model=PendingTasksResponse)
-async def get_today_pending_tasks() -> PendingTasksResponse:
-    """等你处理 — 3 条今日 / 本周 pending 任务."""
-    return PendingTasksResponse(
-        items=_PENDING_TASKS,
-        total_count=len(_PENDING_TASKS),
-    )
+async def get_today_pending_tasks(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> PendingTasksResponse:
+    """等你处理 — pending 任务列表 (派给 caller).
+
+    v1.4.0 Saga T2 (Phase 2 W2): mock → 真接 (ABAC + workspace + assignee filter).
+
+    数据源:
+      Task WHERE workspace_id + assignee_user_id = caller + status active
+      ORDER BY due_at ASC NULLS LAST LIMIT 10
+      JOIN Agent ON Task.assignee_agent_id → ai_source (走 agent_to_ai_source)
+      JOIN Meeting ON Task.source_ref->>'meeting_id' (Task.source_type='meeting' 时)
+                     → source_meeting / source_meeting_id
+
+    urgency / due_display: 走 task_urgency.py 两个 helper.
+
+    边界:
+      - empty → items=[], total_count=0
+      - Task 没 assignee_agent_id → ai_source 走 agent_to_ai_source(None) fallback
+      - Task 没 source_meeting → source_meeting="" source_meeting_id=""
+    """
+    ws_id = auth.workspace.id
+    user_id = auth.user.id
+    now = datetime.now(timezone.utc)
+
+    # 1) 拿 caller 的 active task — top 10 by due_at
+    tasks = (
+        await session.execute(
+            select(Task)
+            .where(
+                Task.workspace_id == ws_id,
+                Task.assignee_user_id == user_id,
+                Task.status.in_(_ACTIVE_TASK_STATUSES),
+            )
+            .order_by(Task.due_at.asc().nulls_last())
+            .limit(10)
+        )
+    ).scalars().all()
+
+    # 2) total_count — 同 filter 不 limit
+    total_count = (
+        await session.execute(
+            select(func.count(Task.id)).where(
+                Task.workspace_id == ws_id,
+                Task.assignee_user_id == user_id,
+                Task.status.in_(_ACTIVE_TASK_STATUSES),
+            )
+        )
+    ).scalar_one() or 0
+
+    if not tasks:
+        return PendingTasksResponse(items=[], total_count=0)
+
+    # 3) 批量 加载 agents (ai_source) + meetings (source_meeting)
+    agent_ids = {t.assignee_agent_id for t in tasks if t.assignee_agent_id}
+    agents_by_id: dict = {}
+    if agent_ids:
+        agent_rows = (
+            await session.execute(
+                select(Agent).where(Agent.id.in_(agent_ids))
+            )
+        ).scalars().all()
+        agents_by_id = {a.id: a for a in agent_rows}
+
+    # source_meeting — Task.source_type='meeting' + Task.source_ref->>'meeting_id'.
+    # 用 Python 端 解 source_ref dict (JSON 列, models.py:789).
+    meeting_ids: set = set()
+    for t in tasks:
+        if t.source_type == "meeting" and isinstance(t.source_ref, dict):
+            mid = t.source_ref.get("meeting_id")
+            if mid:
+                meeting_ids.add(mid)
+    meetings_by_id: dict = {}
+    if meeting_ids:
+        meeting_rows = (
+            await session.execute(
+                select(Meeting).where(Meeting.id.in_(meeting_ids))
+            )
+        ).scalars().all()
+        meetings_by_id = {str(m.id): m for m in meeting_rows}
+
+    # 4) Build items
+    items: List[PendingTaskItem] = []
+    for t in tasks:
+        agent = agents_by_id.get(t.assignee_agent_id) if t.assignee_agent_id else None
+        ai_source_dict = agent_to_ai_source(agent)
+
+        # source_meeting / source_meeting_id
+        source_meeting = ""
+        source_meeting_id = ""
+        if t.source_type == "meeting" and isinstance(t.source_ref, dict):
+            mid = t.source_ref.get("meeting_id")
+            if mid:
+                source_meeting_id = str(mid)
+                m = meetings_by_id.get(str(mid))
+                if m:
+                    source_meeting = m.title or ""
+
+        # title — Task.title 优先, fallback content 前 40 字
+        title = (t.title or t.content or "")[:200].strip()
+
+        items.append(
+            PendingTaskItem(
+                id=str(t.id),
+                title=title,
+                source_meeting=source_meeting,
+                source_meeting_id=source_meeting_id,
+                urgency=derive_urgency(t.due_at, now),
+                ai_source=PendingTaskAISource(
+                    id=ai_source_dict["id"],
+                    name=ai_source_dict["name"],
+                    glyph=ai_source_dict["glyph"],
+                    color=ai_source_dict["color"],
+                ),
+                due_at=(
+                    t.due_at.astimezone(timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z")
+                    if t.due_at
+                    else ""
+                ),
+                due_display=due_display(t.due_at, now),
+            )
+        )
+
+    return PendingTasksResponse(items=items, total_count=int(total_count))
 
 
 # ============================================================================
@@ -500,26 +653,71 @@ class DecisionsResponse(BaseModel):
     total_count: int
 
 
-_DECISIONS = [
-    DecisionItem(
-        id="dec-q3-collab",
-        title="Q3 路线图: 协作功能延后到 Q4 第一双周",
-        decided_at="2026-05-27T11:35:00Z",
-        meeting_id="m-live-q3-roadmap",
-    ),
-    DecisionItem(
-        id="dec-search-compliance",
-        title="搜索改版上线前补 1 周合规审查",
-        decided_at="2026-05-27T10:45:00Z",
-        meeting_id="m-upcoming-search-review-4",
-    ),
-]
-
-
 @router.get("/decisions", response_model=DecisionsResponse)
-async def get_today_decisions() -> DecisionsResponse:
-    """今天的决策 — 2 条已敲定."""
-    return DecisionsResponse(items=_DECISIONS, total_count=len(_DECISIONS))
+async def get_today_decisions(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+) -> DecisionsResponse:
+    """今天的决策 — 决策类 insight 当日 列表.
+
+    v1.4.0 Saga T2 (Phase 2 W2): mock → 真接 (ABAC + workspace filter).
+
+    数据源 (Planning §3.2 决策 A · 复用 AIInsight):
+      AIInsight WHERE workspace_id + type IN DECISION_INSIGHT_TYPES
+                + created_at >= 今天 0:00
+      ORDER BY created_at DESC LIMIT 10
+
+    映射 (SCHEMA §3.6):
+      id          = AIInsight.id
+      title       = AIInsight.content  (一句话 结论, 跟 insights endpoint 一致)
+      decided_at  = AIInsight.created_at
+      meeting_id  = AIInsight.meeting_id
+
+    total_count 同 filter 不 limit.
+
+    边界: empty → items=[], total_count=0.
+    """
+    ws_id = auth.workspace.id
+    today_start, _ = _today_window_utc()
+
+    # 1) Top 10 decisions today
+    rows = (
+        await session.execute(
+            select(AIInsight)
+            .where(
+                AIInsight.workspace_id == ws_id,
+                AIInsight.created_at >= today_start,
+                AIInsight.type.in_(DECISION_INSIGHT_TYPES),
+            )
+            .order_by(desc(AIInsight.created_at))
+            .limit(10)
+        )
+    ).scalars().all()
+
+    # 2) total_count — 同 filter 无 limit
+    total_count = (
+        await session.execute(
+            select(func.count(AIInsight.id)).where(
+                AIInsight.workspace_id == ws_id,
+                AIInsight.created_at >= today_start,
+                AIInsight.type.in_(DECISION_INSIGHT_TYPES),
+            )
+        )
+    ).scalar_one() or 0
+
+    items: List[DecisionItem] = [
+        DecisionItem(
+            id=str(ins.id),
+            title=ins.content or "",
+            decided_at=ins.created_at.astimezone(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
+            meeting_id=str(ins.meeting_id) if ins.meeting_id else "",
+        )
+        for ins in rows
+    ]
+
+    return DecisionsResponse(items=items, total_count=int(total_count))
 
 
 # ============================================================================

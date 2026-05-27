@@ -1,12 +1,17 @@
 """
-v1.4.0 · Saga M (Phase 1 · W1) · Mobile App v2 — Meetings 命名空间.
+v1.4.0 · Saga M (Phase 1 · W1) + Saga T2 (Phase 2 · W2) · Mobile App v2 — Meetings.
 
-Mock endpoint, Phase 1 全部 写死 mock JSON (PM 5=a 拍板).
 契约: docs/SCHEMA-mobile-v2.md §2.1 (week-pulse) + §2.2 (meetings 升级).
 
+Phase 1 (Saga M · mock): week-pulse + meetings (升级 schema).
+Phase 2 (Saga T2 · 真接 DB): /api/v2/meetings — 走 ABAC + workspace filter +
+                              JOIN MeetingAttendee → users / agents + AIInsight
+                              decision_count. week-pulse 留 mock 给 Saga T6 NLU.
+
 约定:
-  - 与老 /api/m/meetings (mobile.py) 隔离, 走 /api/v2/meetings 命名空间, 不互相影响
-  - 不挂 auth gate. Phase 1 mock 数据均匿名可拉. Phase 2 真接时再补 abac
+  - 与老 /api/m/meetings (mobile.py) 隔离, 走 /api/v2/meetings 命名空间
+  - 真接 endpoint 走 get_current_auth + workspace.id filter (Saga T2 起强制)
+  - mock endpoint (week-pulse) Phase 1 anon 暂留, T6 转真时上 ABAC
   - 字段命名 snake_case · 时间 ISO 8601 UTC · enum 跟 schema 严格一致
 
 仿真场景: 福田住建局 demo workspace · Q3 路线图 / 搜索体验评审 / 客户访谈
@@ -20,8 +25,16 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
+from sqlalchemy import desc, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..agent_glyphs import DECISION_INSIGHT_TYPES
+from ..auth import AuthContext, get_current_auth
+from ..db import get_session
+from ..models import AIInsight, Agent, Meeting, MeetingAttendee, User
+from ..v2_helpers import build_meeting_item, map_meeting_status
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v2", tags=["mobile-v2"])
@@ -71,7 +84,7 @@ class WeekPulseResponse(BaseModel):
 
 @router.get("/meetings/week-pulse", response_model=WeekPulseResponse)
 async def get_week_pulse() -> WeekPulseResponse:
-    """Mira 本周脉络 inline notice. Phase 1 写死 mock."""
+    """Mira 本周脉络 inline notice. Phase 1 写死 mock (Saga T6 NLU 真接)."""
     return WeekPulseResponse(
         week_start="2026-05-25T00:00:00Z",
         week_end="2026-05-31T23:59:59Z",
@@ -114,275 +127,186 @@ class V2MeetingsListResponse(BaseModel):
     next_cursor: Optional[str] = None
 
 
-# Mock data — 仿 福田住建局 demo. 1 live + 2 upcoming + 5 finished = 8 场
-_MOCK_AI_ARIA = V2AIBadge(
-    id="ai-aria",
-    name="Aria",
-    glyph="⌬",
-    gradient_from="#0A84FF",
-    gradient_to="#5E5CE6",
-)
-_MOCK_AI_STRATOS = V2AIBadge(
-    id="ai-stratos",
-    name="Stratos",
-    glyph="◆",
-    gradient_from="#AF52DE",
-    gradient_to="#FF375F",
-)
-_MOCK_AI_MIRA = V2AIBadge(
-    id="ai-mira",
-    name="Mira",
-    glyph="◎",
-    gradient_from="#FFB340",
-    gradient_to="#FF9F0A",
-)
-_MOCK_AI_SAGE = V2AIBadge(
-    id="ai-sage",
-    name="Sage",
-    glyph="✦",
-    gradient_from="#5E5CE6",
-    gradient_to="#AF52DE",
-)
-_MOCK_AI_LEX = V2AIBadge(
-    id="ai-lex",
-    name="Lex",
-    glyph="§",
-    gradient_from="#FF9F0A",
-    gradient_to="#FFB340",
-)
-# v1.4.0 Saga Q (Phase 1 P0): Hummingbird → Zhaojie / Phoenix → Scout (设计稿固定阵容)
-_MOCK_AI_ZHAOJIE = V2AIBadge(
-    id="ai-zhaojie",
-    name="服务赵姐",
-    glyph="♥",
-    gradient_from="#FF6482",
-    gradient_to="#FF375F",
-)
-_MOCK_AI_SCOUT = V2AIBadge(
-    id="ai-scout",
-    name="Scout",
-    glyph="◈",
-    gradient_from="#34C759",
-    gradient_to="#30B0C7",
-)
+# ============================================================================
+# Saga T2 · Internal helper — load attendees + decisions for a batch of meetings
+# ============================================================================
 
 
-def _h(uid: str, name: str, color: str) -> V2Attendee:
-    return V2Attendee(
-        type="human", id=uid, name=name, color=color, glyph=None, gradient_to=None
-    )
+async def _load_meeting_extras(
+    session: AsyncSession,
+    meetings: List[Meeting],
+) -> tuple[dict[str, List[User]], dict[str, List[Agent]], dict[str, int]]:
+    """v1.4.0 Saga T2 · 批量 加载 attendees + decision count.
+
+    给一批 Meeting, 单次 query 拉出:
+      humans_by_meeting    — { meeting_id: [User, ...] }
+      agents_by_meeting    — { meeting_id: [Agent, ...] }
+      decisions_by_meeting — { meeting_id: int }
+
+    避免 N+1 查询 — 每个 meeting 拉一次 attendees / decisions 会爆.
+
+    边界: 空 meetings list → 3 个空 dict, 不查 DB.
+    """
+    humans_by_meeting: dict[str, List[User]] = {}
+    agents_by_meeting: dict[str, List[Agent]] = {}
+    decisions_by_meeting: dict[str, int] = {}
+
+    if not meetings:
+        return humans_by_meeting, agents_by_meeting, decisions_by_meeting
+
+    meeting_ids = [m.id for m in meetings]
+
+    # 1) Humans — JOIN MeetingAttendee → User (user_id IS NOT NULL)
+    human_rows = (
+        await session.execute(
+            select(MeetingAttendee.meeting_id, User)
+            .join(User, User.id == MeetingAttendee.user_id)
+            .where(
+                MeetingAttendee.meeting_id.in_(meeting_ids),
+                MeetingAttendee.user_id.is_not(None),
+            )
+        )
+    ).all()
+    for meeting_id, user in human_rows:
+        humans_by_meeting.setdefault(str(meeting_id), []).append(user)
+
+    # 2) Agents — JOIN MeetingAttendee → Agent (agent_id IS NOT NULL)
+    agent_rows = (
+        await session.execute(
+            select(MeetingAttendee.meeting_id, Agent)
+            .join(Agent, Agent.id == MeetingAttendee.agent_id)
+            .where(
+                MeetingAttendee.meeting_id.in_(meeting_ids),
+                MeetingAttendee.agent_id.is_not(None),
+            )
+        )
+    ).all()
+    for meeting_id, agent in agent_rows:
+        agents_by_meeting.setdefault(str(meeting_id), []).append(agent)
+
+    # 3) Decision count — AIInsight WHERE meeting_id IN (...) + type IN DECISION
+    decision_rows = (
+        await session.execute(
+            select(
+                AIInsight.meeting_id,
+                func.count(AIInsight.id),
+            )
+            .where(
+                AIInsight.meeting_id.in_(meeting_ids),
+                AIInsight.type.in_(DECISION_INSIGHT_TYPES),
+            )
+            .group_by(AIInsight.meeting_id)
+        )
+    ).all()
+    for meeting_id, cnt in decision_rows:
+        decisions_by_meeting[str(meeting_id)] = int(cnt or 0)
+
+    return humans_by_meeting, agents_by_meeting, decisions_by_meeting
 
 
-def _a(badge: V2AIBadge) -> V2Attendee:
-    return V2Attendee(
-        type="ai",
-        id=badge.id,
-        name=badge.name,
-        color=badge.gradient_from,
-        glyph=badge.glyph,
-        gradient_to=badge.gradient_to,
-    )
+# ============================================================================
+# §2.2 — Handler
+# ============================================================================
 
 
-# ─── live meeting ──────────────────────────────────────────────────────────
-_LIVE_MEETING = V2MeetingItem(
-    id="m-live-q3-roadmap",
-    title="Q3 路线图对齐",
-    topic_summary="产品组周会 · Q3 重点路线 · 协作功能取舍",
-    status="live",
-    started_at="2026-05-27T09:30:00Z",
-    scheduled_for="2026-05-27T09:30:00Z",
-    ended_at=None,
-    elapsed_minutes=23,
-    countdown_seconds=None,
-    decision_count=0,
-    attendees=[
-        _h("u-zhou", "周凯", "#FF9F0A"),
-        _h("u-lin", "林敏", "#34C759"),
-        _h("u-wang", "王俊", "#5E5CE6"),
-        _h("u-chen", "陈宇", "#FF375F"),
-        _h("u-su", "苏蕾", "#30B0C7"),
-    ],
-    human_count=5,
-    ai_count=3,
-    ai_badges=[_MOCK_AI_ARIA, _MOCK_AI_STRATOS, _MOCK_AI_MIRA],
-)
-
-
-# ─── upcoming meetings ─────────────────────────────────────────────────────
-_UPCOMING_MEETINGS = [
-    V2MeetingItem(
-        id="m-upcoming-search-review-4",
-        title="搜索体验评审 #4",
-        topic_summary="设计走查 · 搜索结果页 v5 · chip 顺序",
-        status="upcoming",
-        started_at=None,
-        scheduled_for="2026-05-27T14:00:00Z",
-        ended_at=None,
-        elapsed_minutes=None,
-        countdown_seconds=8280,  # 2h 18m
-        decision_count=0,
-        attendees=[
-            _h("u-lin", "林敏", "#34C759"),
-            _h("u-wang", "王俊", "#5E5CE6"),
-            _h("u-henry", "Henry", "#AF52DE"),
-        ],
-        human_count=3,
-        ai_count=2,
-        ai_badges=[_MOCK_AI_MIRA, _MOCK_AI_SAGE],
-    ),
-    V2MeetingItem(
-        id="m-upcoming-hummingbird-feedback",
-        title="客户访谈 · Hummingbird 反馈",
-        topic_summary="客户访谈 · 上线后第一周反馈",
-        status="upcoming",
-        started_at=None,
-        scheduled_for="2026-05-27T16:30:00Z",
-        ended_at=None,
-        elapsed_minutes=None,
-        countdown_seconds=17460,  # ~4h 51m
-        decision_count=0,
-        attendees=[
-            _h("u-zhou", "周凯", "#FF9F0A"),
-            _h("u-su", "苏蕾", "#30B0C7"),
-        ],
-        human_count=2,
-        ai_count=3,
-        ai_badges=[_MOCK_AI_MIRA, _MOCK_AI_ZHAOJIE, _MOCK_AI_SCOUT],
-    ),
-]
-
-
-# ─── finished meetings ─────────────────────────────────────────────────────
-_FINISHED_MEETINGS = [
-    V2MeetingItem(
-        id="m-finished-standup",
-        title="早间 Standup",
-        topic_summary="团队同步 · iOS 联调阻塞 · 详情页过场",
-        status="finished",
-        started_at="2026-05-27T09:00:00Z",
-        scheduled_for="2026-05-27T09:00:00Z",
-        ended_at="2026-05-27T09:18:00Z",
-        elapsed_minutes=18,
-        countdown_seconds=None,
-        decision_count=2,
-        attendees=[
-            _h("u-zhou", "周凯", "#FF9F0A"),
-            _h("u-lin", "林敏", "#34C759"),
-            _h("u-wang", "王俊", "#5E5CE6"),
-            _h("u-chen", "陈宇", "#FF375F"),
-            _h("u-su", "苏蕾", "#30B0C7"),
-            _h("u-henry", "Henry", "#AF52DE"),
-            _h("u-ye", "叶倩", "#FF6482"),
-        ],
-        human_count=7,
-        ai_count=2,
-        ai_badges=[_MOCK_AI_MIRA, _MOCK_AI_ARIA],
-    ),
-    V2MeetingItem(
-        id="m-finished-data-compliance",
-        title="数据安全合规风险评估会",
-        topic_summary="跨部门评审 · 业主敏感信息留存",
-        status="finished",
-        started_at="2026-05-26T15:00:00Z",
-        scheduled_for="2026-05-26T15:00:00Z",
-        ended_at="2026-05-26T16:42:00Z",
-        elapsed_minutes=102,
-        countdown_seconds=None,
-        decision_count=3,
-        attendees=[
-            _h("u-zhou", "周凯", "#FF9F0A"),
-            _h("u-henry", "Henry", "#AF52DE"),
-            _h("u-tom", "Tom", "#0A84FF"),
-            _h("u-ruan", "阮波", "#BF5AF2"),
-        ],
-        human_count=4,
-        ai_count=3,
-        ai_badges=[_MOCK_AI_MIRA, _MOCK_AI_LEX, _MOCK_AI_SAGE],
-    ),
-    V2MeetingItem(
-        id="m-finished-ab-review",
-        title="摘要模型 A/B 复盘",
-        topic_summary="数据复盘 · B 组延迟 vs 有用率",
-        status="finished",
-        started_at="2026-05-22T14:00:00Z",
-        scheduled_for="2026-05-22T14:00:00Z",
-        ended_at="2026-05-22T15:08:00Z",
-        elapsed_minutes=68,
-        countdown_seconds=None,
-        decision_count=1,
-        attendees=[
-            _h("u-wang", "王俊", "#5E5CE6"),
-            _h("u-chen", "陈宇", "#FF375F"),
-        ],
-        human_count=2,
-        ai_count=2,
-        ai_badges=[_MOCK_AI_ARIA, _MOCK_AI_SAGE],
-    ),
-    V2MeetingItem(
-        id="m-finished-elevator-upgrade",
-        title="电梯改造方案决策会",
-        topic_summary="物业 + 工程联席 · 12 栋老旧电梯改造排期",
-        status="finished",
-        started_at="2026-05-21T10:00:00Z",
-        scheduled_for="2026-05-21T10:00:00Z",
-        ended_at="2026-05-21T11:30:00Z",
-        elapsed_minutes=90,
-        countdown_seconds=None,
-        decision_count=4,
-        attendees=[
-            _h("u-zhou", "周凯", "#FF9F0A"),
-            _h("u-lin", "林敏", "#34C759"),
-            _h("u-tom", "Tom", "#0A84FF"),
-            _h("u-ye", "叶倩", "#FF6482"),
-        ],
-        human_count=4,
-        ai_count=2,
-        ai_badges=[_MOCK_AI_MIRA, _MOCK_AI_STRATOS],
-    ),
-    V2MeetingItem(
-        id="m-finished-q1-complaint",
-        title="Q1 投诉趋势复盘",
-        topic_summary="数据洞察 · 单栋 + 单分类异常集中",
-        status="finished",
-        started_at="2026-05-20T09:30:00Z",
-        scheduled_for="2026-05-20T09:30:00Z",
-        ended_at="2026-05-20T10:55:00Z",
-        elapsed_minutes=85,
-        countdown_seconds=None,
-        decision_count=2,
-        attendees=[
-            _h("u-zhou", "周凯", "#FF9F0A"),
-            _h("u-su", "苏蕾", "#30B0C7"),
-            _h("u-ruan", "阮波", "#BF5AF2"),
-        ],
-        human_count=3,
-        ai_count=2,
-        ai_badges=[_MOCK_AI_SAGE, _MOCK_AI_LEX],
-    ),
-]
+# DB status 字面值 — caller `?status=live` 等 SCHEMA enum 反查 DB status:
+#   SCHEMA upcoming  → DB scheduled
+#   SCHEMA live      → DB ongoing
+#   SCHEMA finished  → DB finished
+#   SCHEMA processed → DB processed
+_SCHEMA_STATUS_TO_DB: dict[str, tuple[str, ...]] = {
+    "upcoming": ("scheduled",),
+    "live": ("ongoing",),
+    # finished 含 已 处理 (UI Tab "已结束" 一般也 看 processed)
+    "finished": ("finished", "processed"),
+    "processed": ("processed",),
+}
 
 
 @router.get("/meetings", response_model=V2MeetingsListResponse)
 async def list_v2_meetings(
     status: Optional[str] = Query(
         None,
-        description="过滤状态: live | upcoming | finished",
+        description="过滤状态: live | upcoming | finished | processed",
     ),
     limit: int = Query(20, ge=1, le=50),
-    cursor: Optional[str] = Query(None, description="分页 cursor (mock 不实现)"),
+    cursor: Optional[str] = Query(None, description="分页 cursor (暂未实现, 留接口)"),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
 ) -> V2MeetingsListResponse:
-    """v2 会议列表 — 升级版含 attendees + AI badges + topic.
+    """v2 会议列表 — 真接 DB. SCHEMA §2.2.
 
-    Phase 1 写死 mock data: 1 live + 2 upcoming + 5 finished.
-    Phase 2 backend 真接 DB / agent 数据时, schema 不变.
+    v1.4.0 Saga T2 (Phase 2 W2): mock → 真接 (ABAC + workspace filter).
+
+    数据源:
+      Meeting WHERE workspace_id + (status 过滤) 排序 started_at desc
+        live     → ongoing
+        upcoming → scheduled
+        finished → finished + processed (UI 概念一并归 已结束)
+      attendees + AI badges + decision_count 走 _load_meeting_extras 批量 拉.
+
+    排序:
+      live: 1 个就 1 个 (没 排序 必要)
+      upcoming: ORDER BY started_at ASC (最近 一个 在前)
+      finished: ORDER BY ended_at DESC NULLS LAST, started_at DESC (最近 结束 在前)
+      default (all): live → upcoming → finished 拼接, 各自内排
+
+    边界:
+      - empty workspace → items=[], 不 raise
+      - meeting started_at NULL → scheduled_for 退到 created_at (v2_helpers)
     """
-    if status == "live":
-        items = [_LIVE_MEETING]
-    elif status == "upcoming":
-        items = list(_UPCOMING_MEETINGS)
-    elif status == "finished":
-        items = list(_FINISHED_MEETINGS)
+    ws_id = auth.workspace.id
+
+    # 1) Build query — status 过滤
+    base_query = select(Meeting).where(Meeting.workspace_id == ws_id)
+
+    if status:
+        db_statuses = _SCHEMA_STATUS_TO_DB.get(status)
+        if db_statuses is None:
+            # 未知 status enum, 兜底 返 空 list (不 抛 400, 给 client 容忍)
+            return V2MeetingsListResponse(items=[], next_cursor=None)
+        base_query = base_query.where(Meeting.status.in_(db_statuses))
+
+        # 排序 跟 SCHEMA tab 业务一致
+        if status == "upcoming":
+            base_query = base_query.order_by(Meeting.started_at.asc().nulls_last())
+        elif status == "finished":
+            base_query = base_query.order_by(
+                Meeting.ended_at.desc().nulls_last(),
+                Meeting.started_at.desc().nulls_last(),
+            )
+        else:
+            # live / processed
+            base_query = base_query.order_by(Meeting.started_at.desc().nulls_last())
     else:
-        items = [_LIVE_MEETING, *_UPCOMING_MEETINGS, *_FINISHED_MEETINGS]
-    return V2MeetingsListResponse(items=items[:limit], next_cursor=None)
+        # 不指定 status — live 优先, 然后 scheduled, 最后 finished/processed
+        # SQL CASE 排序: ongoing=0 / scheduled=1 / finished/processed=2
+        base_query = base_query.order_by(
+            func.coalesce(Meeting.started_at, Meeting.created_at).desc()
+        )
+
+    meetings_rows = (
+        await session.execute(base_query.limit(limit))
+    ).scalars().all()
+
+    if not meetings_rows:
+        return V2MeetingsListResponse(items=[], next_cursor=None)
+
+    # 2) 批量 加载 attendees + decisions (一次 SQL 各)
+    humans_by_meeting, agents_by_meeting, decisions_by_meeting = (
+        await _load_meeting_extras(session, list(meetings_rows))
+    )
+
+    # 3) Build items
+    items: List[V2MeetingItem] = []
+    for m in meetings_rows:
+        mid = str(m.id)
+        item_dict = build_meeting_item(
+            m,
+            human_users=humans_by_meeting.get(mid, []),
+            ai_agents=agents_by_meeting.get(mid, []),
+            decision_count=decisions_by_meeting.get(mid, 0),
+        )
+        items.append(V2MeetingItem(**item_dict))
+
+    return V2MeetingsListResponse(items=items, next_cursor=None)

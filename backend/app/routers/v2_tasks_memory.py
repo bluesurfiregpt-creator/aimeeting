@@ -1,13 +1,15 @@
 """
-v1.4.0 · Saga O (Phase 1 · W3) + Saga T1 (Phase 2 · W1) · Mobile App v2 — Tasks + Memory.
+v1.4.0 · Saga O (Phase 1 · W3) + Saga T1/T2 (Phase 2 · W1/W2) · Mobile App v2 — Tasks + Memory.
 
 契约: docs/SCHEMA-mobile-v2.md §4 (tasks + memory 全部 4 个 endpoint).
 
 Phase 1 (Saga O · 全部 mock): priority-banner / tasks/grouped / memory/radar /
                               memory/snapshots.
-Phase 2 (Saga T1 · 真接 DB): priority-banner — ABAC + workspace filter.
-                              其余 3 个留 mock 给 T2 (tasks/grouped) / T3 (memory/
-                              snapshots) / T5 (memory/radar) 真接.
+Phase 2 真接 DB:
+  Saga T1 · priority-banner — ABAC + workspace filter.
+  Saga T2 · tasks/grouped — ABAC + GROUP BY source_meeting.
+  Saga T3 (后续) · memory/snapshots.
+  Saga T5 (后续) · memory/radar.
 
 约定:
   - 与 老 /api/m/tasks + /api/m/memory 隔离, 走 /api/v2/tasks/* + /api/v2/memory/*
@@ -33,9 +35,11 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..agent_glyphs import agent_to_ai_source
 from ..auth import AuthContext, get_current_auth
 from ..db import get_session
-from ..models import Task
+from ..models import Agent, Meeting, Task
+from ..task_urgency import derive_urgency, due_display
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v2", tags=["mobile-v2-tasks-memory"])
@@ -201,161 +205,198 @@ class TasksGroupedResponse(BaseModel):
     groups: List[TaskGroup]
 
 
-# pending 状态 — 3 组各 1 task (Q3 / Sage / Hummingbird)
-_TASKS_PENDING: List[TaskGroup] = [
-    TaskGroup(
-        meeting_id="m-live-q3-roadmap",
-        meeting_title="Q3 路线图对齐",
-        tasks=[
-            TaskItem(
-                id="t-q3-collab",
-                title="拍板「协作功能能否进入 Q3」",
-                urgency="today",
-                ai_source=TaskAISource(
-                    id="ai-stratos",
-                    name="Stratos",
-                    glyph="◆",
-                    color="#AF52DE",
-                ),
-                due_at="2026-05-27T11:30:00Z",
-                due_display="今天 11:30",
-                status="pending",
-                source_meeting="Q3 路线图对齐",
-                source_meeting_id="m-live-q3-roadmap",
-            ),
-        ],
-    ),
-    TaskGroup(
-        meeting_id="m-upcoming-search-review-4",
-        meeting_title="搜索体验评审 #4",
-        tasks=[
-            TaskItem(
-                id="t-sage-chip",
-                title="审核 Sage 搜索结果页 chip 顺序变更",
-                urgency="today",
-                ai_source=TaskAISource(
-                    id="ai-sage",
-                    name="Sage",
-                    glyph="✦",
-                    color="#5E5CE6",
-                ),
-                due_at="2026-05-27T14:00:00Z",
-                due_display="今天 14:00",
-                status="pending",
-                source_meeting="搜索体验评审 #4",
-                source_meeting_id="m-upcoming-search-review-4",
-            ),
-        ],
-    ),
-    TaskGroup(
-        meeting_id="m-upcoming-hummingbird-feedback",
-        meeting_title="客户访谈",
-        tasks=[
-            TaskItem(
-                id="t-hummingbird-reply",
-                title="回复客户关于摘要质量的疑问",
-                urgency="week",
-                # v1.4.0 Saga Q: Hummingbird → 服务赵姐 (设计稿固定阵容)
-                ai_source=TaskAISource(
-                    id="ai-zhaojie",
-                    name="服务赵姐",
-                    glyph="♥",
-                    color="#FF6482",
-                ),
-                due_at="2026-05-29T18:00:00Z",
-                due_display="本周",
-                status="pending",
-                source_meeting="客户访谈",
-                source_meeting_id="m-upcoming-hummingbird-feedback",
-            ),
-        ],
-    ),
-]
+# SCHEMA §4.2 enum status → DB task status 反查.
+# SCHEMA: pending | tracking | done
+# DB    : open / dispatched / accepted / in_progress / submitted / done / archived / cancelled
+#
+# 映射 (Planning §3.1 决定):
+#   pending  → open / dispatched / accepted  (派 但 还没 启动)
+#   tracking → in_progress / submitted        (启动 中 + 提交 待 审)
+#   done     → done / archived                (办结 + 归档)
+#   (cancelled / blocked 不出现在 SCHEMA, 一并 排除)
+
+_SCHEMA_TO_DB_TASK_STATUS: dict[str, tuple[str, ...]] = {
+    "pending": ("open", "dispatched", "accepted"),
+    "tracking": ("in_progress", "submitted"),
+    "done": ("done", "archived"),
+}
 
 
-# tracking 状态 — 1 组 1 task
-_TASKS_TRACKING: List[TaskGroup] = [
-    TaskGroup(
-        meeting_id="m-finished-data-compliance",
-        meeting_title="数据安全合规风险评估会",
-        tasks=[
-            TaskItem(
-                id="t-lex-pii-followup",
-                title="跟进 Lex 提的 PII 审计补丁部署进度",
-                urgency="week",
-                ai_source=TaskAISource(
-                    id="ai-lex",
-                    name="Lex",
-                    glyph="§",
-                    color="#FF9F0A",
-                ),
-                due_at="2026-05-30T18:00:00Z",
-                due_display="本周",
-                status="tracking",
-                source_meeting="数据安全合规风险评估会",
-                source_meeting_id="m-finished-data-compliance",
-            ),
-        ],
-    ),
-]
-
-
-# done 状态 — 1 组 2 task
-_TASKS_DONE: List[TaskGroup] = [
-    TaskGroup(
-        meeting_id="m-finished-elevator-upgrade",
-        meeting_title="电梯改造方案决策会",
-        tasks=[
-            TaskItem(
-                id="t-elevator-budget",
-                title="提交 电梯改造 Q3 预算明细给财政科",
-                urgency="none",
-                # v1.4.0 Saga Q: Saga → Tally (财务建模)
-                ai_source=TaskAISource(
-                    id="ai-tally",
-                    name="Tally",
-                    glyph="¥",
-                    color="#64D2FF",
-                ),
-                due_at="2026-05-23T18:00:00Z",
-                due_display="已完成",
-                status="done",
-                source_meeting="电梯改造方案决策会",
-                source_meeting_id="m-finished-elevator-upgrade",
-            ),
-            TaskItem(
-                id="t-elevator-notice",
-                title="发布 电梯改造 业主告知函",
-                urgency="none",
-                # v1.4.0 Saga Q: Echo → 服务赵姐 (客户体验)
-                ai_source=TaskAISource(
-                    id="ai-zhaojie",
-                    name="服务赵姐",
-                    glyph="♥",
-                    color="#FF6482",
-                ),
-                due_at="2026-05-22T18:00:00Z",
-                due_display="已完成",
-                status="done",
-                source_meeting="电梯改造方案决策会",
-                source_meeting_id="m-finished-elevator-upgrade",
-            ),
-        ],
-    ),
-]
+# v1.4.0 Saga T2 · "未归类" / orphan 组的 sentinel — 没 source_meeting 的 task 归这.
+_ORPHAN_GROUP_ID = "orphan"
+_ORPHAN_GROUP_TITLE = "独立任务"
 
 
 @router.get("/tasks/grouped", response_model=TasksGroupedResponse)
 async def get_tasks_grouped(
     status: str = Query("pending", description="pending | tracking | done"),
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
 ) -> TasksGroupedResponse:
-    """按来源会议分组的任务. status 切换 pending/tracking/done."""
-    if status == "tracking":
-        return TasksGroupedResponse(groups=_TASKS_TRACKING)
-    if status == "done":
-        return TasksGroupedResponse(groups=_TASKS_DONE)
-    # default: pending
-    return TasksGroupedResponse(groups=_TASKS_PENDING)
+    """按来源会议分组的任务. SCHEMA §4.2.
+
+    v1.4.0 Saga T2 (Phase 2 W2): mock → 真接 (ABAC + workspace + assignee filter).
+
+    数据源:
+      Task WHERE workspace_id + assignee_user_id = caller + status IN DB-状态映射
+      (按 SCHEMA enum 反查 DB 真实 status 集)
+      Python 端 GROUP BY source_ref->>'meeting_id' (或 'orphan' 兜底)
+      Meeting / Agent 各 一次 IN query 批拉, 避免 N+1
+
+    映射:
+      - status 严格 SCHEMA enum
+      - urgency / due_display 走 task_urgency helper
+      - ai_source 走 agent_to_ai_source (Task.assignee_agent_id)
+      - source_meeting_id NULL 的 → 归 "orphan" 组 (meeting_id="orphan", meeting_title="独立任务")
+      - done 状态 task 的 due_display: 若 due_at 已过 → "已完成" (不显示 overdue, status=done 是 ground truth)
+
+    边界:
+      - empty workspace → groups=[]
+      - 未知 status enum → 兜底 groups=[]
+    """
+    ws_id = auth.workspace.id
+    user_id = auth.user.id
+
+    db_statuses = _SCHEMA_TO_DB_TASK_STATUS.get(status)
+    if db_statuses is None:
+        return TasksGroupedResponse(groups=[])
+
+    # 1) 拉 caller 的 task — 按 SCHEMA enum 反查 DB status
+    tasks = (
+        await session.execute(
+            select(Task)
+            .where(
+                Task.workspace_id == ws_id,
+                Task.assignee_user_id == user_id,
+                Task.status.in_(db_statuses),
+            )
+            .order_by(Task.due_at.asc().nulls_last(), Task.created_at.desc())
+        )
+    ).scalars().all()
+
+    if not tasks:
+        return TasksGroupedResponse(groups=[])
+
+    # 2) 批量 加载 agents (ai_source) + meetings (source_meeting_id)
+    agent_ids = {t.assignee_agent_id for t in tasks if t.assignee_agent_id}
+    agents_by_id: dict = {}
+    if agent_ids:
+        agent_rows = (
+            await session.execute(
+                select(Agent).where(Agent.id.in_(agent_ids))
+            )
+        ).scalars().all()
+        agents_by_id = {a.id: a for a in agent_rows}
+
+    meeting_ids: set = set()
+    for t in tasks:
+        if t.source_type == "meeting" and isinstance(t.source_ref, dict):
+            mid = t.source_ref.get("meeting_id")
+            if mid:
+                meeting_ids.add(mid)
+    meetings_by_id: dict = {}
+    if meeting_ids:
+        meeting_rows = (
+            await session.execute(
+                select(Meeting).where(Meeting.id.in_(meeting_ids))
+            )
+        ).scalars().all()
+        meetings_by_id = {str(m.id): m for m in meeting_rows}
+
+    # 3) Group by source_meeting_id — Python 端聚合 (SQL GROUP BY 受 source_ref JSON 限)
+    now = datetime.now(timezone.utc)
+    groups_dict: dict[str, dict] = {}  # meeting_id -> {meeting_title, tasks: []}
+
+    for t in tasks:
+        # source_meeting derive
+        source_meeting_id = ""
+        source_meeting_title = ""
+        if t.source_type == "meeting" and isinstance(t.source_ref, dict):
+            mid = t.source_ref.get("meeting_id")
+            if mid:
+                source_meeting_id = str(mid)
+                m = meetings_by_id.get(str(mid))
+                if m:
+                    source_meeting_title = m.title or "未命名会议"
+                else:
+                    # source_meeting 引用 不存在 (Meeting 被删) — 退到 显示 ID 片段
+                    source_meeting_title = "已删除会议"
+
+        # group key — 没 source_meeting 归 orphan
+        if not source_meeting_id:
+            group_key = _ORPHAN_GROUP_ID
+            group_title = _ORPHAN_GROUP_TITLE
+        else:
+            group_key = source_meeting_id
+            group_title = source_meeting_title
+
+        if group_key not in groups_dict:
+            groups_dict[group_key] = {
+                "meeting_id": group_key,
+                "meeting_title": group_title,
+                "tasks": [],
+            }
+
+        # ai_source
+        agent = agents_by_id.get(t.assignee_agent_id) if t.assignee_agent_id else None
+        ai_source_dict = agent_to_ai_source(agent)
+
+        # due_display — done 状态 强制 "已完成"
+        if status == "done":
+            display = "已完成"
+        else:
+            display = due_display(t.due_at, now)
+
+        # title — Task.title 优先, fallback content 前 200 字
+        title = (t.title or t.content or "")[:200].strip()
+
+        task_item = TaskItem(
+            id=str(t.id),
+            title=title,
+            urgency=derive_urgency(t.due_at, now),
+            ai_source=TaskAISource(
+                id=ai_source_dict["id"],
+                name=ai_source_dict["name"],
+                glyph=ai_source_dict["glyph"],
+                color=ai_source_dict["color"],
+            ),
+            due_at=(
+                t.due_at.astimezone(timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+                if t.due_at
+                else ""
+            ),
+            due_display=display,
+            status=status,  # SCHEMA enum, 跟 caller param 一致
+            source_meeting=source_meeting_title or None,
+            source_meeting_id=source_meeting_id or None,
+        )
+        groups_dict[group_key]["tasks"].append(task_item)
+
+    # 4) Convert to TaskGroup list — orphan 永远 排 最后
+    groups: List[TaskGroup] = []
+    for key, g in groups_dict.items():
+        if key == _ORPHAN_GROUP_ID:
+            continue
+        groups.append(
+            TaskGroup(
+                meeting_id=g["meeting_id"],
+                meeting_title=g["meeting_title"],
+                tasks=g["tasks"],
+            )
+        )
+    if _ORPHAN_GROUP_ID in groups_dict:
+        g = groups_dict[_ORPHAN_GROUP_ID]
+        groups.append(
+            TaskGroup(
+                meeting_id=g["meeting_id"],
+                meeting_title=g["meeting_title"],
+                tasks=g["tasks"],
+            )
+        )
+
+    return TasksGroupedResponse(groups=groups)
 
 
 # ============================================================================

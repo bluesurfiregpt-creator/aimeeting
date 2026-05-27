@@ -154,6 +154,117 @@ def agent_role_short(agent: Optional["Agent"]) -> str:
     return _FALLBACK_GLYPH[3]
 
 
+def agent_to_attendee(agent: Optional["Agent"]) -> dict:
+    """v1.4.0 Saga T2 · Agent ORM → SCHEMA §1 Attendee (type='ai') shape.
+
+    SCHEMA §1 Attendee 字段:
+      { type, id, name, color, glyph, gradient_to }
+      - color = gradient_from (跟 SCHEMA "human 用 avatar_color, ai 用 gradient_from")
+
+    用法 (Saga T2 起 /api/v2/meetings + /api/v2/today/live-meeting attendees 数组):
+      attendee = agent_to_attendee(agent)
+      # → {"type":"ai", "id":"ai-stratos", "name":"Stratos", "color":"#AF52DE",
+      #    "glyph":"◆", "gradient_to":"#FF375F"}
+
+    fallback: agent=None → Aria demo (避免 前端 crash). 真生产 不应 出现 None.
+    """
+    if agent is None:
+        glyph, gradient_from, gradient_to, _ = _FALLBACK_GLYPH
+        return {
+            "type": "ai",
+            "id": "ai-fallback",
+            "name": "AI 专家",
+            "color": gradient_from,
+            "glyph": glyph,
+            "gradient_to": gradient_to,
+        }
+
+    key = _resolve_agent_key(agent.name)
+    if key:
+        glyph, gradient_from, gradient_to, _ = AGENT_GLYPHS[key]
+    else:
+        glyph, gradient_from, gradient_to, _ = _FALLBACK_GLYPH
+
+    return {
+        "type": "ai",
+        "id": f"ai-{key.lower()}" if key else str(agent.id),
+        "name": agent.name or "AI 专家",
+        "color": gradient_from,
+        "glyph": glyph,
+        "gradient_to": gradient_to,
+    }
+
+
+# ============================================================================
+# Human attendee 配色 · 9 色轮转 (SCHEMA §1 HumanUser.avatar_color)
+# ============================================================================
+#
+# SCHEMA 要求 真人头像 用 9 色 不重复 轮转 — 跟前端设计稿 mobile-shared 一致.
+# Phase 1 mock 在 router 内 inline 写死, Saga T2 真接 时 统一这里 derive.
+#
+# 规则: hash(user.id) % 9 取色 — 同一 user 在所有 endpoint 看到的 颜色 一致.
+# (不依赖 User ORM 字段, User 没 avatar_color 列 — 见 models.py:176-220 没字段.)
+
+_HUMAN_AVATAR_COLORS: tuple[str, ...] = (
+    "#FF9F0A",
+    "#34C759",
+    "#5E5CE6",
+    "#FF375F",
+    "#30B0C7",
+    "#AF52DE",
+    "#FF6482",
+    "#0A84FF",
+    "#BF5AF2",
+)
+
+
+def derive_human_avatar_color(user_id: Optional[object]) -> str:
+    """v1.4.0 Saga T2 · user.id → 9 色 轮转 (SCHEMA §1 HumanUser.avatar_color).
+
+    用法:
+      color = derive_human_avatar_color(user.id)
+      # → "#FF9F0A"  (取决于 hash)
+
+    边界: user_id=None → 退到 第一色 (#FF9F0A). 真生产 不应 出现.
+    """
+    if user_id is None:
+        return _HUMAN_AVATAR_COLORS[0]
+    # str(uuid) → 取 末位 hex 字符 → int → mod 9
+    s = str(user_id)
+    if not s:
+        return _HUMAN_AVATAR_COLORS[0]
+    try:
+        # 用 末位 hex 字符 的 ord 值 mod 9 — 简单 稳定 hash
+        last_char = s[-1]
+        idx = int(last_char, 16) % len(_HUMAN_AVATAR_COLORS) if last_char in "0123456789abcdefABCDEF" else (ord(last_char) % len(_HUMAN_AVATAR_COLORS))
+    except (ValueError, TypeError):
+        idx = 0
+    return _HUMAN_AVATAR_COLORS[idx]
+
+
+def user_to_attendee(user_id: object, user_name: Optional[str], surname_char: Optional[str] = None) -> dict:
+    """v1.4.0 Saga T2 · User ORM 字段 → SCHEMA §1 Attendee (type='human') shape.
+
+    SCHEMA §1 Attendee 字段:
+      { type, id, name, color, glyph=null, gradient_to=null }
+      - color = 9 色轮转 derive (User 模型没 avatar_color 列, 走 derive)
+      - name 优先 surname_char (单字, 跟 mock "周" / "林"), fallback full name
+
+    用法 (Saga T2 起 /api/v2/meetings attendees 数组):
+      a = user_to_attendee(u.id, u.name, surname_char="周")  # 优先单字
+      a = user_to_attendee(u.id, u.name)  # 全名 fallback
+    """
+    name = (surname_char or "").strip() or (user_name or "").strip() or "User"
+    return {
+        "type": "human",
+        "id": str(user_id) if user_id else "u-unknown",
+        "name": name,
+        "color": derive_human_avatar_color(user_id),
+        "glyph": None,
+        "gradient_to": None,
+    }
+
+
 # ============================================================================
 # Insight type 映射 — SCHEMA §3.5 vs DB AIInsight.type 不一致, T1 起统一在这.
 # ============================================================================

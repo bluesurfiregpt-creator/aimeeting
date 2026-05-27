@@ -727,6 +727,11 @@ async def init_db() -> None:
             # /today/snapshot.meetings_today (今天 started or ended 都计入).
             "CREATE INDEX IF NOT EXISTS ix_meeting_ws_started ON meeting (workspace_id, started_at) WHERE started_at IS NOT NULL",
             "CREATE INDEX IF NOT EXISTS ix_meeting_ws_ended ON meeting (workspace_id, ended_at) WHERE ended_at IS NOT NULL",
+            # v1.4.0 Saga T2 (Phase 2 W2): /api/v2/meetings + /tasks/grouped + 决策 count 索引.
+            # Meeting 列表 + 状态过滤: /api/v2/meetings?status=live|upcoming|finished
+            "CREATE INDEX IF NOT EXISTS ix_meeting_ws_status_started ON meeting (workspace_id, status, started_at)",
+            # AIInsight (meeting_id, type) 命中 decision_count 批量 + /today/decisions
+            "CREATE INDEX IF NOT EXISTS ix_ai_insight_meeting_type ON ai_insight (meeting_id, type)",
         ]:
             try:
                 await conn.execute(text(sql))
