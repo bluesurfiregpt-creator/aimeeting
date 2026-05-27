@@ -234,6 +234,18 @@ export type MobileMeetingDetail = {
 
   /** P4.2: 会议室已邀请的 AI 专家 (给召 AI sheet 用) */
   attending_agents: AgentMini[];
+
+  /** v1.4.0 Saga E.E (Sprint 2-3) AI 圆桌真协同 — auto 会议 orchestrator state.
+   *  hybrid/human 模式: mode="hybrid"|"human", 其它 orch 字段为 null / 0. */
+  mode: "hybrid" | "auto" | "human";
+  /** auto 会议 orchestrator phase: idle / running / paused / done / failed / cancelled. */
+  orchestrate_phase: string | null;
+  /** orchestrator 当前发言 agent (UI 用来 pulse 高亮). null = 没人在发言. */
+  current_speaker_agent_id: string | null;
+  /** 当前议程已发言轮数 (per agenda). */
+  orchestrate_turn_count: number;
+  /** 已完成议程数 (= MeetingConsensus 行数). */
+  orchestrate_completed_agenda_count: number;
 };
 
 /** Summon AI 响应. 真 AI 回复异步进库, 需 refetch. */

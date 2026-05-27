@@ -93,6 +93,16 @@ const ANIMATION_KEYFRAMES = `
   from { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
   to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
+/* v1.4.0 Saga E.E (Sprint 2-3): AI 圆桌 — 新 agent_message 渐入. */
+@keyframes mr-aiMsgSlideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+/* v1.4.0 Saga E.E: AI 头像 ring pulse (current_speaker_agent_id). */
+@keyframes mr-aiSpeakingRing {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(94,92,230,0.30), 0 0 0 4px rgba(94,92,230,0.15); }
+  50%      { box-shadow: 0 0 0 2px rgba(94,92,230,0.55), 0 0 0 8px rgba(94,92,230,0); }
+}
 `;
 
 const STYLE_TAG_ID = "mr-v2-keyframes";

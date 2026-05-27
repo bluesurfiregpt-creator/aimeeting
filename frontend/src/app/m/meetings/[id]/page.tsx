@@ -70,6 +70,7 @@ import FilterSheet, {
   mockHostAsSpeaker,
 } from "@/components/mobile/meeting-room/FilterSheet";
 import FilterBanner from "@/components/mobile/meeting-room/FilterBanner";
+import OrchestrateStatusBanner from "@/components/mobile/meeting-room/OrchestrateStatusBanner";
 import {
   MR_COLORS,
   MR_FONT_FAMILY,
@@ -594,6 +595,30 @@ function MeetingDetailInner({ id }: { id: string }) {
     };
   }, [id]);
 
+  // v1.4.0 Saga E.E (Sprint 2-3): auto 会议 2.5s 轮询 meeting detail —
+  // backend 把 orchestrate_phase + current_speaker_agent_id 揉进 detail 返回,
+  // 不再 单独 调 /orchestrate/state (省 round-trip).
+  // PM 决策 Q2 = WS 不上, 用 setInterval. 仅在 mode='auto' && phase 非 终态 时跑.
+  // dep 仅看 mode + phase 终态 flag (避免 data 引用变化 → setInterval 每 2.5s
+  // 被重启). 终态切换通过下一次 poll 写回 setData 触发 effect re-run, 自动 stop.
+  const isAutoMode = data?.mode === "auto";
+  const isOrchestrateFinal =
+    data?.orchestrate_phase === "done" ||
+    data?.orchestrate_phase === "failed" ||
+    data?.orchestrate_phase === "cancelled";
+  useEffect(() => {
+    if (!isAutoMode || isOrchestrateFinal) return;
+    const h = setInterval(() => {
+      mApi
+        .getMeetingDetail(id)
+        .then((d) => setData(d))
+        .catch(() => {
+          // 静默 — 单次拉失败 不影响 UI
+        });
+    }, 2500);
+    return () => clearInterval(h);
+  }, [id, isAutoMode, isOrchestrateFinal]);
+
   // ─── speaker 集合 (filter sheet 用) ───
   const filterSpeakers = useMemo<{
     hosts: FilterSpeaker[];
@@ -1041,10 +1066,44 @@ function MeetingDetailInner({ id }: { id: string }) {
               onChange={setFilterSelected}
               onOpen={() => setFilterOpen(true)}
             />
+            {/* v1.4.0 Saga E.E (Sprint 2-3): mode='auto' 会议 顶部显 orchestrator
+              *  状态横幅 (phase / 议程进度 / 当前发言 agent). hybrid/human 不显. */}
+            {data.mode === "auto" ? (
+              <OrchestrateStatusBanner
+                phase={data.orchestrate_phase}
+                completedAgenda={data.orchestrate_completed_agenda_count}
+                totalAgenda={data.agenda_items.length}
+                currentAgendaIdx={data.current_agenda_idx}
+                currentAgendaTitle={data.current_topic_title}
+                activeSpeakerAgentId={data.current_speaker_agent_id}
+                attendingAgents={data.attending_agents}
+              />
+            ) : null}
             <MeetingTranscriptView
               meetingId={id}
               hostCards={hostCards}
-              roundMessages={MOCK_ROUND_MESSAGES}
+              /* v1.4.0 Saga E.E (Sprint 2-3): auto 模式 — 真 orchestrator agent_messages 接管 timeline,
+               *  不再 显 mock 圆桌 (避免 demo + real 数据 双重 渲染).
+               *  hybrid/human 模式 仍 显 mock 1 张 (保留 round-3 既有 UX demo). */
+              roundMessages={
+                data.mode === "auto" ? [] : MOCK_ROUND_MESSAGES
+              }
+              /* v1.4.0 Saga E.E: 仅 auto && 非终态 时 拉 transcript (orchestrator 不走 WS,
+               *  必须 主动 poll). hybrid 走 WS, pollIntervalMs=0 即 disabled. */
+              pollIntervalMs={
+                data.mode === "auto" &&
+                data.orchestrate_phase !== "done" &&
+                data.orchestrate_phase !== "failed" &&
+                data.orchestrate_phase !== "cancelled"
+                  ? 2500
+                  : 0
+              }
+              activeSpeakerAgentId={
+                data.mode === "auto" &&
+                data.orchestrate_phase === "running"
+                  ? data.current_speaker_agent_id
+                  : null
+              }
               filter={{ selected: filterSelected }}
               onMatchedCountChange={(matched, total) => {
                 setMatchedCount(matched);

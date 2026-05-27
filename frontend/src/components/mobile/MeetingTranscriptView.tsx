@@ -119,6 +119,13 @@ type Props = {
   onRegisterJump?: (jumpTo: (key: string) => void) => void;
   /** 滚动到底时回调 (用于 FAB 隐藏) */
   onScrollPosChange?: (isAtBottom: boolean) => void;
+  /** v1.4.0 Saga E.E (Sprint 2-3): 2.5s 轮询 transcript (auto 会议 用,
+   *  orchestrator 写 agent_message 不走 WS 推送, 必须 主动 拉).
+   *  hybrid 会议 走 WS, 这里传 0 / undefined → 不轮询 (省网). */
+  pollIntervalMs?: number;
+  /** v1.4.0 Saga E.E: 当前 orchestrator 发言 agent_id (running 时高亮 pulse).
+   *  null = 没人在发言 / 不是 auto 会议. */
+  activeSpeakerAgentId?: string | null;
 };
 
 export default function MeetingTranscriptView({
@@ -129,6 +136,8 @@ export default function MeetingTranscriptView({
   onMatchedCountChange,
   onRegisterJump,
   onScrollPosChange,
+  pollIntervalMs = 0,
+  activeSpeakerAgentId = null,
 }: Props): ReactElement {
   const [lines, setLines] = useState<LocalLine[]>([]);
   const [meta, setMeta] = useState<Pick<MobileTranscriptOut, "total_user_lines" | "total_agent_lines"> | null>(null);
@@ -140,17 +149,30 @@ export default function MeetingTranscriptView({
   const listRef = useRef<HTMLDivElement | null>(null);
   const autoScrollRef = useRef(true);
 
-  // 静态拉一次
+  // 静态拉 — v1.4.0 Saga E.E: 改为 "merge" 语义 (而非 replace).
+  // 保留 streaming=true 的 临时 line (WS 正在跑的) 不被 backend 拉的 final 覆盖.
+  // 同 key 已存在则跳过 (后端 line 是 final, 不更新文本); 不存在则 append.
+  // (lines 顺序: 后端按 created_at 正序 + 任何 streaming live line 在末尾, sort 由
+  // 渲染层 merged.sortAt 处理.)
   const load = useCallback(
     async (isRefresh = false) => {
       if (isRefresh) setRefreshing(true);
       try {
         const d = await mApi.getMeetingTranscript(meetingId);
-        const ll: LocalLine[] = d.lines.map((l) => ({
-          ...l,
-          key: `${l.kind}-${l.id}`,
-        }));
-        setLines(ll);
+        const incomingByKey = new Map<string, LocalLine>();
+        for (const l of d.lines) {
+          incomingByKey.set(`${l.kind}-${l.id}`, { ...l, key: `${l.kind}-${l.id}` });
+        }
+        setLines((prev) => {
+          // 1) 留下 streaming live agent line (key 以 'agent-live-' 起, WS 临时)
+          const liveStreaming = prev.filter(
+            (p) => p.streaming && p.key.startsWith("agent-live-"),
+          );
+          // 2) 把后端拉的 final lines (按 created_at 正序) 跟 liveStreaming 拼一起.
+          //    顺序: backend final (含 user / 已落盘 agent) → streaming live.
+          //    用户 visual: 看到 已 写入的 final → 末尾 还在 streaming 的 typing 行.
+          return [...incomingByKey.values(), ...liveStreaming];
+        });
         setMeta({
           total_user_lines: d.total_user_lines,
           total_agent_lines: d.total_agent_lines,
@@ -169,6 +191,17 @@ export default function MeetingTranscriptView({
   useEffect(() => {
     void load(false);
   }, [load]);
+
+  // v1.4.0 Saga E.E (Sprint 2-3): 2.5s 轮询 transcript — auto 会议 用.
+  // PM 决策 Q2 = WS 不上, 用 setInterval 拉 /m/meetings/{id}/transcript.
+  // hybrid 会议 走 WS, pollIntervalMs=0 → 不启动 interval.
+  useEffect(() => {
+    if (!pollIntervalMs || pollIntervalMs <= 0) return;
+    const h = setInterval(() => {
+      void load(false);
+    }, pollIntervalMs);
+    return () => clearInterval(h);
+  }, [load, pollIntervalMs]);
 
   const prevConnRef = useRef<typeof conn>(conn);
   useEffect(() => {
@@ -517,7 +550,13 @@ export default function MeetingTranscriptView({
                 {l.kind === "user" ? (
                   <HumanMessage line={l} />
                 ) : (
-                  <AIMessage line={l} />
+                  <AIMessage
+                    line={l}
+                    isActiveSpeaker={
+                      !!activeSpeakerAgentId &&
+                      l.agent_id === activeSpeakerAgentId
+                    }
+                  />
                 )}
               </div>
             );
@@ -649,20 +688,39 @@ function HumanMessage({ line }: { line: LocalLine }) {
   );
 }
 
-function AIMessage({ line }: { line: LocalLine }) {
+function AIMessage({
+  line,
+  isActiveSpeaker = false,
+}: {
+  line: LocalLine;
+  /** v1.4.0 Saga E.E: orchestrator 标记 此 agent 正在发言 → border pulse 紫 + 'AI 思考中' 提示. */
+  isActiveSpeaker?: boolean;
+}) {
   const display = line.agent_nickname?.trim() || line.agent_name || "AI";
   const role = line.trigger ? TRIGGER_LABEL[line.trigger] || line.trigger : "";
   const grad = gradientForAgentColor(line.agent_color);
+  // 渐入动画 — 新 message append 时, 第一次 mount 触发 opacity 0 → 1 + translateY.
+  // 用 mount key 简单实现, 不需要 dedicated state. CSS keyframe 'mr-aiMsgSlideIn' (注入在 styles).
   return (
-    <div style={{ padding: "8px 16px" }}>
+    <div
+      style={{
+        padding: "8px 16px",
+        animation: "mr-aiMsgSlideIn 280ms ease-out",
+      }}
+    >
       <div
         style={{
           background: MR_COLORS.bgWhite,
           borderRadius: 14,
-          boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-          border: `0.5px solid ${MR_COLORS.hairline}`,
+          boxShadow: isActiveSpeaker
+            ? "0 0 0 2px rgba(94,92,230,0.30), 0 1px 2px rgba(0,0,0,0.04)"
+            : "0 1px 2px rgba(0,0,0,0.04)",
+          border: isActiveSpeaker
+            ? `0.5px solid ${MR_COLORS.systemPurple}`
+            : `0.5px solid ${MR_COLORS.hairline}`,
           overflow: "hidden",
           position: "relative",
+          transition: "box-shadow 200ms ease, border-color 200ms ease",
         }}
       >
         <div
@@ -683,7 +741,18 @@ function AIMessage({ line }: { line: LocalLine }) {
               gap: 8,
             }}
           >
-            <MRAIAvatar agentColor={line.agent_color} size={26} />
+            <div
+              style={{
+                position: "relative",
+                display: "inline-flex",
+                borderRadius: 6,
+                animation: isActiveSpeaker
+                  ? "mr-aiSpeakingRing 1.4s ease-in-out infinite"
+                  : "none",
+              }}
+            >
+              <MRAIAvatar agentColor={line.agent_color} size={26} />
+            </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div
                 style={{

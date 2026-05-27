@@ -490,6 +490,19 @@ class MobileMeetingDetailOut(BaseModel):
     # v27.0-mobile P4.2: 已邀请的 AI 专家 (给召 AI sheet 用)
     attending_agents: list[AgentMini] = []
 
+    # v1.4.0 Saga E.E (Sprint 2-3) AI 圆桌真协同 — mobile 端 也要 渲染 auto
+    # 会议 orchestrator state. 不再 让 mobile 单独 拉 /orchestrate/state
+    # endpoint (那是 desktop 用), 直接在 detail 聚合里 一次给.
+    #   mode               — "hybrid" | "auto" | "human"
+    #   orchestrate_phase  — auto 会议: idle / running / paused / done / failed / cancelled
+    #                        非 auto 会议: None
+    #   current_speaker_agent_id — orchestrator 当前发言的 agent_id (running 时高亮)
+    mode: str = "hybrid"
+    orchestrate_phase: Optional[str] = None
+    current_speaker_agent_id: Optional[uuid.UUID] = None
+    orchestrate_turn_count: int = 0
+    orchestrate_completed_agenda_count: int = 0
+
 
 @router.get("/meetings/{meeting_id}", response_model=MobileMeetingDetailOut)
 async def get_mobile_meeting_detail(
@@ -661,6 +674,37 @@ async def get_mobile_meeting_detail(
 
     other_topics_count = max(0, len(agenda) - (1 if cur_idx is not None else 0))
 
+    # v1.4.0 Saga E.E (Sprint 2-3): auto 会议 orchestrator state 一并返回 (避免
+    # mobile 端 再 单独 polling /orchestrate/state). hybrid/human 模式 这些字段都是 None / 默认.
+    orch_phase: Optional[str] = None
+    cur_speaker: Optional[uuid.UUID] = None
+    orch_turn = 0
+    orch_completed = 0
+    if (m.mode or "").lower() == "auto":
+        st = m.auto_state or {}
+        orch_phase = str(st.get("phase") or "idle")
+        spk = st.get("current_speaker_agent_id")
+        if spk:
+            try:
+                cur_speaker = uuid.UUID(str(spk))
+            except (ValueError, TypeError):
+                cur_speaker = None
+        try:
+            orch_turn = int(st.get("turn_count") or 0)
+        except (ValueError, TypeError):
+            orch_turn = 0
+        # count consensus 行 = 已完成议程数
+        from ..models import MeetingConsensus
+        orch_completed = int(
+            (
+                await session.execute(
+                    select(func.count()).select_from(MeetingConsensus).where(
+                        MeetingConsensus.meeting_id == m.id
+                    )
+                )
+            ).scalar_one() or 0
+        )
+
     return MobileMeetingDetailOut(
         meeting_id=m.id,
         title=m.title or "(未命名)",
@@ -677,6 +721,11 @@ async def get_mobile_meeting_detail(
         transcript_total=int(transcript_total),
         other_topics_count=other_topics_count,
         attending_agents=attending_agents,
+        mode=(m.mode or "hybrid"),
+        orchestrate_phase=orch_phase,
+        current_speaker_agent_id=cur_speaker,
+        orchestrate_turn_count=orch_turn,
+        orchestrate_completed_agenda_count=orch_completed,
     )
 
 
