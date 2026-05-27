@@ -30,6 +30,7 @@ import type { WebTranscriptStreamLine } from "@/lib/api";
 import { MRHumanAvatar, MRAIAvatar, MRWaveform, MRIcon, MRDots } from "./atoms";
 import { MR_HUMANS_IN_MEETING, MR_AGENTS_IN_MEETING } from "./data";
 import { gradientForAgentColor } from "./agentColor";
+import { MR_TOKENS } from "./tokens";
 
 const TRIGGER_LABEL: Record<string, string> = {
   manual: "召唤",
@@ -102,7 +103,7 @@ export function MRRealHumanLine({
             alignItems: "center",
             justifyContent: "center",
             flexShrink: 0,
-            boxShadow: "0 0 0 1.5px #fff",
+            boxShadow: `0 0 0 1.5px ${MR_TOKENS.bgSurface}`,
           }}
         >
           {name.slice(0, 1)}
@@ -110,14 +111,14 @@ export function MRRealHumanLine({
       )}
       <div style={{ flex: 1, minWidth: 0, maxWidth: 720 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: "#1C1C1E" }}>{name}</span>
-          <span style={{ fontSize: 12, color: "#8E8E93" }}>{fmtMinute(line.at_minute)}</span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: MR_TOKENS.fgPrimary }}>{name}</span>
+          <span style={{ fontSize: 12, color: MR_TOKENS.fgTertiary }}>{fmtMinute(line.at_minute)}</span>
         </div>
         <div
           style={{
             fontSize: 15,
             lineHeight: 1.55,
-            color: "#1C1C1E",
+            color: MR_TOKENS.fgPrimary,
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
           }}
@@ -154,14 +155,14 @@ export function MRRealAILine({
     >
       <div
         style={{
-          background: "#fff",
+          background: MR_TOKENS.bgSurface,
           borderRadius: 12,
           boxShadow: isActiveSpeaker
             ? "0 0 0 2px rgba(94,92,230,0.30), 0 1px 2px rgba(0,0,0,0.04)"
-            : "0 1px 2px rgba(0,0,0,0.03)",
+            : MR_TOKENS.shadowSubtle,
           border: isActiveSpeaker
             ? "0.5px solid #5E5CE6"
-            : "0.5px solid rgba(60,60,67,0.14)",
+            : MR_TOKENS.borderHair2Strong,
           maxWidth: 720,
           position: "relative",
           overflow: "hidden",
@@ -206,7 +207,7 @@ export function MRRealAILine({
                     justifyContent: "center",
                     fontSize: 16,
                     fontWeight: 700,
-                    boxShadow: "0 0 0 1.5px #fff",
+                    boxShadow: `0 0 0 1.5px ${MR_TOKENS.bgSurface}`,
                   }}
                 >
                   {(display || "AI").slice(0, 1)}
@@ -215,11 +216,11 @@ export function MRRealAILine({
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                <span style={{ fontSize: 15, fontWeight: 600 }}>{display}</span>
+                <span style={{ fontSize: 15, fontWeight: 600, color: MR_TOKENS.fgPrimary }}>{display}</span>
                 {role && (
-                  <span style={{ fontSize: 12, color: "#8E8E93" }}>{role}</span>
+                  <span style={{ fontSize: 12, color: MR_TOKENS.fgTertiary }}>{role}</span>
                 )}
-                <span style={{ fontSize: 12, color: "#C7C7CC", marginLeft: "auto" }}>
+                <span style={{ fontSize: 12, color: MR_TOKENS.fgQuaternary, marginLeft: "auto" }}>
                   {fmtMinute(line.at_minute)}
                 </span>
               </div>
@@ -247,7 +248,7 @@ export function MRRealAILine({
               marginTop: 10,
               fontSize: 14,
               lineHeight: 1.55,
-              color: "#1C1C1E",
+              color: MR_TOKENS.fgPrimary,
               whiteSpace: "pre-wrap",
               wordBreak: "break-word",
             }}
@@ -260,13 +261,13 @@ export function MRRealAILine({
               style={{
                 marginTop: 8,
                 fontSize: 12,
-                color: "#8E8E93",
+                color: MR_TOKENS.fgTertiary,
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 4,
               }}
             >
-              <MRIcon name="note" size={11} color="#8E8E93" />
+              <MRIcon name="note" size={11} color={MR_TOKENS.fgTertiary} />
               引用 {line.citations_count} 条 KB
             </div>
           )}

@@ -28,6 +28,7 @@ import {
   MRSectionLabel,
   type MRIconName,
 } from "./atoms";
+import { MR_TOKENS } from "./tokens";
 
 export function MRRightPanel() {
   return (
@@ -35,8 +36,8 @@ export function MRRightPanel() {
     <div
       style={{
         width: 340,
-        background: "#F2F2F7",
-        borderLeft: "0.5px solid #E5E5EA",
+        background: MR_TOKENS.bgChip,
+        borderLeft: MR_TOKENS.borderHair,
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
@@ -82,7 +83,7 @@ function MiraLive() {
         >
           <MRHostAvatar size={28} />
           <div style={{ flex: 1, lineHeight: 1.15 }}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>{MR_HOST.name}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: MR_TOKENS.fgPrimary }}>{MR_HOST.name}</div>
             <div
               style={{
                 fontSize: 11,
@@ -141,7 +142,7 @@ function MiraLive() {
 function LiveRow({
   label,
   value,
-  valueColor = "#1C1C1E",
+  valueColor,
 }: {
   label: string;
   value: string;
@@ -157,8 +158,8 @@ function LiveRow({
         padding: "3px 0",
       }}
     >
-      <span style={{ color: "#8E8E93" }}>{label}</span>
-      <span style={{ color: valueColor, fontWeight: 600 }}>{value}</span>
+      <span style={{ color: MR_TOKENS.fgTertiary }}>{label}</span>
+      <span style={{ color: valueColor ?? MR_TOKENS.fgPrimary, fontWeight: 600 }}>{value}</span>
     </div>
   );
 }
@@ -173,9 +174,9 @@ function DecisionPool() {
           <div
             key={d.id}
             style={{
-              background: "#fff",
+              background: MR_TOKENS.bgSurface,
               borderRadius: 10,
-              border: "0.5px solid #E5E5EA",
+              border: MR_TOKENS.borderHair,
               padding: "10px 11px",
             }}
           >
@@ -219,7 +220,7 @@ function DecisionPool() {
                 style={{
                   marginLeft: "auto",
                   fontSize: 10.5,
-                  color: "#C7C7CC",
+                  color: MR_TOKENS.fgQuaternary,
                 }}
               >
                 {d.t}
@@ -229,13 +230,13 @@ function DecisionPool() {
               style={{
                 fontSize: 12.5,
                 fontWeight: 500,
-                color: "#1C1C1E",
+                color: MR_TOKENS.fgPrimary,
                 lineHeight: 1.4,
               }}
             >
               {d.title}
             </div>
-            <div style={{ fontSize: 11, color: "#8E8E93", marginTop: 3 }}>
+            <div style={{ fontSize: 11, color: MR_TOKENS.fgTertiary, marginTop: 3 }}>
               来源: {d.source}
             </div>
           </div>
@@ -252,9 +253,9 @@ function ActionList() {
       <MRSectionLabel right={`${MR_ACTIONS.length} 项`}>行动项</MRSectionLabel>
       <div
         style={{
-          background: "#fff",
+          background: MR_TOKENS.bgSurface,
           borderRadius: 10,
-          border: "0.5px solid #E5E5EA",
+          border: MR_TOKENS.borderHair,
           overflow: "hidden",
         }}
       >
@@ -270,7 +271,7 @@ function ActionList() {
                 gap: 9,
                 padding: "9px 11px",
                 borderTop:
-                  i === 0 ? "none" : "0.5px solid rgba(60,60,67,0.10)",
+                  i === 0 ? "none" : `0.5px solid ${MR_TOKENS.divider}`,
               }}
             >
               {isAI && <MRAIAvatar id={a.owner} size={22} />}
@@ -282,7 +283,7 @@ function ActionList() {
                     width: 22,
                     height: 22,
                     borderRadius: "50%",
-                    background: "#C7C7CC",
+                    background: MR_TOKENS.fgQuaternary,
                     color: "#fff",
                     fontSize: 11,
                     fontWeight: 600,
@@ -299,7 +300,7 @@ function ActionList() {
                 <div
                   style={{
                     fontSize: 12.5,
-                    color: "#1C1C1E",
+                    color: MR_TOKENS.fgPrimary,
                     fontWeight: 500,
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -311,7 +312,7 @@ function ActionList() {
                 <div
                   style={{
                     fontSize: 10.5,
-                    color: "#8E8E93",
+                    color: MR_TOKENS.fgTertiary,
                     marginTop: 1,
                     display: "flex",
                     gap: 6,
@@ -345,7 +346,7 @@ function ParkingLotPanel() {
             <div
               key={p.id}
               style={{
-                background: "#fff",
+                background: MR_TOKENS.bgSurface,
                 borderRadius: 10,
                 border: "0.5px dashed rgba(60,60,67,0.30)",
                 padding: "9px 11px",
@@ -354,7 +355,7 @@ function ParkingLotPanel() {
               <div
                 style={{
                   fontSize: 12.5,
-                  color: "#1C1C1E",
+                  color: MR_TOKENS.fgPrimary,
                   fontWeight: 500,
                   lineHeight: 1.4,
                 }}
@@ -364,7 +365,7 @@ function ParkingLotPanel() {
               <div
                 style={{
                   fontSize: 10.5,
-                  color: "#8E8E93",
+                  color: MR_TOKENS.fgTertiary,
                   marginTop: 3,
                   display: "flex",
                   alignItems: "center",
@@ -418,8 +419,8 @@ function ReferencesPanel() {
               gap: 9,
               padding: "8px 11px",
               borderRadius: 10,
-              background: "#fff",
-              border: "0.5px solid #E5E5EA",
+              background: MR_TOKENS.bgSurface,
+              border: MR_TOKENS.borderHair,
               cursor: "pointer",
             }}
           >
@@ -441,7 +442,7 @@ function ReferencesPanel() {
               <div
                 style={{
                   fontSize: 12.5,
-                  color: "#1C1C1E",
+                  color: MR_TOKENS.fgPrimary,
                   fontWeight: 500,
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -451,7 +452,7 @@ function ReferencesPanel() {
                 {r.title}
               </div>
               <div
-                style={{ fontSize: 10.5, color: "#8E8E93", marginTop: 1 }}
+                style={{ fontSize: 10.5, color: MR_TOKENS.fgTertiary, marginTop: 1 }}
               >
                 {r.sub}
               </div>

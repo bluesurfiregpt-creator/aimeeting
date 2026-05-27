@@ -28,7 +28,7 @@ export default async function MeetingLivePage({
         overflow: "hidden",
         position: "fixed",
         inset: 0,
-        background: "#fff",
+        background: "var(--mr-bg-canvas)",  // light: #fff / dark: #05071A (deep space)
         // 高于 VersionBadge (z-10) — VersionBadge 已 fixed bottom-2 left-2 不能 hide
         // (会议室 chrome 隐藏 list 没把 VersionBadge 加进, 但 PM 没要求 hide build 标识)
         zIndex: 20,

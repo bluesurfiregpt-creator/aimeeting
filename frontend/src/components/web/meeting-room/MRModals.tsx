@@ -20,6 +20,7 @@ import {
   MRSpeakerAvatar,
   MRIcon,
 } from "./atoms";
+import { MR_TOKENS } from "./tokens";
 
 // ────────────── Filter Modal ──────────────
 export function MRFilterModal({
@@ -49,7 +50,7 @@ export function MRFilterModal({
         style={{
           fontSize: 11,
           fontWeight: 700,
-          color: "#8E8E93",
+          color: MR_TOKENS.fgTertiary,
           letterSpacing: 0.4,
           padding: "0 4px 8px",
         }}
@@ -83,7 +84,7 @@ export function MRFilterModal({
                 gap: 10,
                 padding: "8px 11px",
                 borderRadius: 10,
-                background: sel ? "rgba(0,122,255,0.08)" : "#F7F7F8",
+                background: sel ? "rgba(0,122,255,0.08)" : MR_TOKENS.bgSubtle,
                 border: sel
                   ? "0.5px solid rgba(0,122,255,0.35)"
                   : "0.5px solid transparent",
@@ -92,10 +93,10 @@ export function MRFilterModal({
             >
               <MRSpeakerAvatar k={k} size={30} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 500 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 500, color: MR_TOKENS.fgPrimary }}>
                   {mrSpeakerLabel(k)}
                 </div>
-                <div style={{ fontSize: 11, color: "#8E8E93" }}>
+                <div style={{ fontSize: 11, color: MR_TOKENS.fgTertiary }}>
                   {sub} · {counts[k] || 0} 条
                 </div>
               </div>
@@ -104,8 +105,8 @@ export function MRFilterModal({
                   width: 20,
                   height: 20,
                   borderRadius: 5,
-                  background: sel ? "#007AFF" : "#fff",
-                  border: sel ? "none" : "1.5px solid #C7C7CC",
+                  background: sel ? "#007AFF" : MR_TOKENS.bgSurface,
+                  border: sel ? "none" : `1.5px solid ${MR_TOKENS.fgQuaternary}`,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -141,10 +142,10 @@ export function MRFilterModal({
           transform: "translate(-50%, -50%)",
           width: 640,
           maxHeight: "80%",
-          background: "#fff",
+          background: MR_TOKENS.bgSurface,
           borderRadius: 14,
           zIndex: 81,
-          boxShadow: "0 24px 60px rgba(0,0,0,0.30)",
+          boxShadow: MR_TOKENS.shadowModal,
           display: "flex",
           flexDirection: "column",
           animation: "mrPopIn 200ms cubic-bezier(.22,.61,.36,1)",
@@ -156,10 +157,10 @@ export function MRFilterModal({
             alignItems: "center",
             justifyContent: "space-between",
             padding: "16px 20px",
-            borderBottom: "0.5px solid #E5E5EA",
+            borderBottom: MR_TOKENS.borderHair,
           }}
         >
-          <div style={{ fontSize: 16, fontWeight: 700 }}>筛选发言</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: MR_TOKENS.fgPrimary }}>筛选发言</div>
           <button
             type="button"
             onClick={onClose}
@@ -168,21 +169,21 @@ export function MRFilterModal({
               height: 28,
               borderRadius: 8,
               border: "none",
-              background: "#F2F2F7",
+              background: MR_TOKENS.bgChip,
               cursor: "pointer",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <MRIcon name="close" size={14} color="#1C1C1E" />
+            <MRIcon name="close" size={14} color={MR_TOKENS.fgPrimary} />
           </button>
         </div>
         <div className="mr-scroll" style={{ padding: "6px 20px 20px", overflow: "auto" }}>
           <div
             style={{
               fontSize: 12,
-              color: "#8E8E93",
+              color: MR_TOKENS.fgTertiary,
               padding: "10px 4px 0",
               lineHeight: 1.5,
             }}
@@ -202,7 +203,7 @@ export function MRFilterModal({
         <div
           style={{
             padding: "12px 20px",
-            borderTop: "0.5px solid #E5E5EA",
+            borderTop: MR_TOKENS.borderHair,
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -215,7 +216,7 @@ export function MRFilterModal({
             style={{
               background: "none",
               border: "none",
-              color: selected.size === 0 ? "#C7C7CC" : "#007AFF",
+              color: selected.size === 0 ? MR_TOKENS.fgQuaternary : "#007AFF",
               fontSize: 14,
               fontFamily: "inherit",
               cursor: selected.size === 0 ? "default" : "pointer",
@@ -275,19 +276,19 @@ export function MREndModal({
           transform: "translate(-50%, -50%)",
           width: 380,
           zIndex: 91,
-          background: "#fff",
+          background: MR_TOKENS.bgSurface,
           borderRadius: 14,
-          boxShadow: "0 24px 60px rgba(0,0,0,0.30)",
+          boxShadow: MR_TOKENS.shadowModal,
           overflow: "hidden",
           animation: "mrPopIn 200ms cubic-bezier(.22,.61,.36,1)",
         }}
       >
         <div style={{ padding: "22px 22px 18px" }}>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>结束会议?</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: MR_TOKENS.fgPrimary }}>结束会议?</div>
           <div
             style={{
               fontSize: 13,
-              color: "#3C3C43",
+              color: MR_TOKENS.fgSecondary,
               marginTop: 8,
               lineHeight: 1.5,
             }}
@@ -295,7 +296,7 @@ export function MREndModal({
             主持人 Mira 会自动整理 AI 摘要、决策项与行动项,完成后发给所有参会成员,也会沉淀到会议历史。
           </div>
         </div>
-        <div style={{ display: "flex", borderTop: "0.5px solid #E5E5EA" }}>
+        <div style={{ display: "flex", borderTop: MR_TOKENS.borderHair }}>
           <button
             type="button"
             onClick={onCancel}
@@ -308,7 +309,7 @@ export function MREndModal({
               fontSize: 14,
               fontFamily: "inherit",
               cursor: "pointer",
-              borderRight: "0.5px solid #E5E5EA",
+              borderRight: MR_TOKENS.borderHair,
             }}
           >
             取消

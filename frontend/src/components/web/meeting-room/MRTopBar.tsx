@@ -15,6 +15,8 @@ import {
   type MRAgendaItem,
 } from "./data";
 import { MRHumanAvatar, MRIcon, type MRIconName } from "./atoms";
+import { MRThemeToggle } from "./MRThemeToggle";
+import { MR_TOKENS } from "./tokens";
 
 export type MRTopBarProps = {
   timer: string;
@@ -42,8 +44,8 @@ export function MRTopBar({
   return (
     <div
       style={{
-        background: "#fff",
-        borderBottom: "0.5px solid #E5E5EA",
+        background: MR_TOKENS.bgTopBar,
+        borderBottom: MR_TOKENS.borderHair,
         flexShrink: 0,
       }}
     >
@@ -61,7 +63,7 @@ export function MRTopBar({
         <Link
           href="/"
           style={{
-            color: "#1C1C1E",
+            color: MR_TOKENS.fgPrimary,
             textDecoration: "none",
             display: "inline-flex",
             alignItems: "center",
@@ -71,14 +73,14 @@ export function MRTopBar({
             borderRadius: 8,
             fontSize: 13,
             fontWeight: 600,
-            background: "#F2F2F7",
+            background: MR_TOKENS.bgChip,
             transition: "background 140ms ease",
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = "#E8E8ED";
+            e.currentTarget.style.background = "var(--mr-bg-hover-chip)";
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = "#F2F2F7";
+            e.currentTarget.style.background = "var(--mr-bg-chip)";
           }}
         >
           <div
@@ -109,7 +111,7 @@ export function MRTopBar({
           aimeeting
         </Link>
 
-        <div style={{ width: 1, height: 22, background: "#E5E5EA" }} />
+        <div style={{ width: 1, height: 22, background: "var(--mr-divider)" }} />
 
         {/* Breadcrumb */}
         <div
@@ -118,12 +120,12 @@ export function MRTopBar({
             alignItems: "center",
             gap: 5,
             fontSize: 13,
-            color: "#8E8E93",
+            color: MR_TOKENS.fgTertiary,
           }}
         >
           <span>会议室</span>
-          <span style={{ color: "#C7C7CC" }}>/</span>
-          <span style={{ color: "#1C1C1E", fontWeight: 700, fontSize: 15 }}>
+          <span style={{ color: MR_TOKENS.fgQuaternary }}>/</span>
+          <span style={{ color: MR_TOKENS.fgPrimary, fontWeight: 700, fontSize: 15 }}>
             {meetingTitle}
           </span>
         </div>
@@ -176,7 +178,7 @@ export function MRTopBar({
         {/* People micro strip */}
         <PeopleMicroStrip selected={selected} onToggleSpeaker={onToggleSpeaker} />
 
-        <div style={{ width: 1, height: 22, background: "#E5E5EA" }} />
+        <div style={{ width: 1, height: 22, background: "var(--mr-divider)" }} />
 
         <TopBarBtn
           icon="filter"
@@ -186,6 +188,9 @@ export function MRTopBar({
         />
         <TopBarBtn icon="invite" label="邀请" />
         <TopBarBtn icon="gear" label="设置" />
+
+        {/* v1.4.0 § 7.1.1 例外: 会议室双 theme 切换 (浅 / 深). default 浅, 持久化 'w-theme'. */}
+        <MRThemeToggle />
 
         <button
           type="button"
@@ -232,7 +237,7 @@ function PeopleMicroStrip({
         style={{
           fontSize: 11,
           fontWeight: 700,
-          color: "#8E8E93",
+          color: MR_TOKENS.fgTertiary,
           letterSpacing: 0.4,
         }}
       >
@@ -292,8 +297,8 @@ function TopBarBtn({
         padding: "0 12px",
         borderRadius: 8,
         background: active ? "rgba(0,122,255,0.12)" : "transparent",
-        color: active ? "#007AFF" : "#1C1C1E",
-        border: active ? "none" : "0.5px solid #E5E5EA",
+        color: active ? "#007AFF" : MR_TOKENS.fgPrimary,
+        border: active ? "none" : MR_TOKENS.borderHair,
         display: "inline-flex",
         alignItems: "center",
         gap: 6,
@@ -304,7 +309,7 @@ function TopBarBtn({
         whiteSpace: "nowrap",
       }}
     >
-      <MRIcon name={icon} size={14} color={active ? "#007AFF" : "#1C1C1E"} />
+      <MRIcon name={icon} size={14} color={active ? "#007AFF" : "currentColor"} />
       {label}
     </button>
   );
@@ -330,8 +335,8 @@ function AgendaTimeline({
   return (
     <div
       style={{
-        borderTop: "0.5px solid #E5E5EA",
-        background: "#FAFAFA",
+        borderTop: MR_TOKENS.borderHair,
+        background: MR_TOKENS.bgRaised,
         padding: "8px 20px 10px",
       }}
     >
@@ -347,17 +352,17 @@ function AgendaTimeline({
           style={{
             fontSize: 11,
             fontWeight: 700,
-            color: "#8E8E93",
+            color: MR_TOKENS.fgTertiary,
             letterSpacing: 0.4,
           }}
         >
           议程时间线
         </span>
-        <span style={{ fontSize: 11, color: "#C7C7CC" }}>
+        <span style={{ fontSize: 11, color: MR_TOKENS.fgQuaternary }}>
           总 {totalMin} 分钟 · 点击段落跳转
         </span>
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 11, color: "#8E8E93" }}>
+        <span style={{ fontSize: 11, color: MR_TOKENS.fgTertiary }}>
           已用 {usedSoFar} 分钟 · 剩 {totalMin - usedSoFar} 分钟
         </span>
       </div>
@@ -386,12 +391,12 @@ function AgendaSegment({
 
   const bg = isDone
     ? "linear-gradient(135deg, rgba(52,199,89,0.10), rgba(52,199,89,0.18))"
-    : "#fff";
+    : MR_TOKENS.bgSurface;
   const border = isDone
     ? "0.5px solid rgba(52,199,89,0.45)"
     : isActive
       ? "1px solid #007AFF"
-      : "0.5px solid #E5E5EA";
+      : MR_TOKENS.borderHair;
   const shadow = isActive ? "0 2px 6px rgba(0,122,255,0.18)" : "none";
 
   return (
@@ -439,7 +444,7 @@ function AgendaSegment({
             fontSize: 10,
             fontWeight: 700,
             letterSpacing: 0.3,
-            color: isDone ? "#34C759" : isActive ? "#007AFF" : "#8E8E93",
+            color: isDone ? "#34C759" : isActive ? "#007AFF" : MR_TOKENS.fgTertiary,
           }}
         >
           议程 {a.id}
@@ -460,7 +465,7 @@ function AgendaSegment({
           style={{
             fontSize: 12.5,
             fontWeight: 600,
-            color: "#1C1C1E",
+            color: MR_TOKENS.fgPrimary,
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -476,7 +481,7 @@ function AgendaSegment({
           position: "relative",
           marginTop: 4,
           fontSize: 11,
-          color: "#8E8E93",
+          color: MR_TOKENS.fgTertiary,
           display: "flex",
           alignItems: "center",
           gap: 5,

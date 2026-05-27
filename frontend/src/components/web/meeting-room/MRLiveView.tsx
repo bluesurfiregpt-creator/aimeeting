@@ -64,6 +64,7 @@ import { MR_HUMANS_IN_MEETING } from "./data";
 import { api, type WebMeetingDetailOut, type WebTranscriptStreamLine } from "@/lib/api";
 import { MRRealAILine, MRRealHumanLine } from "./MRRealMessages";
 import { OrchestrateStatusBanner } from "./OrchestrateStatusBanner";
+import { MR_TOKENS } from "./tokens";
 // v1.4.0 Phase A · 6 (NORTH_STAR § 6.1): Web R5.D 会议室 mic + STT WS.
 import { useWebMeetingStt } from "@/lib/web/meetingStt";
 
@@ -328,20 +329,21 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
     : null;
 
   return (
-    // v1.4.0 舞台中央 (PM 拍 2026-05-27): root 改 #F2F2F7 灰底, 让 center 白色 transcript
+    // v1.4.0 舞台中央 (PM 拍 2026-05-27): root 改 灰底, 让 center 白色 transcript
     // 区 自然 突出 (灰海中的白岛). TopBar / BottomBar 也 跟 灰底融, 不打断 层次.
+    // v1.4.0 § 7.1.1 双 theme: bgChip = light 灰 / dark 紫 tint. Stage (中央白岛) = bgStage.
     <div
       style={{
         width: "100%",
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        background: "#F2F2F7",
+        background: MR_TOKENS.bgChip,
         position: "relative",
         overflow: "hidden",
         fontFamily:
           '-apple-system, "SF Pro Text", "PingFang SC", "Helvetica Neue", Helvetica, "Segoe UI", system-ui, sans-serif',
-        color: "#1C1C1E",
+        color: MR_TOKENS.fgPrimary,
       }}
     >
       <MRTopBar
@@ -421,7 +423,7 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
           flex: 1,
           display: "flex",
           minHeight: 0,
-          background: "#F2F2F7",  // v1.4.0 舞台中央: 三栏 wrapper 灰底
+          background: MR_TOKENS.bgChip,  // v1.4.0 舞台中央: 三栏 wrapper 灰底 (light) / 紫 tint (dark)
         }}
       >
         <MRLeftPanel
@@ -439,8 +441,8 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
             display: "flex",
             flexDirection: "column",
             minWidth: 0,
-            background: "#fff",
-            borderTop: "1px solid rgba(94,92,230,0.35)",  // Mira 紫 hairline
+            background: MR_TOKENS.bgStage,  // light: #fff / dark: 深邃星空 渐变
+            borderTop: "1px solid rgba(94,92,230,0.35)",  // Mira 紫 hairline (跨 theme 共享)
           }}
         >
           {/* v1.4.0 舞台中央 (PM 拍): active speaker 时 顶部 渐变光带, 强调 "现在 X 正在发言".
@@ -493,7 +495,7 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
             style={{
               flex: 1,
               overflow: "auto",
-              background: "#fff",
+              background: "transparent",  // 继承 父 bgStage (light: #fff / dark: 深邃 渐变)
               paddingTop: 12,
               paddingBottom: 12,
               position: "relative",
@@ -527,7 +529,7 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
                 style={{
                   padding: "120px 28px",
                   textAlign: "center",
-                  color: "#8E8E93",
+                  color: MR_TOKENS.fgTertiary,
                 }}
               >
                 <div style={{ fontSize: 28, opacity: 0.4, marginBottom: 8 }}>
@@ -535,7 +537,7 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
                 </div>
                 筛选后无发言
                 <br />
-                <span style={{ fontSize: 12, color: "#C7C7CC" }}>
+                <span style={{ fontSize: 12, color: MR_TOKENS.fgQuaternary }}>
                   试试再勾选一些人
                 </span>
               </div>
@@ -607,7 +609,7 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
                   gap: 8,
                   padding: "6px 28px 20px",
                   fontSize: 12.5,
-                  color: "#8E8E93",
+                  color: MR_TOKENS.fgTertiary,
                 }}
               >
                 <MRHumanAvatar id="WJ" size={20} />
@@ -630,10 +632,9 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
                   width: 40,
                   height: 40,
                   borderRadius: "50%",
-                  background: "#fff",
+                  background: MR_TOKENS.bgSurface,
                   border: "none",
-                  boxShadow:
-                    "0 4px 14px rgba(0,0,0,0.18), 0 0 0 0.5px rgba(60,60,67,0.12)",
+                  boxShadow: MR_TOKENS.shadowFab,
                   cursor: "pointer",
                   zIndex: 10,
                   display: "inline-flex",

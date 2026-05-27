@@ -21,6 +21,7 @@
 import { useRef, useState, useMemo } from "react";
 import { MR_HOST, MR_AGENTS_IN_MEETING, MR_AI_IDS } from "./data";
 import { MRHostAvatar, MRAIAvatar, MRIcon } from "./atoms";
+import { MR_TOKENS } from "./tokens";
 
 export type SpeakerOption = {
   id: string;
@@ -83,8 +84,8 @@ export function MRInputBar({
   return (
     <div
       style={{
-        borderTop: "0.5px solid #E5E5EA",
-        background: "#fff",
+        borderTop: MR_TOKENS.borderHair,
+        background: MR_TOKENS.bgSurface,
         padding: "12px 24px",
         position: "relative",
       }}
@@ -97,10 +98,9 @@ export function MRInputBar({
             left: 24,
             right: 24,
             maxWidth: 360,
-            background: "#fff",
+            background: MR_TOKENS.bgSurface,
             borderRadius: 12,
-            boxShadow:
-              "0 8px 28px rgba(0,0,0,0.15), 0 0 0 0.5px rgba(60,60,67,0.12)",
+            boxShadow: MR_TOKENS.shadowMenu,
             padding: 6,
             zIndex: 5,
           }}
@@ -109,7 +109,7 @@ export function MRInputBar({
             style={{
               fontSize: 11,
               fontWeight: 700,
-              color: "#8E8E93",
+              color: MR_TOKENS.fgTertiary,
               padding: "6px 10px",
               letterSpacing: 0.4,
             }}
@@ -124,9 +124,9 @@ export function MRInputBar({
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 500 }}>
                 {MR_HOST.name}{" "}
-                <span style={{ color: "#8E8E93", fontWeight: 400 }}>主持人</span>
+                <span style={{ color: MR_TOKENS.fgTertiary, fontWeight: 400 }}>主持人</span>
               </div>
-              <div style={{ fontSize: 11, color: "#8E8E93" }}>
+              <div style={{ fontSize: 11, color: MR_TOKENS.fgTertiary }}>
                 拆解你的问题并路由
               </div>
             </div>
@@ -144,7 +144,7 @@ export function MRInputBar({
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 500 }}>
                     {a.name}{" "}
-                    <span style={{ color: "#8E8E93", fontWeight: 400 }}>
+                    <span style={{ color: MR_TOKENS.fgTertiary, fontWeight: 400 }}>
                       {a.roleShort}
                     </span>
                   </div>
@@ -160,7 +160,7 @@ export function MRInputBar({
           display: "flex",
           alignItems: "center",
           gap: 10,
-          background: "#F2F2F7",
+          background: MR_TOKENS.bgChip,
           borderRadius: 12,
           padding: "8px 12px",
         }}
@@ -197,9 +197,9 @@ export function MRInputBar({
               height: 28,
               padding: "0 10px",
               borderRadius: 14,
-              background: canBorrow ? "#fff" : "#F2F2F7",
+              background: canBorrow ? MR_TOKENS.bgSurface : MR_TOKENS.bgChip,
               border: "0.5px solid rgba(60,60,67,0.18)",
-              color: "#3C3C43",
+              color: MR_TOKENS.fgSecondary,
               fontSize: 12,
               fontWeight: 500,
               fontFamily: "inherit",
@@ -214,10 +214,10 @@ export function MRInputBar({
               flexShrink: 0,
             }}
           >
-            <span style={{ color: "#8E8E93" }}>代</span>
+            <span style={{ color: MR_TOKENS.fgTertiary }}>代</span>
             <span>{currentSpeakerName}</span>
             {canBorrow ? (
-              <span style={{ color: "#8E8E93", fontSize: 10 }}>▾</span>
+              <span style={{ color: MR_TOKENS.fgTertiary, fontSize: 10 }}>▾</span>
             ) : null}
           </button>
         ) : null}
@@ -236,11 +236,11 @@ export function MRInputBar({
             background: "transparent",
             fontFamily: "inherit",
             fontSize: 14,
-            color: "#1C1C1E",
+            color: MR_TOKENS.fgPrimary,
           }}
         />
         <button type="button" style={iconBtn} title="语音输入">
-          <MRIcon name="mic-fill" size={16} color="#1C1C1E" />
+          <MRIcon name="mic-fill" size={16} color={MR_TOKENS.fgPrimary} />
         </button>
         <button
           type="button"
@@ -250,8 +250,8 @@ export function MRInputBar({
             height: 32,
             padding: "0 14px",
             borderRadius: 8,
-            background: text ? "#007AFF" : "#E5E5EA",
-            color: text ? "#fff" : "#8E8E93",
+            background: text ? "#007AFF" : MR_TOKENS.bgHoverChip,
+            color: text ? "#fff" : MR_TOKENS.fgTertiary,
             border: "none",
             fontSize: 13,
             fontWeight: 600,
@@ -281,26 +281,26 @@ export function MRInputBar({
           <div
             className="mr-scroll"
             style={{
-              background: "#fff",
+              background: MR_TOKENS.bgSurface,
               borderRadius: 12,
               minWidth: 320,
               maxWidth: 420,
               maxHeight: "70vh",
               overflowY: "auto",
-              boxShadow: "0 16px 48px rgba(0,0,0,0.18)",
+              boxShadow: MR_TOKENS.shadowModal,
             }}
             onClick={(e) => e.stopPropagation()}
           >
             <div
               style={{
                 padding: "16px 20px 8px",
-                borderBottom: "0.5px solid #E5E5EA",
+                borderBottom: MR_TOKENS.borderHair,
               }}
             >
-              <div style={{ fontSize: 16, fontWeight: 600, color: "#1C1C1E" }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: MR_TOKENS.fgPrimary }}>
                 选择 代发 身份
               </div>
-              <div style={{ marginTop: 4, fontSize: 12, color: "#8E8E93" }}>
+              <div style={{ marginTop: 4, fontSize: 12, color: MR_TOKENS.fgTertiary }}>
                 为某位参会人代发文字 — 常用于 不便说话 / AI 自动测试 场景
               </div>
             </div>
@@ -328,7 +328,7 @@ export function MRInputBar({
                     <span
                       style={{
                         fontSize: 14,
-                        color: "#1C1C1E",
+                        color: MR_TOKENS.fgPrimary,
                         fontWeight: isSelected ? 600 : 400,
                       }}
                     >

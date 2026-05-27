@@ -16,6 +16,7 @@ import {
   getMRHighlights,
 } from "./data";
 import { MRAIAvatar, MRIcon, MRSectionLabel } from "./atoms";
+import { MR_TOKENS } from "./tokens";
 
 export type MRLeftPanelProps = {
   selected: Set<string>;
@@ -35,8 +36,8 @@ export function MRLeftPanel({
     <div
       style={{
         width: 280,
-        background: "#F2F2F7",
-        borderRight: "0.5px solid #E5E5EA",
+        background: MR_TOKENS.bgChip,
+        borderRight: MR_TOKENS.borderHair,
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
@@ -97,7 +98,7 @@ function ExpertsPanel({
       <div
         style={{
           fontSize: 11,
-          color: "#8E8E93",
+          color: MR_TOKENS.fgTertiary,
           padding: "0 2px 8px",
           lineHeight: 1.5,
         }}
@@ -140,9 +141,9 @@ function ExpertCard({
     <div
       onClick={onClick}
       style={{
-        background: selected ? "rgba(0,122,255,0.06)" : "#fff",
+        background: selected ? "rgba(0,122,255,0.06)" : MR_TOKENS.bgSurface,
         borderRadius: 11,
-        border: selected ? "1.5px solid #007AFF" : "0.5px solid #E5E5EA",
+        border: selected ? "1.5px solid #007AFF" : MR_TOKENS.borderHair,
         padding: selected ? "8.5px 10.5px" : "9.5px 11.5px",
         position: "relative",
         overflow: "hidden",
@@ -195,7 +196,7 @@ function ExpertCard({
         <MRAIAvatar id={id} size={36} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: "#1C1C1E" }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: MR_TOKENS.fgPrimary }}>
               {a.name}
             </span>
             {active && (
@@ -225,7 +226,7 @@ function ExpertCard({
               </span>
             )}
           </div>
-          <div style={{ fontSize: 11.5, color: "#8E8E93", marginTop: 1 }}>
+          <div style={{ fontSize: 11.5, color: MR_TOKENS.fgTertiary, marginTop: 1 }}>
             {a.roleShort}
           </div>
         </div>
@@ -235,7 +236,7 @@ function ExpertCard({
           style={{
             marginTop: 7,
             fontSize: 11,
-            color: "#8E8E93",
+            color: MR_TOKENS.fgTertiary,
             lineHeight: 1.4,
             paddingLeft: 8,
             borderLeft: `2px solid ${selected ? "#007AFF55" : a.grad[0] + "55"}`,
@@ -269,8 +270,8 @@ function TimelineHighlights({ onJump }: { onJump: (idx: number) => void }) {
               gap: 9,
               padding: "8px 10px",
               borderRadius: 8,
-              background: "#fff",
-              border: "0.5px solid #E5E5EA",
+              background: MR_TOKENS.bgSurface,
+              border: MR_TOKENS.borderHair,
               cursor: "pointer",
             }}
           >
@@ -311,14 +312,14 @@ function TimelineHighlights({ onJump }: { onJump: (idx: number) => void }) {
                 }}
               >
                 {h.label}{" "}
-                <span style={{ color: "#C7C7CC", fontWeight: 400 }}>
+                <span style={{ color: MR_TOKENS.fgQuaternary, fontWeight: 400 }}>
                   · {h.t}
                 </span>
               </div>
               <div
                 style={{
                   fontSize: 12,
-                  color: "#1C1C1E",
+                  color: MR_TOKENS.fgPrimary,
                   marginTop: 1,
                   lineHeight: 1.35,
                   overflow: "hidden",

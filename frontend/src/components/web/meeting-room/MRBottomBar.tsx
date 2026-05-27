@@ -10,6 +10,7 @@
  */
 
 import { MRIcon, type MRIconName } from "./atoms";
+import { MR_TOKENS } from "./tokens";
 
 export type MRBottomBarProps = {
   muted: boolean;
@@ -38,8 +39,8 @@ export function MRBottomBar({
     <div
       style={{
         height: 72,
-        background: "#fff",
-        borderTop: "0.5px solid #E5E5EA",
+        background: MR_TOKENS.bgSurface,
+        borderTop: MR_TOKENS.borderHair,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -76,7 +77,7 @@ export function MRBottomBar({
         activeBg="#007AFF"
         onClick={() => setCC(!cc)}
       />
-      <div style={{ width: 1, height: 32, background: "#E5E5EA", margin: "0 4px" }} />
+      <div style={{ width: 1, height: 32, background: MR_TOKENS.divider, margin: "0 4px" }} />
       <CtrlPill icon="share" label="屏幕共享" />
       <CtrlPill icon="note" label="纪要" />
       <CtrlPill icon="more" label="更多" onClick={onMore} />
@@ -88,7 +89,7 @@ function CtrlPill({
   icon,
   label,
   active,
-  activeBg = "#1C1C1E",
+  activeBg,
   onClick,
 }: {
   icon: MRIconName;
@@ -97,6 +98,7 @@ function CtrlPill({
   activeBg?: string;
   onClick?: () => void;
 }) {
+  const resolvedActiveBg = activeBg ?? MR_TOKENS.fgPrimary;
   return (
     <button
       type="button"
@@ -105,8 +107,8 @@ function CtrlPill({
         height: 48,
         padding: "0 16px",
         borderRadius: 12,
-        background: active ? activeBg : "#F2F2F7",
-        color: active ? "#fff" : "#1C1C1E",
+        background: active ? resolvedActiveBg : MR_TOKENS.bgChip,
+        color: active ? "#fff" : MR_TOKENS.fgPrimary,
         border: "none",
         display: "inline-flex",
         alignItems: "center",
@@ -118,7 +120,7 @@ function CtrlPill({
         transition: "background 140ms ease",
       }}
     >
-      <MRIcon name={icon} size={18} color={active ? "#fff" : "#1C1C1E"} />
+      <MRIcon name={icon} size={18} color={active ? "#fff" : MR_TOKENS.fgPrimary} />
       <span>{label}</span>
     </button>
   );

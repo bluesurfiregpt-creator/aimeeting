@@ -14,6 +14,7 @@
 
 import type { ReactElement } from "react";
 import type { WebMeetingDetailOut } from "@/lib/api";
+import { MR_TOKENS } from "./tokens";
 
 type Props = {
   detail: WebMeetingDetailOut | null;
@@ -67,7 +68,7 @@ export function OrchestrateStatusBanner({ detail }: Props): ReactElement | null 
         alignItems: "center",
         gap: 14,
         fontSize: 13,
-        color: "#1C1C1E",
+        color: MR_TOKENS.fgPrimary,
         animation: "mrFadeIn 280ms ease-out",
       }}
       data-testid="web-orchestrate-banner"
@@ -103,16 +104,16 @@ export function OrchestrateStatusBanner({ detail }: Props): ReactElement | null 
       {/* 议程进度 */}
       {totalAgenda > 0 && (
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <span style={{ color: "#8E8E93", fontSize: 11.5 }}>议程</span>
+          <span style={{ color: MR_TOKENS.fgTertiary, fontSize: 11.5 }}>议程</span>
           <span
             style={{
               fontWeight: 700,
               fontVariantNumeric: "tabular-nums",
-              color: "#1C1C1E",
+              color: MR_TOKENS.fgPrimary,
             }}
           >
             {completed}
-            <span style={{ color: "#C7C7CC" }}> / {totalAgenda}</span>
+            <span style={{ color: MR_TOKENS.fgQuaternary }}> / {totalAgenda}</span>
           </span>
           {/* 横向 progress */}
           <span
@@ -121,7 +122,7 @@ export function OrchestrateStatusBanner({ detail }: Props): ReactElement | null 
               width: 64,
               height: 4,
               borderRadius: 2,
-              background: "rgba(60,60,67,0.08)",
+              background: MR_TOKENS.divider,
               overflow: "hidden",
               verticalAlign: "middle",
             }}
@@ -140,8 +141,8 @@ export function OrchestrateStatusBanner({ detail }: Props): ReactElement | null 
       )}
 
       {/* 轮次 */}
-      <span style={{ color: "#8E8E93", fontSize: 11.5 }}>
-        轮次 <strong style={{ color: "#1C1C1E", fontVariantNumeric: "tabular-nums" }}>{turnCount}</strong>
+      <span style={{ color: MR_TOKENS.fgTertiary, fontSize: 11.5 }}>
+        轮次 <strong style={{ color: MR_TOKENS.fgPrimary, fontVariantNumeric: "tabular-nums" }}>{turnCount}</strong>
       </span>
 
       {/* 当前发言 */}
@@ -170,7 +171,7 @@ export function OrchestrateStatusBanner({ detail }: Props): ReactElement | null 
         </span>
       )}
       {!speakerName && meta.tone === "running" && (
-        <span style={{ marginLeft: "auto", color: "#8E8E93", fontSize: 12.5 }}>
+        <span style={{ marginLeft: "auto", color: MR_TOKENS.fgTertiary, fontSize: 12.5 }}>
           等待 AI 接龙…
         </span>
       )}

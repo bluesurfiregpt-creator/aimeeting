@@ -10,6 +10,7 @@
 
 import { mrSpeakerLabel } from "./data";
 import { MRSpeakerAvatar, MRIcon } from "./atoms";
+import { MR_TOKENS } from "./tokens";
 
 export type MRFilterBannerProps = {
   selected: Set<string>;
@@ -56,23 +57,23 @@ export function MRFilterBanner({
               display: "inline-flex",
               alignItems: "center",
               gap: 5,
-              background: "#fff",
+              background: MR_TOKENS.bgSurface,
               border: "0.5px solid rgba(0,122,255,0.30)",
               borderRadius: 14,
               padding: "2px 10px 2px 3px",
               fontSize: 12,
-              color: "#1C1C1E",
+              color: MR_TOKENS.fgPrimary,
               fontFamily: "inherit",
               cursor: "pointer",
             }}
           >
             <MRSpeakerAvatar k={k} size={20} />
             {mrSpeakerLabel(k)}
-            <MRIcon name="close" size={11} color="#8E8E93" />
+            <MRIcon name="close" size={11} color={MR_TOKENS.fgTertiary} />
           </button>
         ))}
       </div>
-      <div style={{ fontSize: 12, color: "#8E8E93" }}>
+      <div style={{ fontSize: 12, color: MR_TOKENS.fgTertiary }}>
         {matched}/{total} 条
       </div>
       <button
