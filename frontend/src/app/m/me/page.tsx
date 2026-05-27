@@ -18,6 +18,12 @@
  *   - 仅 leader+ (workspace_creator / leader / admin) 显示
  *   - 点击 → 新窗口打开 /workstation (web 端工作站, R6 落地)
  *   - 在小程序 webview 内 跳出微信: 走 web-view 标准导航
+ *
+ * v1.4.0 Saga P-1 · 顶部加 Mira AI 智囊 hero (MAGlowBanner tone="mira"):
+ *   - /api/v2/profile/ai-stats — 近 7 天采纳率 + 最热门 AI
+ *   - 声纹库 row 加 counter subline ("6 条声纹 · 上次更新 5 天前")
+ *   - /api/v2/profile/voiceprints-stats
+ *   - 保留 Saga D+I 的所有业务入口 (工作区, "切到 web 管理 Leader+", 客服反馈, 退出)
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -28,6 +34,12 @@ import { clearAllCache } from "@/lib/mobile/swrCache";
 import Toast from "@/components/mobile/Toast";
 import ConfirmDialog from "@/components/mobile/ConfirmDialog";
 import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
+import {
+  MAGlowBanner,
+  MAIBadge,
+  type V2ProfileAIStats,
+  type V2ProfileVoiceprintsStats,
+} from "@/components/mobile/v2";
 
 type MeInfo = {
   user_id: string;
@@ -88,6 +100,16 @@ const LEADER_ROLES = new Set([
   "owner",
 ]);
 
+// v1.4.0 Saga P-1 — 简单 fetch (mock endpoint 不带 auth 校验). 与 /m/page.tsx 同写法.
+async function jget<T>(path: string): Promise<T> {
+  const r = await fetch(path, {
+    credentials: "include",
+    headers: { accept: "application/json" },
+  });
+  if (!r.ok) throw new Error(`${path} → ${r.status}`);
+  return (await r.json()) as T;
+}
+
 export default function MobileMePage() {
   const router = useRouter();
   const [me, setMe] = useState<MeInfo | null>(null);
@@ -98,6 +120,12 @@ export default function MobileMePage() {
     kind: "success" | "error";
     text: string;
   } | null>(null);
+
+  // v1.4.0 Saga P-1 — Mira AI 智囊 hero + 声纹库 counter
+  const [aiStats, setAiStats] = useState<V2ProfileAIStats | null>(null);
+  const [vpStats, setVpStats] = useState<V2ProfileVoiceprintsStats | null>(
+    null,
+  );
 
   useEffect(() => {
     let alive = true;
@@ -118,6 +146,22 @@ export default function MobileMePage() {
       .finally(() => {
         if (alive) setLoading(false);
       });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // v1.4.0 Saga P-1 — 拉 Mira AI hero + 声纹 counter (并行, 失败容错)
+  useEffect(() => {
+    let alive = true;
+    Promise.allSettled([
+      jget<V2ProfileAIStats>("/api/v2/profile/ai-stats"),
+      jget<V2ProfileVoiceprintsStats>("/api/v2/profile/voiceprints-stats"),
+    ]).then(([aiRes, vpRes]) => {
+      if (!alive) return;
+      if (aiRes.status === "fulfilled") setAiStats(aiRes.value);
+      if (vpRes.status === "fulfilled") setVpStats(vpRes.value);
+    });
     return () => {
       alive = false;
     };
@@ -234,6 +278,9 @@ export default function MobileMePage() {
           </section>
         ) : null}
 
+        {/* v1.4.0 Saga P-1 — Mira AI 智囊 hero (近 7 天采纳率 + 最热门 AI) */}
+        {aiStats ? <MiraAIStatsHero data={aiStats} /> : null}
+
         {/* 工作区 / 部门 信息 */}
         {me ? (
           <section
@@ -259,8 +306,9 @@ export default function MobileMePage() {
 
         {/* P22: 声纹 — 跳录音页. 在小程序 webview 内, 自动跳 原生 voiceprint 页;
             浏览器 / 普通 H5 走 /m/me/voiceprint H5 版.
-            等 v1.0.1 小程序发版前, NATIVE_VOICEPRINT_ENABLED=false 时退化全走 H5. */}
-        <VoiceprintEntry />
+            等 v1.0.1 小程序发版前, NATIVE_VOICEPRINT_ENABLED=false 时退化全走 H5.
+            v1.4.0 Saga P-1: 加 counter subline ("6 条声纹 · 上次更新 5 天前"). */}
+        <VoiceprintEntry stats={vpStats} />
 
         {/* 关于 + 反馈 (mvp 文字提示) */}
         <section
@@ -365,7 +413,11 @@ declare global {
   }
 }
 
-function VoiceprintEntry() {
+function VoiceprintEntry({
+  stats,
+}: {
+  stats: V2ProfileVoiceprintsStats | null;
+}) {
   const handleClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (typeof window === "undefined") return;
     const inMp = window.__wxjs_environment === "miniprogram";
@@ -394,24 +446,40 @@ function VoiceprintEntry() {
     }
   };
 
+  // v1.4.0 Saga P-1 — counter subline. mock = "6 条声纹 · 上次更新 5 天前"
+  const subline = stats
+    ? `${stats.count} 条声纹 · ${stats.last_updated_display}`
+    : null;
+
   return (
     <Link
       href="/m/me/voiceprint"
       onClick={handleClick}
-      className="rounded-2xl px-5 py-2 active:opacity-80"
+      className="rounded-2xl px-5 py-3 active:opacity-80"
       style={{
         background: MR_COLORS.bgWhite,
         border: `0.5px solid ${MR_COLORS.hairline}`,
       }}
       data-testid="mobile-me-voiceprint-link"
     >
-      <div className="flex items-center justify-between py-3">
-        <span
-          className="text-[14px]"
-          style={{ color: MR_COLORS.textSecondary }}
-        >
-          声纹库
-        </span>
+      <div className="flex items-center justify-between">
+        <div className="flex min-w-0 flex-col">
+          <span
+            className="text-[15px] font-medium"
+            style={{ color: MR_COLORS.textPrimary }}
+          >
+            声纹库
+          </span>
+          {subline ? (
+            <span
+              className="mt-0.5 truncate text-[12.5px]"
+              style={{ color: MR_COLORS.textTertiary }}
+              data-testid="mobile-me-voiceprint-subline"
+            >
+              {subline}
+            </span>
+          ) : null}
+        </div>
         <span
           className="flex items-center gap-1 text-[15px]"
           style={{ color: MR_COLORS.textPrimary }}
@@ -426,6 +494,58 @@ function VoiceprintEntry() {
         </span>
       </div>
     </Link>
+  );
+}
+
+/**
+ * v1.4.0 Saga P-1 · 顶部 Mira AI 智囊 hero — 近 7 天采纳率 + 最热门 AI.
+ *
+ * 视觉: 复用已有 MAGlowBanner tone="mira" (紫→粉渐变 + sparkle).
+ *   - eyebrow "MIRA · 近 7 天"
+ *   - title "你采纳了 18/24 条 AI 建议" + adoption_rate 百分比
+ *   - body "最热门 Aria 46%" + 内联 MAIBadge size 20
+ *
+ * MAGlowBanner 的 body 是 string-only — 我们靠 children slot 插一段
+ * inline 的 "最热门 Aria 46%" 行 + MAIBadge.
+ */
+function MiraAIStatsHero({
+  data,
+}: {
+  data: V2ProfileAIStats;
+}) {
+  const pct = Math.round(data.adoption_rate * 100);
+  const popPct = Math.round(data.most_popular_ai.adoption_pct * 100);
+  return (
+    <MAGlowBanner
+      tone="mira"
+      eyebrow={`MIRA · 近 ${data.period_days} 天`}
+      title={`你采纳了 ${data.adopted}/${data.total_suggestions} 条 AI 建议 (${pct}%)`}
+    >
+      <div
+        style={{
+          marginTop: 8,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          color: "rgba(255,255,255,0.92)",
+          fontSize: 13.5,
+          lineHeight: 1.35,
+        }}
+        data-testid="mobile-me-mira-hero-popular"
+      >
+        <span style={{ opacity: 0.88 }}>最热门</span>
+        <MAIBadge
+          name={data.most_popular_ai.name}
+          glyph={data.most_popular_ai.glyph}
+          gradient_from={data.most_popular_ai.gradient_from}
+          gradient_to={data.most_popular_ai.gradient_to}
+          size={20}
+          ring="rgba(255,255,255,0.6)"
+        />
+        <span style={{ fontWeight: 600 }}>{data.most_popular_ai.name}</span>
+        <span style={{ opacity: 0.78 }}>{popPct}%</span>
+      </div>
+    </MAGlowBanner>
   );
 }
 

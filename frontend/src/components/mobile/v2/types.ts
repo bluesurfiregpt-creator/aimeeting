@@ -1,7 +1,7 @@
 /**
- * v1.4.0 · Saga M + Saga N + Saga O · Mobile App v2 schema 类型.
+ * v1.4.0 · Saga M + Saga N + Saga O + Saga P · Mobile App v2 schema 类型.
  *
- * 跟 docs/SCHEMA-mobile-v2.md §1 + §2 (Saga M) + §3 (Saga N) + §4 (Saga O) 一一对应.
+ * 跟 docs/SCHEMA-mobile-v2.md §1 + §2 (Saga M) + §3 (Saga N) + §4 (Saga O) + §5 (Saga P) 一一对应.
  * Phase 1 由 backend /api/v2/* 返回 mock JSON, Phase 2 后端真接时类型不变.
  *
  * 命名 snake_case (跟 backend 一致).
@@ -268,4 +268,69 @@ export type V2MemorySnapshot = {
 export type V2MemorySnapshotsResponse = {
   items: V2MemorySnapshot[];
   total_count: number;
+};
+
+// ─────── §5 Saga P — Profile + 新建会议 ───────
+
+// §5.1 profile/ai-stats — Mira AI 智囊 7 天统计 (M6 Profile hero)
+export type V2ProfileAIStats = {
+  period_days: number;
+  total_suggestions: number;
+  adopted: number;
+  adoption_rate: number;
+  most_popular_ai: {
+    id: string;
+    name: string;
+    glyph: string;
+    gradient_from: string;
+    gradient_to: string;
+    adoption_pct: number;
+  };
+};
+
+// §5.2 profile/voiceprints-stats — 声纹库 counter (M6 Profile row subline)
+export type V2ProfileVoiceprintsStats = {
+  count: number;
+  last_updated_at: string;
+  last_updated_display: string;
+};
+
+// §5.3 mira/draft-meeting — Mira 描述需求 → 自动配 AI (M7 新建会议)
+
+export type V2MiraDraftRequest = {
+  input_text: string;
+  input_mode: "text" | "voice";
+};
+
+export type V2MiraAgendaItem = {
+  label: string;
+  duration_min: number;
+  led_by_ai: string;
+};
+
+export type V2MiraProposedAI = {
+  id: string;
+  name: string;
+  glyph: string;
+  gradient_from: string;
+  gradient_to: string;
+  reason: string;
+};
+
+export type V2MiraProposedHuman = {
+  id: string;
+  name: string;
+  surname_char: string;
+  avatar_color: string;
+};
+
+export type V2MiraDraftResponse = {
+  confidence: number;
+  proposed_title: string;
+  proposed_topic: string;
+  proposed_agenda: V2MiraAgendaItem[];
+  total_duration_min: number;
+  proposed_ais: V2MiraProposedAI[];
+  proposed_humans: V2MiraProposedHuman[];
+  sample_prompts: string[];
 };

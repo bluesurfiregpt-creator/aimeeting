@@ -1,5 +1,5 @@
 /**
- * v1.4.0 · Saga M1 + Saga N + Saga O · Mobile App v2 atoms barrel export.
+ * v1.4.0 · Saga M1 + Saga N + Saga O + Saga P-1 · Mobile App v2 atoms barrel export.
  *
  * 跟 v1 (shared/) 隔离, 走 SCHEMA-mobile-v2.md 契约.
  * Saga N/O/P 直接 `import { MAvatar, MAGlowBanner, ... } from "@/components/mobile/v2"`.
@@ -7,7 +7,8 @@
  * 命名: 跟设计源 jsx 一致 (MAvatar / MAIBadge / MAvatarStack / MASegmented /
  * MAGlowBanner / MAIcon / MiraPulseNotice / MAEmpty / MAPill / MASection /
  * MeetingFullCard · Saga N 加: MStatTile · MExpertCard ·
- * Saga O 加: MTaskRow · MInsightCard · MMemoryRadar).
+ * Saga O 加: MTaskRow · MInsightCard · MMemoryRadar ·
+ * Saga P-1 加: MASheet · MScrollPicker · MAIRosterGrid).
  */
 
 export { default as MAvatar } from "./MAvatar";
@@ -26,6 +27,9 @@ export { default as MExpertCard } from "./MExpertCard";
 export { default as MTaskRow } from "./MTaskRow";
 export { default as MInsightCard } from "./MInsightCard";
 export { default as MMemoryRadar } from "./MMemoryRadar";
+export { default as MASheet } from "./MASheet";
+export { default as MScrollPicker } from "./MScrollPicker";
+export { default as MAIRosterGrid } from "./MAIRosterGrid";
 
 export type { V2IconName } from "./MAIcon";
 export type { V2SegmentedTab } from "./MASegmented";
@@ -70,4 +74,13 @@ export type {
   V2SnapshotAIAvatar,
   V2MemorySnapshot,
   V2MemorySnapshotsResponse,
+  // §5 profile (Saga P-1)
+  V2ProfileAIStats,
+  V2ProfileVoiceprintsStats,
+  // §5.3 mira/draft-meeting (Saga P-2)
+  V2MiraDraftRequest,
+  V2MiraAgendaItem,
+  V2MiraProposedAI,
+  V2MiraProposedHuman,
+  V2MiraDraftResponse,
 } from "./types";
