@@ -47,8 +47,15 @@ logger = logging.getLogger(__name__)
 #  - 加 neighborhood smoothing:某句 conf 低且邻居 都是同一人 → 顺延为同一人
 #  - 加 批量纠正 UI:用户一键标"此后 N 句都改为此人"
 CONF_THRESHOLD = 0.45  # was 0.4
-PERIODIC_INTERVAL_S = 45
+# v1.4.0 Phase A · 7 (NORTH_STAR § 6.1): 周期 45s → 15s — 让 声纹 识别 更勤,
+# 一场 5-min 会议 从 ~6 次 跑 升 到 ~20 次, 用户 看 自己 line 的 等待 时间 ~25s → ~8s.
+# 风险: pyannote API 调用 频率 升 2-3 倍, 但 客户测试 反馈 优先 体验, 接受 额外 成本.
+PERIODIC_INTERVAL_S = 15  # was 45 (v1.4.0 Phase A · 7)
 MIN_BUFFER_SECONDS = 20
+# v1.4.0 Phase A · 7: NORTH_STAR § 6.1 写 "阈值 0.65 → 0.55 微调" — 但 现存 v25.10
+# 注释 明确 是 客户反馈 后 升 到 0.65 防 误识. 降回 0.55 会 重新 引入 0.55 时代 的
+# 误识 投诉. **不动 阈值**, 等 PM 收 真 5-10 场 hybrid 会议 后 评估 实际 漏识 / 误识
+# 比例 再 调.
 PYANNOTE_MATCH_THRESHOLD = 0.65  # was 0.55 — 防误识为高优先,宁可漏不要错
 # 对齐 ASR 句到 pyannote segment 的最小重叠率
 MIN_LINE_OVERLAP_RATIO = 0.5

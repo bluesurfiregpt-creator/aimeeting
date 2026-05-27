@@ -74,6 +74,20 @@ export type MockHuman = {
   muted?: boolean;
 };
 
+// ⚠️ v1.4.0 Phase A · 7 (NORTH_STAR § 6.1) TD:
+// MOCK_HUMANS 是 写死 5 个 demo 真人, 当前 用在:
+//   - /m/meetings/[id]/page.tsx 的 participantHumans 显 attendees
+//   - FilterSheet 选 真人发言 (筛选实录)
+//   - MeetingTranscriptView / ParticipantsStrip / CompactContextBar 的 avatar 渲染
+//   - AgendaEventBanner 的 MOCK_HOST (主持人 avatar)
+//
+// **替换 真 backend 需要**:
+//   1. Mobile detail API `/api/m/meetings/{id}` 返回 `attending_humans: [{user_id, name, color}]`
+//   2. 跟 MeetingAttendee 表 join (已有 schema)
+//   3. 8 个 frontend 文件 (本文件 + 上面 列的) refactor 接 真数据
+//
+// 估时 1-2d (不在 Phase A · 7 的 0.5d 范围). 留 **Phase B/C 处理**.
+// 当前 行为 安全: mock 5 人 在 真接 attending_agents (AI) 之外 显示, 不混 真数据.
 export const MOCK_HUMANS: Record<MockHumanId, MockHuman> = {
   ZK: { name: "周凯", role: "PM", color: "#FF9F0A" },
   LM: { name: "林敏", role: "设计", color: "#34C759" },
