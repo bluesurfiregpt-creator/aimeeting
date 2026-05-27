@@ -28,6 +28,7 @@ export type MRIconName =
   | "mic-fill"
   | "hand"
   | "sparkle"
+  | "sparkle-twin"
   | "chat"
   | "end"
   | "video"
@@ -142,6 +143,19 @@ export default function Icon({
         </svg>
       );
     case "sparkle":
+      // v1.4.0 Saga R (Phase 1 P2 A-04): 单 path 5-point sparkle, 跟设计稿
+      // mobile-shared.jsx:674-686 (Sparkle component) 一致.
+      // 老的双 path 版本 (大星 + 小星) 仍可用, 走 name="sparkle-twin".
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24">
+          <path
+            d="M12 0l2 9 9 3-9 3-2 9-2-9-9-3 9-3z"
+            fill={color}
+          />
+        </svg>
+      );
+    case "sparkle-twin":
+      // round-3/4 老款双 path sparkle (大星 + 小星) — 保留给特殊页面用.
       return (
         <svg width={size} height={size} viewBox="0 0 24 24">
           <path

@@ -104,10 +104,17 @@ export default function MobileTasksPage(): ReactElement {
         paddingBottom: 20,
       }}
     >
+      {/* v1.4.0 Saga R (Phase 1 P1 M4-01): subtitle 文案改 "待处理 X · 跟踪中 Y"
+          (设计稿 mobile-screens.jsx · tasks header). 数据走 counts (实时反映
+          grouped 各 status tasks 数), 不走 banner — banner 是
+          urgent_task_count + ai_suggestion_count, 跟设计稿展示维度不一致.
+          首屏 banner 未 ready 时降级显示 banner 旧文案 fallback. */}
       <PageHeader
         title="任务"
         subtitle={
-          banner
+          !loading
+            ? `待处理 ${counts.pending} · 跟踪中 ${counts.tracking}`
+            : banner
             ? `${banner.urgent_task_count} 项紧急 · ${banner.ai_suggestion_count} 条 AI 建议`
             : undefined
         }

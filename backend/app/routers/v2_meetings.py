@@ -10,7 +10,9 @@ Mock endpoint, Phase 1 全部 写死 mock JSON (PM 5=a 拍板).
   - 字段命名 snake_case · 时间 ISO 8601 UTC · enum 跟 schema 严格一致
 
 仿真场景: 福田住建局 demo workspace · Q3 路线图 / 搜索体验评审 / 客户访谈
-AI: Mira / Aria / Stratos / Sage / Lex / Hummingbird / Phoenix
+AI 10 个 (v1.4.0 Saga Q · Phase 1 P0, 严格按设计稿 mobile-shared.jsx:24-34):
+  Mira ◎ / Aria ⌬ / Stratos ◆ / Sage ✦ / Lex § / Scout ◈ /
+  Falao ⚖ / Shu ∑ / Zhaojie ♥ / Tally ¥
 """
 
 from __future__ import annotations
@@ -148,19 +150,20 @@ _MOCK_AI_LEX = V2AIBadge(
     gradient_from="#FF9F0A",
     gradient_to="#FFB340",
 )
-_MOCK_AI_HUMMINGBIRD = V2AIBadge(
-    id="ai-hummingbird",
-    name="Hummingbird",
-    glyph="♪",
+# v1.4.0 Saga Q (Phase 1 P0): Hummingbird → Zhaojie / Phoenix → Scout (设计稿固定阵容)
+_MOCK_AI_ZHAOJIE = V2AIBadge(
+    id="ai-zhaojie",
+    name="服务赵姐",
+    glyph="♥",
     gradient_from="#FF6482",
     gradient_to="#FF375F",
 )
-_MOCK_AI_PHOENIX = V2AIBadge(
-    id="ai-phoenix",
-    name="Phoenix",
-    glyph="▲",
-    gradient_from="#FF3B30",
-    gradient_to="#FF6482",
+_MOCK_AI_SCOUT = V2AIBadge(
+    id="ai-scout",
+    name="Scout",
+    glyph="◈",
+    gradient_from="#34C759",
+    gradient_to="#30B0C7",
 )
 
 
@@ -245,7 +248,7 @@ _UPCOMING_MEETINGS = [
         ],
         human_count=2,
         ai_count=3,
-        ai_badges=[_MOCK_AI_MIRA, _MOCK_AI_HUMMINGBIRD, _MOCK_AI_PHOENIX],
+        ai_badges=[_MOCK_AI_MIRA, _MOCK_AI_ZHAOJIE, _MOCK_AI_SCOUT],
     ),
 ]
 

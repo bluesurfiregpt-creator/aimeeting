@@ -149,11 +149,20 @@ export default function MobileInsightsPage(): ReactElement {
   );
 }
 
+/**
+ * v1.4.0 Saga R (Phase 1 P1 M5-05) · 快照 list 限 12, 超过加 "查看更多 ›".
+ * 设计稿前屏 7 项, prod 17 条全显; 限 12 + see-more pattern 既保留快速概览
+ * 又允许 power user 展开全量.
+ */
+const INITIAL_VISIBLE_SNAPSHOTS = 12;
+
 function SnapshotsList({
   items,
 }: {
   items: V2MemorySnapshot[];
 }): ReactElement {
+  const [showAll, setShowAll] = useState(false);
+
   if (items.length === 0) {
     return (
       <div style={{ padding: "32px 16px" }}>
@@ -165,6 +174,12 @@ function SnapshotsList({
       </div>
     );
   }
+  const visible =
+    showAll || items.length <= INITIAL_VISIBLE_SNAPSHOTS
+      ? items
+      : items.slice(0, INITIAL_VISIBLE_SNAPSHOTS);
+  const hasMore = !showAll && items.length > INITIAL_VISIBLE_SNAPSHOTS;
+
   return (
     <div style={{ padding: "0 16px" }}>
       <div
@@ -176,13 +191,49 @@ function SnapshotsList({
           boxShadow: "0 1px 0 rgba(60,60,67,0.04)",
         }}
       >
-        {items.map((s, i) => (
+        {visible.map((s, i) => (
           <SnapshotRow
             key={s.id}
             snapshot={s}
-            last={i === items.length - 1}
+            last={i === visible.length - 1 && !hasMore}
           />
         ))}
+        {hasMore ? (
+          <button
+            type="button"
+            onClick={() => setShowAll(true)}
+            data-testid="mobile-insights-see-more"
+            style={{
+              width: "100%",
+              padding: "12px 14px",
+              background: "transparent",
+              border: "none",
+              borderTop: "0.5px solid rgba(60,60,67,0.10)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+              fontSize: 14,
+              fontWeight: 600,
+              color: "#5E5CE6",
+              fontFamily: "inherit",
+              cursor: "pointer",
+            }}
+          >
+            查看更多
+            <MAIcon name="chev" size={13} color="#5E5CE6" strokeWidth={2.2} />
+            <span
+              style={{
+                marginLeft: 4,
+                fontSize: 12,
+                fontWeight: 500,
+                color: "#8E8E93",
+              }}
+            >
+              ({items.length - INITIAL_VISIBLE_SNAPSHOTS})
+            </span>
+          </button>
+        ) : null}
       </div>
     </div>
   );

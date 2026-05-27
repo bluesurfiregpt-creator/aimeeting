@@ -33,7 +33,11 @@ export { default as MAIRosterGrid } from "./MAIRosterGrid";
 
 export type { V2IconName } from "./MAIcon";
 export type { V2SegmentedTab } from "./MASegmented";
-export type { V2GlowTone, V2GlowChip } from "./MAGlowBanner";
+export type {
+  V2GlowTone,
+  V2GlowChip,
+  V2GlowIndicator,
+} from "./MAGlowBanner";
 export type { V2PillTone } from "./MAPill";
 export type { V2StatTone } from "./MStatTile";
 export type {

@@ -12,8 +12,9 @@ Mock endpoint, Phase 1 全部写死 mock JSON (PM 5=a 拍板).
   - 字段命名 snake_case · 时间 ISO 8601 UTC · enum 跟 schema 严格一致
 
 仿真场景: 福田住建局 demo workspace · Q3 路线图 / 搜索体验评审 / 客户访谈
-AI 10 个: Mira / Aria / Stratos / Lex / Saga / Sage / Phoenix / Aria-7 /
-         Hummingbird / Echo (按 SCHEMA §1 列表)
+AI 10 个 (v1.4.0 Saga Q · Phase 1 P0 修复, 严格按设计稿 mobile-shared.jsx:24-34):
+  Mira ◎ / Aria ⌬ / Stratos ◆ / Sage ✦ / Lex § / Scout ◈ /
+  Falao ⚖ / Shu ∑ / Zhaojie ♥ / Tally ¥
 """
 
 from __future__ import annotations
@@ -84,12 +85,13 @@ class LiveMeetingResponse(BaseModel):
 
 @router.get("/live-meeting", response_model=LiveMeetingResponse)
 async def get_today_live_meeting() -> LiveMeetingResponse:
-    """当前 live 会议 + Mira 笔记. 无 live 时 meeting=null."""
+    """当前 live 会议 + Mira 笔记. 无 live 时 meeting=null.
+
+    v1.4.0 Saga Q (Phase 1 P0): mira_note 改为跟设计稿一致 ("12 个关键点 · 3 个待你确认").
+    """
     return LiveMeetingResponse(
         meeting=_LIVE_MEETING,
-        mira_note=(
-            "提议 11:30 前把「协作功能能否进入 Q3」拍板, 后续由 Stratos 提摘要"
-        ),
+        mira_note="Mira 已记录 12 个关键点 · 3 个待你确认",
     )
 
 
@@ -107,10 +109,13 @@ class SnapshotResponse(BaseModel):
 
 @router.get("/snapshot", response_model=SnapshotResponse)
 async def get_today_snapshot() -> SnapshotResponse:
-    """4 格 stat tile — 场会议 / 待处理 / AI 洞察 / 已决策."""
+    """4 格 stat tile — 场会议 / 待处理 / AI 洞察 / 已决策.
+
+    v1.4.0 Saga Q (Phase 1 P0): pending_tasks 从 3 改 6, 跟设计稿一致.
+    """
     return SnapshotResponse(
         meetings_today=4,
-        pending_tasks=3,
+        pending_tasks=6,
         ai_insights_today=4,
         decisions_today=2,
     )
@@ -177,14 +182,15 @@ _PENDING_TASKS = [
     ),
     PendingTaskItem(
         id="t-hummingbird-reply",
-        title="回复 Hummingbird 关于摘要质量的疑问",
+        title="回复客户关于摘要质量的疑问",
         source_meeting="客户访谈",
         source_meeting_id="m-upcoming-hummingbird-feedback",
         urgency="week",
+        # v1.4.0 Saga Q: Hummingbird → 服务赵姐 (设计稿固定阵容)
         ai_source=PendingTaskAISource(
-            id="ai-hummingbird",
-            name="Hummingbird",
-            glyph="♪",
+            id="ai-zhaojie",
+            name="服务赵姐",
+            glyph="♥",
             color="#FF6482",
         ),
         due_at="2026-05-29T18:00:00Z",
@@ -360,9 +366,10 @@ class ExpertsResponse(BaseModel):
     experts: List[ExpertItem]
 
 
-# 10 个 AI (SCHEMA §1 顺序), 按 last_active_at desc 排序后填入.
-# 顺序: Mira / Stratos / Sage / Aria / Lex / Hummingbird / Aria-7 /
-#       Phoenix / Saga / Echo
+# v1.4.0 Saga Q (Phase 1 P0): 10 个 AI 严格按设计稿 mobile-shared.jsx:24-34.
+# 顺序 last_active_at desc 排序.
+# 删: Phoenix ▲ / Saga ◐ / Aria-7 ◉ / Hummingbird ♪ / Echo ◇ (非设计稿)
+# 加: Falao ⚖ / Shu ∑ / Zhaojie ♥ / Tally ¥ / Scout ◈ (设计稿固定 10)
 _EXPERTS = [
     ExpertItem(
         id="ai-mira",
@@ -370,7 +377,7 @@ _EXPERTS = [
         glyph="◎",
         gradient_from="#FFB340",
         gradient_to="#FF9F0A",
-        role_short="首席协调 AI",
+        role_short="主持人",
         last_active_at="2026-05-27T11:30:00Z",
         last_active_display="刚刚",
         recent_meetings=[
@@ -398,7 +405,7 @@ _EXPERTS = [
         glyph="◆",
         gradient_from="#AF52DE",
         gradient_to="#FF375F",
-        role_short="工程架构",
+        role_short="产品策略",
         last_active_at="2026-05-27T11:15:00Z",
         last_active_display="15 分钟前",
         recent_meetings=[
@@ -419,9 +426,9 @@ _EXPERTS = [
         id="ai-sage",
         name="Sage",
         glyph="✦",
-        gradient_from="#5E5CE6",
+        gradient_from="#FF2D55",
         gradient_to="#AF52DE",
-        role_short="数据洞察",
+        role_short="UX 顾问",
         last_active_at="2026-05-27T11:00:00Z",
         last_active_display="30 分钟前",
         recent_meetings=[
@@ -449,7 +456,7 @@ _EXPERTS = [
         glyph="⌬",
         gradient_from="#0A84FF",
         gradient_to="#5E5CE6",
-        role_short="用户体验",
+        role_short="数据分析师",
         last_active_at="2026-05-27T10:55:00Z",
         last_active_display="35 分钟前",
         recent_meetings=[
@@ -472,7 +479,7 @@ _EXPERTS = [
         glyph="§",
         gradient_from="#FF9F0A",
         gradient_to="#FFB340",
-        role_short="法规合规",
+        role_short="法务合规",
         last_active_at="2026-05-26T16:42:00Z",
         last_active_display="昨天",
         recent_meetings=[
@@ -490,9 +497,9 @@ _EXPERTS = [
         task_count=0,
     ),
     ExpertItem(
-        id="ai-hummingbird",
-        name="Hummingbird",
-        glyph="♪",
+        id="ai-zhaojie",
+        name="服务赵姐",
+        glyph="♥",
         gradient_from="#FF6482",
         gradient_to="#FF375F",
         role_short="客户体验",
@@ -508,12 +515,12 @@ _EXPERTS = [
         task_count=1,
     ),
     ExpertItem(
-        id="ai-aria-7",
-        name="Aria-7",
-        glyph="◉",
-        gradient_from="#30B0C7",
-        gradient_to="#0A84FF",
-        role_short="产品策略",
+        id="ai-shu",
+        name="数小妙",
+        glyph="∑",
+        gradient_from="#5E5CE6",
+        gradient_to="#AF52DE",
+        role_short="数据 · KPI",
         last_active_at="2026-05-25T16:10:00Z",
         last_active_display="2 天前",
         recent_meetings=[
@@ -526,12 +533,12 @@ _EXPERTS = [
         task_count=0,
     ),
     ExpertItem(
-        id="ai-phoenix",
-        name="Phoenix",
-        glyph="▲",
-        gradient_from="#FF3B30",
-        gradient_to="#FF6482",
-        role_short="项目管理",
+        id="ai-scout",
+        name="Scout",
+        glyph="◈",
+        gradient_from="#34C759",
+        gradient_to="#30B0C7",
+        role_short="竞品研究",
         last_active_at="2026-05-22T15:08:00Z",
         last_active_display="5 天前",
         recent_meetings=[
@@ -544,12 +551,12 @@ _EXPERTS = [
         task_count=0,
     ),
     ExpertItem(
-        id="ai-saga",
-        name="Saga",
-        glyph="◐",
-        gradient_from="#34C759",
-        gradient_to="#1F8A5B",
-        role_short="财务建模",
+        id="ai-falao",
+        name="法老张",
+        glyph="⚖",
+        gradient_from="#FF9F0A",
+        gradient_to="#FF6482",
+        role_short="法规 · 合规",
         last_active_at="2026-05-21T11:30:00Z",
         last_active_display="6 天前",
         recent_meetings=[
@@ -562,12 +569,12 @@ _EXPERTS = [
         task_count=0,
     ),
     ExpertItem(
-        id="ai-echo",
-        name="Echo",
-        glyph="◇",
-        gradient_from="#BF5AF2",
-        gradient_to="#5E5CE6",
-        role_short="知识管理",
+        id="ai-tally",
+        name="Tally",
+        glyph="¥",
+        gradient_from="#64D2FF",
+        gradient_to="#0A84FF",
+        role_short="财务建模",
         last_active_at="2026-05-20T10:55:00Z",
         last_active_display="7 天前",
         recent_meetings=[

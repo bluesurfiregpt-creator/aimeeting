@@ -11,7 +11,9 @@ Mock endpoint, Phase 1 全部 写死 mock JSON (PM 5=a 拍板).
   - 字段命名 snake_case · 时间 ISO 8601 UTC · enum 跟 schema 严格一致
 
 仿真场景: 福田住建局 demo workspace
-AI: Stratos / Sage / Hummingbird / Lex / Mira / Aria / Aria-7 / Phoenix / Saga / Echo
+AI 10 个 (v1.4.0 Saga Q · Phase 1 P0, 严格按设计稿 mobile-shared.jsx:24-34):
+  Mira ◎ / Aria ⌬ / Stratos ◆ / Sage ✦ / Lex § / Scout ◈ /
+  Falao ⚖ / Shu ∑ / Zhaojie ♥ / Tally ¥
 """
 
 from __future__ import annotations
@@ -135,12 +137,13 @@ _TASKS_PENDING: List[TaskGroup] = [
         tasks=[
             TaskItem(
                 id="t-hummingbird-reply",
-                title="回复 Hummingbird 关于摘要质量的疑问",
+                title="回复客户关于摘要质量的疑问",
                 urgency="week",
+                # v1.4.0 Saga Q: Hummingbird → 服务赵姐 (设计稿固定阵容)
                 ai_source=TaskAISource(
-                    id="ai-hummingbird",
-                    name="Hummingbird",
-                    glyph="♪",
+                    id="ai-zhaojie",
+                    name="服务赵姐",
+                    glyph="♥",
                     color="#FF6482",
                 ),
                 due_at="2026-05-29T18:00:00Z",
@@ -191,11 +194,12 @@ _TASKS_DONE: List[TaskGroup] = [
                 id="t-elevator-budget",
                 title="提交 电梯改造 Q3 预算明细给财政科",
                 urgency="none",
+                # v1.4.0 Saga Q: Saga → Tally (财务建模)
                 ai_source=TaskAISource(
-                    id="ai-saga",
-                    name="Saga",
-                    glyph="◐",
-                    color="#34C759",
+                    id="ai-tally",
+                    name="Tally",
+                    glyph="¥",
+                    color="#64D2FF",
                 ),
                 due_at="2026-05-23T18:00:00Z",
                 due_display="已完成",
@@ -207,11 +211,12 @@ _TASKS_DONE: List[TaskGroup] = [
                 id="t-elevator-notice",
                 title="发布 电梯改造 业主告知函",
                 urgency="none",
+                # v1.4.0 Saga Q: Echo → 服务赵姐 (客户体验)
                 ai_source=TaskAISource(
-                    id="ai-echo",
-                    name="Echo",
-                    glyph="◇",
-                    color="#BF5AF2",
+                    id="ai-zhaojie",
+                    name="服务赵姐",
+                    glyph="♥",
+                    color="#FF6482",
                 ),
                 due_at="2026-05-22T18:00:00Z",
                 due_display="已完成",
@@ -316,18 +321,18 @@ class MemorySnapshotsResponse(BaseModel):
     total_count: int
 
 
-# AI 头像 速查表 (跟 SCHEMA §1 一致)
+# AI 头像 速查表 — v1.4.0 Saga Q (Phase 1 P0): 10 个 严格按设计稿 mobile-shared.jsx:24-34.
 _AI_AVATAR = {
-    "Mira": SnapshotAIAvatar(glyph="◎", gradient_from="#FFB340", gradient_to="#FF9F0A"),
-    "Aria": SnapshotAIAvatar(glyph="⌬", gradient_from="#0A84FF", gradient_to="#5E5CE6"),
+    "Mira":    SnapshotAIAvatar(glyph="◎", gradient_from="#FFB340", gradient_to="#FF9F0A"),
+    "Falao":   SnapshotAIAvatar(glyph="⚖", gradient_from="#FF9F0A", gradient_to="#FF6482"),
+    "Shu":     SnapshotAIAvatar(glyph="∑", gradient_from="#5E5CE6", gradient_to="#AF52DE"),
+    "Zhaojie": SnapshotAIAvatar(glyph="♥", gradient_from="#FF6482", gradient_to="#FF375F"),
+    "Aria":    SnapshotAIAvatar(glyph="⌬", gradient_from="#0A84FF", gradient_to="#5E5CE6"),
     "Stratos": SnapshotAIAvatar(glyph="◆", gradient_from="#AF52DE", gradient_to="#FF375F"),
-    "Lex": SnapshotAIAvatar(glyph="§", gradient_from="#FF9F0A", gradient_to="#FFB340"),
-    "Saga": SnapshotAIAvatar(glyph="◐", gradient_from="#34C759", gradient_to="#1F8A5B"),
-    "Sage": SnapshotAIAvatar(glyph="✦", gradient_from="#5E5CE6", gradient_to="#AF52DE"),
-    "Phoenix": SnapshotAIAvatar(glyph="▲", gradient_from="#FF3B30", gradient_to="#FF6482"),
-    "Aria-7": SnapshotAIAvatar(glyph="◉", gradient_from="#30B0C7", gradient_to="#0A84FF"),
-    "Hummingbird": SnapshotAIAvatar(glyph="♪", gradient_from="#FF6482", gradient_to="#FF375F"),
-    "Echo": SnapshotAIAvatar(glyph="◇", gradient_from="#BF5AF2", gradient_to="#5E5CE6"),
+    "Sage":    SnapshotAIAvatar(glyph="✦", gradient_from="#FF2D55", gradient_to="#AF52DE"),
+    "Scout":   SnapshotAIAvatar(glyph="◈", gradient_from="#34C759", gradient_to="#30B0C7"),
+    "Lex":     SnapshotAIAvatar(glyph="§", gradient_from="#FF9F0A", gradient_to="#FFB340"),
+    "Tally":   SnapshotAIAvatar(glyph="¥", gradient_from="#64D2FF", gradient_to="#0A84FF"),
 }
 
 
@@ -344,31 +349,33 @@ def _ss(idx: int, topic: str, ai_names: List[str], types: List[str], count: int,
 
 
 # 25 条 mock 快照, 跟现有 25 条对齐 (覆盖 福田住建局 各议题)
+# v1.4.0 Saga Q (Phase 1 P0): 全部 ai_names 改用设计稿 10 个 AI.
+# 替换: Hummingbird → Zhaojie · Aria-7 → Shu · Phoenix → Scout · Saga → Tally · Echo → Tally
 _SNAPSHOTS: List[MemorySnapshot] = [
     _ss(1, "数据安全合规风险评估会", ["Sage", "Lex"], ["洞察", "建议"], 2, "m-finished-data-compliance"),
-    _ss(2, "电梯改造方案决策会", ["Saga", "Stratos"], ["决策"], 4, "m-finished-elevator-upgrade"),
+    _ss(2, "电梯改造方案决策会", ["Tally", "Stratos"], ["决策"], 4, "m-finished-elevator-upgrade"),
     _ss(3, "Q3 路线图对齐", ["Stratos", "Mira"], ["决策", "风险"], 3, "m-live-q3-roadmap"),
     _ss(4, "搜索体验评审 #4", ["Sage", "Aria"], ["洞察", "建议"], 5, "m-upcoming-search-review-4"),
-    _ss(5, "客户访谈 · Hummingbird 反馈", ["Hummingbird", "Sage"], ["洞察"], 2, "m-upcoming-hummingbird-feedback"),
-    _ss(6, "摘要模型 A/B 复盘", ["Aria-7", "Aria"], ["突破", "洞察"], 4, "m-finished-ab-review"),
-    _ss(7, "Q1 投诉趋势复盘", ["Sage", "Echo"], ["洞察"], 3, "m-finished-q1-complaint"),
-    _ss(8, "物业巡检流程优化", ["Phoenix", "Stratos"], ["建议"], 2, None),
-    _ss(9, "业主满意度专题会", ["Hummingbird"], ["洞察"], 1, None),
-    _ss(10, "新员工合规培训 复盘", ["Lex"], ["建议"], 1, None),
-    _ss(11, "Q2 KPI 中期回顾", ["Stratos", "Saga"], ["决策"], 3, None),
+    _ss(5, "客户访谈 · Hummingbird 反馈", ["Zhaojie", "Sage"], ["洞察"], 2, "m-upcoming-hummingbird-feedback"),
+    _ss(6, "摘要模型 A/B 复盘", ["Shu", "Aria"], ["突破", "洞察"], 4, "m-finished-ab-review"),
+    _ss(7, "Q1 投诉趋势复盘", ["Sage", "Shu"], ["洞察"], 3, "m-finished-q1-complaint"),
+    _ss(8, "物业巡检流程优化", ["Scout", "Stratos"], ["建议"], 2, None),
+    _ss(9, "业主满意度专题会", ["Zhaojie"], ["洞察"], 1, None),
+    _ss(10, "新员工合规培训 复盘", ["Lex", "Falao"], ["建议"], 1, None),
+    _ss(11, "Q2 KPI 中期回顾", ["Stratos", "Tally"], ["决策"], 3, None),
     _ss(12, "数据看板原型评审", ["Aria", "Sage"], ["建议"], 2, None),
-    _ss(13, "节能改造 二期方案", ["Stratos", "Saga"], ["决策", "风险"], 4, None),
-    _ss(14, "供应商合规 排查", ["Lex"], ["风险"], 2, None),
-    _ss(15, "客户增长 半年规划", ["Hummingbird", "Aria-7"], ["决策"], 3, None),
-    _ss(16, "记忆库 沉淀 规则梳理", ["Echo"], ["建议"], 1, None),
+    _ss(13, "节能改造 二期方案", ["Stratos", "Tally"], ["决策", "风险"], 4, None),
+    _ss(14, "供应商合规 排查", ["Lex", "Falao"], ["风险"], 2, None),
+    _ss(15, "客户增长 半年规划", ["Zhaojie", "Shu"], ["决策"], 3, None),
+    _ss(16, "记忆库 沉淀 规则梳理", ["Mira"], ["建议"], 1, None),
     _ss(17, "Q4 协作功能 PRD 评审", ["Stratos", "Aria", "Mira"], ["决策"], 5, None),
     _ss(18, "AI 摘要 prompt 优化", ["Sage", "Aria"], ["突破"], 2, None),
-    _ss(19, "投诉响应 SLA 调整", ["Phoenix"], ["决策"], 1, None),
-    _ss(20, "数据资产 命名规范", ["Sage", "Echo"], ["建议"], 2, None),
-    _ss(21, "用户调研 招募 流程", ["Hummingbird"], ["建议"], 1, None),
-    _ss(22, "财务对账 自动化方案", ["Saga"], ["建议"], 1, None),
+    _ss(19, "投诉响应 SLA 调整", ["Scout"], ["决策"], 1, None),
+    _ss(20, "数据资产 命名规范", ["Sage", "Shu"], ["建议"], 2, None),
+    _ss(21, "用户调研 招募 流程", ["Zhaojie"], ["建议"], 1, None),
+    _ss(22, "财务对账 自动化方案", ["Tally"], ["建议"], 1, None),
     _ss(23, "新版搜索 性能基线", ["Sage", "Stratos"], ["突破"], 3, None),
-    _ss(24, "合规自检 checklist", ["Lex"], ["建议"], 1, None),
+    _ss(24, "合规自检 checklist", ["Lex", "Falao"], ["建议"], 1, None),
     _ss(25, "Mira 早晨简报 模板 V2", ["Mira"], ["建议"], 1, None),
 ]
 

@@ -240,6 +240,9 @@ export default function MobileMePage() {
       </div>
 
       <main className="flex flex-1 flex-col space-y-5 p-4 pb-6">
+        {/* v1.4.0 Saga Q (Phase 1 P0 M6-01) — glow hero 移到最顶 (设计稿顺序) */}
+        {aiStats ? <MiraAIStatsHero data={aiStats} /> : null}
+
         {/* 档案卡 */}
         {me ? (
           <section
@@ -277,9 +280,6 @@ export default function MobileMePage() {
             </div>
           </section>
         ) : null}
-
-        {/* v1.4.0 Saga P-1 — Mira AI 智囊 hero (近 7 天采纳率 + 最热门 AI) */}
-        {aiStats ? <MiraAIStatsHero data={aiStats} /> : null}
 
         {/* 工作区 / 部门 信息 */}
         {me ? (
@@ -319,17 +319,22 @@ export default function MobileMePage() {
           }}
         >
           <Row label="客服 / 反馈" value="联系管理员" />
-          <Row label="环境" value="生产" last />
+          {/* v1.4.0 Saga R (Phase 1 P1 M6-06): 环境 "生产" 用绿色 pill, 跟设计稿
+              mobile-screens.jsx:908-912 一致 (rgba(52,199,89,0.14) + #1F8A5B). */}
+          <RowPill label="环境" pillLabel="生产" last />
         </section>
 
-        {/* 退出登录 — mt-auto 推到底, 内容少时也贴底 */}
+        {/* 退出登录 — mt-auto 推到底, 内容少时也贴底.
+            v1.4.0 Saga R (Phase 1 P2 M6-07): bg 改成白色 (设计稿 mobile-screens.jsx:916
+            `background: '#fff'`), 不再用浅红 urgentBg; active 态走 active:opacity-80
+            自然反馈, 不再 inline 红 bg. */}
         <button
           type="button"
           onClick={() => setLogoutOpen(true)}
-          className="mt-auto flex h-12 w-full items-center justify-center rounded-xl text-[15px] font-medium active:scale-[0.98]"
+          className="mt-auto flex h-12 w-full items-center justify-center rounded-xl text-[15px] font-medium active:opacity-80"
           style={{
             border: `0.5px solid ${MR_COLORS.urgentBorder}`,
-            background: MR_COLORS.urgentBg,
+            background: MR_COLORS.bgWhite,
             color: MR_COLORS.systemRed,
           }}
           data-testid="mobile-me-logout"
@@ -394,6 +399,52 @@ function Row({
         style={{ color: MR_COLORS.textPrimary }}
       >
         {value}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * v1.4.0 Saga R (Phase 1 P1 M6-06) · "环境: 生产" 行 — 右侧用绿色 pill.
+ * 设计源 mobile-screens.jsx:908-912.
+ */
+function RowPill({
+  label,
+  pillLabel,
+  last = false,
+}: {
+  label: string;
+  pillLabel: string;
+  last?: boolean;
+}) {
+  return (
+    <div
+      className="flex items-center justify-between py-3"
+      style={
+        last
+          ? undefined
+          : { borderBottom: `0.5px solid ${MR_COLORS.hairline}` }
+      }
+    >
+      <span
+        className="text-[14px]"
+        style={{ color: MR_COLORS.textSecondary }}
+      >
+        {label}
+      </span>
+      <span
+        style={{
+          background: "rgba(52,199,89,0.14)",
+          color: "#1F8A5B",
+          padding: "2px 7px",
+          borderRadius: 4,
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: 0.4,
+        }}
+        data-testid="mobile-me-env-pill"
+      >
+        {pillLabel}
       </span>
     </div>
   );
@@ -501,12 +552,12 @@ function VoiceprintEntry({
  * v1.4.0 Saga P-1 · 顶部 Mira AI 智囊 hero — 近 7 天采纳率 + 最热门 AI.
  *
  * 视觉: 复用已有 MAGlowBanner tone="mira" (紫→粉渐变 + sparkle).
- *   - eyebrow "MIRA · 近 7 天"
- *   - title "你采纳了 18/24 条 AI 建议" + adoption_rate 百分比
- *   - body "最热门 Aria 46%" + 内联 MAIBadge size 20
  *
- * MAGlowBanner 的 body 是 string-only — 我们靠 children slot 插一段
- * inline 的 "最热门 Aria 46%" 行 + MAIBadge.
+ * v1.4.0 Saga R (Phase 1 P1 M6-02~M6-05): 跟设计稿 mobile-screens.jsx:848-854 对齐.
+ *   - M6-02 eyebrow "AI 智囊 · 近 X 天" (强调"AI 智囊"概念, 之前 "MIRA · 近 7 天")
+ *   - M6-03 customIcon 用 MAIBadge (圆角方 + 紫蓝渐变 + ⌬, 替代默认 sparkle SVG)
+ *   - M6-04 body 完整两句 "最热门的专家是 Aria（X%）。采纳率 Y% 超过团队平均线。"
+ *   - M6-05 titleSize 17 (设计稿 hero 大字, atom 默认 14)
  */
 function MiraAIStatsHero({
   data,
@@ -518,34 +569,21 @@ function MiraAIStatsHero({
   return (
     <MAGlowBanner
       tone="mira"
-      eyebrow={`MIRA · 近 ${data.period_days} 天`}
+      eyebrow={`AI 智囊 · 近 ${data.period_days} 天`}
       title={`你采纳了 ${data.adopted}/${data.total_suggestions} 条 AI 建议 (${pct}%)`}
-    >
-      <div
-        style={{
-          marginTop: 8,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          color: "rgba(255,255,255,0.92)",
-          fontSize: 13.5,
-          lineHeight: 1.35,
-        }}
-        data-testid="mobile-me-mira-hero-popular"
-      >
-        <span style={{ opacity: 0.88 }}>最热门</span>
+      titleSize={17}
+      customIcon={
         <MAIBadge
           name={data.most_popular_ai.name}
           glyph={data.most_popular_ai.glyph}
           gradient_from={data.most_popular_ai.gradient_from}
           gradient_to={data.most_popular_ai.gradient_to}
-          size={20}
-          ring="rgba(255,255,255,0.6)"
+          size={28}
+          ring="rgba(255,255,255,0.30)"
         />
-        <span style={{ fontWeight: 600 }}>{data.most_popular_ai.name}</span>
-        <span style={{ opacity: 0.78 }}>{popPct}%</span>
-      </div>
-    </MAGlowBanner>
+      }
+      body={`最热门的专家是 ${data.most_popular_ai.name}(${popPct}%)。采纳率 ${pct}% 超过团队平均线。`}
+    />
   );
 }
 

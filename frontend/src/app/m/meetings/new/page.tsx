@@ -3,32 +3,26 @@
 /**
  * v1.4.0 · Saga P-2 (Phase 1 · W4 第二段) · M7 新建会议 — 整页推翻.
  *
- * 由 Saga D+I 老版 push 表单 → 改成 MASheet 底滑 modal + Mira "描述需求" 路径.
+ * v1.4.0 · Saga Q (Phase 1 P0 修复) · M7 整页重写为深紫科幻 Mira AI 卡.
+ *   - 设计源 1:1: /tmp/aimeeting-design-research/aimeeting/project/mobile-new-meeting.jsx:332-537
+ *   - hero 卡: 深紫渐变 `#1a1733 → #2a1f5a → #3b2b73` + 双层 glow (cyan + pink) + sparkle
+ *   - textarea: rgba(0,0,0,0.30) + inset 0.5px white-12 + cyan caret #7DDEFF
+ *   - mic 按钮: 真 SVG (MAIcon name="mic") + cyan→紫渐变 + inset 0.5px white-30
+ *   - CTA "让 Mira 拟方案": 反色 白底 + 紫字 #5E5CE6 + sparkle 17px weight 700
+ *   - example chip: 圆角 18 + rgba(255,255,255,0.12) + inset 0.5px white-18 + 白字 14px
+ *   - path switcher: 紫渐变 selected (AI tab) + sparkle 图标 (PathSwitch 风格)
+ *   - 小提示卡: 白卡 + 3 紫点 bullet list (改正 typo "MIRA 是怎么用的" → "Mira 会怎么帮你")
  *
  * 视觉契约: docs/SCHEMA-mobile-v2.md §5.3 + design-shots/new-meeting.png
- *
- * 结构:
- *   - MASheet 包裹 (顶 "取消" 关 → router.back())
- *   - 顶 MASegmented "描述需求 / 自定义"
- *
- *   - 描述需求 tab — 2 个 sub-view 切换:
- *     · describe (初始): Mira hero 卡 + 灰底大 textarea + 紫麦克风 + 3 sample chips
- *       + 紫渐变 CTA "让 Mira 拟方案" → POST /api/v2/mira/draft-meeting
- *     · preview (拟方案后): 主题/议程 (MScrollPicker 调时长) / AI 阵容 (MAIRosterGrid)
- *       / 参会人 / sticky "开始会议" 蓝 CTA
- *
- *   - 自定义 tab — 简化版老表单 (会议标题 + 类型 radio + 创建)
- *
- * 不引依赖. 麦克风 voice 走 setTimeout 1.5s mock 转写.
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   MASheet,
-  MASegmented,
   MScrollPicker,
   MAIRosterGrid,
+  MAIcon,
   Sparkle,
 } from "@/components/mobile/v2";
 import type {
@@ -44,8 +38,8 @@ const DURATION_OPTIONS = [5, 10, 15, 20, 30, 45, 60, 90, 120];
 // 描述需求 tab 初始 sample prompts (会被 backend response.sample_prompts 覆盖, 但先有 fallback)
 const INITIAL_SAMPLES = [
   "评估搜索改版上线的合规风险",
-  "Q3 路线图回顾",
-  "客户 Hummingbird 最近一周的反馈",
+  "Q3 路线图取舍 · 协作功能能不能进",
+  "客户 Hummingbird 上线一周的反馈",
 ];
 
 export default function NewMeetingPage() {
@@ -56,25 +50,18 @@ export default function NewMeetingPage() {
     router.back();
   }, [router]);
 
-  // tab: describe / custom
-  const [tab, setTab] = useState<"describe" | "custom">("describe");
+  // tab: ai (描述需求) / manual (自定义)
+  const [path, setPath] = useState<"ai" | "manual">("ai");
 
   return (
     <MASheet open={true} onClose={handleClose} title="新建会议">
-      {/* segmented tab — 描述需求 / 自定义 */}
+      {/* v1.4.0 Saga Q (Phase 1 P0 M7-08): PathSwitch 风格 — 紫渐变 selected (AI tab) + sparkle */}
       <div style={{ padding: "12px 16px 8px" }}>
-        <MASegmented
-          tabs={[
-            { id: "describe", label: "描述需求" },
-            { id: "custom", label: "自定义" },
-          ]}
-          active={tab}
-          onChange={(id) => setTab(id as "describe" | "custom")}
-        />
+        <PathSwitch value={path} onChange={setPath} />
       </div>
 
-      {tab === "describe" ? (
-        <DescribeTab />
+      {path === "ai" ? (
+        <AIPathTab />
       ) : (
         <CustomTab onCreated={(id) => router.push(`/m/meetings/${id}`)} />
       )}
@@ -83,10 +70,86 @@ export default function NewMeetingPage() {
 }
 
 // ============================================================================
+// PathSwitch — 描述需求 / 自定义 切换 (设计稿 mobile-new-meeting.jsx:332-368)
+// ============================================================================
+
+function PathSwitch({
+  value,
+  onChange,
+}: {
+  value: "ai" | "manual";
+  onChange: (v: "ai" | "manual") => void;
+}) {
+  const opts: { id: "ai" | "manual"; label: string; icon: "sparkle" | "plus" }[] = [
+    { id: "ai", label: "描述需求", icon: "sparkle" },
+    { id: "manual", label: "自定义", icon: "plus" },
+  ];
+  return (
+    <div
+      style={{
+        background: "#E5E5EA",
+        borderRadius: 12,
+        padding: 4,
+        display: "flex",
+        gap: 3,
+        position: "relative",
+      }}
+    >
+      {opts.map((o) => {
+        const on = value === o.id;
+        const aiOn = on && o.id === "ai";
+        return (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => onChange(o.id)}
+            style={{
+              flex: 1,
+              height: 46,
+              borderRadius: 9,
+              border: "none",
+              background: on
+                ? aiOn
+                  ? "linear-gradient(135deg, #5E5CE6 0%, #7A5AF0 50%, #AF52DE 100%)"
+                  : "#fff"
+                : "transparent",
+              color: on ? (aiOn ? "#fff" : "#1C1C1E") : "#3C3C43",
+              fontSize: 16,
+              fontWeight: on ? 700 : 500,
+              letterSpacing: 0.1,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              boxShadow: on
+                ? aiOn
+                  ? "0 4px 14px rgba(94,92,230,0.32)"
+                  : "0 1px 2px rgba(0,0,0,0.08), 0 3px 8px rgba(0,0,0,0.04)"
+                : "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 7,
+              transition: "all 160ms ease",
+            }}
+          >
+            <MAIcon
+              name={o.icon}
+              size={16}
+              color={on ? (aiOn ? "#fff" : "#3C3C43") : "#8E8E93"}
+              strokeWidth={2.2}
+            />
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================================
 // 描述需求 tab — Mira 智能配 AI 主路径
 // ============================================================================
 
-function DescribeTab() {
+function AIPathTab() {
   const router = useRouter();
   const [view, setView] = useState<DescribeView>("describe");
   const [inputText, setInputText] = useState("");
@@ -108,7 +171,7 @@ function DescribeTab() {
     setInputMode("voice");
     window.setTimeout(() => {
       setInputText(
-        "评估搜索改版上线的合规风险, 同时让 Hummingbird 给最近一周的客户反馈摘要",
+        "评估搜索改版上线的合规风险, 同时让客服赵姐给最近一周的客户反馈摘要",
       );
       setVoiceRecording(false);
     }, 1500);
@@ -166,60 +229,128 @@ function DescribeTab() {
     );
   }
 
+  const canSubmit = !loading && inputText.trim().length > 0;
+
   return (
     <div style={{ padding: "12px 16px 32px" }}>
-      {/* MIRA 会议筹备 hero 卡 */}
+      {/* === Mira hero 卡 — 深紫渐变 (设计稿 mobile-new-meeting.jsx:376-505) === */}
       <div
         style={{
-          background: "#FFFFFF",
-          borderRadius: 18,
-          padding: 18,
-          border: "0.5px solid rgba(60,60,67,0.12)",
-          boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
           position: "relative",
           overflow: "hidden",
+          borderRadius: 16,
+          background:
+            "linear-gradient(135deg, #1a1733 0%, #2a1f5a 45%, #3b2b73 100%)",
+          boxShadow:
+            "0 8px 24px rgba(94,92,230,0.30), 0 0 0 0.5px rgba(255,255,255,0.08)",
+          padding: "14px 14px 16px",
         }}
       >
+        {/* 双层 glow — 右上 cyan + 左下 pink */}
         <div
           style={{
-            fontSize: 11.5,
-            fontWeight: 600,
-            letterSpacing: 0.6,
-            color: "#5E5CE6",
-            textTransform: "uppercase",
-            marginBottom: 8,
+            position: "absolute",
+            top: -50,
+            right: -40,
+            width: 170,
+            height: 170,
+            borderRadius: "50%",
+            background:
+              "radial-gradient(circle, rgba(100,210,255,0.32) 0%, rgba(0,0,0,0) 65%)",
+            pointerEvents: "none",
           }}
-        >
-          MIRA · 会议筹备
-        </div>
+        />
         <div
           style={{
-            fontSize: 19,
-            fontWeight: 700,
-            letterSpacing: -0.3,
-            color: "#1C1C1E",
-            lineHeight: 1.25,
+            position: "absolute",
+            bottom: -60,
+            left: -30,
+            width: 150,
+            height: 150,
+            borderRadius: "50%",
+            background:
+              "radial-gradient(circle, rgba(255,100,180,0.22) 0%, rgba(0,0,0,0) 70%)",
+            pointerEvents: "none",
           }}
-        >
-          告诉我你想聊什么
-        </div>
+        />
+        {/* sparkle 装饰 */}
+        <Sparkle top={14} right={50} size={11} opacity={0.85} />
+        <Sparkle top={42} right={26} size={6} opacity={0.55} />
+
+        {/* hero 内容 — eyebrow + title */}
         <div
           style={{
-            marginTop: 6,
-            fontSize: 13.5,
-            color: "#3C3C43",
-            lineHeight: 1.45,
-            opacity: 0.85,
+            position: "relative",
+            display: "flex",
+            alignItems: "center",
+            gap: 11,
           }}
         >
-          一段话描述你的诉求 — Mira 会起草主题、议程、AI 阵容等, 再调整。
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: "rgba(255,255,255,0.18)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "inset 0 0 0 0.5px rgba(255,255,255,0.20)",
+              flexShrink: 0,
+            }}
+          >
+            <MAIcon name="sparkle" size={18} color="#fff" strokeWidth={2.1} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: "rgba(255,255,255,0.78)",
+                letterSpacing: 0.4,
+                textTransform: "uppercase",
+              }}
+            >
+              Mira · 会议筹备
+            </div>
+            <div
+              style={{
+                fontSize: 19,
+                fontWeight: 700,
+                color: "#fff",
+                marginTop: 3,
+                letterSpacing: -0.2,
+              }}
+            >
+              告诉我你想聊什么
+            </div>
+          </div>
         </div>
 
-        {/* 灰底大 textarea + 紫麦克风 */}
+        {/* 描述 一段话 */}
+        <div
+          style={{
+            position: "relative",
+            marginTop: 13,
+            fontSize: 15,
+            color: "rgba(255,255,255,0.82)",
+            lineHeight: 1.55,
+          }}
+        >
+          一段话描述你的诉求 — Mira 会起草{" "}
+          <b style={{ color: "#fff" }}>主题、议程、AI 专家阵容</b>,你再增删。
+        </div>
+
+        {/* textarea + 紫麦克风 — 深底框 (rgba(0,0,0,0.30)) + cyan caret #7DDEFF */}
         <div
           style={{
             position: "relative",
             marginTop: 14,
+            background: "rgba(0,0,0,0.30)",
+            borderRadius: 13,
+            boxShadow: "inset 0 0 0 0.5px rgba(255,255,255,0.12)",
+            padding: 14,
+            minHeight: 188,
           }}
         >
           <textarea
@@ -232,77 +363,95 @@ function DescribeTab() {
             placeholder={
               voiceRecording
                 ? "录音中..."
-                : "例: 下周搜索改版要上线, 我想心里摸底..."
+                : "例: 下周搜索改版要上线,我担心摘要片段可能包含业主敏感信息,想评估一下合规风险 + 拍板上线灰度。"
             }
             disabled={voiceRecording}
             rows={4}
             style={{
               width: "100%",
-              minHeight: 110,
-              background: "#F2F2F7",
-              borderRadius: 12,
-              border: "none",
-              padding: "12px 52px 12px 14px",
-              fontSize: 14,
-              lineHeight: 1.5,
-              color: "#1C1C1E",
+              minHeight: 130,
               resize: "none",
+              background: "transparent",
+              border: "none",
               outline: "none",
+              color: "#fff",
               fontFamily: "inherit",
+              fontSize: 17,
+              lineHeight: 1.6,
+              caretColor: "#7DDEFF",
+              paddingRight: 56,
             }}
           />
 
-          {/* 紫麦克风按钮 — 右下绝对定位 */}
+          {/* 紫麦克风按钮 — cyan→紫渐变, 真 SVG mic icon */}
           <button
             type="button"
             onClick={handleMic}
             aria-label={voiceRecording ? "停止录音" : "开始录音"}
             style={{
               position: "absolute",
-              right: 8,
-              bottom: 8,
-              width: 40,
-              height: 40,
+              right: 10,
+              bottom: 10,
+              width: 42,
+              height: 42,
               borderRadius: "50%",
               background: voiceRecording
                 ? "linear-gradient(135deg, #FF3B30 0%, #FF6482 100%)"
-                : "linear-gradient(135deg, #5E5CE6 0%, #7A5AF0 100%)",
+                : "linear-gradient(135deg, #7DDEFF 0%, #5E5CE6 100%)",
               border: "none",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              boxShadow: "0 2px 8px rgba(94,92,230,0.30)",
+              boxShadow: voiceRecording
+                ? "0 4px 14px rgba(255,59,48,0.45)"
+                : "0 4px 14px rgba(94,92,230,0.45), inset 0 0 0 0.5px rgba(255,255,255,0.30)",
               cursor: "pointer",
               color: "#fff",
-              fontSize: 16,
               transition: "transform 0.15s",
               ...(voiceRecording
                 ? { animation: "miraPulse 1.1s ease-in-out infinite" }
                 : {}),
             }}
           >
-            {voiceRecording ? "■" : "⌬"}
+            {voiceRecording ? (
+              <span
+                style={{
+                  width: 12,
+                  height: 12,
+                  background: "#fff",
+                  borderRadius: 2,
+                  display: "inline-block",
+                }}
+              />
+            ) : (
+              <MAIcon name="mic" size={20} color="#fff" strokeWidth={2.2} />
+            )}
           </button>
         </div>
 
-        {/* 3 sample chips */}
+        {/* example chips — 圆角 18 + 白半透 + 白字 14px (深紫卡里) */}
         <div
           style={{
+            position: "relative",
             marginTop: 12,
             display: "flex",
-            gap: 6,
             flexWrap: "wrap",
+            gap: 7,
+            alignItems: "center",
           }}
         >
           <span
             style={{
-              fontSize: 11.5,
-              color: "#8E8E93",
-              marginRight: 2,
-              alignSelf: "center",
+              fontSize: 12,
+              fontWeight: 600,
+              color: "rgba(255,255,255,0.62)",
+              letterSpacing: 0.4,
+              textTransform: "uppercase",
+              display: "inline-flex",
+              alignItems: "center",
             }}
           >
-            试:
+            试试:
           </span>
           {INITIAL_SAMPLES.map((s) => (
             <button
@@ -310,113 +459,124 @@ function DescribeTab() {
               type="button"
               onClick={() => handleSample(s)}
               style={{
-                fontSize: 11.5,
-                padding: "5px 10px",
-                borderRadius: 10,
-                background: "rgba(60,60,67,0.06)",
+                fontSize: 14,
+                color: "#fff",
+                padding: "7px 13px",
+                borderRadius: 18,
+                background: "rgba(255,255,255,0.12)",
                 border: "none",
-                color: "#3C3C43",
                 cursor: "pointer",
-                lineHeight: 1.2,
                 fontFamily: "inherit",
+                boxShadow: "inset 0 0 0 0.5px rgba(255,255,255,0.18)",
+                whiteSpace: "nowrap",
               }}
             >
               {s}
             </button>
           ))}
         </div>
+
+        {/* CTA "让 Mira 拟方案" — 反色: 白底 + 紫字 (深紫卡里突显) */}
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          style={{
+            position: "relative",
+            marginTop: 16,
+            width: "100%",
+            height: 56,
+            borderRadius: 14,
+            background: canSubmit ? "#fff" : "rgba(255,255,255,0.16)",
+            color: canSubmit ? "#5E5CE6" : "rgba(255,255,255,0.5)",
+            border: "none",
+            cursor: canSubmit ? "pointer" : "default",
+            fontFamily: "inherit",
+            fontSize: 17,
+            fontWeight: 700,
+            letterSpacing: 0.1,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 9,
+            boxShadow: canSubmit ? "0 6px 18px rgba(0,0,0,0.20)" : "none",
+            transition: "all 160ms ease",
+          }}
+        >
+          {loading ? (
+            <>
+              <ThinkingDots />
+              <span>Mira 在准备方案…</span>
+            </>
+          ) : (
+            <>
+              <MAIcon
+                name="sparkle"
+                size={17}
+                color={canSubmit ? "#5E5CE6" : "rgba(255,255,255,0.5)"}
+                strokeWidth={2.3}
+              />
+              让 Mira 拟方案
+            </>
+          )}
+        </button>
       </div>
 
-      {/* "让 Mira 拟方案" 紫渐变大 CTA */}
-      <button
-        type="button"
-        onClick={handleSubmit}
-        disabled={loading || inputText.trim().length === 0}
-        style={{
-          marginTop: 16,
-          width: "100%",
-          height: 56,
-          borderRadius: 14,
-          border: "none",
-          background:
-            "linear-gradient(135deg, #5E5CE6 0%, #7A5AF0 45%, #AF52DE 100%)",
-          color: "#fff",
-          fontSize: 16,
-          fontWeight: 600,
-          letterSpacing: 0.2,
-          opacity:
-            loading || inputText.trim().length === 0 ? 0.5 : 1,
-          cursor:
-            loading || inputText.trim().length === 0
-              ? "not-allowed"
-              : "pointer",
-          boxShadow: "0 6px 18px rgba(94,92,230,0.32)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 8,
-          position: "relative",
-          overflow: "hidden",
-          fontFamily: "inherit",
-        }}
-      >
-        {loading ? (
-          <>
-            <span
-              style={{
-                display: "inline-block",
-                width: 16,
-                height: 16,
-                borderRadius: "50%",
-                border: "2px solid rgba(255,255,255,0.35)",
-                borderTopColor: "#fff",
-                animation: "miraSpin 0.7s linear infinite",
-              }}
-            />
-            Mira 思考中…
-          </>
-        ) : (
-          <>
-            让 Mira 拟方案
-            <span style={{ fontSize: 18, lineHeight: 1 }}>✦</span>
-          </>
-        )}
-        {/* 微闪烁星点 */}
-        {!loading ? (
-          <>
-            <Sparkle top={10} right={36} size={9} opacity={0.65} />
-            <Sparkle top={32} right={18} size={5} opacity={0.45} />
-          </>
-        ) : null}
-      </button>
-
-      {/* footer 提示 */}
+      {/* === 小提示卡 "Mira 会怎么帮你" — 白卡 + 3 紫点 bullet list (M7-09) === */}
       <div
         style={{
-          marginTop: 22,
-          paddingTop: 14,
-          borderTop: "0.5px solid rgba(60,60,67,0.12)",
+          marginTop: 14,
+          padding: "14px 14px",
+          borderRadius: 14,
+          background: "#fff",
+          border: "0.5px solid rgba(60,60,67,0.10)",
+          fontSize: 14.5,
+          color: "#3C3C43",
+          lineHeight: 1.55,
         }}
       >
         <div
           style={{
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: 0.5,
-            color: "#5E5CE6",
-            marginBottom: 4,
+            fontSize: 12,
+            fontWeight: 700,
+            color: "#8E8E93",
+            letterSpacing: 0.4,
+            textTransform: "uppercase",
+            marginBottom: 9,
           }}
         >
-          MIRA 是怎么做用的
+          Mira 会怎么帮你
         </div>
         <div
           style={{
-            fontSize: 12.5,
-            color: "#8E8E93",
-            lineHeight: 1.5,
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 9,
+            marginBottom: 7,
           }}
         >
-          从你这段话提取核心关键词, 推荐 3~5 名 AI 专家 + 议程, 再让你审定
+          <TipDot />
+          <span>
+            从你这段话提取领域关键词,推荐{" "}
+            <b>3–5 位 AI 专家</b>,并写明为什么选它
+          </span>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 9,
+            marginBottom: 7,
+          }}
+        >
+          <TipDot />
+          <span>
+            自动拆 <b>议程项 + 时长</b>,默认背景同步 → 主题讨论 → 拍板分工
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+          <TipDot />
+          <span>结合你过去 100 条记忆 — 优先调取相关历史决策</span>
         </div>
       </div>
 
@@ -445,8 +605,48 @@ function DescribeTab() {
           0%, 100% { transform: scale(1); box-shadow: 0 2px 8px rgba(255,59,48,0.30); }
           50% { transform: scale(1.08); box-shadow: 0 4px 14px rgba(255,59,48,0.55); }
         }
+        @keyframes miraDot {
+          0%, 80%, 100% { transform: scale(0.7); opacity: 0.5; }
+          40% { transform: scale(1); opacity: 1; }
+        }
       `}</style>
     </div>
+  );
+}
+
+// 小紫点 (跟设计稿 mobile-new-meeting.jsx:534-537 一致)
+function TipDot() {
+  return (
+    <span
+      style={{
+        width: 7,
+        height: 7,
+        borderRadius: "50%",
+        background: "#5E5CE6",
+        marginTop: 8,
+        flexShrink: 0,
+      }}
+    />
+  );
+}
+
+// CTA loading 状态的 3 点 (跟设计稿 mobile-new-meeting.jsx:539-549)
+function ThinkingDots() {
+  return (
+    <span style={{ display: "inline-flex", gap: 4 }}>
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: "#5E5CE6",
+            animation: `miraDot 1.2s ease-in-out ${i * 0.16}s infinite`,
+          }}
+        />
+      ))}
+    </span>
   );
 }
 
@@ -490,7 +690,7 @@ function PreviewView({
 
   return (
     <div style={{ padding: "12px 16px 100px" }}>
-      {/* 顶 confidence + 重写 */}
+      {/* v1.4.0 Saga Q (Phase 1 P0 A-06): 顶 Mira 已起草 pulse + 重新描述 */}
       <div
         style={{
           display: "flex",
@@ -501,25 +701,39 @@ function PreviewView({
       >
         <span
           style={{
-            fontSize: 12,
-            color: "#8E8E93",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 7,
+            fontSize: 13.5,
+            color: "#3C3C43",
+            fontWeight: 600,
           }}
         >
-          Mira 信心 {Math.round(draft.confidence * 100)}%
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: "linear-gradient(135deg, #5E5CE6, #AF52DE)",
+              boxShadow: "0 0 7px rgba(94,92,230,0.55)",
+            }}
+          />
+          Mira 已起草 · 可继续编辑
         </span>
         <button
           type="button"
           onClick={onBack}
           style={{
-            fontSize: 13,
+            fontSize: 14,
             color: "#007AFF",
             background: "none",
             border: "none",
             cursor: "pointer",
             fontFamily: "inherit",
+            fontWeight: 600,
           }}
         >
-          重新描述
+          重新描述 ›
         </button>
       </div>
 

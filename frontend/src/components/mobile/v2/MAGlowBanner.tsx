@@ -17,6 +17,11 @@
  *   - mira    (设计稿默认 AI 主色): #5E5CE6 → #7A5AF0 → #AF52DE
  *   - priority (紧急/今日优先级):    #6D49E0 → #B340D6 → #FF6482
  *   - subtle   (简报/脉络):          #0A84FF → #5E5CE6 → #7A5AF0
+ *
+ * v1.4.0 · Saga R (Phase 1 P1 atom 共性) · 新增 3 个 optional prop (向后兼容):
+ *   - titleSize: 默认 14, me 页传 17 (A-01)
+ *   - customIcon: 覆盖默认 sparkle icon, 让 me 页传 <MAIBadge id="ARIA" /> (A-06)
+ *   - indicator: 紫渐变 pulse dot + "Mira 已起草 · 可继续编辑" 灰字 (M7 preview view 用)
  */
 
 import type { CSSProperties, ReactElement, ReactNode } from "react";
@@ -29,6 +34,13 @@ export type V2GlowChip = {
   icon?: V2IconName;
   label: string;
   fg?: string;
+};
+
+export type V2GlowIndicator = {
+  /** 文案 (e.g. "Mira 已起草 · 可继续编辑") */
+  label: string;
+  /** pulse dot 渐变色 (e.g. "linear-gradient(135deg, #5E5CE6, #AF52DE)") */
+  pulseColor: string;
 };
 
 type Props = {
@@ -46,6 +58,22 @@ type Props = {
   children?: ReactNode;
   compact?: boolean;
   style?: CSSProperties;
+  /**
+   * v1.4.0 Saga R · title 字号 (默认 14, me 页传 17).
+   * 设计稿 mobile-screens.jsx:848 大字号 hero (A-01).
+   */
+  titleSize?: number;
+  /**
+   * v1.4.0 Saga R · 自定义 icon slot — 覆盖默认 MAIcon (A-06).
+   * 传时 不渲染默认 28x28 白半透方框, 直接渲染 customIcon (caller 自定义尺寸).
+   */
+  customIcon?: ReactNode;
+  /**
+   * v1.4.0 Saga R · 顶部 inline 指示器 — 紫渐变 pulse dot + 灰字.
+   * 用于 M7 preview view "Mira 已起草 · 可继续编辑".
+   * 渲染在 eyebrow / title 之上.
+   */
+  indicator?: V2GlowIndicator;
 };
 
 const TONES: Record<
@@ -109,6 +137,9 @@ export default function MAGlowBanner({
   children,
   compact = false,
   style,
+  titleSize = 14,
+  customIcon,
+  indicator,
 }: Props): ReactElement {
   const c = TONES[tone];
   const pad = compact ? "11px 12px" : "14px 14px 14px";
@@ -159,6 +190,35 @@ export default function MAGlowBanner({
         </>
       ) : null}
 
+      {/* v1.4.0 Saga R · indicator — 紫渐变 pulse dot + 灰字 (A-06) */}
+      {indicator ? (
+        <div
+          style={{
+            position: "relative",
+            marginBottom: 8,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 7,
+            fontSize: 13.5,
+            color: "rgba(255,255,255,0.92)",
+            fontWeight: 600,
+          }}
+          data-testid="ma-glow-indicator"
+        >
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: indicator.pulseColor,
+              boxShadow: "0 0 7px rgba(94,92,230,0.55)",
+              flexShrink: 0,
+            }}
+          />
+          {indicator.label}
+        </div>
+      ) : null}
+
       <div
         style={{
           position: "relative",
@@ -167,7 +227,11 @@ export default function MAGlowBanner({
           gap: 9,
         }}
       >
-        {icon ? (
+        {customIcon ? (
+          <div style={{ flexShrink: 0, display: "inline-flex" }}>
+            {customIcon}
+          </div>
+        ) : icon ? (
           <div
             style={{
               width: 28,
@@ -201,7 +265,7 @@ export default function MAGlowBanner({
           {title ? (
             <div
               style={{
-                fontSize: 14,
+                fontSize: titleSize,
                 fontWeight: 700,
                 color: "#fff",
                 marginTop: eyebrow ? 1 : 0,
