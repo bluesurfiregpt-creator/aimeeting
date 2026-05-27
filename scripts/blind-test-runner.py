@@ -345,12 +345,23 @@ def compute_results(events: list[dict], summary: dict, script: dict) -> dict:
             if has_ai:
                 break
 
-    # item 5: agent_recommendation 事件数
+    # item 5: AI 主持人 "接力" 推荐 — 两种 backend 路径 (NORTH_STAR § 3.5 主持人):
+    #   (a) agent_recommendation: orchestrator.recommend_next_speaker LLM judge 推荐 下一个 发言 agent
+    #   (b) dissent_detected: dissent_detector LLM judge 检测 反对观点 + suggested_agent 接力 仲裁
+    # 两者 都是 "AI 主持人 主动 推接力" 的 不同 形式. 测试 阈值 应该 算 二者 之和 (combined),
+    # 不只看 (a). Round 1 双盲发现: Kimi 剧本 A 触发 dissent_detected (suggested Stratos)
+    # 但 recommendation_count=0 → metric 误判 fail. (详见 retro-claude-vs-kimi-round1.md)
     recommend_count = sum(
         1 for e in events
         if e["type"] == "ws_recv"
         and isinstance(e.get("payload"), dict)
         and e["payload"].get("type") == "agent_recommendation"
+    )
+    dissent_count = sum(
+        1 for e in events
+        if e["type"] == "ws_recv"
+        and isinstance(e.get("payload"), dict)
+        and e["payload"].get("type") == "dissent_detected"
     )
 
     return {
@@ -364,7 +375,13 @@ def compute_results(events: list[dict], summary: dict, script: dict) -> dict:
         "item_4_action_items_with_source": action_with_src,
         "item_4_summary_json_present": sj is not None,
         "item_4_topic_count": len(sj.get("topics", [])) if sj else 0,
-        "item_5_recommendation_count": recommend_count,
+        # v1.4.0 Phase A 双盲 Round 2 (PM 拍 2026-05-27 路径 A): item 5 改成
+        # combined (recommend + dissent) — 两种 都算 "AI 主持人 接力" 形式.
+        # 保留 老字段 recommendation_count + 新 dissent_count 给 PM 分析 用,
+        # 测试 阈值 看 item_5_combined_count.
+        "item_5_recommendation_count": recommend_count,  # 兼容 Round 1 老用例
+        "item_5_dissent_count": dissent_count,
+        "item_5_combined_count": recommend_count + dissent_count,  # 测试 阈值 看这个
     }
 
 
@@ -455,6 +472,8 @@ async def amain(args):
                 "summary_has_ai": results["item_4_summary_has_ai_speakers"],
                 "action_items_w_src": results["item_4_action_items_with_source"],
                 "recommendations": results["item_5_recommendation_count"],
+                "dissent_detected": results["item_5_dissent_count"],
+                "baton_combined": results["item_5_combined_count"],
             },
             ensure_ascii=False,
         )

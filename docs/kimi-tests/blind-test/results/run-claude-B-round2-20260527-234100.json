@@ -1,0 +1,4015 @@
+{
+  "runner": "claude",
+  "script_name": "B · 福田住建 物业投诉路径优化",
+  "script_path": "/Users/bluesurfire/Documents/claude/aimeeting/docs/kimi-tests/blind-test/scripts/B-property.json",
+  "meeting_id": "5de60dd3-6927-4b9f-90e6-c4fae2979a8a",
+  "started_at": "2026-05-27T15:41:01.049235+00:00",
+  "ended_at": "2026-05-27T15:43:23.362322+00:00",
+  "me": {
+    "user_id": "aa99b6a1-b287-447b-8ffc-0dfce9474872",
+    "name": "李局长",
+    "role": "leader"
+  },
+  "events": [
+    {
+      "ts": 1779896468.1895401,
+      "type": "ws_first",
+      "payload": {
+        "type": "system",
+        "msg": "ready"
+      }
+    },
+    {
+      "ts": 1779896470.691463,
+      "type": "ws_send",
+      "payload": {
+        "step": 0,
+        "speaker_name": "李局长",
+        "speaker_user_id": "aa99b6a1-b287-447b-8ffc-0dfce9474872",
+        "text": "最近 30 天 物业投诉 上升 30%, 我们今天 review 一下现有 三级应答 路径, 看 能不能 优化. 大家先 摆数据 + 谈风险.",
+        "expected": {
+          "note": "开场"
+        }
+      }
+    },
+    {
+      "ts": 1779896471.101912,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript",
+        "text": "最近 30 天 物业投诉 上升 30%, 我们今天 review 一下现有 三级应答 路径, 看 能不能 优化. 大家先 摆数据 + 谈风险.",
+        "is_final": true,
+        "start_ts": null,
+        "end_ts": null
+      }
+    },
+    {
+      "ts": 1779896471.101932,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript_persisted",
+        "line_id": 4762,
+        "start_ms": null,
+        "end_ms": null,
+        "text": "最近 30 天 物业投诉 上升 30%, 我们今天 review 一下现有 三级应答 路径, 看 能不能 优化. 大家先 摆数据 + 谈风险.",
+        "speaker_name": "李局长",
+        "speaker_status": "manual"
+      }
+    },
+    {
+      "ts": 1779896471.101942,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_start",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "agent_name": "Zhaojie",
+        "agent_nickname": null,
+        "agent_color": "FF6482"
+      }
+    },
+    {
+      "ts": 1779896476.692783,
+      "type": "ws_send",
+      "payload": {
+        "step": 1,
+        "speaker_name": "陈师宇",
+        "speaker_user_id": "da7cac18-b20f-45e2-a3b3-56636b298acf",
+        "text": "我把客户投诉 数据 拉了一下, 主要 集中在 5 个老旧 小区, 缴位 收费 + 公共维修 占 73%, NPS 跌到 32, 客户 反馈 是 等待 时间 太长.",
+        "expected": {
+          "note": "应触发 Sage (数据 + 看板) 或 Zhaojie (客户投诉 NPS)",
+          "agent_message_within_s": 8
+        }
+      }
+    },
+    {
+      "ts": 1779896477.064754,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript",
+        "text": "我把客户投诉 数据 拉了一下, 主要 集中在 5 个老旧 小区, 缴位 收费 + 公共维修 占 73%, NPS 跌到 32, 客户 反馈 是 等待 时间 太长.",
+        "is_final": true,
+        "start_ts": null,
+        "end_ts": null
+      }
+    },
+    {
+      "ts": 1779896477.070741,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript_persisted",
+        "line_id": 4763,
+        "start_ms": null,
+        "end_ms": null,
+        "text": "我把客户投诉 数据 拉了一下, 主要 集中在 5 个老旧 小区, 缴位 收费 + 公共维修 占 73%, NPS 跌到 32, 客户 反馈 是 等待 时间 太长.",
+        "speaker_name": "陈师宇",
+        "speaker_status": "manual"
+      }
+    },
+    {
+      "ts": 1779896480.726988,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "李"
+      }
+    },
+    {
+      "ts": 1779896480.726994,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "局长"
+      }
+    },
+    {
+      "ts": 1779896480.726998,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896480.79288,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "从"
+      }
+    },
+    {
+      "ts": 1779896480.7928882,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "客户"
+      }
+    },
+    {
+      "ts": 1779896480.859144,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "体验"
+      }
+    },
+    {
+      "ts": 1779896480.8591528,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "数据"
+      }
+    },
+    {
+      "ts": 1779896480.92592,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "看"
+      }
+    },
+    {
+      "ts": 1779896480.92593,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896480.925935,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "物业"
+      }
+    },
+    {
+      "ts": 1779896481.063029,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "投诉"
+      }
+    },
+    {
+      "ts": 1779896481.063039,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "同比"
+      }
+    },
+    {
+      "ts": 1779896481.063045,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "真实"
+      }
+    },
+    {
+      "ts": 1779896481.5879512,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "增幅"
+      }
+    },
+    {
+      "ts": 1779896481.5879612,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "是"
+      }
+    },
+    {
+      "ts": 1779896481.587969,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "35"
+      }
+    },
+    {
+      "ts": 1779896481.587975,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "%，"
+      }
+    },
+    {
+      "ts": 1779896481.587981,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "不是"
+      }
+    },
+    {
+      "ts": 1779896481.587986,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "30"
+      }
+    },
+    {
+      "ts": 1779896481.58799,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "%，"
+      }
+    },
+    {
+      "ts": 1779896481.5879948,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "且"
+      }
+    },
+    {
+      "ts": 1779896481.588,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "核心"
+      }
+    },
+    {
+      "ts": 1779896481.588005,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "引爆"
+      }
+    },
+    {
+      "ts": 1779896481.5880089,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "点是"
+      }
+    },
+    {
+      "ts": 1779896481.5880141,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "夜间"
+      }
+    },
+    {
+      "ts": 1779896481.588059,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "巡逻"
+      }
+    },
+    {
+      "ts": 1779896481.588064,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "不到位"
+      }
+    },
+    {
+      "ts": 1779896481.5881238,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896481.58814,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "占比"
+      }
+    },
+    {
+      "ts": 1779896481.588147,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "超"
+      }
+    },
+    {
+      "ts": 1779896481.589559,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "四"
+      }
+    },
+    {
+      "ts": 1779896481.648768,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "成"
+      }
+    },
+    {
+      "ts": 1779896481.648777,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779896481.6487832,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "现有"
+      }
+    },
+    {
+      "ts": 1779896481.648787,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "三级"
+      }
+    },
+    {
+      "ts": 1779896481.648791,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "应答"
+      }
+    },
+    {
+      "ts": 1779896481.6487958,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "路径"
+      }
+    },
+    {
+      "ts": 1779896481.716081,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "把"
+      }
+    },
+    {
+      "ts": 1779896481.813931,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "大量"
+      }
+    },
+    {
+      "ts": 1779896481.9182599,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "夜间"
+      }
+    },
+    {
+      "ts": 1779896481.956533,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "投诉"
+      }
+    },
+    {
+      "ts": 1779896481.976078,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "拖"
+      }
+    },
+    {
+      "ts": 1779896482.111329,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "到"
+      }
+    },
+    {
+      "ts": 1779896482.111336,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "第二天"
+      }
+    },
+    {
+      "ts": 1779896482.111344,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "才"
+      }
+    },
+    {
+      "ts": 1779896482.111347,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "派"
+      }
+    },
+    {
+      "ts": 1779896482.173835,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "单"
+      }
+    },
+    {
+      "ts": 1779896482.173843,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896482.173849,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "直接"
+      }
+    },
+    {
+      "ts": 1779896482.1738539,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "拉"
+      }
+    },
+    {
+      "ts": 1779896482.24296,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "高"
+      }
+    },
+    {
+      "ts": 1779896482.2429702,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "重复"
+      }
+    },
+    {
+      "ts": 1779896482.305771,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "投诉"
+      }
+    },
+    {
+      "ts": 1779896482.3057768,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "率"
+      }
+    },
+    {
+      "ts": 1779896482.372577,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779896482.372586,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "建议"
+      }
+    },
+    {
+      "ts": 1779896482.372591,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "立即"
+      }
+    },
+    {
+      "ts": 1779896482.436749,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "挑"
+      }
+    },
+    {
+      "ts": 1779896482.436758,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "一个"
+      }
+    },
+    {
+      "ts": 1779896482.4367628,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "投诉"
+      }
+    },
+    {
+      "ts": 1779896483.009168,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "密度"
+      }
+    },
+    {
+      "ts": 1779896483.009176,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "最大的"
+      }
+    },
+    {
+      "ts": 1779896483.009182,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "老旧"
+      }
+    },
+    {
+      "ts": 1779896483.009186,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "小区"
+      }
+    },
+    {
+      "ts": 1779896483.0091908,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "试点"
+      }
+    },
+    {
+      "ts": 1779896483.009195,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "投诉"
+      }
+    },
+    {
+      "ts": 1779896483.0091991,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "直"
+      }
+    },
+    {
+      "ts": 1779896483.009203,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "派"
+      }
+    },
+    {
+      "ts": 1779896483.009208,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "物业"
+      }
+    },
+    {
+      "ts": 1779896483.009213,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896483.009217,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "哪怕"
+      }
+    },
+    {
+      "ts": 1779896483.009221,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "初期"
+      }
+    },
+    {
+      "ts": 1779896483.009225,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "有"
+      }
+    },
+    {
+      "ts": 1779896483.009262,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "流程"
+      }
+    },
+    {
+      "ts": 1779896483.0092669,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "摩擦"
+      }
+    },
+    {
+      "ts": 1779896483.009272,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896483.009276,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "也比"
+      }
+    },
+    {
+      "ts": 1779896483.009281,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "让"
+      }
+    },
+    {
+      "ts": 1779896483.204469,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "投诉"
+      }
+    },
+    {
+      "ts": 1779896483.204479,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "在"
+      }
+    },
+    {
+      "ts": 1779896483.2044852,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "客服"
+      }
+    },
+    {
+      "ts": 1779896483.204491,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "端"
+      }
+    },
+    {
+      "ts": 1779896483.204496,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "淹没"
+      }
+    },
+    {
+      "ts": 1779896483.204501,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "强"
+      }
+    },
+    {
+      "ts": 1779896483.226221,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "——"
+      }
+    },
+    {
+      "ts": 1779896483.3412411,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "顾虑"
+      }
+    },
+    {
+      "ts": 1779896483.378931,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "可以有"
+      }
+    },
+    {
+      "ts": 1779896483.425277,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896483.4252899,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "但"
+      }
+    },
+    {
+      "ts": 1779896483.4252968,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "拖着"
+      }
+    },
+    {
+      "ts": 1779896483.490705,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "不改"
+      }
+    },
+    {
+      "ts": 1779896483.556206,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "风险"
+      }
+    },
+    {
+      "ts": 1779896483.685525,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "更大"
+      }
+    },
+    {
+      "ts": 1779896483.685537,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779896483.6855521,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_end",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "text": "李局长，从客户体验数据看，物业投诉同比真实增幅是35%，不是30%，且核心引爆点是夜间巡逻不到位，占比超四成。现有三级应答路径把大量夜间投诉拖到第二天才派单，直接拉高重复投诉率。建议立即挑一个投诉密度最大的老旧小区试点投诉直派物业，哪怕初期有流程摩擦，也比让投诉在客服端淹没强——顾虑可以有，但拖着不改风险更大。",
+        "citations": []
+      }
+    },
+    {
+      "ts": 1779896483.694305,
+      "type": "ws_send",
+      "payload": {
+        "step": 2,
+        "speaker_name": "冯磊",
+        "speaker_user_id": "f2b1b973-56ff-4752-a303-ae42145d2efb",
+        "text": "我倾向 试点 改 二级应答 — 12345 之后 直接派 物业, 但合规 红线 在哪 还得 法务 拍.",
+        "expected": {
+          "note": "应触发 Lex (法务 / 合规)",
+          "agent_message_within_s": 8,
+          "agent_message_grep_avoid": [
+            "都可以",
+            "看情况"
+          ]
+        }
+      }
+    },
+    {
+      "ts": 1779896484.065186,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript",
+        "text": "我倾向 试点 改 二级应答 — 12345 之后 直接派 物业, 但合规 红线 在哪 还得 法务 拍.",
+        "is_final": true,
+        "start_ts": null,
+        "end_ts": null
+      }
+    },
+    {
+      "ts": 1779896484.071966,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript_persisted",
+        "line_id": 4764,
+        "start_ms": null,
+        "end_ms": null,
+        "text": "我倾向 试点 改 二级应答 — 12345 之后 直接派 物业, 但合规 红线 在哪 还得 法务 拍.",
+        "speaker_name": "冯磊",
+        "speaker_status": "manual"
+      }
+    },
+    {
+      "ts": 1779896484.0750022,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_start",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "agent_name": "Lex",
+        "agent_nickname": null,
+        "agent_color": "FF9F0A"
+      }
+    },
+    {
+      "ts": 1779896488.0707278,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "冯"
+      }
+    },
+    {
+      "ts": 1779896488.0707378,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "磊"
+      }
+    },
+    {
+      "ts": 1779896488.070749,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896488.070755,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "二级"
+      }
+    },
+    {
+      "ts": 1779896488.151844,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "直"
+      }
+    },
+    {
+      "ts": 1779896488.151855,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "派"
+      }
+    },
+    {
+      "ts": 1779896488.151862,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "在"
+      }
+    },
+    {
+      "ts": 1779896488.205739,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "法规"
+      }
+    },
+    {
+      "ts": 1779896488.270897,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "上"
+      }
+    },
+    {
+      "ts": 1779896488.2709079,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "能做"
+      }
+    },
+    {
+      "ts": 1779896488.4029162,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896488.402926,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "但"
+      }
+    },
+    {
+      "ts": 1779896488.402931,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "必须"
+      }
+    },
+    {
+      "ts": 1779896488.402936,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "守"
+      }
+    },
+    {
+      "ts": 1779896488.5157802,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "两条"
+      }
+    },
+    {
+      "ts": 1779896488.5157912,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "硬"
+      }
+    },
+    {
+      "ts": 1779896488.515797,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "红线"
+      }
+    },
+    {
+      "ts": 1779896488.517631,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779896488.517639,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "第一"
+      }
+    },
+    {
+      "ts": 1779896488.5176451,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896488.51765,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "必须"
+      }
+    },
+    {
+      "ts": 1779896488.544116,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "保留"
+      }
+    },
+    {
+      "ts": 1779896488.544132,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "工"
+      }
+    },
+    {
+      "ts": 1779896489.54953,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "单"
+      }
+    },
+    {
+      "ts": 1779896489.549542,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "留"
+      }
+    },
+    {
+      "ts": 1779896489.549547,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "痕"
+      }
+    },
+    {
+      "ts": 1779896489.549553,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "和"
+      }
+    },
+    {
+      "ts": 1779896489.549557,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "可"
+      }
+    },
+    {
+      "ts": 1779896489.5495622,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "追溯"
+      }
+    },
+    {
+      "ts": 1779896489.549567,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "性"
+      }
+    },
+    {
+      "ts": 1779896489.549572,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "——"
+      }
+    },
+    {
+      "ts": 1779896489.549579,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "123"
+      }
+    },
+    {
+      "ts": 1779896489.549584,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "45"
+      }
+    },
+    {
+      "ts": 1779896489.5495958,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "的"
+      }
+    },
+    {
+      "ts": 1779896489.549601,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "派"
+      }
+    },
+    {
+      "ts": 1779896489.5496058,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "单"
+      }
+    },
+    {
+      "ts": 1779896489.54961,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "轨迹"
+      }
+    },
+    {
+      "ts": 1779896489.5496151,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "、"
+      }
+    },
+    {
+      "ts": 1779896489.549619,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "物业"
+      }
+    },
+    {
+      "ts": 1779896489.549624,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "签"
+      }
+    },
+    {
+      "ts": 1779896489.549628,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "收"
+      }
+    },
+    {
+      "ts": 1779896489.549633,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "记录"
+      }
+    },
+    {
+      "ts": 1779896489.549642,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "至少"
+      }
+    },
+    {
+      "ts": 1779896489.549647,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "保存"
+      }
+    },
+    {
+      "ts": 1779896489.5496871,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "两年"
+      }
+    },
+    {
+      "ts": 1779896489.549692,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896489.549697,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "否则"
+      }
+    },
+    {
+      "ts": 1779896489.549702,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "一旦"
+      }
+    },
+    {
+      "ts": 1779896489.549706,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "发生"
+      }
+    },
+    {
+      "ts": 1779896490.151018,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "事故"
+      }
+    },
+    {
+      "ts": 1779896490.151028,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896490.151034,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "责任"
+      }
+    },
+    {
+      "ts": 1779896490.15104,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "认定"
+      }
+    },
+    {
+      "ts": 1779896490.151045,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "会"
+      }
+    },
+    {
+      "ts": 1779896490.15105,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "陷入"
+      }
+    },
+    {
+      "ts": 1779896490.1510541,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "证据"
+      }
+    },
+    {
+      "ts": 1779896490.151066,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "链"
+      }
+    },
+    {
+      "ts": 1779896490.151156,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "断裂"
+      }
+    },
+    {
+      "ts": 1779896490.151177,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779896490.151186,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "第二"
+      }
+    },
+    {
+      "ts": 1779896490.1511931,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896490.1512,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "涉及"
+      }
+    },
+    {
+      "ts": 1779896490.376197,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "公共"
+      }
+    },
+    {
+      "ts": 1779896490.376204,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "维修"
+      }
+    },
+    {
+      "ts": 1779896490.3762078,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "基金"
+      }
+    },
+    {
+      "ts": 1779896490.376212,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "动"
+      }
+    },
+    {
+      "ts": 1779896490.3762171,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "用的"
+      }
+    },
+    {
+      "ts": 1779896490.37622,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "投诉"
+      }
+    },
+    {
+      "ts": 1779896490.376223,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896490.376226,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "不能"
+      }
+    },
+    {
+      "ts": 1779896490.37623,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "直"
+      }
+    },
+    {
+      "ts": 1779896490.5009458,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "派"
+      }
+    },
+    {
+      "ts": 1779896490.500961,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "物业"
+      }
+    },
+    {
+      "ts": 1779896490.500976,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896490.500982,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "必须先"
+      }
+    },
+    {
+      "ts": 1779896490.500988,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "走"
+      }
+    },
+    {
+      "ts": 1779896490.500993,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "业"
+      }
+    },
+    {
+      "ts": 1779896490.520192,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "委会"
+      }
+    },
+    {
+      "ts": 1779896490.5201979,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "或"
+      }
+    },
+    {
+      "ts": 1779896490.520201,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "街道"
+      }
+    },
+    {
+      "ts": 1779896490.520204,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "确认"
+      }
+    },
+    {
+      "ts": 1779896490.561645,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896490.5616488,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "避免"
+      }
+    },
+    {
+      "ts": 1779896490.561651,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "物业"
+      }
+    },
+    {
+      "ts": 1779896490.6957839,
+      "type": "ws_send",
+      "payload": {
+        "step": 3,
+        "speaker_name": "韩雪",
+        "speaker_user_id": "d7535d43-f2ff-4eae-93bf-9f425e216d94",
+        "text": "我看 数据 角度, 现在 三级 平均 7.2 天, 老旧 小区 真实 等待 中位数 11 天, 看板 指标 偏离 太大. 法务 上 是 不是 也 该 提一下 投诉 应答时限 的 行政法规?",
+        "expected": {
+          "note": "再触发 Sage + Lex (双角度)",
+          "agent_message_within_s": 8
+        }
+      }
+    },
+    {
+      "ts": 1779896490.745058,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "单"
+      }
+    },
+    {
+      "ts": 1779896490.7450671,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "方面"
+      }
+    },
+    {
+      "ts": 1779896490.7450728,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "挪用"
+      }
+    },
+    {
+      "ts": 1779896490.745079,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779896490.872144,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "我"
+      }
+    },
+    {
+      "ts": 1779896490.872154,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "建议"
+      }
+    },
+    {
+      "ts": 1779896490.872159,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "先"
+      }
+    },
+    {
+      "ts": 1779896490.872164,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "在一个"
+      }
+    },
+    {
+      "ts": 1779896490.889836,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "老旧"
+      }
+    },
+    {
+      "ts": 1779896490.8898509,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "小区"
+      }
+    },
+    {
+      "ts": 1779896491.067798,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript",
+        "text": "我看 数据 角度, 现在 三级 平均 7.2 天, 老旧 小区 真实 等待 中位数 11 天, 看板 指标 偏离 太大. 法务 上 是 不是 也 该 提一下 投诉 应答时限 的 行政法规?",
+        "is_final": true,
+        "start_ts": null,
+        "end_ts": null
+      }
+    },
+    {
+      "ts": 1779896491.0719528,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript_persisted",
+        "line_id": 4765,
+        "start_ms": null,
+        "end_ms": null,
+        "text": "我看 数据 角度, 现在 三级 平均 7.2 天, 老旧 小区 真实 等待 中位数 11 天, 看板 指标 偏离 太大. 法务 上 是 不是 也 该 提一下 投诉 应答时限 的 行政法规?",
+        "speaker_name": "韩雪",
+        "speaker_status": "manual"
+      }
+    },
+    {
+      "ts": 1779896491.116965,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_start",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "agent_name": "Zhaojie",
+        "agent_nickname": null,
+        "agent_color": "FF6482"
+      }
+    },
+    {
+      "ts": 1779896491.116981,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "试"
+      }
+    },
+    {
+      "ts": 1779896491.116986,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896491.116992,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "试点"
+      }
+    },
+    {
+      "ts": 1779896491.116997,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "期间"
+      }
+    },
+    {
+      "ts": 1779896491.117002,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "全程"
+      }
+    },
+    {
+      "ts": 1779896491.243464,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "法"
+      }
+    },
+    {
+      "ts": 1779896491.2434728,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "务"
+      }
+    },
+    {
+      "ts": 1779896491.243478,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "同步"
+      }
+    },
+    {
+      "ts": 1779896491.243484,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "抽"
+      }
+    },
+    {
+      "ts": 1779896491.278368,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "检"
+      }
+    },
+    {
+      "ts": 1779896491.278378,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896491.2783842,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "一旦"
+      }
+    },
+    {
+      "ts": 1779896491.437808,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "出现"
+      }
+    },
+    {
+      "ts": 1779896491.43782,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "隐私"
+      }
+    },
+    {
+      "ts": 1779896491.437827,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "泄露"
+      }
+    },
+    {
+      "ts": 1779896491.950349,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "或"
+      }
+    },
+    {
+      "ts": 1779896491.950356,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "资金"
+      }
+    },
+    {
+      "ts": 1779896491.95036,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "合规"
+      }
+    },
+    {
+      "ts": 1779896491.9503639,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "漏洞"
+      }
+    },
+    {
+      "ts": 1779896491.950367,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896491.95037,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "立刻"
+      }
+    },
+    {
+      "ts": 1779896491.950387,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "叫"
+      }
+    },
+    {
+      "ts": 1779896491.950392,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "停"
+      }
+    },
+    {
+      "ts": 1779896491.9503949,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "回"
+      }
+    },
+    {
+      "ts": 1779896491.950398,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "退"
+      }
+    },
+    {
+      "ts": 1779896491.950401,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779896491.950411,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_end",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "text": "冯磊，二级直派在法规上能做，但必须守两条硬红线。第一，必须保留工单留痕和可追溯性——12345的派单轨迹、物业签收记录至少保存两年，否则一旦发生事故，责任认定会陷入证据链断裂。第二，涉及公共维修基金动用的投诉，不能直派物业，必须先走业委会或街道确认，避免物业单方面挪用。我建议先在一个老旧小区试，试点期间全程法务同步抽检，一旦出现隐私泄露或资金合规漏洞，立刻叫停回退。",
+        "citations": []
+      }
+    },
+    {
+      "ts": 1779896499.6974,
+      "type": "ws_send",
+      "payload": {
+        "step": 4,
+        "speaker_name": "李局长",
+        "speaker_user_id": "aa99b6a1-b287-447b-8ffc-0dfce9474872",
+        "text": "好, 那我倾向 这样 — 选 1 个老旧 小区 试点 直派 物业, 法务 出 个 合规 备忘, Zhaojie 那边 跟踪 客户 满意度 投诉率 看板. 有反对意见 吗?",
+        "expected": {
+          "note": "决策 提议 — 期望 多 AI 立场 + Mira 接力",
+          "agent_message_within_s": 10
+        }
+      }
+    },
+    {
+      "ts": 1779896500.068923,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript",
+        "text": "好, 那我倾向 这样 — 选 1 个老旧 小区 试点 直派 物业, 法务 出 个 合规 备忘, Zhaojie 那边 跟踪 客户 满意度 投诉率 看板. 有反对意见 吗?",
+        "is_final": true,
+        "start_ts": null,
+        "end_ts": null
+      }
+    },
+    {
+      "ts": 1779896500.0746722,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript_persisted",
+        "line_id": 4766,
+        "start_ms": null,
+        "end_ms": null,
+        "text": "好, 那我倾向 这样 — 选 1 个老旧 小区 试点 直派 物业, 法务 出 个 合规 备忘, Zhaojie 那边 跟踪 客户 满意度 投诉率 看板. 有反对意见 吗?",
+        "speaker_name": "李局长",
+        "speaker_status": "manual"
+      }
+    },
+    {
+      "ts": 1779896506.2286909,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "韩"
+      }
+    },
+    {
+      "ts": 1779896506.234166,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "雪"
+      }
+    },
+    {
+      "ts": 1779896506.234176,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896506.234182,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "我"
+      }
+    },
+    {
+      "ts": 1779896506.2341871,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "完全"
+      }
+    },
+    {
+      "ts": 1779896506.3214028,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "同意"
+      }
+    },
+    {
+      "ts": 1779896506.321412,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "你的"
+      }
+    },
+    {
+      "ts": 1779896506.321418,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "判断"
+      }
+    },
+    {
+      "ts": 1779896506.600099,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779896506.6001081,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "老旧"
+      }
+    },
+    {
+      "ts": 1779896506.6001139,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "小区"
+      }
+    },
+    {
+      "ts": 1779896506.600119,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "中"
+      }
+    },
+    {
+      "ts": 1779896506.600124,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "位数"
+      }
+    },
+    {
+      "ts": 1779896506.6001332,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "11"
+      }
+    },
+    {
+      "ts": 1779896506.600139,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "天"
+      }
+    },
+    {
+      "ts": 1779896506.600144,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896506.600161,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "N"
+      }
+    },
+    {
+      "ts": 1779896506.6001668,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "PS"
+      }
+    },
+    {
+      "ts": 1779896506.600172,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "已经"
+      }
+    },
+    {
+      "ts": 1779896506.600176,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "跌"
+      }
+    },
+    {
+      "ts": 1779896506.600181,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "到"
+      }
+    },
+    {
+      "ts": 1779896506.6001852,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "32"
+      }
+    },
+    {
+      "ts": 1779896506.628272,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896506.6282828,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "客户"
+      }
+    },
+    {
+      "ts": 1779896506.699429,
+      "type": "ws_send",
+      "payload": {
+        "step": 5,
+        "speaker_name": "陈师宇",
+        "speaker_user_id": "da7cac18-b20f-45e2-a3b3-56636b298acf",
+        "text": "我支持, 但 试点 范围 仅 缴位 收费 类, 公共维修 还是 走三级, 风险 太大.",
+        "expected": {
+          "note": "收口 表态"
+        }
+      }
+    },
+    {
+      "ts": 1779896507.163049,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "等"
+      }
+    },
+    {
+      "ts": 1779896507.163059,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "不起"
+      }
+    },
+    {
+      "ts": 1779896507.1630652,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779896507.163069,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "我"
+      }
+    },
+    {
+      "ts": 1779896507.163074,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "建议"
+      }
+    },
+    {
+      "ts": 1779896507.163079,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "李"
+      }
+    },
+    {
+      "ts": 1779896507.1630878,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "局长"
+      }
+    },
+    {
+      "ts": 1779896507.163094,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "直接"
+      }
+    },
+    {
+      "ts": 1779896507.1630988,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "拍"
+      }
+    },
+    {
+      "ts": 1779896507.163104,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "板"
+      }
+    },
+    {
+      "ts": 1779896507.163108,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "："
+      }
+    },
+    {
+      "ts": 1779896507.1631129,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "法"
+      }
+    },
+    {
+      "ts": 1779896507.1631181,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "务"
+      }
+    },
+    {
+      "ts": 1779896507.1631548,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "本周"
+      }
+    },
+    {
+      "ts": 1779896507.163161,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "内"
+      }
+    },
+    {
+      "ts": 1779896507.163166,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "明确"
+      }
+    },
+    {
+      "ts": 1779896507.163172,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript",
+        "text": "我支持, 但 试点 范围 仅 缴位 收费 类, 公共维修 还是 走三级, 风险 太大.",
+        "is_final": true,
+        "start_ts": null,
+        "end_ts": null
+      }
+    },
+    {
+      "ts": 1779896507.163185,
+      "type": "ws_recv",
+      "payload": {
+        "type": "transcript_persisted",
+        "line_id": 4767,
+        "start_ms": null,
+        "end_ms": null,
+        "text": "我支持, 但 试点 范围 仅 缴位 收费 类, 公共维修 还是 走三级, 风险 太大.",
+        "speaker_name": "陈师宇",
+        "speaker_status": "manual"
+      }
+    },
+    {
+      "ts": 1779896507.340186,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_start",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "agent_name": "Lex",
+        "agent_nickname": null,
+        "agent_color": "FF9F0A"
+      }
+    },
+    {
+      "ts": 1779896507.3402,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "投诉"
+      }
+    },
+    {
+      "ts": 1779896507.340207,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "应答"
+      }
+    },
+    {
+      "ts": 1779896507.3402119,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "时限"
+      }
+    },
+    {
+      "ts": 1779896507.340217,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "的"
+      }
+    },
+    {
+      "ts": 1779896507.340222,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "行政"
+      }
+    },
+    {
+      "ts": 1779896507.3402271,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "合规"
+      }
+    },
+    {
+      "ts": 1779896507.502115,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "底线"
+      }
+    },
+    {
+      "ts": 1779896507.502125,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896507.5021288,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "同时"
+      }
+    },
+    {
+      "ts": 1779896507.502132,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "我们"
+      }
+    },
+    {
+      "ts": 1779896507.502136,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "立即"
+      }
+    },
+    {
+      "ts": 1779896507.5021389,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "在"
+      }
+    },
+    {
+      "ts": 1779896507.502199,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "5"
+      }
+    },
+    {
+      "ts": 1779896507.5022058,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "个"
+      }
+    },
+    {
+      "ts": 1779896507.5022101,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "老旧"
+      }
+    },
+    {
+      "ts": 1779896507.502213,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "小区"
+      }
+    },
+    {
+      "ts": 1779896507.5022159,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "试点"
+      }
+    },
+    {
+      "ts": 1779896507.502219,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "二级"
+      }
+    },
+    {
+      "ts": 1779896507.5588338,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "直"
+      }
+    },
+    {
+      "ts": 1779896507.558848,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "派"
+      }
+    },
+    {
+      "ts": 1779896507.5588531,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896507.558857,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "我会"
+      }
+    },
+    {
+      "ts": 1779896507.7090409,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "同步"
+      }
+    },
+    {
+      "ts": 1779896507.709053,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "按"
+      }
+    },
+    {
+      "ts": 1779896507.7090602,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "片区"
+      }
+    },
+    {
+      "ts": 1779896507.8037171,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "拆"
+      }
+    },
+    {
+      "ts": 1779896507.8037288,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "分的"
+      }
+    },
+    {
+      "ts": 1779896507.872433,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "投诉"
+      }
+    },
+    {
+      "ts": 1779896507.872442,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "数据"
+      }
+    },
+    {
+      "ts": 1779896507.872447,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "监测"
+      }
+    },
+    {
+      "ts": 1779896507.928714,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "物业"
+      }
+    },
+    {
+      "ts": 1779896507.928732,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "响应"
+      }
+    },
+    {
+      "ts": 1779896508.545619,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "质量和"
+      }
+    },
+    {
+      "ts": 1779896508.545633,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "N"
+      }
+    },
+    {
+      "ts": 1779896508.5456388,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "PS"
+      }
+    },
+    {
+      "ts": 1779896508.5456462,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "变化"
+      }
+    },
+    {
+      "ts": 1779896508.54566,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "——"
+      }
+    },
+    {
+      "ts": 1779896508.545665,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "我的"
+      }
+    },
+    {
+      "ts": 1779896508.5456698,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "顾虑"
+      }
+    },
+    {
+      "ts": 1779896508.545675,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "是"
+      }
+    },
+    {
+      "ts": 1779896508.5456798,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "物业"
+      }
+    },
+    {
+      "ts": 1779896508.545685,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "执行"
+      }
+    },
+    {
+      "ts": 1779896508.545689,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "可能"
+      }
+    },
+    {
+      "ts": 1779896508.5456939,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "不到位"
+      }
+    },
+    {
+      "ts": 1779896508.5456991,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896508.545707,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "但这"
+      }
+    },
+    {
+      "ts": 1779896508.700707,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "不能"
+      }
+    },
+    {
+      "ts": 1779896508.700717,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "拖着"
+      }
+    },
+    {
+      "ts": 1779896508.700724,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896508.7007291,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "试点"
+      }
+    },
+    {
+      "ts": 1779896508.700735,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "先"
+      }
+    },
+    {
+      "ts": 1779896508.70074,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "跑"
+      }
+    },
+    {
+      "ts": 1779896508.700746,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "起来"
+      }
+    },
+    {
+      "ts": 1779896508.700751,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896508.700756,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "出"
+      }
+    },
+    {
+      "ts": 1779896508.700761,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "问题"
+      }
+    },
+    {
+      "ts": 1779896508.7007658,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "再"
+      }
+    },
+    {
+      "ts": 1779896508.700772,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "纠"
+      }
+    },
+    {
+      "ts": 1779896508.761674,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "偏"
+      }
+    },
+    {
+      "ts": 1779896508.761683,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779896508.761693,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_end",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000009",
+        "text": "韩雪，我完全同意你的判断。老旧小区中位数11天，NPS已经跌到32，客户等不起。我建议李局长直接拍板：法务本周内明确投诉应答时限的行政合规底线，同时我们立即在5个老旧小区试点二级直派，我会同步按片区拆分的投诉数据监测物业响应质量和NPS变化——我的顾虑是物业执行可能不到位，但这不能拖着，试点先跑起来，出问题再纠偏。",
+        "citations": []
+      }
+    },
+    {
+      "ts": 1779896514.48453,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_recommendation",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "agent_name": "Lex",
+        "agent_nickname": null,
+        "agent_color": "FF9F0A",
+        "reason": "上一位专家要求法务明确合规底线，转给法务"
+      }
+    },
+    {
+      "ts": 1779896516.75487,
+      "type": "ws_recv",
+      "payload": {
+        "type": "dissent_detected",
+        "topic": "试点直派物业是否涵盖公共维修",
+        "parties": [
+          "李局长",
+          "陈师宇"
+        ],
+        "suggested_agent_id": "f035b3a2-0c31-4363-9569-4c285c0cdee9",
+        "suggested_agent_name": "保险产品策略师",
+        "suggested_agent_nickname": null,
+        "suggested_agent_color": "violet",
+        "reason": "李局长要试点含公共维修, 陈师宇觉得风险大应保留三级"
+      }
+    },
+    {
+      "ts": 1779896517.9284558,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "陈"
+      }
+    },
+    {
+      "ts": 1779896517.9969091,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "师"
+      }
+    },
+    {
+      "ts": 1779896517.996922,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "宇"
+      }
+    },
+    {
+      "ts": 1779896517.996929,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896517.996935,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "我"
+      }
+    },
+    {
+      "ts": 1779896517.996951,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "同意"
+      }
+    },
+    {
+      "ts": 1779896518.534204,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "你的"
+      }
+    },
+    {
+      "ts": 1779896518.53421,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "判断"
+      }
+    },
+    {
+      "ts": 1779896518.534215,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779896518.534218,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "公共"
+      }
+    },
+    {
+      "ts": 1779896518.5342212,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "维修"
+      }
+    },
+    {
+      "ts": 1779896518.534228,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "类"
+      }
+    },
+    {
+      "ts": 1779896518.8162382,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "投诉"
+      }
+    },
+    {
+      "ts": 1779896518.8162491,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "直"
+      }
+    },
+    {
+      "ts": 1779896518.816255,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "派"
+      }
+    },
+    {
+      "ts": 1779896518.816261,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "物业"
+      }
+    },
+    {
+      "ts": 1779896518.816273,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "会"
+      }
+    },
+    {
+      "ts": 1779896518.8162801,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "直接"
+      }
+    },
+    {
+      "ts": 1779896518.816285,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "触发"
+      }
+    },
+    {
+      "ts": 1779896518.8162901,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "《"
+      }
+    },
+    {
+      "ts": 1779896518.816295,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "住宅"
+      }
+    },
+    {
+      "ts": 1779896518.816301,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "专项"
+      }
+    },
+    {
+      "ts": 1779896518.8163059,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "维修"
+      }
+    },
+    {
+      "ts": 1779896518.8163111,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "资金"
+      }
+    },
+    {
+      "ts": 1779896518.8163571,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "管理办法"
+      }
+    },
+    {
+      "ts": 1779896518.8163881,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "》"
+      }
+    },
+    {
+      "ts": 1779896518.8163981,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "里"
+      }
+    },
+    {
+      "ts": 1779896518.9042041,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "关于"
+      }
+    },
+    {
+      "ts": 1779896518.904212,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "业主"
+      }
+    },
+    {
+      "ts": 1779896518.904224,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "共同"
+      }
+    },
+    {
+      "ts": 1779896518.9042292,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "决定的"
+      }
+    },
+    {
+      "ts": 1779896518.904233,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "强制"
+      }
+    },
+    {
+      "ts": 1779896518.904242,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "程序"
+      }
+    },
+    {
+      "ts": 1779896518.904246,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896518.9042501,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "一旦"
+      }
+    },
+    {
+      "ts": 1779896518.904254,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "跳过"
+      }
+    },
+    {
+      "ts": 1779896518.904258,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896519.185444,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "物业"
+      }
+    },
+    {
+      "ts": 1779896519.185459,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "单"
+      }
+    },
+    {
+      "ts": 1779896519.1855009,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "方"
+      }
+    },
+    {
+      "ts": 1779896519.185508,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "处置"
+      }
+    },
+    {
+      "ts": 1779896519.185514,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "就是"
+      }
+    },
+    {
+      "ts": 1779896519.3361201,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "违规"
+      }
+    },
+    {
+      "ts": 1779896519.336129,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896519.383279,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "试点"
+      }
+    },
+    {
+      "ts": 1779896520.23216,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "不能"
+      }
+    },
+    {
+      "ts": 1779896520.232169,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "碰"
+      }
+    },
+    {
+      "ts": 1779896520.232175,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "这条"
+      }
+    },
+    {
+      "ts": 1779896520.2321799,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "红线"
+      }
+    },
+    {
+      "ts": 1779896520.2321851,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779896520.23219,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "缴费"
+      }
+    },
+    {
+      "ts": 1779896520.2321951,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "收费"
+      }
+    },
+    {
+      "ts": 1779896520.232209,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "类"
+      }
+    },
+    {
+      "ts": 1779896520.232215,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "合规"
+      }
+    },
+    {
+      "ts": 1779896520.23222,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "风险"
+      }
+    },
+    {
+      "ts": 1779896520.232224,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "可控"
+      }
+    },
+    {
+      "ts": 1779896520.2322292,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "，"
+      }
+    },
+    {
+      "ts": 1779896520.232234,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "法"
+      }
+    },
+    {
+      "ts": 1779896520.232239,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "务"
+      }
+    },
+    {
+      "ts": 1779896520.232259,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "备忘"
+      }
+    },
+    {
+      "ts": 1779896520.232264,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "我会"
+      }
+    },
+    {
+      "ts": 1779896520.23227,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "把"
+      }
+    },
+    {
+      "ts": 1779896520.232275,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "这两个"
+      }
+    },
+    {
+      "ts": 1779896520.232279,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "分类"
+      }
+    },
+    {
+      "ts": 1779896520.2322838,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "的"
+      }
+    },
+    {
+      "ts": 1779896520.232289,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "边界"
+      }
+    },
+    {
+      "ts": 1779896520.232299,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "和"
+      }
+    },
+    {
+      "ts": 1779896520.232364,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "法规"
+      }
+    },
+    {
+      "ts": 1779896520.23237,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "依据"
+      }
+    },
+    {
+      "ts": 1779896520.2323751,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "写"
+      }
+    },
+    {
+      "ts": 1779896520.23238,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "清楚"
+      }
+    },
+    {
+      "ts": 1779896520.232385,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_chunk",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "chunk": "。"
+      }
+    },
+    {
+      "ts": 1779896520.528707,
+      "type": "ws_recv",
+      "payload": {
+        "type": "agent_message_end",
+        "agent_id": "00000000-0000-0000-0000-20a9e7000005",
+        "text": "陈师宇，我同意你的判断。公共维修类投诉直派物业会直接触发《住宅专项维修资金管理办法》里关于业主共同决定的强制程序，一旦跳过，物业单方处置就是违规，试点不能碰这条红线。缴费收费类合规风险可控，法务备忘我会把这两个分类的边界和法规依据写清楚。",
+        "citations": []
+      }
+    }
+  ],
+  "summary_md_len": 605,
+  "summary_md_excerpt": "## 会议主题\n物业缴位投诉三级应答路径试点优化讨论\n\n## 概览\n会议围绕近30天物业投诉同比上升的问题，分析数据发现老旧小区缴费收费与公共维修投诉占比73%，平均应答7.2天、中位11天致NPS跌至32。经与会真人与AI专家讨论，决定选1个老旧小区试点缴费收费类投诉直派物业，公共维修类保留三级流程，并布置法务合规备忘与看板跟踪。\n\n## 关键要点\n- 物业投诉同比增35%,夜间巡逻不到位是核心诱因,老旧小区应答延迟严重\n- 决定在1个老旧小区试点缴费收费类投诉直派物业,公共维修类保留三级\n- 法务将出合规备忘,要求工单留痕至少两年,并同步抽检\n\n## 已形成决策\n- 【物业投诉应答路径优化试点】试点缴费收费类投诉直派物业至1个老旧小区\n\n## 分歧事项\n无明显分歧\n\n## 风险提醒\n- 公共维修类投诉直派物业存在法规违规风险 — 提出人: 陈师宇\n- 公共维修基金直派可能绕过业委会确认构成违规 — 提出人: Lex\n- 试点物业执行可能不到位致响应质量下降 — 提出人: Zhaojie\n\n## 待办事项\n- [ ] 法务出具直派物业合规备忘 — 负责: 法务部\n- [ ] Zhaojie跟踪客户满意度与投诉率看板 — 负责: Zhaojie\n\n## 下一步建议\n- 选定1个老旧小区启动缴费收费投诉直派试点\n- 法务完成合规备忘并明确两类投诉分类边界\n- 试点期间建立工单留痕与法务抽检机制",
+  "summary_json": {
+    "risks": [
+      {
+        "text": "公共维修类投诉直派物业存在法规违规风险",
+        "raised_by": "陈师宇",
+        "source_line_id": 4767
+      },
+      {
+        "text": "公共维修基金直派可能绕过业委会确认构成违规",
+        "raised_by": "Lex",
+        "source_line_id": null
+      },
+      {
+        "text": "试点物业执行可能不到位致响应质量下降",
+        "raised_by": "Zhaojie",
+        "source_line_id": null
+      }
+    ],
+    "title": "物业缴位投诉三级应答路径试点优化讨论",
+    "topics": [
+      {
+        "topic": "物业投诉应答路径优化试点",
+        "summary": "集中分析投诉数据与应答延迟，讨论将部分投诉从三级应答改为二级直派物业的可行性，明确试点范围与合规边界。",
+        "decision": "试点缴费收费类投诉直派物业至1个老旧小区",
+        "speakers": [
+          {
+            "points": [
+              "物业投诉30天上升30%需优化应答",
+              "倾向选1个老旧小区试点直派物业"
+            ],
+            "stance": "support",
+            "agent_id": null,
+            "speaker_name": "李局长",
+            "speaker_type": "human",
+            "source_line_ids": [
+              4762,
+              4766
+            ],
+            "source_message_ids": []
+          },
+          {
+            "points": [
+              "老旧小区缴费收费+公共维修投诉占73%",
+              "NPS跌至32,等待时间过长",
+              "支持试点但仅限缴费收费类"
+            ],
+            "stance": "support",
+            "agent_id": null,
+            "speaker_name": "陈师宇",
+            "speaker_type": "human",
+            "source_line_ids": [
+              4763,
+              4767
+            ],
+            "source_message_ids": []
+          },
+          {
+            "points": [
+              "倾向试点二级应答,12345直派物业",
+              "需要法务明确合规红线"
+            ],
+            "stance": "support",
+            "agent_id": null,
+            "speaker_name": "冯磊",
+            "speaker_type": "human",
+            "source_line_ids": [
+              4764
+            ],
+            "source_message_ids": []
+          },
+          {
+            "points": [
+              "三级平均7.2天,老旧小区中位11天",
+              "询问是否应关注投诉应答时限行政法规"
+            ],
+            "stance": "neutral",
+            "agent_id": null,
+            "speaker_name": "韩雪",
+            "speaker_type": "human",
+            "source_line_ids": [
+              4765
+            ],
+            "source_message_ids": []
+          },
+          {
+            "points": [
+              "投诉同比真实增幅35%,夜间巡逻是主因",
+              "建议立即选投诉密度高小区试点直派",
+              "建议局长拍板,5个小区试点并监测NPS"
+            ],
+            "stance": "support",
+            "agent_id": null,
+            "speaker_name": "Zhaojie",
+            "speaker_type": "ai",
+            "source_line_ids": [],
+            "source_message_ids": [
+              701,
+              703
+            ]
+          },
+          {
+            "points": [
+              "二级直派须保留工单留痕两年",
+              "公共维修基金类严禁直派",
+              "缴费收费类合规风险可控,法务备忘编写边界"
+            ],
+            "stance": "support",
+            "agent_id": null,
+            "speaker_name": "Lex",
+            "speaker_type": "ai",
+            "source_line_ids": [],
+            "source_message_ids": [
+              702,
+              704
+            ]
+          }
+        ],
+        "action_items": [
+          {
+            "text": "法务出具直派物业合规备忘",
+            "owner": "法务部",
+            "due_date": null,
+            "source_line_id": 4766
+          },
+          {
+            "text": "Zhaojie跟踪客户满意度与投诉率看板",
+            "owner": "Zhaojie",
+            "due_date": null,
+            "source_line_id": 4766
+          }
+        ]
+      }
+    ],
+    "overview": "会议围绕近30天物业投诉同比上升的问题，分析数据发现老旧小区缴费收费与公共维修投诉占比73%，平均应答7.2天、中位11天致NPS跌至32。经与会真人与AI专家讨论，决定选1个老旧小区试点缴费收费类投诉直派物业，公共维修类保留三级流程，并布置法务合规备忘与看板跟踪。",
+    "next_steps": [
+      "选定1个老旧小区启动缴费收费投诉直派试点",
+      "法务完成合规备忘并明确两类投诉分类边界",
+      "试点期间建立工单留痕与法务抽检机制"
+    ],
+    "key_takeaways": [
+      "物业投诉同比增35%,夜间巡逻不到位是核心诱因,老旧小区应答延迟严重",
+      "决定在1个老旧小区试点缴费收费类投诉直派物业,公共维修类保留三级",
+      "法务将出合规备忘,要求工单留痕至少两年,并同步抽检"
+    ]
+  },
+  "summary_status": "ready",
+  "transcript_lines_count": 10,
+  "results": {
+    "item_2_proactive_count": 4,
+    "item_2_avg_latency_s": 0.46,
+    "item_2_latencies_s": [
+      0.41,
+      0.38,
+      0.42,
+      0.64
+    ],
+    "item_3_stance_violations": [],
+    "item_3_stance_strong": [
+      "agent=00000000 word='建议'",
+      "agent=00000000 word='建议'"
+    ],
+    "item_3_agent_text_lengths": {
+      "00000000-0000-0000-0000-20a9e7000009": 314,
+      "00000000-0000-0000-0000-20a9e7000005": 303
+    },
+    "item_4_summary_has_ai_speakers": true,
+    "item_4_action_items_with_source": 2,
+    "item_4_summary_json_present": true,
+    "item_4_topic_count": 1,
+    "item_5_recommendation_count": 1,
+    "item_5_dissent_count": 1,
+    "item_5_combined_count": 2
+  }
+}
