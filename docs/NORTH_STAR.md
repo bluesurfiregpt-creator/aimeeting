@@ -1,9 +1,9 @@
-# aimeeting · NORTH_STAR (产品宪法 v1)
+# aimeeting · NORTH_STAR (产品宪法 v1.2)
 
-> **版本**: v1.0
-> **生效日期**: 2026-05-25
-> **来源**: PM 7 问对齐 + 4 处分散意图合并升级 (`docs/product-needs-v1.md` + `docs/v26.3-spec.md` + `docs/v26.5-role-redesign-spec.md` + `README.md`)
-> **演进机制**: 每个 Saga 收尾时反思, 由 PM 决策升级版本 (见第 9 节)
+> **版本**: v1.2 (大会师对齐升级, 2026-05-27)
+> **历史**: v1.0 (2026-05-25 PM 7 问对齐) → v1.1 (权限重命名 v1.3.1) → **v1.2 (本次)**
+> **来源**: PM 主导 8 大客户痛点表述 + Code Archaeology 校准 + Phase 1-2 + Sprint 1-3 ship 历史
+> **演进机制**: 每个 Saga 收尾时反思, **或 PM 主导"大会师"重新对齐**, 由 PM 决策升级版本 (见第 9 节)
 > **本文档是产品 truth source** — 任何 Saga changelist / spec 必须先对齐 NORTH_STAR, 不一致以 NORTH_STAR 为准.
 
 ---
@@ -15,8 +15,9 @@
 3. **核心差异**: 不是会议录音工具, 是有"组织决策记忆 + AI 任务执行"闭环的 SaaS 系统; **AI 五大能力**是产品灵魂(记忆/知识/数据/任务执行/会议表现).
 4. **架构**: multi-tenant SaaS, **每个 workspace 完全独立**(logo / 名称 / 用户 / 声纹 / AI 专家 / 数据), 不硬编码客户专属逻辑.
 5. **三端**: Web 全功能(含独占编辑) + 小程序原生(只查看 + 发起会议) + H5 (vibe coding 阶段测试用, 终态翻译到小程序).
-6. **当前阶段**: 收尾 round-4 Saga A (主 tab 浅色化), 启动 **Saga E (AI 专家核心能力补齐)** → 暂停 Saga B/C/D.
+6. **当前阶段** (v1.2 升级): MVP 路径 Phase A → B → C, 共 ~19-21d 三阶段 ship, 跑通客户 "开第一场到第十场会 + 非会议场景" 完整体验. Phase D (NEW-D agentic + WebRTC) V1.5.
 7. **不做清单**: dark mode / 客户专属硬编码 / 小程序编辑 / 一次性大改 / mock 假装真实.
+8. **客户 8 大痛点** (v1.2 新增, 见 § 1.4): 会议人云亦云 / AI 不持立场 / 开完不了了之 / AI 像新人不成长 / 多议题串题 / 会议跑偏 / 临时找不到人问 / 任务派出去没人跑.
 
 ---
 
@@ -45,6 +46,68 @@
 | **政务工单系统** | 工单流转 + 派人 | "组织决策 + 知识沉淀 + 数据 5 级 ABAC" 收在一起, 从工具走向决策助手 |
 
 _(反推自 `docs/PRODUCT_OVERVIEW.md` § 1.2 + `docs/product-needs-v1.md` 主题一-四, 不硬猜)_
+
+### 1.4 客户 8 大痛点 (v1.2 大会师对齐 · PM 主导口述)
+
+> **来源**: 2026-05-27 PM "大会师" 主导问对齐. **这 8 条是产品最终要解决的客户痛点, 任何 saga / 功能取舍以此为准.**
+> 用 PM 原话精炼, 不二次诠释.
+
+#### 痛点 1 · 会议人云亦云
+> "每次开会, 总是一两个人在会上发言和主导, 其他人完全提供不了有效的交流和建设性意见, 都是人云亦云."
+
+**对应产品能力**: 多领域 AI 专家参会发言 (NORTH_STAR § 3.5 + auto_meeting_orchestrator + 3 路 LLM judge proactive)
+
+#### 痛点 2 · AI 顺着发言人立场不持立场
+> "AI 专家有他不同的知识库, 可以在某一特定领域针对性地提出意见, 而不是顺着发言人立场来去迎合, 真正能给会议注入新鲜的、聪明的、可讨论的建设性意见."
+
+**对应产品能力**: 持 KB 的 AI agent (§ 3.2 + agent_router RAG retrieval) + **system prompt 立场守门** (v1.2 新增)
+
+#### 痛点 3 · 会议完成不了了之, 沉淀不到位
+> "开完会经常不了了之, 跟没开一样. 会议要有沉淀: 纪要(讨论重点、每个人立场、事实、下一步) + 任务. 关键: **任务必须能溯源到具体讨论段落或结论性依据**, 否则不知道 AI 总结对不对."
+
+**对应产品能力**:
+- summary_generator + action_extractor + insight_extractor (Sprint 2 verify ✓)
+- `MeetingActionItem.evidence_quote` + `evidence_anchor_line_ids` 字段已落 ✓
+- **summary 按发言人分立场** (v1.2 调优待做)
+- **任务溯源 chip + 点击跳实录高亮** (Sprint 3 Mobile ship ✓, Web 待 Phase A)
+
+#### 痛点 4 · AI 像新人不成长 · 会议记忆要"覆盖最新"
+> "AI 专家应该陪着我们开会不断成长, 不是每次开会都是新人. 知识库(书架)和记忆(回忆)要区分: **书架上的书可以人为更新, 记忆是 AI 参加过会议沉淀下来的, 新会议覆盖老的冲突记忆**. 两个月前那场会跟现在冲突, AI 必须明确知道, 最新覆盖老的."
+
+**对应产品能力**:
+- 跨会议记忆 (§ 3.1 + LongTermMemory + RAG retrieve) ✓
+- **NEW-A: 冲突检测 + 新覆盖老 memory** (v1.2 新增 P0 — 见 § 3.1)
+- **书架 vs 回忆 UI 区分** (v1.2 新增设计原则)
+
+#### 痛点 5 · 多议题穿插, AI 不能串题
+> "议题可以是连续(同议题连开 3 场)也可以是交叉(中间穿插其他会议). 只要参会专家还是上一场会议的, 就能持续沟通讨论, **不会因中间穿插其他会议在记忆方面有所干扰**."
+
+**对应产品能力**:
+- RAG 相似度检索 (现有) — 部分覆盖
+- **NEW-B: 议题主题一级对象 (topic_thread)** (v1.2 新增 P0 — 见 § 3.5)
+
+#### 痛点 6 · 会议跑偏需要 AI 主持人拉回
+> "会议经常聊偏, 1 小时开成 3 小时. 需要 AI 主持人及时提醒, 把会议拉回正题. **主持人还要清楚每位 AI 专家能力, 用户求助时推荐合适的一位或多位 AI 来回答**."
+
+**对应产品能力**:
+- agenda_monitor (偏题/超时/僵局) m3.0 + v26.14-P4 ✓
+- agent_router 5 维 routing 推荐 AI ✓
+- Mira moderator role 内置 ✓
+- **主持人 UI 交互**(拉回提示 + @Mira 推荐专家)(v1.2 调优 Phase A)
+
+#### 痛点 7 · 非会议场景找 Mira 临时问问题
+> "不是所有问题都要开会. 临时有问题不知道问谁, 可以快速呼叫 AI 主持人. 主持人参与每场会, 知道历史 + 每位 AI 特长. 答不出会推荐 AI 专家."
+
+**对应产品能力**:
+- backend 全有 (Mira + 跨会议记忆 + agent_router 推荐) ✓
+- **NEW-C: 非会议场景 1-on-1 Mira 对话入口** (v1.2 新增 P0 · 前端 0 实现)
+
+#### 痛点 8 · AI 自主跑任务 vs 协作交付
+> "会后形成的任务, 有些可以由 AI 专家自行完成 (类似 OpenClaude 模式) — AI 自己根据任务情况完成并交付. 有些需要人工协助 (补资料 / 现实操作), 则提示用户在人类协助下完成."
+
+**对应产品能力**:
+- 任务派 AI + 状态机 + 4 维 routing + KB 沉淀 ✓
+- **NEW-D: AI agentic 自主跑任务执行链** (v1.2 新增 · 类 OpenClaude · 高风险 V1.5)
 
 ---
 
@@ -90,20 +153,33 @@ _(来源: PM Q2 + audit 2026-05-25 + PM 4 拍板决策, 见 `docs/audit/role-per
 ### 3.1 长期记忆 (Memory)
 
 **现状**: 三层金字塔已落地 (快照 ai_insight → 待审 memory_draft → 记忆库 long_term_memory + pgvector 1536d). Memory ↔ Agent 多对多 (memory_agent_link) v26.5-Lineage 已 GA.
+出处链回 + 跳回原文 + 高亮 3 秒 (Sprint 3 Mobile ship ✓). axis_tag 6 轴分类 (Saga T5 ship ✓).
 
-**目标**:
-- 出处链回 + 跳回原文 + 高亮 3 秒 (`product-needs-v1.md` § v1.1 路线)
-- 记忆库反悔删除
-- 跨会议自动调用 (AI 发言时引用过往记忆 + 一键跳查证)
+**目标 (v1.2 升级)**:
+- ✅ 出处链回 + 跳回原文 + 高亮 3 秒 (Sprint 3 Mobile ship)
+- ✅ 跨会议自动调用 (RAG retrieve + 注入 prompt, agent_router.py:325)
+- ⏳ 记忆库反悔删除 (Phase C)
+- 🔴 **NEW-A: 冲突检测 + 新覆盖老 memory** (痛点 4) — P0
+  - 新 memory 入库前 LLM judge vs 老 memory 是否冲突
+  - 冲突标 `superseded_by=新.id`
+  - AI 引用时只拿"活的"
+  - **时间线 UI**: 让用户看到"AI 知道哪些是最新"
+  - **书架 vs 回忆 UI 区分** — KB (book) 是显式管理的, Memory (brain) 是 AI 沉淀的
+  - 估时 2-3d (Phase B 简版 + Phase C 完整版)
 
 ### 3.2 知识沉淀 (Knowledge)
 
-**现状**: KB 文档 (PDF/Word/Excel/PPT/图片 OCR) + chunk + embedding 已落. 任务办结 → AI KB 自动沉淀 (4 段闭环档案) v26.2 已落.
+**现状**: KB 文档 (PDF/Word/Excel/PPT/图片 OCR) + chunk + embedding 已落. 任务办结 → AI KB 自动沉淀 (4 段闭环档案) v26.2 已落. RAG retrieve 真注入 prompt (agent_router.py:325 + _compose_system_prompt:199-208) ✓. citations 端到端到前端 chip (Sprint 3 Mobile ship ✓).
 
-**目标**:
-- KB 引用侧栏 (citations 已在库, UI 没做) — 会议室点 AI 发言弹出引用的 KB chunk
-- OCR 准确度提升(扫描件/手写体, 接更专业 OCR)
-- 公文智能审核 v24.2#3 已落, 看是否扩到通用
+**目标 (v1.2 升级)**:
+- ✅ KB 引用侧栏 (Sprint 3 Mobile KBCitationSheet ship · 相似度 chip 高/相关/参考)
+- ✅ RAG retrieval 真注入 prompt (agent_router prod work)
+- 🔴 **system prompt 立场守门模板** (痛点 2) — P0 Phase A
+  - AI 不许说"以您的判断为准"
+  - 基于 KB 顶住, 不和稀泥
+  - 估时 0.5d
+- ⏳ OCR 准确度提升 (扫描件/手写体, 接更专业 OCR)
+- ⏳ 公文智能审核 v24.2#3 已落, 看是否扩到通用
 
 ### 3.3 数据沉淀方案 (Data)
 
@@ -116,22 +192,63 @@ _(来源: PM Q2 + audit 2026-05-25 + PM 4 拍板决策, 见 `docs/audit/role-per
 
 ### 3.4 任务执行 (Task Execution)
 
-**现状**: Task 一级对象 + 8 态状态机 + 4 维自动派发 + 多 AI 协作(主责 + 协办 + 双向评分) + 月度评价 v17-v23 已落. v26.0 升级为 agent-centric (AI 主责, 真人是 AI 的"手脚").
+**现状**: Task 一级对象 + 8 态状态机 + 4 维自动派发 + 多 AI 协作(主责 + 协办 + 双向评分) + 月度评价 v17-v23 已落. v26.0 升级为 agent-centric (AI 主责, 真人是 AI 的"手脚"). action_extractor + task_consolidator prod ✓.
 
-**目标**:
-- expert / manager 角色专属 UX ("我跟我的 AI 协作" page, 现没做)
-- 任务办结 → AI KB 沉淀的审批流(kb_sedimentation_draft v26.5-02c 已落)的体验打磨
-- 跨端任务通知 push (现在 polling + 在线状态判断粗)
+**目标 (v1.2 升级)**:
+- ✅ action_extractor 抽 task + 4 维 routing 派人 (Sprint 2 verify ✓)
+- ✅ task_consolidator 任务办结沉淀回 KB (kb_sedimentation_draft v26.5-02c)
+- ✅ 任务溯源 (evidence_quote + evidence_anchor_line_ids) + UI chip 跳实录 (Sprint 3 Mobile ✓)
+- 🔴 **NEW-D: AI agentic 自主跑任务** (痛点 8) — V1.5 高风险
+  - task 派 AI → AI 调 LLM + 工具 (网络搜索 / 代码 / 文件读) → 完成 → 交付
+  - 类似 OpenClaude / Claude tool_use loop
+  - 协作流: AI 卡某步 → 标 "需人补充" → 提示用户
+  - 估时 5-7d (Phase D)
+- ⏳ expert / manager 角色专属 UX ("我跟我的 AI 协作" page, 现没做)
+- ⏳ 跨端任务通知 push (现在 polling + 在线状态判断粗)
 
 ### 3.5 在会议中的表现优化 (Meeting Performance)
 
-**现状**: AI routing 5 维(语义 + KB + 历史 + 负载 + 可用性) v26.1, agenda_monitor (偏题/时间/僵局) m3.0 + v26.14-P4, 反幻觉纪要(qwen-max + temperature=0 + evidence anchor) v25.7, 召集人模式 auto v26.3 GA.
+**现状**: 大幅超出 v1.0 自述. Code Archaeology 校准后真实 ~90%:
+- AI routing 5 维 (语义 + KB + 历史 + 负载 + 可用性) v26.1 prod ✓
+- agenda_monitor (偏题/时间/僵局) m3.0 + v26.14-P4 prod ✓
+- 反幻觉纪要 (qwen-max → deepseek-v4-pro Sprint 2-0 + temperature=0 + evidence anchor) v25.7 ✓
+- 召集人模式 auto v26.3 GA · Sprint 2-3 verify 176s 跑通 ✓
+- **3 路 LLM judge proactive** (main.py:370-379): maybe_invoke_agents (@/keyword) + maybe_detect_dissent + maybe_check_agenda ✓
+- STT 实时转录 (DashScope paraformer-realtime-v2) ✓
+- 声纹 (pyannote API · batch 45s · API 决定不是 streaming)
+- Saga E.E orchestrator ship · 2.5s 轮询 + OrchestrateStatusBanner (mobile + web R5.D)
 
-**目标 (最高优)**:
-- **AI 圆桌真协同** — 当前 RoundMessage 永久 1 张固定 mock (TD2 PM 决策). 这是 PM 旗舰功能, 必须真做.
-- WebSocket 实时推送 (现 2.5s 轮询)
-- 字幕 / 摄像头 / 举手 真实硬件接入(现仅 UI toggle)
-- 跳过议程 / 已裁决议程改判 / per-meeting max_total_seconds
+**目标 (v1.2 升级)**:
+- 🔴 **MOCK_ROUND_MESSAGES UI 替换** (TD2 长期 mock) — P0 Phase A
+  - 1 张固定 mock 替换为真 backend agent_message WS event
+  - 估时 1d
+- 🔴 **LLM judge 主动度调优** (痛点 1+6) — P0 Phase A
+  - 降阈值 + prompt 改 "insider judge" — AI 不被动
+  - 估时 0.5d
+- 🔴 **NEW-B: 议题主题一级对象 topic_thread** (痛点 5) — P0 Phase C
+  - meeting.topic_thread_id 关联
+  - 议题线 UI (看一议题的会议时间轴)
+  - AI 显式拿"同主题历史"注入 prompt
+  - 估时 3-4d
+- 🔴 **NEW-C: 非会议场景 1-on-1 Mira 对话入口** (痛点 7) — P0 Phase B
+  - Mobile: /m/ask-mira 或主页加 ChatGPT 风入口
+  - Web: workstation 加 AskMiraPane
+  - backend 复用 agent_router + Mira agent
+  - Mira 答不出 → 推荐专家 → 转 1-on-1 跟专家
+  - 估时 3-4d
+- 🔴 **AI 主持人 UI 交互** (痛点 6) — P0 Phase A
+  - 跑偏提示 ("我们好像跑偏了")
+  - @Mira 呼叫专家推荐
+  - 估时 1d
+- 🔴 **R5.D web mic 接通** (Code Archaeology surface) — P0 Phase A
+  - Web 会议室目前 viewer-only, 无 mic
+  - 估时 2d
+- 🔴 **summary 按发言人分立场** (痛点 3) — P0 Phase A
+  - summary_generator prompt 模板加 "按发言人分立场" 模块
+  - 估时 1d
+- ⏳ WebSocket 替换 2.5s 轮询 (P95 5-17s → <500ms) — V1.5 (E.E2)
+- ⏳ 摄像头 / 举手 / WebRTC — V1.5 高风险 (Phase D)
+- ⏳ 声纹周期 45s → 15s + 阈值 0.65 → 0.55 微调 — Phase A polish
 
 ---
 
@@ -218,31 +335,62 @@ _(来源: PM Q7)_
 
 ---
 
-## 6. 当前阶段目标 (3 条)
+## 6. 当前阶段目标 — MVP Phase A / B / C (v1.2 升级)
 
-> _(来源: PM Q5 决策, 2026-05-25)_
+> _(来源: 2026-05-27 PM "大会师" 主导对齐)_
+> **MVP 定义**: Phase A + B + C 完成 = "客户开第一场到第十场会 + 非会议场景" 完整体验, 可上线给用户内测.
+> **总估时**: ~19-21d 串行 ship. PM 3 次内部 review (Phase 间).
 
-### 6.1 收尾 Saga A — round-4 P0 主 tab 浅色化
+### 6.1 Phase A · 把当前会议跑顺 (~6.5d) — 调优 + UI 打磨
 
-- **状态**: in-progress (`feature/mobile-app-r4-A` 分支)
-- **范围**: 4 主 tab + 通知中心浅色化 + MAGlowBanner 跨 tab brand + 共享头像/Icon 提层
-- **不破坏**: 会议室 (round-3 done) / 总结页 (round-3 done) 不动
-- **估算**: 剩 ~30h
+| # | 项 | 客户体感 | 估时 | 对应痛点 |
+|---|---|---|---|---|
+| 1 | `MOCK_ROUND_MESSAGES` UI 替换为真 WS event | 进会议看到真 hybrid 圆桌 | 1d | 痛点 1 |
+| 2 | LLM judge 主动度调优 (降阈值 + prompt "insider judge") | AI 不被动主动插话 | 0.5d | 痛点 1+6 |
+| 3 | system prompt 立场守门模板 | AI 不和稀泥 真顶住 | 0.5d | **痛点 2** |
+| 4 | summary 按发言人分立场 + 任务溯源 chip + 跳实录高亮 | 沉淀质量飞跃 客户能复盘 | 1.5d | **痛点 3** |
+| 5 | AI 主持人 UI 交互 (跑偏提示 + @Mira 推荐专家) | 主持感 + 用户能呼叫 | 1d | **痛点 6** |
+| 6 | R5.D web 会议室接 mic + STT WS | Web 大屏能说话 | 2d | (Code Archaeology surface) |
+| 7 | MOCK_HUMANS + closure_curator 死码清理 + 声纹阈值微调 | 整洁 + UX 优化 | 0.5d | polish |
 
-### 6.2 启动 Saga E — AI 专家核心能力补齐
+**Phase A 完后**: 客户开 1 场会真实顺畅 — 转录 + 多 AI 真发言 + 持立场 + 主持人拉回 + 沉淀有依据.
 
-> **PM 决策**: round-4 B/C/D 暂停, 转 Saga E. 理由: 客户看到的是"漂亮 UI 包着 mock 数据" — PM 自己说的"没实现预期".
+### 6.2 Phase B · 真 MVP 闭环 (~5-6d) — NEW 项必备
 
-子项(参考 `docs/PRODUCT_OVERVIEW.md` § 8.2 Saga E):
-1. **E.1 AI 圆桌真协同** — 多 AI 真实轮发 + Mira 综合 (取代 1 张 mock), ~15-20h, **P0 旗舰**
-2. **E.2 真实 PDF / PPT / Excel 预览** — 接 extract_summary / extract_text 渲染, ~8h, **P0**
-3. **E.3 真人 attendee API + 头像 stack** — 解锁会议室真人筛选 / 多人头像, ~6h, **P0**
+| # | 项 | 客户体感 | 估时 | 对应痛点 |
+|---|---|---|---|---|
+| 8 | **NEW-C** 非会议 1-on-1 跟 Mira 对话入口 | 没会议时也能用产品 入口完整 | 3-4d | **痛点 7** |
+| 9 | **NEW-A 简版** 冲突 LLM judge + 标 superseded (不做覆盖 UI) | 多场会议 AI 不矛盾 | 2d | **痛点 4** |
 
-### 6.3 立 NORTH_STAR.md + 接进 CLAUDE.md 工作流
+**Phase B 完后**: 客户开 5-10 场会 + 平时找 Mira 问问题, 体验完整, AI 不自相矛盾.
 
-- 本文档(就是这次).
-- 把 NORTH_STAR.md 写入 `CLAUDE.md` "风格守门协议" 下方一节, 每个 Saga 启动前必读 § 1 / § 7.
-- "不做" 5 条进 review checklist.
+### 6.3 Phase C · 完成 MVP 全功能 (~7-8d)
+
+| # | 项 | 客户体感 | 估时 | 对应痛点 |
+|---|---|---|---|---|
+| 10 | **NEW-B** 议题主题一级对象 + 议题线 UI | 1 个月会议后感受到 "AI 真记得议题脉络" | 3-4d | **痛点 5** |
+| 11 | **NEW-A 完整版** 冲突覆盖 UI + 历史版本展示 | 客户看到 AI 怎么 reconcile 新老结论 | 1-2d | **痛点 4** |
+| 12 | 真 PDF/PPT/Excel 预览 + chapter LLM 抽 | 文件不再 mock 占位 | 2d | § 3.3 |
+| 13 | mobile 创建会议真接 + Mira NLU (qwen-max → deepseek) | 描述需求路径真 work | 1d | § 3.4 |
+
+**Phase C 完后**: **MVP = 完整可上线给用户内测**. 全功能闭环 + 沉淀质量高 + 议题脉络清晰.
+
+### 6.4 Phase D · 差异化 + 高风险 (V1.5, 可推迟)
+
+| # | 项 | 客户体感 | 估时 | 对应痛点 |
+|---|---|---|---|---|
+| 14 | **NEW-D AI agentic 自主跑任务** | 客户惊艳的差异化 ("AI 真替我干活") | 5-7d 高风险 | **痛点 8** |
+| 15 | WebRTC + 摄像头 + 举手 | 多模态完整 | 6d 高风险 | § 3.5 |
+| 16 | 声纹 streaming + 跨端 push + V2 auto-relay | 体验优化 | 8d | § 3.5 |
+| 17 | WebSocket 替换 2.5s 轮询 (E.E2) | P95 5-17s → <500ms | 3d | § 3.5 |
+
+**Phase D 不必 MVP 内做**: 拿当前 MVP 给客户测, 反馈驱动 Phase D 优先级排序.
+
+### 6.5 立 NORTH_STAR.md + 接进 CLAUDE.md 工作流 (v1.0 沿用)
+
+- 本文档.
+- 把 NORTH_STAR.md 写入 `CLAUDE.md` "风格守门协议" 下方一节, 每个 Saga 启动前必读 § 1 + § 1.4 + § 6 + § 7 + § 7.5.
+- "不做" 5 条 + "设计原则" 5 条 进 review checklist.
 
 ---
 
@@ -279,6 +427,51 @@ round-4 全面切换到 iOS 浅色 (会议室 round-3 done, 主 tab round-4 in-p
 - 有 mock 必须在 UI 上标"演示"或在文档明示.
 - 客户演示用 mock 时, PM 必须知情.
 - 不允许 "TD2 PM 决策" 这种 mock 长期占位却没出口规划 (eg. AI 圆桌 mock 已超过 2 周, 进 Saga E 必出口).
+
+---
+
+## 7.5 产品设计原则 (v1.2 大会师新增 · 5 条)
+
+> 来源: 2026-05-27 PM 大会师对齐口述, 提炼自 8 大客户痛点. 任何 saga / spec / commit 跟这 5 条冲突, 默认拒绝.
+
+### 原则 1 · AI 持立场, 不和稀泥 (痛点 2)
+
+- AI 专家**必须基于自己 KB 持立场**, 不许"以您的判断为准"式打太极.
+- system prompt 要明确 "你是 X 领域专家, 你的判断基于 KB. 用户不同意你也要顶住, 不能为了 nice 而和稀泥."
+- 反例: AI 现在偏"客气提建议", 不是"基于 KB 持立场顶住".
+
+### 原则 2 · 知识库(书架) vs 记忆(回忆) — 严格区分
+
+- **知识库 = 书架** (book): 显式管理 · 人为更新 · 增删改查 · 版本化.
+- **记忆 = 回忆** (brain): AI 自动沉淀 · 时间累积 · 不可"人为编辑"(只能审批入库 / 标 superseded).
+- UI 必须让用户**一眼分清**两者. 书架管理在 KbPane / KB 增删改, 记忆只能审 (memory_draft) + 看 (LongTermMemory).
+- 反例: 把 memory 当 KB 一样允许用户随意编辑, 会破坏 AI 时间累积逻辑.
+
+### 原则 3 · 任务必须能溯源到讨论段落
+
+- 任何 AI 抽出的 task 都必须有 `evidence_quote` (原句) + `evidence_anchor_line_ids` (实录行号).
+- 前端 UI 必须有 chip 让用户**点击跳到实录精确位置 + 高亮 3 秒**.
+- 客户复盘时能"知道这个任务从哪句话抽出的", 否则无法判断 AI 总结对不对.
+- 反例: action_extractor 抽出 task 但没填 evidence_* 字段, UI 没溯源 chip.
+
+### 原则 4 · 新会议覆盖老冲突记忆
+
+- 新会议产生的 memory 跟老 memory **冲突时**, **新覆盖老**:
+  - 新 memory 入库前 LLM judge 是否跟老 memory 冲突.
+  - 冲突时老 memory 标 `superseded_by=新.id` (软删除).
+  - AI 引用时只拿"活的" (未被 superseded 的).
+  - UI 让用户看到"AI 知道哪些是最新".
+- **新覆盖老的判定逻辑** (LLM judge):
+  - 同一议题 + 时间更新 + 内容矛盾 → 新覆盖.
+  - 时间更新但不矛盾 (eg 补充信息) → 共存.
+  - 内容矛盾但同时期 (24h 内) → 标 conflict pending 人工介入.
+
+### 原则 5 · 议题持续, 中间穿插不干扰
+
+- 议题 = 一级对象 (`topic_thread` 表), 不是 meeting 的附属属性.
+- 多场会议可共享同一 topic_thread_id (eg "Q3 路线图" 议题连开 3 场).
+- AI 引用时**显式按 topic_thread 过滤**, 不只靠 pgvector 相似度.
+- 中间穿插无关会议 (eg 在 Q3 路线图议题中间开成本调研会), 不影响下次回到 Q3 议题时 AI 调用历史.
 
 ---
 
@@ -323,18 +516,42 @@ PM + Claude 同步问 3 个问题:
 2. 当前 "不做" 5 条需不需要调整? (例: 某条 override 了多次, 该重写)
 3. "三层价值" 排序对吗? (例: 客户反馈说"任务执行"比"长期记忆"更打动他, 该不该调?)
 
-### 9.2 升级流程
+### 9.2 PM 主导"大会师"对齐 (v1.2 新增机制)
 
-- 主 Agent 整理"反思清单" → PM 拍板 → 主 Agent 写 vX.X+1 升级
+> 触发条件: 当 Claude 出现 "半路接手" 误判 (eg Deep Audit 评 35% vs Code Archaeology 校准 90%), 或 PM 觉得 sprint plan 跟心里愿景偏离时, **PM 主导发起"大会师"**.
+
+**机制**:
+1. PM **主导问** + Claude **答**, 不是 Claude 列问题让 PM 答 (PM 知道要问什么, 比 Claude 自问更切中要害).
+2. Claude 承诺: 不知道说不知道 · 不脑补 · 简洁回答 · 主动暴露认知边界.
+3. 对话沉淀 (本文档 v1.x 升级).
+
+**v1.2 这次大会师 (2026-05-27) 关键产出**:
+- § 1.4 客户 8 大痛点 (PM 原话精炼)
+- § 3 五大能力扩展 NEW-A/B/C/D 4 项
+- § 6 当前阶段 改为 MVP Phase A/B/C 路径
+- § 7.5 产品设计原则 5 条
+- § 9.2 大会师机制本身
+
+### 9.3 升级流程
+
+- 主 Agent 整理"反思清单" → PM 拍板 → 主 Agent 写 vX.X+1 升级.
 - 旧版本保留在 git history, NORTH_STAR.md 顶部 "版本" 行更新.
 - 每个 minor 升级在第 0 节 TL;DR 加一行 "v1.x 改动".
 
-### 9.3 跟 CLAUDE.md 的接口
+### 9.4 跟 CLAUDE.md 的接口
 
 - CLAUDE.md "风格守门协议" 下面加一节 "**NORTH_STAR 守门**":
-  - 任何 Saga 启动前必读 § 1 (定位) + § 7 (不做)
+  - 任何 Saga 启动前必读 § 1 + § 1.4 (痛点) + § 6 (Phase 路径) + § 7 + § 7.5 (设计原则)
   - 任何 spec 写完跟 NORTH_STAR 对齐
-- CLAUDE.md review checklist 加入 "不做 5 条" 检查项.
+- CLAUDE.md review checklist 加入 "不做 5 条" + "设计原则 5 条" 检查项.
+
+### 9.5 Claude 系统性误判防护 (v1.2 新增)
+
+> v1.2 前的多次误判 (Phase 1 视觉评 55% 后修复 / Deep Audit 评会议中 35% vs Code Archaeology 90%) 提示需要这些防护:
+
+- **完成度评估不接受 % 数字本身** — 必须 surface 真实源码 evidence (eg "看 backend/app/auto_meeting_orchestrator.py:915 1122 行 prod work")
+- **"代码层真接"≠"用户体验层闭环"** — endpoint 真接不等于用户能跑通 user flow
+- **Subagent 自评 88-92% 还原度时主 Agent 必须独立 audit** — 不接受自评数字
 
 ---
 
@@ -345,16 +562,64 @@ PM + Claude 同步问 3 个问题:
 | § 1.1 一句话 | PM Q1 升级版 (2026-05-25 对话) |
 | § 1.2 三层价值 | PM Q1 升级版 + `product-needs-v1.md` 主题一-四 |
 | § 1.3 同类差异 | `docs/PRODUCT_OVERVIEW.md` § 1.2 反推 |
+| **§ 1.4 客户 8 大痛点** | **2026-05-27 PM 大会师对齐 (口述 → 精炼)** |
 | § 2.1 AI Agent | PM Q2 + v26.9 数字员工 + m3.0 moderator + v26.5 spec |
 | § 2.2 真人 4 角色 | PM Q2 + `v26.5-role-redesign-spec.md` 矩阵 |
-| § 3 五大核心能力 | PM Q3 五点 |
+| § 3 五大核心能力 | PM Q3 五点 + **v1.2 大会师扩展 NEW-A/B/C/D** |
 | § 4 三端 | PM Q7 + `v1.1.0-deploy-guide.md` 小程序原生 + `v27.0-mobile-*` 移动 H5 |
 | § 5 SaaS 架构 | PM Q6 + `v26.4 平台超管` + `workspace.preset` 模型 |
-| § 6 当前阶段 | PM Q5 决策 + `SAGA-mobile-app-round-4-changelist.md` |
+| **§ 6 当前阶段 (Phase A/B/C/D)** | **2026-05-27 大会师 + Code Archaeology + Sprint 1-3 ship 历史** |
 | § 7 不做 5 条 | PM 多次反馈反推 + `CLAUDE.md` 风格守门协议 |
+| **§ 7.5 产品设计原则 5 条** | **2026-05-27 大会师 + 8 痛点提炼** |
 | § 8 工作流 | `CLAUDE.md` 现行约定 |
+| **§ 9.2 大会师机制 + § 9.5 误判防护** | **2026-05-27 Code Archaeology 校准 + 主 Agent 反思** |
+
+---
+
+## 11. v1.2 升级 changelog (2026-05-27 大会师)
+
+### 升级背景
+
+PM 在 Sprint 3 ship 之后发现:
+1. Mobile 会议室核心功能基本未实现 (语音/声纹/AI 语义/答复)
+2. Deep Audit subagent 评 "会议中 35% / 加权 41%" 引起警觉
+3. Code Archaeology 校准: 真实 "会议中 ~90% / 加权 ~75%" — 老代码大部分已 prod-level
+4. PM 担心 "半路接手" 的 Claude 对需求了解不透彻, 主导"大会师"对齐
+
+### 新增内容
+
+1. **§ 1.4 客户 8 大痛点** — PM 原话精炼 (人云亦云 / AI 不持立场 / 沉淀不到位 / AI 像新人 / 多议题串题 / 跑偏 / 临时找不到人 / 任务派出去没人跑)
+2. **§ 3 五大能力 NEW-A/B/C/D 扩展**:
+   - NEW-A 冲突检测 + 新覆盖老 memory (痛点 4)
+   - NEW-B 议题主题一级对象 topic_thread (痛点 5)
+   - NEW-C 非会议场景 1-on-1 Mira 对话入口 (痛点 7)
+   - NEW-D AI agentic 自主跑任务 (痛点 8)
+3. **§ 6 当前阶段** 改为 MVP Phase A/B/C/D 路径 (~19-21d MVP)
+4. **§ 7.5 产品设计原则 5 条** (AI 持立场 / 书架 vs 回忆 / 任务溯源 / 新覆盖老 / 议题持续)
+5. **§ 9.2 PM 主导"大会师"机制** + **§ 9.5 Claude 系统性误判防护**
+6. TL;DR 加 v1.2 改动行 + 8 痛点缩略
+
+### Phase 路径总账
+
+| Phase | 工作 | 估时 | MVP 内? |
+|---|---|---|---|
+| A | 调优 + UI 打磨 + R5.D mic | ~6.5d | ✓ |
+| B | NEW-C + NEW-A 简版 | ~5-6d | ✓ |
+| C | NEW-B + NEW-A 完 + PDF + mobile 创建 | ~7-8d | ✓ |
+| D | NEW-D + WebRTC + 声纹优化 + WS | ~22d | V1.5 |
+
+**MVP 总 ~19-21d** · PM 3 次内部 review (Phase 间) · 然后给用户内测.
+
+### 误判防护承诺
+
+Claude 承诺 v1.2 起:
+- 完成度不接受 % 自评, 必须 surface 真实源码 evidence
+- subagent 自评 90% 必须主 Agent 独立 audit
+- "代码层真接"和"用户体验层闭环"分开评估
+- 出现重大误判时, PM 可发起"大会师" reset
 
 ---
 
 > **本文档不动代码**, 是产品宪法. 任何 Saga changelist / spec / commit 跟 NORTH_STAR 冲突, 默认拒绝, 除非 PM 显式 override.
 > **反馈渠道**: PM 直接 edit 本文档 + commit 升级版本号 (vX.Y).
+> **v1.2 大会师承诺**: Claude 启动任何 Phase A/B/C/D saga 前必读 § 1.4 (8 痛点) + § 6 (Phase 路径) + § 7.5 (设计原则).
