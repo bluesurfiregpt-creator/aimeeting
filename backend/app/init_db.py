@@ -762,3 +762,25 @@ async def init_db() -> None:
                 logger.exception("create index failed: %s", sql)
 
     logger.info("DB schema ensured")
+
+    # v1.4.0 Phase 2 Sprint 1-A: demo_seed_v2 — 给 v2 endpoint (Today / Tasks /
+    # Memory / Meetings) 灌 demo workspace 的 真业务数据 (5 meeting / 10 英文
+    # 品牌 agent / 20+ AIInsight / 7 task / 5 voiceprint / 10-12 memory).
+    #
+    # Idempotent — 用固定 demo UUID 检测已存在, 跑多次不重复.
+    # 找不到 demo workspace (preset.kind='smart_construction' / 默认) → no-op.
+    # 找不到 4 demo 用户 (demo_seed.py 还没跑) → 灌完 agent 后 skip 后续.
+    #
+    # 在这里 run 而不是 demo_seed.py 里, 因为我们要 每次 boot 都 idempotent
+    # 补齐 (新加 demo 内容 也跟 schema 一起 上线).
+    try:
+        from .db import SessionLocal
+        from .demo_seed_v2 import seed_demo_v2
+
+        async with SessionLocal() as session:
+            report = await seed_demo_v2(session)
+            await session.commit()
+        logger.info("[demo_seed_v2] %s", report)
+    except Exception:
+        # 不挡 bootstrap — demo seed 失败 不应 让 服务 起不来.
+        logger.exception("demo_seed_v2 failed (continuing)")
