@@ -185,7 +185,7 @@ export function AdminPane() {
 function WorkspacesTable() {
   return (
     <WCard padding={0}>
-      <div style={{ overflowX: "auto" }}>
+      <div className="w-scroll" style={{ overflowX: "auto" }}>
         <table
           style={{
             width: "100%",

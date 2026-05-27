@@ -170,6 +170,23 @@ export const W_THEME_CSS = `
   80%  { opacity: 1; }
   100% { transform: translateX(calc(100% - 0px)); opacity: 0; }
 }
+/* v1.4.0 R5 滚动条 美化 (PM 拍 2026-05-27): 默认 OS thick black scrollbar
+ * 跟暗紫 UI 不一致. 加 .w-scroll className 化, 用 --w-scroll-thumb / --w-scroll-thumb-hover
+ * 跟 W_THEME 同步切换 (暗紫 thumb 浅色 / 浅色 thumb 暗色). 6px / 圆角 / 透明 track. */
+.w-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.w-scroll::-webkit-scrollbar-track { background: transparent; }
+.w-scroll::-webkit-scrollbar-thumb {
+  background: var(--w-scroll-thumb);
+  border-radius: 3px;
+}
+.w-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--w-scroll-thumb-hover);
+}
+.w-scroll::-webkit-scrollbar-corner { background: transparent; }
+.w-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--w-scroll-thumb) transparent;
+}
 `;
 
 // zero-flash inline script — 在 React hydrate 前 set data-theme.

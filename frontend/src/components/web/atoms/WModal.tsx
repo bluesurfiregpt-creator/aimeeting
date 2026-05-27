@@ -48,6 +48,7 @@ export function WModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="w-scroll"
         style={{
           width: "100%",
           maxWidth,

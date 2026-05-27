@@ -336,6 +336,7 @@ export function NewMeetingPane() {
               </div>
             </div>
             <div
+              className="w-scroll"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",

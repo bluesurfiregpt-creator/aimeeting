@@ -739,6 +739,7 @@ function DrillPanel({
 
         {/* recent */}
         <div
+          className="w-scroll"
           style={{ padding: "14px 22px 18px", flex: 1, overflow: "auto", minHeight: 0 }}
         >
           <div

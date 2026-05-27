@@ -1135,7 +1135,7 @@ function FullscreenDetailSidebar({
       </div>
 
       {/* BODY */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px 22px" }}>
+      <div className="w-scroll" style={{ flex: 1, overflowY: "auto", padding: "18px 22px 22px" }}>
         {node.type === "memory" && <MemoryDetail node={node} data={data} onJump={onSelectOther} />}
         {node.type === "kb" && <KBDetail node={node} data={data} onJump={onSelectOther} />}
         {node.type === "agent" && <AgentDetail node={node} data={data} onJump={onSelectOther} />}

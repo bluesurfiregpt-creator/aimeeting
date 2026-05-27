@@ -25,6 +25,7 @@ export function WorkstationSidebar() {
 
   return (
     <aside
+      className="w-scroll"
       style={{
         width: 232,
         flexShrink: 0,
