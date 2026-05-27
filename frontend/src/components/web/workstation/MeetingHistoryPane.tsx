@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { W_TOKENS } from "../tokens";
 import { WIcon, WPill, WAvatar, WAIBadge } from "../atoms";
 import { W_HISTORY_MEETINGS, type WMeetingHistory } from "../data/history";
 import { PaneHeader } from "./PaneHeader";
+import { api, type V2MeetingItem } from "@/lib/api";
 
 /**
  * 会议历史 pane — R6.X (round-6, R5.A 漏建 + round-6 新).
@@ -22,17 +23,98 @@ import { PaneHeader } from "./PaneHeader";
  *     - 4 mini-stat (决策 / 行动项 / AI 引用 / 新记忆)
  *     - 参会人 + AI + "查看纪要 →"
  *
- * 数据源 (PM R6.6): 复用 /api/meetings GET 加字段 (state / decisions / actions / citations / mems).
+ * 数据源 (Sprint 3 Web W2): /api/v2/meetings (ws-scoped). actions/citations/mems
+ * 暂走 0 (backend V2MeetingItem 仅 decision_count 真接, 其他 3 字段 V1.5 推迟).
+ *
+ * Fallback (PM 反幻觉, NORTH_STAR § 7.5): 拉失败或 workspace 没真会议 → fallback mock
+ * + "演示数据" pill, 让客户清楚这是 demo.
  *
  * 点击卡 → 跳 /workstation/meeting/<id> (R5.B-meeting MeetingDetail).
  */
+
+// ─── adapter: V2MeetingItem → WMeetingHistory ───
+// backend 给的字段比 mock 少 — actions/citations/mems 暂 0 (V1.5 后端补)
+// date/time 从 started_at / scheduled_for 推
+function adaptV2MeetingToHistory(m: V2MeetingItem): WMeetingHistory {
+  const isLive = m.status === "live";
+  const tsRaw = m.started_at || m.scheduled_for;
+  const ts = tsRaw ? new Date(tsRaw) : null;
+  const now = new Date();
+  let date = "—";
+  if (ts && !isNaN(ts.getTime())) {
+    const dayDiff = Math.floor(
+      (now.setHours(0, 0, 0, 0) - new Date(ts).setHours(0, 0, 0, 0)) /
+        86_400_000,
+    );
+    if (dayDiff === 0) date = "今天";
+    else if (dayDiff === 1) date = "昨天";
+    else date = `${ts.getMonth() + 1}/${ts.getDate()}`;
+  }
+  const time = ts && !isNaN(ts.getTime())
+    ? `${String(ts.getHours()).padStart(2, "0")}:${String(ts.getMinutes()).padStart(2, "0")}`
+    : "—";
+
+  return {
+    id: m.id,
+    title: m.title || "未命名会议",
+    sub: m.topic_summary || "",
+    date,
+    time,
+    topic: m.topic_summary || "",
+    state: isLive ? "live" : "done",
+    participants: m.attendees
+      .filter((a) => a.type === "human")
+      .slice(0, 5)
+      .map((a) => a.id),
+    ais: m.ai_badges.slice(0, 5).map((b) => b.id),
+    decisions: m.decision_count || 0,
+    // backend V2MeetingItem 暂没这 3 个字段 (V1.5 推迟新加). 暂 0.
+    actions: 0,
+    citations: 0,
+    mems: 0,
+  };
+}
+
 export function MeetingHistoryPane() {
   const router = useRouter();
   const [tab, setTab] = useState<"all" | "today" | "week">("all");
   const [q, setQ] = useState("");
 
+  // Sprint 3 Web W2: 拉 /api/v2/meetings, fallback mock W_HISTORY_MEETINGS.
+  const [meetings, setMeetings] = useState<WMeetingHistory[]>(W_HISTORY_MEETINGS);
+  const [usingFallback, setUsingFallback] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const out = await api.getV2Meetings({ limit: 50 });
+        if (cancelled) return;
+        if (!out.items.length) {
+          console.warn(
+            "[MeetingHistoryPane] /api/v2/meetings 返回空 (workspace 无会议), 渲染 mock",
+          );
+          // 维持 fallback mock
+          return;
+        }
+        const adapted = out.items.map(adaptV2MeetingToHistory);
+        setMeetings(adapted);
+        setUsingFallback(false);
+      } catch (e) {
+        console.warn(
+          "[MeetingHistoryPane] /api/v2/meetings 拉取失败, 渲染 mock:",
+          e,
+        );
+        // 维持 fallback mock
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const filtered = useMemo(() => {
-    return W_HISTORY_MEETINGS.filter((m) => {
+    return meetings.filter((m) => {
       if (q.trim()) {
         const lq = q.toLowerCase();
         if (
@@ -44,19 +126,44 @@ export function MeetingHistoryPane() {
         }
       }
       if (tab === "today") return m.date === "今天" || m.date === "昨天";
-      if (tab === "week") return ["今天", "昨天", "5/22"].includes(m.date);
+      if (tab === "week")
+        return ["今天", "昨天"].includes(m.date) ||
+          /^\d+\/\d+$/.test(m.date); // 数字日期视为本周
       return true;
     });
-  }, [tab, q]);
+  }, [tab, q, meetings]);
 
-  const todayCount = W_HISTORY_MEETINGS.filter((m) => m.date === "今天" || m.date === "昨天").length;
-  const weekCount = W_HISTORY_MEETINGS.filter((m) => ["今天", "昨天", "5/22"].includes(m.date)).length;
+  const todayCount = meetings.filter(
+    (m) => m.date === "今天" || m.date === "昨天",
+  ).length;
+  const weekCount = meetings.filter(
+    (m) => ["今天", "昨天"].includes(m.date) || /^\d+\/\d+$/.test(m.date),
+  ).length;
+
+  // Sprint 3 Web W2: 反幻觉 pill (NORTH_STAR § 7.5) — 走 fallback mock 时清楚标 demo
+  const demoBadge = usingFallback ? (
+    <span
+      style={{
+        fontSize: 10.5,
+        fontWeight: 700,
+        color: "#C4B5FD",
+        background: "rgba(124,92,250,0.10)",
+        padding: "2px 8px",
+        borderRadius: 5,
+        letterSpacing: 0.3,
+        boxShadow: "inset 0 0 0 0.5px rgba(124,92,250,0.30)",
+      }}
+    >
+      演示数据
+    </span>
+  ) : null;
 
   return (
     <>
       <PaneHeader
         title="会议历史"
         sub="所有过往的会议纪要 — 决策、行动项、AI 引用、长期记忆,一站式回溯。"
+        extra={demoBadge}
       />
 
       {/* segmented + search */}

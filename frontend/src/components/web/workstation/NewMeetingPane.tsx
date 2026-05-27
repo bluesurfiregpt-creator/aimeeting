@@ -14,6 +14,7 @@ import {
 } from "../atoms";
 import { W_AGENTS, W_HUMANS } from "../data/agents";
 import { PaneHeader } from "./PaneHeader";
+import { api } from "@/lib/api";
 
 /**
  * 新建会议 pane — R5.C.
@@ -71,10 +72,44 @@ export function NewMeetingPane() {
   });
   const totalMinutes = agenda.reduce((s, a) => s + (Number(a.minutes) || 0), 0);
 
-  const handleStart = () => {
-    // Mock: 模拟创建会议 ID 并跳转
-    const newId = `new-${Date.now()}`;
-    router.push(`/workstation/meeting/${newId}`);
+  // Sprint 3 Web W2: 接老 /api/meetings POST. attendee/agent id mock 跟 backend
+  // 真 user/agent uuid 不一致, 真接时 fallback 创建空 meeting (backend 会用 caller
+  // 自己当 attendee). title 留空时 给默认 "新建会议".
+  // mode: mix → hybrid (mock 跟 backend enum 不完全 1:1, hybrid = mix human + AI).
+  const [creating, setCreating] = useState(false);
+  const [createErr, setCreateErr] = useState<string | null>(null);
+
+  const handleStart = async () => {
+    if (creating) return;
+    setCreating(true);
+    setCreateErr(null);
+    try {
+      const backendMode: "human" | "hybrid" | "auto" =
+        mode === "autonomous" ? "auto" : "hybrid";
+      const backendTitle = title.trim() || "新建会议";
+      // mock id (ZK/LM/WJ/MIRA 等) 不是真 uuid — 传空数组让 backend 用 caller 兜底.
+      // 真接 attendee picker 需 ws user 列表 (V1.5 推迟).
+      const created = await api.createMeeting(
+        backendTitle,
+        [], // attendeeUserIds — empty: backend 自动用 caller
+        agenda.filter((a) => a.title.trim()).length > 0
+          ? agenda
+              .filter((a) => a.title.trim())
+              .map((a) => ({
+                title: a.title.trim(),
+                time_budget_min: Number(a.minutes) || 10,
+              }))
+          : null,
+        [], // attendeeAgentIds empty — backend 跟据 mode 自动
+        backendMode,
+      );
+      router.push(`/workstation/meeting/${created.id}`);
+    } catch (e) {
+      console.warn("[NewMeetingPane] /api/meetings POST 失败:", e);
+      setCreateErr("创建会议失败,请稍后再试 (后端 API 暂不可用)");
+    } finally {
+      setCreating(false);
+    }
   };
 
   return (
@@ -455,6 +490,22 @@ export function NewMeetingPane() {
                 </div>
               )}
 
+              {createErr && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: "9px 12px",
+                    borderRadius: 8,
+                    background: "rgba(239,68,68,0.10)",
+                    boxShadow: "inset 0 0 0 0.5px rgba(239,68,68,0.30)",
+                    color: "#FCA5A5",
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {createErr}
+                </div>
+              )}
               <WButton
                 variant="primary"
                 size="lg"
@@ -462,8 +513,9 @@ export function NewMeetingPane() {
                 full
                 style={{ marginTop: 14 }}
                 onClick={handleStart}
+                disabled={creating}
               >
-                开始会议
+                {creating ? "创建中..." : "开始会议"}
               </WButton>
               <button
                 type="button"

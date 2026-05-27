@@ -20,7 +20,7 @@
  * **R5.B scope**: UI 优先, mock 数据. 后端契约见 SAGA-E-ai-capabilities-changelist.md.
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { W_TOKENS } from "../tokens";
@@ -46,13 +46,84 @@ import {
   type MCitation,
 } from "../data/meetings";
 import { W_HISTORY_MEETINGS } from "../data/history";
+import { api, type WebMeetingDetailOut } from "@/lib/api";
+
+// Sprint 3 Web W2: backend WebMeetingDetailOut → WMeetingDetail adapter.
+// W1 已加 getWebMeetingDetail (走 /api/m/meetings/{id}, 双端共用).
+// 真接字段: title / agenda / attending_agents / current_topic_recent_lines / current_topic_insights.
+// 缺失字段 (decisions/actions/materials/captions list 等) 用 W_MEETING_DETAIL 兜底, 客户感知 mock.
+function adaptWebMeetingDetail(d: WebMeetingDetailOut, meetingId: string): WMeetingDetail {
+  const ais: string[] = d.attending_agents.map((a) => a.name?.toUpperCase() || a.agent_id);
+  // backend WebMeetingAgendaItem → mock MAgenda 形状
+  const agendaItems: MAgenda[] = (d.agenda_items || []).map((it, idx) => ({
+    id: idx + 1,
+    title: it.title,
+    minutes: it.time_budget_min || 0,
+    done: it.status === "completed" || it.status === "done",
+  }));
+
+  return {
+    id: meetingId,
+    title: d.title || "未命名会议",
+    sub: "",
+    date: "",
+    time: "",
+    duration: `${d.started_minutes_ago || 0}m`,
+    status: d.status === "ongoing" ? "live" : "done",
+    topic: d.current_topic_title || "",
+    agenda: agendaItems.length ? agendaItems : W_MEETING_DETAIL.agenda,
+    participants: W_MEETING_DETAIL.participants,
+    ais: ais.length ? ais : W_MEETING_DETAIL.ais,
+    summary:
+      d.status === "ongoing"
+        ? `本场会议正在进行中。当前议题:「${d.current_topic_title || "未命名"}」, 已用时 ${d.current_topic_elapsed_min || 0} 分钟。`
+        : `本场会议已结束。共 ${d.transcript_total} 条字幕, ${d.attending_agents.length} 个 AI 参与。详细决策 / 行动项 / 引用闭环需 Saga E 后端补字段后接通。`,
+    summaryStats: {
+      decisions: 0,
+      actions: 0,
+      citations: d.current_topic_insights.length,
+      memoriesCreated: 0,
+    },
+    decisions: [],
+    actions: [],
+    materials: [],
+    captions: [],
+  };
+}
 
 // ════════════════════════════════════════════
 // ROOT
 // ════════════════════════════════════════════
 export function MeetingDetailPane({ meetingId }: { meetingId: string }) {
+  // Sprint 3 Web W2: 拉真 backend meeting detail (getWebMeetingDetail W1 已加).
+  // 真接成功 → adaptWebMeetingDetail; 失败 → mock fallback + "演示数据" pill.
+  const [realData, setRealData] = useState<WMeetingDetail | null>(null);
+  const [usingFallback, setUsingFallback] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const out = await api.getWebMeetingDetail(meetingId);
+        if (cancelled) return;
+        setRealData(adaptWebMeetingDetail(out, meetingId));
+        setUsingFallback(false);
+      } catch (e) {
+        console.warn(
+          `[MeetingDetailPane] /api/m/meetings/${meetingId} 拉取失败, 渲染 mock:`,
+          e,
+        );
+        // 维持 fallback mock
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [meetingId]);
+
   // q3-roadmap 是唯一有完整 mock 的; 其他用历史 list 里的元信息 + 空详情
   const m = useMemo<WMeetingDetail>(() => {
+    if (realData) return realData;
     if (meetingId === W_MEETING_DETAIL.id) return W_MEETING_DETAIL;
     // Build a sparse detail from W_HISTORY_MEETINGS (fallback)
     const h = W_HISTORY_MEETINGS.find((x) => x.id === meetingId);
@@ -96,7 +167,7 @@ export function MeetingDetailPane({ meetingId }: { meetingId: string }) {
       materials: [],
       captions: [],
     };
-  }, [meetingId]);
+  }, [meetingId, realData]);
 
   const citations = useMemo(() => getMeetingCitations(m), [m]);
 
@@ -112,6 +183,26 @@ export function MeetingDetailPane({ meetingId }: { meetingId: string }) {
 
   return (
     <div>
+      {/* Sprint 3 Web W2: 反幻觉 pill (NORTH_STAR § 7.5) — fallback mock 时清楚标 demo */}
+      {usingFallback && (
+        <div style={{ marginBottom: 12 }}>
+          <span
+            style={{
+              display: "inline-block",
+              fontSize: 10.5,
+              fontWeight: 700,
+              color: "#C4B5FD",
+              background: "rgba(124,92,250,0.10)",
+              padding: "2px 8px",
+              borderRadius: 5,
+              letterSpacing: 0.3,
+              boxShadow: "inset 0 0 0 0.5px rgba(124,92,250,0.30)",
+            }}
+          >
+            演示数据 · backend 未接通
+          </span>
+        </div>
+      )}
       <MeetingDetailHeader m={m} />
       <MeetingTabs tab={tab} onChange={setTab} counts={counts} />
       {tab === "overview" && (

@@ -281,11 +281,32 @@ export function TplGeneratorPane() {
     setExcluded(new Set());
   };
 
+  // Sprint 3 Web W2: TplGenerator 暂 mock (Sprint 4 接 LLM preview/commit endpoint).
+  // backend api.previewAgentTemplate/commitAgentTemplate 已在, frontend setTimeout 2.2s
+  // 模拟 LLM 拆解 — 加 demo pill 提示客户.
+  const demoBadge = (
+    <span
+      style={{
+        fontSize: 10.5,
+        fontWeight: 700,
+        color: "#C4B5FD",
+        background: "rgba(124,92,250,0.10)",
+        padding: "2px 8px",
+        borderRadius: 5,
+        letterSpacing: 0.3,
+        boxShadow: "inset 0 0 0 0.5px rgba(124,92,250,0.30)",
+      }}
+    >
+      演示数据 · LLM 拆解待接
+    </span>
+  );
+
   return (
     <>
       <PaneHeader
         title="AI 模板生成器"
         sub="描述你的场景 — LLM 帮你拆解能力 → 配置 N 位 AI 专家 → 自动挂上种子知识与种子记忆。"
+        extra={demoBadge}
       />
 
       <div

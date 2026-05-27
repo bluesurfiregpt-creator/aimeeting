@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { W_TOKENS } from "../tokens";
 import {
   WIcon,
@@ -13,6 +13,7 @@ import {
 } from "../atoms";
 import { W_AGENTS, W_HUMANS } from "../data/agents";
 import { PaneHeader } from "./PaneHeader";
+import { api, type V2MemoryDraftItem } from "@/lib/api";
 
 /**
  * 审批中心 pane — R5.C.
@@ -26,7 +27,10 @@ import { PaneHeader } from "./PaneHeader";
  *    - 描述
  *    - 驳回 / 通过 CTA
  *
- * **后续 Saga**: 接 backend approvals API.
+ * Sprint 3 Web W2: 接 /api/v2/memory/drafts?status=pending (Wave 1 mobile 加的).
+ * approve/reject CTA → 接 /api/v2/memory/drafts/{id}/approve|reject (真改后端).
+ * permission / workspace kind 暂走 mock (后端老 /api/access-requests 没 v2 wrapper, V1.5).
+ * 拉失败 → fallback mock + "演示数据" pill.
  */
 type ApprovalKind = "memory" | "permission" | "workspace";
 type ApprovalPriority = "high" | "mid" | "low";
@@ -40,6 +44,36 @@ type ApprovalItem = {
   when: string;
   priority: ApprovalPriority;
 };
+
+// backend V2MemoryDraftItem → mock ApprovalItem (kind=memory)
+function adaptMemoryDraft(d: V2MemoryDraftItem): ApprovalItem {
+  // importance 0-1 → priority enum (粗糙但够 demo)
+  const priority: ApprovalPriority =
+    d.importance >= 0.7 ? "high" : d.importance >= 0.4 ? "mid" : "low";
+  // 时间相对 — backend ISO 8601 → 简短显示
+  let when = "";
+  try {
+    const t = new Date(d.created_at);
+    const diff = Date.now() - t.getTime();
+    const min = Math.floor(diff / 60_000);
+    if (min < 60) when = `${min} 分钟前`;
+    else if (min < 1440) when = `${Math.floor(min / 60)} 小时前`;
+    else when = `${Math.floor(min / 1440)} 天前`;
+  } catch {
+    when = "—";
+  }
+  // primary AI = target_ais 第一个
+  const primaryAI = d.target_ais[0];
+  return {
+    id: d.id,
+    kind: "memory",
+    title: `AI 提取候选记忆 · ${d.proposed_content.slice(0, 60)}${d.proposed_content.length > 60 ? "..." : ""}`,
+    from: primaryAI?.name?.toUpperCase() || null,
+    source: d.source_meeting_title || "未关联会议",
+    when,
+    priority,
+  };
+}
 
 const APPROVAL_ITEMS: ApprovalItem[] = [
   {
@@ -93,33 +127,109 @@ export function ApprovePane() {
   const [tab, setTab] = useState<"pending" | "approved" | "rejected">(
     "pending",
   );
-  // 已处理的 id (mock)
+
+  // Sprint 3 Web W2: 真接 v2/memory/drafts (mobile 已通过同 endpoint).
+  const [items, setItems] = useState<ApprovalItem[]>(APPROVAL_ITEMS);
+  const [usingFallback, setUsingFallback] = useState(true);
+  // 本地处理 (optimistic UI) — 后端 approve/reject 成功后立即从 pending 移除
   const [approved, setApproved] = useState<Set<string>>(new Set());
   const [rejected, setRejected] = useState<Set<string>>(new Set());
 
-  const visible = APPROVAL_ITEMS.filter((it) => {
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const out = await api.getV2MemoryDrafts("pending", 50);
+        if (cancelled) return;
+        if (!out.items.length) {
+          console.warn(
+            "[ApprovePane] /api/v2/memory/drafts 返回空 (无待审), 渲染 mock",
+          );
+          return;
+        }
+        setItems(out.items.map(adaptMemoryDraft));
+        setUsingFallback(false);
+      } catch (e) {
+        console.warn(
+          "[ApprovePane] /api/v2/memory/drafts 拉取失败, 渲染 mock:",
+          e,
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const visible = items.filter((it) => {
     if (tab === "pending") return !approved.has(it.id) && !rejected.has(it.id);
     if (tab === "approved") return approved.has(it.id);
     return rejected.has(it.id);
   });
 
-  const pendingCount = APPROVAL_ITEMS.filter(
+  const pendingCount = items.filter(
     (it) => !approved.has(it.id) && !rejected.has(it.id),
   ).length;
-  const memCount = APPROVAL_ITEMS.filter(
+  const memCount = items.filter(
     (it) => it.kind === "memory" && !approved.has(it.id) && !rejected.has(it.id),
   ).length;
 
-  const handleApprove = (id: string) =>
+  // 真接 backend approve/reject (Wave 1 mobile 已经用过同 endpoint).
+  // 真接成功后 optimistic 标本地 set (UI 即时反馈).
+  const handleApprove = async (id: string) => {
     setApproved((prev) => new Set(prev).add(id));
-  const handleReject = (id: string) =>
+    if (usingFallback) return; // mock 模式不调 backend
+    try {
+      await api.approveV2MemoryDraft(id);
+    } catch (e) {
+      console.warn(`[ApprovePane] approve ${id} 失败:`, e);
+      // 回滚
+      setApproved((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+  const handleReject = async (id: string) => {
     setRejected((prev) => new Set(prev).add(id));
+    if (usingFallback) return;
+    try {
+      await api.rejectV2MemoryDraft(id);
+    } catch (e) {
+      console.warn(`[ApprovePane] reject ${id} 失败:`, e);
+      setRejected((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  // 反幻觉 pill (NORTH_STAR § 7.5)
+  const demoBadge = usingFallback ? (
+    <span
+      style={{
+        fontSize: 10.5,
+        fontWeight: 700,
+        color: "#C4B5FD",
+        background: "rgba(124,92,250,0.10)",
+        padding: "2px 8px",
+        borderRadius: 5,
+        letterSpacing: 0.3,
+        boxShadow: "inset 0 0 0 0.5px rgba(124,92,250,0.30)",
+      }}
+    >
+      演示数据
+    </span>
+  ) : null;
 
   return (
     <>
       <PaneHeader
         title="审批中心"
         sub="AI 提炼的候选记忆、权限申请、跨 workspace 引用 — 都在这里集中处理"
+        extra={demoBadge}
       />
 
       {/* segmented */}

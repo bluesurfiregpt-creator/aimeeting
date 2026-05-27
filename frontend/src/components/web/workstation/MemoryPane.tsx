@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { W_TOKENS } from "../tokens";
 import {
   WIcon,
@@ -18,6 +18,7 @@ import {
   type WMemoryScope,
 } from "../data/memories";
 import { PaneHeader } from "./PaneHeader";
+import { api, type V2MemoryLibraryItem } from "@/lib/api";
 
 /**
  * 长期记忆 pane — R5.C.
@@ -28,15 +29,75 @@ import { PaneHeader } from "./PaneHeader";
  *  - filter (scope / 归属 AI / 搜索) + 刷新
  *  - 列表 (按 ai 分组隐式呈现, 顺序按 when desc)
  *  - 每条: 文字 + scope pill + AI badge + 入库时间 + 来源 + cited + revoke CTA
+ *
+ * Sprint 3 Web W2: 接 /api/v2/memory/library (Wave 1 Mobile 加的). axis_tag (6 轴)
+ * 跟 WMemoryScope ("项目"/"合规"/"流程"/"决策") 不完全对齐, 用 keyword 模糊映射.
+ * 拉失败 → fallback mock W_MEMORIES + "演示数据" pill.
  */
+
+// backend axis_tag 6 个 (能力/决策/风险/经验/事实/约束) → mock WMemoryScope 4 个
+// 不完全 1:1 — 用 keyword 模糊映射, 偏 conservative.
+function axisTagToScope(axis: string | null): WMemoryScope {
+  if (!axis) return "项目";
+  if (axis.includes("决策")) return "决策";
+  if (axis.includes("风险") || axis.includes("约束") || axis.includes("合规"))
+    return "合规";
+  if (axis.includes("流程") || axis.includes("经验")) return "流程";
+  return "项目";
+}
+
+// backend V2MemoryLibraryItem → mock WMemory shape (MemRow 渲染兼容)
+function adaptV2MemoryLibraryItem(item: V2MemoryLibraryItem): WMemory {
+  return {
+    id: item.id,
+    text: item.content,
+    ai: item.primary_ai?.name?.toUpperCase() || "MIRA",
+    scope: axisTagToScope(item.axis_tag),
+    when: new Date(item.created_at).toLocaleDateString("zh-CN"),
+    source: item.source_meeting_title || "手工",
+    citedTimes: 0, // backend library 没 cited_times 字段 (V1.5 加)
+    byAuto: !!item.source_meeting_id, // 有 source_meeting 视为 AI 自动入库
+  };
+}
+
 export function MemoryPane() {
   const [scope, setScope] = useState<"all" | WMemoryScope>("all");
   const [aiFilter, setAiFilter] = useState<string>("all");
   const [q, setQ] = useState("");
   const [revoked, setRevoked] = useState<Set<string>>(new Set());
 
+  // Sprint 3 Web W2: 拉真 memory library, fallback mock W_MEMORIES.
+  const [memories, setMemories] = useState<WMemory[]>(W_MEMORIES);
+  const [usingFallback, setUsingFallback] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const out = await api.getMemoryLibrary();
+        if (cancelled) return;
+        if (!out.items.length) {
+          console.warn(
+            "[MemoryPane] /api/v2/memory/library 返回空, 渲染 mock",
+          );
+          return;
+        }
+        setMemories(out.items.map(adaptV2MemoryLibraryItem));
+        setUsingFallback(false);
+      } catch (e) {
+        console.warn(
+          "[MemoryPane] /api/v2/memory/library 拉取失败, 渲染 mock:",
+          e,
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const filtered = useMemo(() => {
-    return W_MEMORIES.filter((m) => {
+    return memories.filter((m) => {
       if (scope !== "all" && m.scope !== scope) return false;
       if (aiFilter !== "all" && m.ai !== aiFilter) return false;
       if (q.trim()) {
@@ -48,11 +109,29 @@ export function MemoryPane() {
       }
       return true;
     });
-  }, [scope, aiFilter, q]);
+  }, [scope, aiFilter, q, memories]);
 
-  const aiOptions = Array.from(new Set(W_MEMORIES.map((m) => m.ai)))
+  const aiOptions = Array.from(new Set(memories.map((m) => m.ai)))
     .map((id) => W_AGENTS.find((a) => a.id === id))
     .filter((a): a is NonNullable<typeof a> => !!a);
+
+  // 反幻觉 pill (NORTH_STAR § 7.5)
+  const demoBadge = usingFallback ? (
+    <span
+      style={{
+        fontSize: 10.5,
+        fontWeight: 700,
+        color: "#C4B5FD",
+        background: "rgba(124,92,250,0.10)",
+        padding: "2px 8px",
+        borderRadius: 5,
+        letterSpacing: 0.3,
+        boxShadow: "inset 0 0 0 0.5px rgba(124,92,250,0.30)",
+      }}
+    >
+      演示数据
+    </span>
+  ) : null;
 
   const handleRevoke = (id: string) => {
     setRevoked((prev) => {
@@ -67,6 +146,7 @@ export function MemoryPane() {
       <PaneHeader
         title="长期记忆 · 经验"
         sub="长期记忆是 AI 跨会议引用的事实库 — 会后系统自动从纪要里抽取(决策/风险/待办/分歧)并入库,你也可以手工添加。"
+        extra={demoBadge}
         action={
           <WButton variant="primary" size="md" icon="plus">
             手工添加

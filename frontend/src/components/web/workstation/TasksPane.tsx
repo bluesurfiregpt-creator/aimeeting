@@ -1,11 +1,17 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { W_TOKENS } from "../tokens";
 import { WIcon, WPill, WAvatar, WAIBadge, WButton, WCard, WModal, WSparkle } from "../atoms";
 import { W_AGENTS, W_HUMANS } from "../data/agents";
 import { W_TASKS, type WTask } from "../data/tasks";
 import { PaneHeader } from "./PaneHeader";
+import {
+  api,
+  type V2TasksPriorityBanner,
+  type V2TaskItem,
+  type V2TaskGroup,
+} from "@/lib/api";
 
 /**
  * 我的任务 pane — R5.C.
@@ -16,14 +22,101 @@ import { PaneHeader } from "./PaneHeader";
  *  - 任务列表 (单卡风格)
  *  - 点击 task → mock modal 显示详情
  *
- * **后续 Saga**: 接 backend tasks API + 真 drag/state transition.
+ * Sprint 3 Web W2: 接 backend.
+ *  - /api/v2/tasks/priority-banner (Mira 顶 banner)
+ *  - /api/v2/tasks/grouped?status=pending|tracking|done (3 个 status 并行拉)
+ *  - 拉失败 / empty workspace → fallback mock W_TASKS + "演示数据" pill
  */
+
+// backend V2TaskItem → mock WTask shape (TaskRow 渲染兼容)
+function adaptV2Task(t: V2TaskItem, fallbackState: WTask["state"]): WTask {
+  // backend status (pending/tracking/done) → mock state (todo/tracking/review/done)
+  const stateMap: Record<string, WTask["state"]> = {
+    pending: "todo",
+    tracking: "tracking",
+    done: "done",
+  };
+  const prioMap: Record<string, WTask["priority"]> = {
+    urgent: "high",
+    today: "mid",
+    week: "low",
+    none: undefined as unknown as WTask["priority"],
+  };
+  const dueToneMap: Record<string, WTask["dueTone"]> = {
+    urgent: "danger",
+    today: "warn",
+    week: "neutral",
+    none: "neutral",
+  };
+  return {
+    id: t.id,
+    state: stateMap[t.status] || fallbackState,
+    priority: prioMap[t.urgency],
+    title: t.title,
+    source: t.source_meeting || "独立任务",
+    sourceAI: t.ai_source?.name?.toUpperCase(),
+    due: t.due_display,
+    dueTone: dueToneMap[t.urgency],
+  };
+}
+
 export function TasksPane() {
   const [tab, setTab] = useState<"all" | "mine" | "ai" | "done">("all");
   const [openTask, setOpenTask] = useState<WTask | null>(null);
 
+  // Sprint 3 Web W2: 真接 v2/tasks/grouped + priority-banner.
+  const [tasks, setTasks] = useState<WTask[]>(W_TASKS);
+  const [usingFallback, setUsingFallback] = useState(true);
+  const [banner, setBanner] = useState<V2TasksPriorityBanner | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // 4 个 endpoint 并行 (Promise.allSettled — 一个失败不阻塞其他)
+      const [bannerResult, pending, tracking, done] = await Promise.allSettled([
+        api.getTasksPriorityBanner(),
+        api.getTasksGrouped("pending"),
+        api.getTasksGrouped("tracking"),
+        api.getTasksGrouped("done"),
+      ]);
+      if (cancelled) return;
+
+      if (bannerResult.status === "fulfilled") {
+        setBanner(bannerResult.value);
+      }
+
+      const allTasks: WTask[] = [];
+      const collectGroups = (
+        res: PromiseSettledResult<{ groups: V2TaskGroup[] }>,
+        fallbackState: WTask["state"],
+      ) => {
+        if (res.status !== "fulfilled") return;
+        for (const grp of res.value.groups || []) {
+          for (const t of grp.tasks || []) {
+            allTasks.push(adaptV2Task(t, fallbackState));
+          }
+        }
+      };
+      collectGroups(pending, "todo");
+      collectGroups(tracking, "tracking");
+      collectGroups(done, "done");
+
+      if (allTasks.length > 0) {
+        setTasks(allTasks);
+        setUsingFallback(false);
+      } else {
+        console.warn(
+          "[TasksPane] /api/v2/tasks/grouped 全空 (workspace 无任务), 渲染 mock",
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const filtered = useMemo(() => {
-    return W_TASKS.filter((t) => {
+    return tasks.filter((t) => {
       if (tab === "all") return true;
       if (tab === "done") return t.state === "done";
       // mine = 没指派 assignee 或 assignee = 当前用户
@@ -32,23 +125,49 @@ export function TasksPane() {
       if (tab === "ai") return !!t.sourceAI && t.state !== "done";
       return true;
     });
-  }, [tab]);
+  }, [tab, tasks]);
 
-  const todoCount = W_TASKS.filter((t) => t.state === "todo").length;
-  const aiCount = W_TASKS.filter((t) => !!t.sourceAI && t.state !== "done").length;
-  const doneCount = W_TASKS.filter((t) => t.state === "done").length;
+  const todoCount = tasks.filter((t) => t.state === "todo").length;
+  const aiCount = tasks.filter((t) => !!t.sourceAI && t.state !== "done").length;
+  const doneCount = tasks.filter((t) => t.state === "done").length;
 
-  const todayUrgent = W_TASKS.find((t) => t.priority === "high");
+  const todayUrgent = tasks.find((t) => t.priority === "high");
+
+  // Sprint 3 Web W2: 反幻觉 pill (NORTH_STAR § 7.5) — 走 fallback mock 时清楚标 demo
+  const demoBadge = usingFallback ? (
+    <span
+      style={{
+        fontSize: 10.5,
+        fontWeight: 700,
+        color: "#C4B5FD",
+        background: "rgba(124,92,250,0.10)",
+        padding: "2px 8px",
+        borderRadius: 5,
+        letterSpacing: 0.3,
+        boxShadow: "inset 0 0 0 0.5px rgba(124,92,250,0.30)",
+      }}
+    >
+      演示数据
+    </span>
+  ) : null;
+
+  // backend banner 真接时优先用 summary_text, 否则走 mock urgent task
+  const bannerHeadline = banner && banner.urgent_task_count > 0
+    ? banner.summary_text
+    : todayUrgent
+    ? `1 项今日截止 · 需 ${todayUrgent.due.replace("今天 ", "")} 「${todayUrgent.title}」`
+    : null;
 
   return (
     <>
       <PaneHeader
         title="我的任务"
         sub="所有 AI 提炼出的 + 主持人指派给你的 待办,按 状态 归四类。"
+        extra={demoBadge}
       />
 
       {/* Mira priority banner */}
-      {todayUrgent && (
+      {bannerHeadline && (
         <div
           style={{
             position: "relative",
@@ -103,7 +222,7 @@ export function TasksPane() {
                 lineHeight: 1.4,
               }}
             >
-              1 项今日截止 · 需 {todayUrgent.due.replace("今天 ", "")} 「{todayUrgent.title}」
+              {bannerHeadline}
             </div>
           </div>
           <WButton variant="secondary" size="sm" iconRight="arr-r">

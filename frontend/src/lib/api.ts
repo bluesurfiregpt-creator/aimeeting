@@ -828,6 +828,137 @@ export type WebMeetingDetailOut = {
   orchestrate_completed_agenda_count: number;
 };
 
+// ─── v1.4.0 Sprint 3 Web W2 · v2 tasks + memory + experts types ───
+// 跟 mobile 同套 endpoint, web workstation 9 pane 直接复用. 不新建 /api/web/*.
+
+// /api/v2/tasks/priority-banner — Mira 优先级 banner (TasksPane 顶 banner).
+export type V2TasksPriorityBanner = {
+  urgent_task_count: number;
+  summary_text: string;
+  ai_suggestion_count: number;
+  ai_suggestion_text: string;
+};
+
+// /api/v2/tasks/grouped — 按来源会议 grouped task (TasksPane + BoardPane).
+export type V2TaskAISource = {
+  id: string;
+  name: string;
+  glyph: string;
+  color: string; // hex
+};
+
+export type V2TaskItem = {
+  id: string;
+  title: string;
+  urgency: "urgent" | "today" | "week" | "none";
+  ai_source: V2TaskAISource;
+  due_at: string;
+  due_display: string;
+  status: "pending" | "tracking" | "done";
+  source_meeting: string | null;
+  source_meeting_id: string | null;
+};
+
+export type V2TaskGroup = {
+  meeting_id: string;
+  meeting_title: string;
+  tasks: V2TaskItem[];
+};
+
+export type V2TasksGroupedResponse = {
+  groups: V2TaskGroup[];
+};
+
+// /api/v2/today/experts — 10 个 AI list (AgentsPane).
+export type V2ExpertRecentMeeting = {
+  id: string;
+  title: string;
+  joined_at: string;
+};
+
+export type V2ExpertItem = {
+  id: string;
+  name: string;
+  glyph: string;
+  gradient_from: string;
+  gradient_to: string;
+  role_short: string;
+  last_active_at: string;
+  last_active_display: string;
+  recent_meetings: V2ExpertRecentMeeting[];
+  task_count: number;
+};
+
+export type V2ExpertsResponse = {
+  experts: V2ExpertItem[];
+};
+
+// /api/v2/memory/snapshots — 长期记忆 快照 list (MemoryPane).
+export type V2SnapshotAIAvatar = {
+  glyph: string;
+  gradient_from: string;
+  gradient_to: string;
+};
+
+export type V2MemorySnapshot = {
+  id: string;
+  topic: string;
+  ai_avatars: V2SnapshotAIAvatar[];
+  types: string[];
+  count: number;
+  source_meeting_id: string | null;
+  focus_anchor: string | null;
+};
+
+export type V2MemorySnapshotsResponse = {
+  items: V2MemorySnapshot[];
+  total_count: number;
+};
+
+// /api/v2/memory/library — 已入库长期记忆 (MemoryPane 记忆库 tab).
+export type V2MemoryDraftAIAvatar = {
+  id: string;
+  name: string;
+  glyph: string;
+  gradient_from: string;
+  gradient_to: string;
+};
+
+export type V2MemoryLibraryItem = {
+  id: string;
+  content: string;
+  axis_tag: string | null;
+  importance: number;
+  data_classification: string;
+  source_meeting_id: string | null;
+  source_meeting_title: string | null;
+  primary_ai: V2MemoryDraftAIAvatar | null;
+  created_at: string;
+};
+
+export type V2MemoryLibraryResponse = {
+  items: V2MemoryLibraryItem[];
+  total_count: number;
+  axes_with_count: Array<{ axis: string; count: number }>;
+};
+
+// /api/v2/memory/drafts — 待审记忆草稿 (ApprovePane + MemoryPane 待审 tab).
+export type V2MemoryDraftItem = {
+  id: string;
+  proposed_content: string;
+  source_meeting_id: string | null;
+  source_meeting_title: string | null;
+  target_ais: V2MemoryDraftAIAvatar[];
+  importance: number;
+  data_classification: string;
+  created_at: string;
+};
+
+export type V2MemoryDraftsResponse = {
+  items: V2MemoryDraftItem[];
+  pending_count: number;
+};
+
 // v26.5-02c: KB 沉淀审批草稿
 export type SedimentationDraft = {
   id: string;
@@ -2630,6 +2761,54 @@ export const api = {
     jget<WebMeetingDetailOut>(`/api/m/meetings/${id}`),
   getWebMeetingTranscript: (id: string) =>
     jget<WebMeetingTranscriptOut>(`/api/m/meetings/${id}/transcript`),
+
+  // ─── v1.4.0 Sprint 3 Web W2 · workstation 9 pane 真接 (v2 复用) ───
+  // 跟 mobile 同套 endpoint (Saga T1-T5 + Sprint 3 Wave 1 已落). web 直接复用.
+  // TasksPane / BoardPane / AgentsPane / MemoryPane / ApprovePane / MeetingHistoryPane
+  // / MeetingDetailPane.
+  // /api/v2/meetings — workstation MeetingHistoryPane (list, ws-scoped).
+  getV2Meetings: (opts?: {
+    status?: "upcoming" | "live" | "finished" | "processed";
+    limit?: number;
+  }) => {
+    const params = new URLSearchParams();
+    if (opts?.status) params.set("status", opts.status);
+    if (opts?.limit) params.set("limit", String(opts.limit));
+    const q = params.toString();
+    return jget<{ items: V2MeetingItem[]; next_cursor: string | null }>(
+      `/api/v2/meetings${q ? `?${q}` : ""}`,
+    );
+  },
+
+  getTasksPriorityBanner: () =>
+    jget<V2TasksPriorityBanner>("/api/v2/tasks/priority-banner"),
+  getTasksGrouped: (status: "pending" | "tracking" | "done" = "pending") =>
+    jget<V2TasksGroupedResponse>(`/api/v2/tasks/grouped?status=${status}`),
+  getTodayExperts: () =>
+    jget<V2ExpertsResponse>("/api/v2/today/experts"),
+  getMemorySnapshots: (limit = 50) =>
+    jget<V2MemorySnapshotsResponse>(`/api/v2/memory/snapshots?limit=${limit}`),
+  getMemoryLibrary: (axisTag?: string) => {
+    const q = axisTag ? `?axis_tag=${encodeURIComponent(axisTag)}` : "";
+    return jget<V2MemoryLibraryResponse>(`/api/v2/memory/library${q}`);
+  },
+  getV2MemoryDrafts: (
+    status: "pending" | "approved" | "rejected" | "expired" = "pending",
+    limit = 50,
+  ) =>
+    jget<V2MemoryDraftsResponse>(
+      `/api/v2/memory/drafts?status=${status}&limit=${limit}`,
+    ),
+  approveV2MemoryDraft: (id: string) =>
+    jpost<{ id: string; status: string; committed_memory_id: string | null }>(
+      `/api/v2/memory/drafts/${id}/approve`,
+      {},
+    ),
+  rejectV2MemoryDraft: (id: string, reason?: string) =>
+    jpost<{ id: string; status: string; committed_memory_id: string | null }>(
+      `/api/v2/memory/drafts/${id}/reject`,
+      reason ? { reason } : {},
+    ),
 
   // v26.6-01: AI 模板生成器
   previewAgentTemplate: (body: {

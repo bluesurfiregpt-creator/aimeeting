@@ -323,6 +323,10 @@ function genericProfile(a: WAgent): AgentProfile {
 // ════════════════════════════════════════════
 // AgentDetailPane (root)
 // ════════════════════════════════════════════
+// Sprint 3 Web W2: brain UI (BrainRadar / BrainGraph) **V1 走 mock**.
+// 真接 backend `/api/v2/agents/{id}/brain` 推到 Sprint 4 (audit Section 5 V1.5 推迟).
+// 决策: backend brain 复杂度 ~6h, 但本 W2 wave ~5d 已紧, 先 V1 mock + 加 demo pill 提示
+// "脑图分布是演示数据, 实时数据待 Sprint 4 后端 brain endpoint 上线". 用户清楚, 不假装真接.
 export function AgentDetailPane({ agent }: { agent: WAgent }) {
   const profile = W_PROFILES[agent.id] || genericProfile(agent);
   const [showKB, setShowKB] = useState(true);
@@ -339,6 +343,7 @@ export function AgentDetailPane({ agent }: { agent: WAgent }) {
             display: "flex",
             alignItems: "baseline",
             gap: 9,
+            flexWrap: "wrap",
           }}
         >
           <h2
@@ -354,6 +359,21 @@ export function AgentDetailPane({ agent }: { agent: WAgent }) {
           </h2>
           <span style={{ fontSize: 13, color: W_TOKENS.textMuted }}>
             雷达 = 能力分布 · 图谱 = 资料/记忆/会议 的关联
+          </span>
+          {/* Sprint 3 Web W2: brain V1 mock pill — Sprint 4 接 backend brain endpoint */}
+          <span
+            style={{
+              fontSize: 10.5,
+              fontWeight: 700,
+              color: "#C4B5FD",
+              background: "rgba(124,92,250,0.10)",
+              padding: "2px 8px",
+              borderRadius: 5,
+              letterSpacing: 0.3,
+              boxShadow: "inset 0 0 0 0.5px rgba(124,92,250,0.30)",
+            }}
+          >
+            演示数据 · brain 后端待接
           </span>
         </div>
 

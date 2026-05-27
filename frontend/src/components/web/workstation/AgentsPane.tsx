@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { W_TOKENS } from "../tokens";
 import {
@@ -12,6 +13,7 @@ import {
 } from "../atoms";
 import { W_AGENTS, type WAgent } from "../data/agents";
 import { PaneHeader } from "./PaneHeader";
+import { api, type V2ExpertItem } from "@/lib/api";
 
 /**
  * AI 专家管理 pane — R5.C.
@@ -22,15 +24,85 @@ import { PaneHeader } from "./PaneHeader";
  *  - grid (auto-fill, minmax(320px, 1fr)) - AgentManageRow 卡
  *  - 每卡: AIBadge + 名/领域 + "启用" 状态 + 标签 + 更新/召唤次数 + 编辑/查看
  *  - 点卡 → 跳 /workstation/agent/<id>
+ *
+ * Sprint 3 Web W2: 接 /api/v2/today/experts (Saga T4). 后端 empty ws 自动 fallback
+ * AGENT_GLYPHS 10 个 demo, frontend 再加一层 mock fallback (16 个) 备保险.
  */
+
+// backend V2ExpertItem → mock WAgent shape (Grid 渲染兼容)
+function adaptV2Expert(e: V2ExpertItem): WAgent {
+  return {
+    id: e.name.toUpperCase(), // mock id 是 大写 (跟 W_AGENTS ID 一致); 真接 agent 可能 uuid, 但 WAIBadge 通过 W_AGENTS 查找, 兼容
+    name: e.name,
+    nick: e.role_short || "",
+    domain: e.role_short || "",
+    tags: [],
+    grad: [e.gradient_from, e.gradient_to] as [string, string],
+    glyph: e.glyph,
+    sum: e.task_count, // 调用次数 → 用 task_count 近似 (backend 没 sum)
+    updated: e.last_active_display || "—",
+    byMe: false,
+    intro: "",
+  };
+}
+
 export function AgentsPane() {
   const router = useRouter();
+
+  // Sprint 3 Web W2: 拉真 backend experts list, fallback mock W_AGENTS.
+  const [agents, setAgents] = useState<WAgent[]>(W_AGENTS);
+  const [usingFallback, setUsingFallback] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const out = await api.getTodayExperts();
+        if (cancelled) return;
+        if (!out.experts.length) {
+          console.warn(
+            "[AgentsPane] /api/v2/today/experts 返回空, 渲染 mock",
+          );
+          return;
+        }
+        setAgents(out.experts.map(adaptV2Expert));
+        setUsingFallback(false);
+      } catch (e) {
+        console.warn(
+          "[AgentsPane] /api/v2/today/experts 拉取失败, 渲染 mock:",
+          e,
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Sprint 3 Web W2: 反幻觉 pill (NORTH_STAR § 7.5)
+  const demoBadge = usingFallback ? (
+    <span
+      style={{
+        fontSize: 10.5,
+        fontWeight: 700,
+        color: "#C4B5FD",
+        background: "rgba(124,92,250,0.10)",
+        padding: "2px 8px",
+        borderRadius: 5,
+        letterSpacing: 0.3,
+        boxShadow: "inset 0 0 0 0.5px rgba(124,92,250,0.30)",
+      }}
+    >
+      演示数据
+    </span>
+  ) : null;
 
   return (
     <>
       <PaneHeader
         title="AI 专家管理"
         sub="编辑、上传知识、调整人格 — 每位 AI 都是你团队的一位成员"
+        extra={demoBadge}
         action={
           <WButton
             variant="primary"
@@ -130,8 +202,8 @@ export function AgentsPane() {
           color: W_TOKENS.textMuted,
         }}
       >
-        Workspace 已有 ({W_AGENTS.length}) · 我管理 (
-        {W_AGENTS.filter((a) => a.byMe).length})
+        Workspace 已有 ({agents.length}) · 我管理 (
+        {agents.filter((a) => a.byMe).length})
       </div>
 
       <div
@@ -141,7 +213,7 @@ export function AgentsPane() {
           gap: 12,
         }}
       >
-        {W_AGENTS.map((a) => (
+        {agents.map((a) => (
           <AgentManageRow
             key={a.id}
             a={a}

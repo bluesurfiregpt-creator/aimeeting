@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useMemo, type DragEvent } from "react";
+import { useState, useMemo, useEffect, type DragEvent } from "react";
 import { W_TOKENS } from "../tokens";
 import { WIcon, WPill, WAIBadge, WAvatar } from "../atoms";
 import { W_AGENTS, W_HUMANS } from "../data/agents";
 import { W_TASKS, TASK_COLUMNS, type WTask, type WTaskState } from "../data/tasks";
 import { PaneHeader } from "./PaneHeader";
+import { api, type V2TaskItem, type V2TaskGroup } from "@/lib/api";
 
 /**
  * 任务看板 pane — R5.C.
@@ -13,14 +14,91 @@ import { PaneHeader } from "./PaneHeader";
  * Kanban 风格 4 列 (待办 / 进行中 / 审核 / 已完成).
  * 卡片可拖拽切换状态 (HTML5 native drag API,不引入新 lib).
  *
- * **R5.C scope**: mock 数据, 拖拽只改 client state.
- * **后续 Saga**: 接 backend task transition API.
+ * Sprint 3 Web W2: 接 /api/v2/tasks/grouped (3 status: pending/tracking/done 并行拉).
+ * backend 3 status → frontend 4 col 映射:
+ *   pending  → todo
+ *   tracking → tracking
+ *   tracking → review (拆不出, 全归 tracking)
+ *   done     → done
+ * 拖拽改状态目前仅 client side (后续 backend task transition API).
  */
+
+// backend V2TaskItem → mock WTask (跟 TasksPane 同 adapter, 但 inline 简化版)
+function adaptV2TaskBoard(t: V2TaskItem, fallbackState: WTaskState): WTask {
+  const stateMap: Record<string, WTaskState> = {
+    pending: "todo",
+    tracking: "tracking",
+    done: "done",
+  };
+  const prioMap: Record<string, WTask["priority"]> = {
+    urgent: "high",
+    today: "mid",
+    week: "low",
+    none: undefined as unknown as WTask["priority"],
+  };
+  const dueToneMap: Record<string, WTask["dueTone"]> = {
+    urgent: "danger",
+    today: "warn",
+    week: "neutral",
+    none: "neutral",
+  };
+  return {
+    id: t.id,
+    state: stateMap[t.status] || fallbackState,
+    priority: prioMap[t.urgency],
+    title: t.title,
+    source: t.source_meeting || "独立任务",
+    sourceAI: t.ai_source?.name?.toUpperCase(),
+    due: t.due_display,
+    dueTone: dueToneMap[t.urgency],
+  };
+}
+
 export function BoardPane() {
   // local copy of tasks for drag-drop state update
   const [tasks, setTasks] = useState<WTask[]>(W_TASKS);
+  const [usingFallback, setUsingFallback] = useState(true);
   const [dragId, setDragId] = useState<string | null>(null);
   const [hoverCol, setHoverCol] = useState<WTaskState | null>(null);
+
+  // Sprint 3 Web W2: 拉 3 个 status 并行 (跟 TasksPane 一致, 复用 backend).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [pending, tracking, done] = await Promise.allSettled([
+        api.getTasksGrouped("pending"),
+        api.getTasksGrouped("tracking"),
+        api.getTasksGrouped("done"),
+      ]);
+      if (cancelled) return;
+      const allTasks: WTask[] = [];
+      const collectGroups = (
+        res: PromiseSettledResult<{ groups: V2TaskGroup[] }>,
+        fallbackState: WTaskState,
+      ) => {
+        if (res.status !== "fulfilled") return;
+        for (const grp of res.value.groups || []) {
+          for (const t of grp.tasks || []) {
+            allTasks.push(adaptV2TaskBoard(t, fallbackState));
+          }
+        }
+      };
+      collectGroups(pending, "todo");
+      collectGroups(tracking, "tracking");
+      collectGroups(done, "done");
+      if (allTasks.length > 0) {
+        setTasks(allTasks);
+        setUsingFallback(false);
+      } else {
+        console.warn(
+          "[BoardPane] /api/v2/tasks/grouped 全空 (workspace 无任务), 渲染 mock",
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const byCol = useMemo(() => {
     const map: Record<WTaskState, WTask[]> = {
@@ -58,11 +136,30 @@ export function BoardPane() {
 
   const onDragLeaveCol = () => setHoverCol(null);
 
+  // Sprint 3 Web W2: 反幻觉 pill (NORTH_STAR § 7.5)
+  const demoBadge = usingFallback ? (
+    <span
+      style={{
+        fontSize: 10.5,
+        fontWeight: 700,
+        color: "#C4B5FD",
+        background: "rgba(124,92,250,0.10)",
+        padding: "2px 8px",
+        borderRadius: 5,
+        letterSpacing: 0.3,
+        boxShadow: "inset 0 0 0 0.5px rgba(124,92,250,0.30)",
+      }}
+    >
+      演示数据
+    </span>
+  ) : null;
+
   return (
     <>
       <PaneHeader
         title="任务看板"
         sub="所有任务按状态分四列 — 卡片可拖拽切换 (待办 / 进行中 / 审核 / 已完成)"
+        extra={demoBadge}
       />
 
       <div
