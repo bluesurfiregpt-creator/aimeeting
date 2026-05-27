@@ -1,7 +1,7 @@
-# aimeeting · NORTH_STAR (产品宪法 v1.2.2)
+# aimeeting · NORTH_STAR (产品宪法 v1.2.3)
 
-> **版本**: v1.2.2 (Phase A 收尾 沉淀, 2026-05-28)
-> **历史**: v1.0 (2026-05-25 PM 7 问对齐) → v1.1 (权限重命名 v1.3.1) → v1.2 (大会师 8 痛点) → v1.2.1 (§ 8.6 路径规范) → **v1.2.2 (本次: Phase A 收尾 + § 8.7 双盲测试机制)**
+> **版本**: v1.2.3 (会议室双 theme 例外 override, 2026-05-28)
+> **历史**: v1.0 → v1.1 → v1.2 (大会师 8 痛点) → v1.2.1 (§ 8.6 路径规范) → v1.2.2 (Phase A 收尾 + § 8.7 双盲) → **v1.2.3 (本次: § 7.1.1 会议室双 theme 例外, PM 显式 override § 7.1)**
 > **来源**: PM 主导 8 大客户痛点表述 + Code Archaeology 校准 + Phase 1-2 + Sprint 1-3 + **Phase A 7 项 + 双盲测试 Round 1+2 GREEN** ship 历史
 > **演进机制**: 每个 Saga 收尾时反思, **或 PM 主导"大会师"重新对齐**, 由 PM 决策升级版本 (见第 9 节)
 > **本文档是产品 truth source** — 任何 Saga changelist / spec 必须先对齐 NORTH_STAR, 不一致以 NORTH_STAR 为准.
@@ -407,11 +407,36 @@ _(来源: PM Q7)_
 
 > 根据 PM 多次反馈 + commit 反推 + 风格守门协议. 任何 Saga / spec 跟这 5 条冲突, 默认拒绝, 除非 PM 显式拍板 override.
 
-### 7.1 不做 dark mode
+### 7.1 不做 dark mode (主流程 全 浅色)
 
-round-4 全面切换到 iOS 浅色 (会议室 round-3 done, 主 tab round-4 in-progress). **不允许**新写 dark token / 借鉴老 dark 代码.
-- 例外: 必须 dark 的(eg. 模态过渡黑底)在 commit message 标 `[STYLE-DEVIATION: 具体原因]`.
+round-4 全面切换到 iOS 浅色 (会议室 round-3 done, 主 tab round-4 in-progress). **不允许**新写 dark token / 借鉴老 dark 代码 — **以下 7.1.1 例外 除外**.
+- 例外 (零散): 必须 dark 的 (eg. 模态过渡黑底) 在 commit message 标 `[STYLE-DEVIATION: 具体原因]`.
 - 反例: v1.2.0 P1.2 折叠态借了 AttachmentsSection 老 dark token, 是错误案例 (`CLAUDE.md` 风格守门协议).
+
+### 7.1.1 例外 · 会议室 双 theme (PM 显式 override, 2026-05-28)
+
+> _v1.2.3 升级 · 来源: PM 在 design handoff S3TK_UXeBzGF0V_jQr4hLg `chats/chat6.md` 拍板:_
+> _"那这一版本干脆定义为深色版本, 之前设计那一版定义为浅色版本, 把深色浅色的控件开关也同步出现在会议室界面."_
+
+#### 适用范围 (严格)
+
+- ✅ **`/meeting/<id>/live` Web 会议室** (R5.D MRLiveView + Top/Left/Right/Bottom/Input/Messages 子组件) — 允许 dark theme + ThemeToggle 切换
+- ❌ Mobile `/m/*` 全 浅色, 不开 dark mode
+- ❌ Workstation `/workstation/*` 仍 走 W_THEME (本身就 dark + light 双 theme, 跟 会议室 复用 同一套 CSS var, 不动)
+- ❌ 其他 Web 页 (/login / /chat / /admin / ...) 仍 浅色 (除非 已经 走 W_THEME)
+- ❌ 小程序原生 浅色, 不开
+
+#### 实施 约束
+
+1. **复用 W_THEME 机制** (frontend/src/components/web/tokens.ts:117 W_THEME_CSS dark + light CSS var 切换). 不新写 token 系统.
+2. **default 仍 浅色** — localStorage `w-theme` 默认 `'light'` (跟 workstation 现行 默认 一致, 一致性 保留).
+3. **ThemeToggle 仅 在 会议室 顶 nav 显示** (不出现 在 mobile / 工作站 nav 已有 toggle, 这是 会议室 专属).
+4. **prefers-reduced-motion 关 aurora / starfield 动画** — 老年用户 / 防晕 必须.
+5. **starfield + aurora ambient** 仅 dark mode 渲染 (light mode 隐藏 — light 主体 是 已 ship 灰海白岛).
+
+#### 收尾验收
+
+走 § 8.7 双盲测试 — Kimi smoke + theme toggle + localStorage 持久化 + reload zero-flash 验证.
 
 ### 7.2 不硬编码客户专属逻辑
 
