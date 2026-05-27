@@ -31,10 +31,11 @@ import {
 
 export function MRRightPanel() {
   return (
+    // v1.4.0 舞台中央 (PM 拍 2026-05-27): 改 #F2F2F7 跟 LeftPanel 对齐, 衬出 center 白岛.
     <div
       style={{
         width: 340,
-        background: "#FAFAFA",
+        background: "#F2F2F7",
         borderLeft: "0.5px solid #E5E5EA",
         display: "flex",
         flexDirection: "column",

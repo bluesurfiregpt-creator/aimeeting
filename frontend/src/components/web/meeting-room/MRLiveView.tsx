@@ -328,13 +328,15 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
     : null;
 
   return (
+    // v1.4.0 舞台中央 (PM 拍 2026-05-27): root 改 #F2F2F7 灰底, 让 center 白色 transcript
+    // 区 自然 突出 (灰海中的白岛). TopBar / BottomBar 也 跟 灰底融, 不打断 层次.
     <div
       style={{
         width: "100%",
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        background: "#fff",
+        background: "#F2F2F7",
         position: "relative",
         overflow: "hidden",
         fontFamily:
@@ -419,7 +421,7 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
           flex: 1,
           display: "flex",
           minHeight: 0,
-          background: "#fff",
+          background: "#F2F2F7",  // v1.4.0 舞台中央: 三栏 wrapper 灰底
         }}
       >
         <MRLeftPanel
@@ -428,7 +430,9 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
           onJumpToMessage={jumpToMessage}
         />
 
-        {/* Center */}
+        {/* Center · v1.4.0 舞台中央: 白岛 + 顶部 1px 紫色 hairline (PM 拍 2026-05-27).
+          * 视觉层次: 灰海背景 (#F2F2F7) → 白岛中央 (#fff) → 紫线锚定 "AI 舞台"
+          *   定位. 静态时 已经 突出, active speaker 时 顶部 光带 增强. */}
         <div
           style={{
             flex: 1,
@@ -436,8 +440,43 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
             flexDirection: "column",
             minWidth: 0,
             background: "#fff",
+            borderTop: "1px solid rgba(94,92,230,0.35)",  // Mira 紫 hairline
           }}
         >
+          {/* v1.4.0 舞台中央 (PM 拍): active speaker 时 顶部 渐变光带, 强调 "现在 X 正在发言".
+            * 静态没人发言 时 不显, 避免 占高 + 信息冗余. */}
+          {hasRealData && activeSpeakerName ? (
+            <div
+              data-testid="mr-stage-active-band"
+              style={{
+                background:
+                  "linear-gradient(180deg, rgba(94,92,230,0.10) 0%, rgba(94,92,230,0.02) 70%, transparent)",
+                padding: "8px 24px 6px",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+                fontWeight: 500,
+                color: "#5E5CE6",
+                letterSpacing: 0.2,
+              }}
+            >
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: "#5E5CE6",
+                  animation: "mrLivePulse 1.4s ease-in-out infinite",
+                  flexShrink: 0,
+                }}
+              />
+              <span>
+                AI 圆桌进行中 · <strong style={{ fontWeight: 600 }}>{activeSpeakerName}</strong> 正在发言
+              </span>
+            </div>
+          ) : null}
+
           {/* Sprint 3 Web W1: orchestrate phase banner (仅 auto 会议 + phase 非 null) */}
           <OrchestrateStatusBanner detail={detail} />
           <MRFilterBanner

@@ -29,10 +29,13 @@ export function MRLeftPanel({
   onJumpToMessage,
 }: MRLeftPanelProps) {
   return (
+    // v1.4.0 舞台中央 (PM 拍 2026-05-27): 左右 panel 改 iOS systemGroupedBackground
+    // #F2F2F7 (从 #FAFAFA 太接近白). 跟中间 #fff "白岛" 形成 灰海 vs 白岛 对比,
+    // 视觉自然 锚定 中间 transcript 区 为 主舞台.
     <div
       style={{
         width: 280,
-        background: "#FAFAFA",
+        background: "#F2F2F7",
         borderRight: "0.5px solid #E5E5EA",
         display: "flex",
         flexDirection: "column",
