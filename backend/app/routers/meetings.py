@@ -16,7 +16,7 @@ import asyncio
 from .. import session_state
 from ..agenda_monitor import maybe_check_agenda
 from ..agent_router import maybe_invoke_agents
-from ..audit import audit_log
+from ..audit import audit_log, system_audit_log
 from ..auth import (
     AuthContext,
     get_current_auth,
@@ -3462,6 +3462,91 @@ async def list_agent_messages(
             )
         )
     return out
+
+
+# ============================================================================
+# v1.4.0 Phase C · 11 NEW-A 完整版 — 撤销 superseded 标 (leader/admin)
+# ============================================================================
+
+class RestoreMessageResponse(BaseModel):
+    id: int
+    status: str
+    superseded_by_message_id: Optional[int] = None
+    restored: bool
+
+
+@router.post(
+    "/{meeting_id}/agent-messages/{message_id}/restore",
+    response_model=RestoreMessageResponse,
+)
+async def restore_superseded_agent_message(
+    meeting_id: str,
+    message_id: int,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v1.4.0 Phase C · 11 NEW-A 完整版: 撤销 LLM judge 误标 的 superseded.
+
+    场景: conflict_detector 判 A 被 B 推翻, 但 用户 觉得 A 才是 正解 (LLM 误判),
+    点 "撤销 覆盖" 把 A status 改 回 active.
+
+    权限: leader / admin (workspace 内). member 不可改.
+
+    Idempotent: 已 active 的 message 调 此 endpoint → 返回 restored=False 不报错.
+    """
+    # workspace 校验
+    await _load_owned_meeting(meeting_id, session, auth)
+
+    # 权限校验 — leader 或 admin (复用 is_leader_or_admin: workspace_creator / leader / admin / system_owner)
+    if not await is_leader_or_admin(session, auth):
+        raise HTTPException(403, "leader / admin 才 可撤销 superseded 标")
+
+    msg = (
+        await session.execute(
+            select(MeetingAgentMessage).where(
+                MeetingAgentMessage.id == message_id,
+                MeetingAgentMessage.meeting_id == meeting_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if msg is None:
+        raise HTTPException(404, "agent message 不存在 或 不属于本会议")
+
+    if msg.status == "active":
+        return RestoreMessageResponse(
+            id=msg.id,
+            status="active",
+            superseded_by_message_id=None,
+            restored=False,
+        )
+
+    # update
+    await session.execute(
+        update(MeetingAgentMessage)
+        .where(MeetingAgentMessage.id == message_id)
+        .values(status="active", superseded_by_message_id=None)
+    )
+    await session.commit()
+
+    # audit
+    try:
+        await system_audit_log(
+            session,
+            auth.workspace.id,
+            "agent_message.superseded.restored",
+            target_type="meeting_agent_message",
+            target_id=str(message_id),
+            payload={"meeting_id": meeting_id, "user_id": str(auth.user.id)},
+        )
+    except Exception:
+        logger.exception("restore_superseded audit log failed (non-fatal)")
+
+    return RestoreMessageResponse(
+        id=msg.id,
+        status="active",
+        superseded_by_message_id=None,
+        restored=True,
+    )
 
 
 # v26.3-03: 议程项 共识 + 分歧 list (auto 会议)

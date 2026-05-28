@@ -134,10 +134,13 @@ export function MRRealHumanLine({
 export function MRRealAILine({
   line,
   isActiveSpeaker = false,
+  onSupersededClick,
 }: {
   line: WebTranscriptStreamLine;
   /** Sprint 3 Web W1: orchestrator 当前发言的 agent → border pulse 紫 + sparkle */
   isActiveSpeaker?: boolean;
+  /** v1.4.0 Phase C · 11 NEW-A 完整版: 点 「已被覆盖」chip → 上层 开 drawer */
+  onSupersededClick?: (line: WebTranscriptStreamLine) => void;
 }): ReactElement {
   const display = line.agent_nickname?.trim() || line.agent_name || "AI";
   const role = line.trigger ? TRIGGER_LABEL[line.trigger] || line.trigger : "";
@@ -262,10 +265,15 @@ export function MRRealAILine({
             {line.text}
           </div>
 
-          {/* v1.4.0 Phase B · 9 NEW-A: 立场被推翻 → 标 "已被覆盖" chip */}
+          {/* v1.4.0 Phase B · 9 NEW-A 简版: 立场被推翻 → 标 "已被覆盖" chip
+              v1.4.0 Phase C · 11 NEW-A 完整版: chip 可点 → 上层 开 drawer 看 链 + 撤销 */}
           {isSuperseded && (
-            <div
+            <button
+              type="button"
               data-testid="mr-msg-superseded-badge"
+              onClick={
+                onSupersededClick ? () => onSupersededClick(line) : undefined
+              }
               style={{
                 marginTop: 8,
                 display: "inline-flex",
@@ -278,6 +286,18 @@ export function MRRealAILine({
                 fontSize: 11,
                 fontWeight: 600,
                 letterSpacing: 0.2,
+                border: "none",
+                cursor: onSupersededClick ? "pointer" : "default",
+                fontFamily: "inherit",
+                transition: "background 140ms ease",
+              }}
+              onMouseEnter={(e) => {
+                if (onSupersededClick) {
+                  e.currentTarget.style.background = "rgba(60,60,67,0.18)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(60,60,67,0.10)";
               }}
             >
               <MRIcon name="check" size={11} color={MR_TOKENS.fgTertiary} />
@@ -287,7 +307,18 @@ export function MRRealAILine({
                   · 见 #{line.superseded_by_message_id}
                 </span>
               )}
-            </div>
+              {onSupersededClick && (
+                <span
+                  style={{
+                    marginLeft: 2,
+                    color: MR_TOKENS.fgQuaternary,
+                    fontWeight: 400,
+                  }}
+                >
+                  →
+                </span>
+              )}
+            </button>
           )}
 
           {line.citations_count > 0 && (

@@ -64,6 +64,7 @@ import { MR_HUMANS_IN_MEETING } from "./data";
 import { api, type WebMeetingDetailOut, type WebTranscriptStreamLine } from "@/lib/api";
 import { MRRealAILine, MRRealHumanLine } from "./MRRealMessages";
 import { OrchestrateStatusBanner } from "./OrchestrateStatusBanner";
+import { MRSupersededDrawer } from "./MRSupersededDrawer";
 import { MR_TOKENS } from "./tokens";
 // v1.4.0 Phase A · 6 (NORTH_STAR § 6.1): Web R5.D 会议室 mic + STT WS.
 import { useWebMeetingStt } from "@/lib/web/meetingStt";
@@ -95,6 +96,10 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
   const [me, setMe] = useState<{ user_id: string; name: string; role: string } | null>(
     null,
   );
+  // v1.4.0 Phase C · 11 NEW-A 完整版: superseded chip 点开后 显 chain drawer
+  const [supersededDrawerLine, setSupersededDrawerLine] = useState<
+    WebTranscriptStreamLine | null
+  >(null);
   const [workspaceUsers, setWorkspaceUsers] = useState<{ id: string; name: string }[]>(
     [],
   );
@@ -559,6 +564,7 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
                         isActiveSpeaker={
                           !!activeSpeakerAgentId && l.agent_id === activeSpeakerAgentId
                         }
+                        onSupersededClick={setSupersededDrawerLine}
                       />
                     )}
                   </div>
@@ -686,6 +692,24 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
         counts={counts}
       />
       <MREndModal open={ended} onCancel={() => setEnded(false)} />
+
+      {/* v1.4.0 Phase C · 11 NEW-A 完整版: 超 链 drawer + 撤销 */}
+      {supersededDrawerLine && (
+        <MRSupersededDrawer
+          line={supersededDrawerLine}
+          allLines={realLines}
+          meetingId={meetingId}
+          myRole={me?.role}
+          onClose={() => setSupersededDrawerLine(null)}
+          onRestored={() => {
+            // 撤销 成功 → 立刻 重新 拉 transcript (轮询 2.5s 太慢, 用户 等不及)
+            void api
+              .getWebMeetingTranscript(meetingId)
+              .then((d) => setRealLines(d.lines))
+              .catch(() => {});
+          }}
+        />
+      )}
     </div>
   );
 }

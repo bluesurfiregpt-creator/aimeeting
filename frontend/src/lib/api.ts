@@ -2501,6 +2501,16 @@ export const api = {
   listAgentMessages: (meetingId: string) =>
     jget<AgentMessage[]>(`/api/meetings/${meetingId}/agent-messages`),
 
+  // v1.4.0 Phase C · 11 NEW-A 完整版: 撤销 LLM judge 误标 的 superseded.
+  // leader / admin 权限 (返 403 时 silent + 上层 UI 提示).
+  restoreSupersededMessage: (meetingId: string, messageId: number) =>
+    jpost<{
+      id: number;
+      status: string;
+      superseded_by_message_id: number | null;
+      restored: boolean;
+    }>(`/api/meetings/${meetingId}/agent-messages/${messageId}/restore`, {}),
+
   // Agents
   listAgents: (opts?: {
     q?: string;
