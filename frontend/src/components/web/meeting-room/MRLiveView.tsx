@@ -670,7 +670,7 @@ export function MRLiveView({ meetingId }: MRLiveViewProps) {
           />
         </div>
 
-        <MRRightPanel />
+        <MRRightPanel meetingId={meetingId} />
       </div>
 
       <MRBottomBar
