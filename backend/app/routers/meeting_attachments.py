@@ -91,11 +91,24 @@ class AttachmentOut(BaseModel):
     extract_status: str
     # 不返回 extract_text (太长占带宽; 详情接口里 才单独取)
     extract_summary: Optional[str] = None
+    # v1.4.0 Phase C · 12: LLM 抽 章节 summary (按需 生成 + 缓存)
+    chapter_summaries: Optional[list[dict]] = None
     last_error: Optional[str] = None
 
 
 class AttachmentListOut(BaseModel):
     items: list[AttachmentOut]
+
+
+class AttachmentDetailOut(AttachmentOut):
+    """v1.4.0 Phase C · 12: 含 extract_text 全文 (FilePreview "全文" tab 用)."""
+    extract_text: Optional[str] = None
+
+
+class ExtractChaptersResponse(BaseModel):
+    """v1.4.0 Phase C · 12: LLM 抽 章节 结果. 调用后 写回 attachment.chapter_summaries."""
+    chapter_summaries: list[dict]
+    cached: bool  # True = 已 缓存 不重跑 LLM
 
 
 # ===== helpers =================================================================
@@ -538,3 +551,172 @@ async def load_attachment_context_for_prompt(
             lines.append(block)
             total += len(block)
     return "\n\n".join(lines)
+
+
+# ============================================================================
+# v1.4.0 Phase C · 12 (NORTH_STAR § 6.3 #12): 文件 详情 + 章节 LLM 抽
+# 替 FilePreview "预览开发中" 占位 (§ 7.5 防 mock 假装真实)
+# ============================================================================
+
+@router.get(
+    "/attachments/{attachment_id}",
+    response_model=AttachmentDetailOut,
+)
+async def get_attachment_detail(
+    attachment_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v1.4.0 Phase C · 12: 详情 endpoint, 含 extract_text 全文 (List 不返回省带宽).
+
+    workspace-scoped. FilePreview "全文" tab 用. 长文 由前端 分页 (滚动 / page).
+    """
+    att = (
+        await session.execute(
+            select(MeetingAttachment).where(
+                MeetingAttachment.id == attachment_id,
+                MeetingAttachment.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if att is None:
+        raise HTTPException(404, "attachment 不存在 或 不属于本 workspace")
+
+    return AttachmentDetailOut.model_validate(att)
+
+
+_CHAPTER_SYSTEM_PROMPT = """你是文档结构 解析助手. 给一段长文档, 你 要 拆 成 3-8 个 章节,
+每节 给 短 summary.
+
+**严格 JSON 单行** 输出, 不要 包代码块 不要 其他 文字:
+{
+  "chapters": [
+    {"section_number": 1, "title": "<不超过 20 字 章节名>", "summary": "<60-180 字 摘要>"},
+    ...
+  ]
+}
+
+判断规则:
+1. **必 3-8 节**: 太少 没层次, 太多 碎片化
+2. **section_number 从 1 起 连续**
+3. **title 简短 名词短语** — "缴位收费规定" 而不是 "本节 关于 缴位 的 一些 规定"
+4. **summary 保留 数字 / 时间 / 人名 / 决策**, 丢 寒暄 + 重复
+5. 若 文档 太短 / 没层次 → 输出 1 节 含 全文 summary, 不强凑
+6. 不要 用 "本节" / "本文档" 自指
+"""
+
+
+@router.post(
+    "/attachments/{attachment_id}/extract-chapters",
+    response_model=ExtractChaptersResponse,
+)
+async def extract_chapters(
+    attachment_id: uuid.UUID,
+    force: bool = False,
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(get_current_auth),
+):
+    """v1.4.0 Phase C · 12: LLM 抽 章节 summary, 缓存 入 attachment.chapter_summaries.
+
+    workspace 内 任何 登录 用户 可触发 (轻量, LLM 成本 ≤ 0.5 元). 第一次 命中 调
+    LLM (2-5s), 缓存 后 再 调 直接 返 缓存 (cached=True).
+
+    force=True → 强制 重跑 LLM (覆盖 旧缓存). 用于 重新 extract 后 调.
+    """
+    att = (
+        await session.execute(
+            select(MeetingAttachment).where(
+                MeetingAttachment.id == attachment_id,
+                MeetingAttachment.workspace_id == auth.workspace.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if att is None:
+        raise HTTPException(404, "attachment 不存在")
+
+    # 缓存 命中 (force=False 时)
+    if not force and isinstance(att.chapter_summaries, list) and att.chapter_summaries:
+        return ExtractChaptersResponse(
+            chapter_summaries=att.chapter_summaries,
+            cached=True,
+        )
+
+    if not att.extract_text or att.extract_status != "ready":
+        raise HTTPException(
+            400,
+            "文件 还 没 抽完 (extract_status != ready) 或 extract_text 为空, 无法 抽章节",
+        )
+
+    from ..db import SessionLocal
+    from ..llm_direct import LlmError, get_active_provider, stream_chat
+    import json as _json
+    import re as _re
+
+    async with SessionLocal() as db:
+        provider = await get_active_provider(db)
+    if provider is None:
+        raise HTTPException(503, "LLM provider 不可用")
+
+    user_prompt = (
+        f"文档名: {att.filename}\n\n"
+        f"原文 (前 12000 字):\n{att.extract_text[:12000]}"
+    )
+
+    parts: list[str] = []
+    try:
+        async for c in stream_chat(
+            provider=provider,
+            system_prompt=_CHAPTER_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            temperature=0.2,
+        ):
+            if c:
+                parts.append(c)
+    except LlmError as e:
+        logger.exception("extract_chapters LLM call failed att=%s", attachment_id)
+        raise HTTPException(502, f"LLM 抽章节 失败: {e}")
+
+    raw = "".join(parts).strip()
+    # JSON parse + fallback
+    if raw.startswith("```"):
+        m = _re.search(r"```(?:json)?\s*(.*?)```", raw, _re.S)
+        if m:
+            raw = m.group(1)
+    s, e = raw.find("{"), raw.rfind("}")
+    if s == -1 or e == -1:
+        raise HTTPException(502, "LLM 输出 不是 有效 JSON")
+    try:
+        parsed = _json.loads(raw[s : e + 1])
+    except _json.JSONDecodeError:
+        raise HTTPException(502, "LLM 输出 JSON parse 失败")
+
+    chapters_raw = parsed.get("chapters")
+    if not isinstance(chapters_raw, list) or not chapters_raw:
+        raise HTTPException(502, "LLM 没 返 chapters 数组")
+
+    # 清洗 + 截
+    cleaned: list[dict] = []
+    for i, ch in enumerate(chapters_raw[:10]):
+        if not isinstance(ch, dict):
+            continue
+        title = str(ch.get("title") or "").strip()[:30]
+        summary = str(ch.get("summary") or "").strip()[:400]
+        if not title or not summary:
+            continue
+        cleaned.append({
+            "section_number": i + 1,
+            "title": title,
+            "summary": summary,
+        })
+
+    if not cleaned:
+        raise HTTPException(502, "LLM 输出 无 有效 章节")
+
+    # 写回 DB
+    att.chapter_summaries = cleaned
+    await session.commit()
+
+    return ExtractChaptersResponse(
+        chapter_summaries=cleaned,
+        cached=False,
+    )

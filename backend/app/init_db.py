@@ -190,6 +190,9 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     # meeting.topic_id 关联 topic.id. ON DELETE SET NULL 在 schema 里 走 FK 约束,
     # 这里 只 加 列 (类型 UUID). topic 表 由 create_all 自动建.
     ("meeting", "topic_id", "UUID"),
+    # v1.4.0 Phase C · 12 (NORTH_STAR § 6.3 #12): MeetingAttachment 加 LLM 抽
+    # 章节 summary 缓存 (按需 生成 + 入库). 替 FilePreview "预览开发中" 占位.
+    ("meeting_attachment", "chapter_summaries", "JSON"),
 ]
 
 # v23.5+: 列类型扩容(idempotent — 同类型时 PG 当 no-op).

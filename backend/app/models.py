@@ -577,6 +577,12 @@ class MeetingAttachment(Base):
     # LLM 给 prompt 用的短 summary (≤ 2000 字). 抽完 text 后 再 用 LLM call 出.
     # 没生成时 NULL — orchestrator fallback 用 filename + "(未抽取)" 占位.
     extract_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # v1.4.0 Phase C · 12 (NORTH_STAR § 6.3 #12): LLM 抽 章节 summary, 缓存 入库.
+    # 列表 [{section_number, title, summary, char_range:[start,end]}, ...] 或 NULL.
+    # 用户 在 FilePreview tab "章节" 看, 不再 显 "预览开发中" 占位 (§ 7.5 防 mock).
+    chapter_summaries: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(
+        JSON, nullable=True
+    )
     last_error: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -20,7 +20,7 @@
  * 底 pager: 上一页 / X / 下一页 (mock — extract 没分页)
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
 
 import MRIcon from "../../shared/Icon";
@@ -39,6 +39,14 @@ type Props = {
   onClose: () => void;
 };
 
+type Chapter = {
+  section_number: number;
+  title: string;
+  summary: string;
+};
+
+type ViewTab = "summary" | "chapters" | "fulltext";
+
 export default function FilePreview({
   file,
   attachmentId,
@@ -47,9 +55,63 @@ export default function FilePreview({
   onClose,
 }: Props): ReactElement {
   const [page, setPage] = useState(1);
-  const totalPages = 1; // 真实 抽取 暂无分页, mock = 1
+  const totalPages = 1; // 全文 tab 用 5KB 一页 算
 
-  void attachmentId; // 后续接 download endpoint 时用
+  // v1.4.0 Phase C · 12: 三 tab — 概要 / 章节 / 全文 (替 "预览开发中" 占位)
+  const [tab, setTab] = useState<ViewTab>("summary");
+  const [chapters, setChapters] = useState<Chapter[] | null>(null);
+  const [chaptersLoading, setChaptersLoading] = useState(false);
+  const [chaptersError, setChaptersError] = useState<string | null>(null);
+  const [fullText, setFullText] = useState<string | null>(null);
+  const [fullTextLoading, setFullTextLoading] = useState(false);
+  const [fullTextError, setFullTextError] = useState<string | null>(null);
+
+  const canPreview = extractStatus === "ready";
+
+  // 切到 "章节" tab 时 拉/抽 章节
+  useEffect(() => {
+    if (tab !== "chapters" || !canPreview || chapters !== null || chaptersLoading) return;
+    setChaptersLoading(true);
+    setChaptersError(null);
+    fetch(`/api/meetings/attachments/${attachmentId}/extract-chapters`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    })
+      .then(async (r) => {
+        if (!r.ok) {
+          const t = await r.text().catch(() => "");
+          throw new Error(`HTTP ${r.status} ${t.slice(0, 100)}`);
+        }
+        return r.json();
+      })
+      .then((d: { chapter_summaries: Chapter[]; cached: boolean }) =>
+        setChapters(d.chapter_summaries),
+      )
+      .catch((e) =>
+        setChaptersError(e instanceof Error ? e.message : String(e)),
+      )
+      .finally(() => setChaptersLoading(false));
+  }, [tab, attachmentId, canPreview, chapters, chaptersLoading]);
+
+  // 切到 "全文" tab 时 拉 detail (含 extract_text)
+  useEffect(() => {
+    if (tab !== "fulltext" || !canPreview || fullText !== null || fullTextLoading) return;
+    setFullTextLoading(true);
+    setFullTextError(null);
+    fetch(`/api/meetings/attachments/${attachmentId}`, {
+      credentials: "include",
+    })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((d: { extract_text: string | null }) => setFullText(d.extract_text || ""))
+      .catch((e) =>
+        setFullTextError(e instanceof Error ? e.message : String(e)),
+      )
+      .finally(() => setFullTextLoading(false));
+  }, [tab, attachmentId, canPreview, fullText, fullTextLoading]);
 
   return (
     <div
@@ -233,21 +295,52 @@ export default function FilePreview({
               {file.name}
             </div>
 
-            {/* extract status / summary */}
-            {extractStatus === "ready" && extractSummary ? (
+            {/* v1.4.0 Phase C · 12: 三 tab segmented control (替 "预览开发中" 占位) */}
+            {canPreview && (
               <div
+                data-testid="file-preview-tabs"
                 style={{
+                  display: "flex",
+                  gap: 4,
                   marginTop: 16,
-                  fontSize: 12.5,
-                  lineHeight: 1.65,
-                  color: "#3C3C43",
-                  whiteSpace: "pre-wrap",
+                  padding: 3,
+                  borderRadius: 8,
+                  background: "#F2F2F7",
                 }}
               >
-                {extractSummary}
+                {([
+                  ["summary", "概要"],
+                  ["chapters", "章节"],
+                  ["fulltext", "全文"],
+                ] as const).map(([k, label]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setTab(k)}
+                    style={{
+                      flex: 1,
+                      padding: "6px 0",
+                      borderRadius: 6,
+                      background: tab === k ? "#fff" : "transparent",
+                      color: tab === k ? "#1C1C1E" : "#8E8E93",
+                      border: "none",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      fontFamily: "inherit",
+                      cursor: "pointer",
+                      transition: "all 140ms ease",
+                      boxShadow:
+                        tab === k ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
-            ) : extractStatus === "extracting" ||
-              extractStatus === "pending" ? (
+            )}
+
+            {/* extract status / 内容 — 按 tab 分流 */}
+            {extractStatus === "extracting" || extractStatus === "pending" ? (
               <div
                 style={{
                   marginTop: 32,
@@ -274,13 +367,7 @@ export default function FilePreview({
               >
                 <div style={{ fontSize: 30 }}>⚠</div>
                 <div style={{ marginTop: 8, fontWeight: 600 }}>抽取失败</div>
-                <div
-                  style={{
-                    marginTop: 4,
-                    fontSize: 11.5,
-                    color: "#8E8E93",
-                  }}
-                >
+                <div style={{ marginTop: 4, fontSize: 11.5, color: "#8E8E93" }}>
                   {file.lastError?.slice(0, 120) || "未知错误"}
                 </div>
               </div>
@@ -299,22 +386,182 @@ export default function FilePreview({
                   下载到本机 查看
                 </div>
               </div>
-            ) : (
-              <div
-                style={{
-                  marginTop: 32,
-                  textAlign: "center",
-                  color: "#8E8E93",
-                  fontSize: 13,
-                }}
-              >
-                <div style={{ fontSize: 30 }}>📄</div>
-                <div style={{ marginTop: 8, fontWeight: 600 }}>预览开发中</div>
-                <div style={{ marginTop: 4, fontSize: 11.5 }}>
-                  下方 可下载 原文件
+            ) : tab === "summary" ? (
+              extractSummary ? (
+                <div
+                  data-testid="file-preview-summary"
+                  style={{
+                    marginTop: 16,
+                    fontSize: 12.5,
+                    lineHeight: 1.65,
+                    color: "#3C3C43",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {extractSummary}
                 </div>
-              </div>
-            )}
+              ) : (
+                <div
+                  style={{
+                    marginTop: 32,
+                    textAlign: "center",
+                    color: "#8E8E93",
+                    fontSize: 13,
+                  }}
+                >
+                  <div style={{ fontSize: 30 }}>📄</div>
+                  <div style={{ marginTop: 8, fontWeight: 600 }}>暂无 概要</div>
+                </div>
+              )
+            ) : tab === "chapters" ? (
+              chaptersLoading ? (
+                <div
+                  style={{
+                    marginTop: 32,
+                    textAlign: "center",
+                    color: "#8E8E93",
+                    fontSize: 13,
+                  }}
+                >
+                  <div style={{ fontSize: 24 }}>✦</div>
+                  <div style={{ marginTop: 8, fontWeight: 600 }}>AI 正在 抽 章节…</div>
+                  <div style={{ marginTop: 4, fontSize: 11.5 }}>
+                    需要 2-5 秒, 抽完 后 缓存
+                  </div>
+                </div>
+              ) : chaptersError ? (
+                <div
+                  style={{
+                    marginTop: 16,
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    background: "rgba(255,59,48,0.10)",
+                    color: "#FF3B30",
+                    fontSize: 12,
+                  }}
+                >
+                  抽章节 失败: {chaptersError}
+                </div>
+              ) : chapters && chapters.length > 0 ? (
+                <div
+                  data-testid="file-preview-chapters"
+                  style={{
+                    marginTop: 16,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 12,
+                  }}
+                >
+                  {chapters.map((c) => (
+                    <div
+                      key={c.section_number}
+                      style={{
+                        padding: "12px 14px",
+                        borderRadius: 10,
+                        background: "#F7F7F9",
+                        border: "0.5px solid rgba(60,60,67,0.10)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "baseline",
+                          gap: 6,
+                          marginBottom: 6,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: "#5E5CE6",
+                            letterSpacing: 0.4,
+                          }}
+                        >
+                          §{c.section_number}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: "#1C1C1E",
+                          }}
+                        >
+                          {c.title}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          lineHeight: 1.6,
+                          color: "#3C3C43",
+                          whiteSpace: "pre-wrap",
+                        }}
+                      >
+                        {c.summary}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null
+            ) : tab === "fulltext" ? (
+              fullTextLoading ? (
+                <div
+                  style={{
+                    marginTop: 32,
+                    textAlign: "center",
+                    color: "#8E8E93",
+                    fontSize: 13,
+                  }}
+                >
+                  加载 全文…
+                </div>
+              ) : fullTextError ? (
+                <div
+                  style={{
+                    marginTop: 16,
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    background: "rgba(255,59,48,0.10)",
+                    color: "#FF3B30",
+                    fontSize: 12,
+                  }}
+                >
+                  加载 全文 失败: {fullTextError}
+                </div>
+              ) : fullText ? (
+                <div
+                  data-testid="file-preview-fulltext"
+                  style={{
+                    marginTop: 16,
+                    fontSize: 12,
+                    lineHeight: 1.7,
+                    color: "#3C3C43",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    maxHeight: "60vh",
+                    overflowY: "auto",
+                    padding: "12px 14px",
+                    borderRadius: 8,
+                    background: "#FAFAFA",
+                    border: "0.5px solid rgba(60,60,67,0.10)",
+                  }}
+                >
+                  {fullText}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    marginTop: 32,
+                    textAlign: "center",
+                    color: "#8E8E93",
+                    fontSize: 13,
+                  }}
+                >
+                  全文 为空
+                </div>
+              )
+            ) : null}
 
             {/* footer */}
             <div
