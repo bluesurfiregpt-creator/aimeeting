@@ -30,7 +30,7 @@
 ## 1. 当前 项目 做到 哪一步
 
 ### 1.1 大方向
-- 产品定位见 `/Users/bluesurfire/Documents/claude/aimeeting/REQUIREMENTS.md` 或 `/Users/bluesurfire/Documents/claude/aimeeting/docs/NORTH_STAR.md` § 1
+- 产品定位见 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/REQUIREMENTS.md` 或 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/NORTH_STAR.md` § 1
 - MVP = NORTH_STAR § 6 的 Phase A + B + C 全部 ship — 当前 **代码已 ship, 但 Web Workstation mock 大头未消除**
 
 ### 1.2 NORTH_STAR § 6 完成度
@@ -59,7 +59,7 @@
 
 ## 2. 已完成 功能
 
-### 2.1 后端 (`/Users/bluesurfire/Documents/claude/aimeeting/backend/app/`)
+### 2.1 后端 (`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/`)
 - ✅ FastAPI app + auto OpenAPI + JWT cookie auth (`auth.py`)
 - ✅ PostgreSQL + pgvector + Alembic-style migration (`init_db.py`)
 - ✅ ASR + STT WS (DashScope paraformer-v2, `routers/audio.py` + `meetings.py` WS)
@@ -77,7 +77,7 @@
 - ✅ Demo seed (`demo_seed.py` 16 中文 agent / `demo_seed_v2.py` 10 英文品牌 agent + KB)
 - ✅ 平台超管 (`routers/super.py` 跨 workspace 切换)
 
-### 2.2 前端 — Mobile (`/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/app/m/*`)
+### 2.2 前端 — Mobile (`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/app/m/*`)
 - ✅ 14 页 / 12 真接 + 2 混合 (具体见 § 3 表)
 - ✅ 全 浅色 iOS (MR_COLORS 单 theme, 不开 dark mode)
 - ✅ Saga M/N/O/P (Phase 2 W1-W4) 17 V2 endpoint 接通
@@ -143,7 +143,7 @@ S1 已 ship, S2-S5 未做 — 见 § 3.1 表 #1-#6.
 ## 5. 代码能不能 启动
 
 ### 5.1 本地启动 (开发)
-✅ 能启动. 详 `/Users/bluesurfire/Documents/claude/aimeeting/docs/dev-setup.md`. 简版:
+✅ 能启动. 详 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/dev-setup.md`. 简版:
 
 ```bash
 # 前置: PostgreSQL 14+ with pgvector, Redis 7+, Python 3.12, Node 18+
@@ -165,7 +165,7 @@ npm run dev   # http://localhost:3000
 ```
 
 ### 5.2 生产 (Docker compose)
-✅ 能启动. 详 `/Users/bluesurfire/Documents/claude/aimeeting/docs/dev-setup.md` + `/Users/bluesurfire/Documents/claude/aimeeting/deploy/rsync-up.sh`:
+✅ 能启动. 详 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/dev-setup.md` + `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/deploy/rsync-up.sh`:
 
 ```bash
 # 服务器一次性引导
@@ -324,32 +324,32 @@ d6e0174 docs(north-star v1.2.2): Phase A 收尾 + § 8.7 双盲测试机制 沉�
 
 | 文件 | 为什么 | 改 风险 |
 |------|--------|--------|
-| `/Users/bluesurfire/Documents/claude/aimeeting/docs/NORTH_STAR.md` | **产品宪法**, 任何 saga 跟它 对齐 | 改 需 PM 批 + 升 版本 |
-| `/Users/bluesurfire/Documents/claude/aimeeting/CLAUDE.md` | 工作守则 + Kimi 测试规范 + 中文表达 § 8.8 + 风格守门 § 8.2 | 改 需 PM 批 |
-| `/Users/bluesurfire/Documents/claude/aimeeting/docs/design/system/DESIGN_SYSTEM.md` | 视觉/交互 truth source, 含 W_TOKENS / MR_COLORS 双 token 隔离规则 | UI 改 必先读 |
-| `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/models.py` | 数据模型 SQLAlchemy, 改 schema 必 加 migration to `init_db.py` `_COLUMN_MIGRATIONS` | 高风险 |
-| `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/init_db.py` | DB 初始化 + 增量 migration (idempotent ALTER) | 改 必 PM 批 |
-| `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/auth.py` | JWT + cookie + ABAC + role helper (is_leader_or_admin 等) | 高风险 |
-| `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/auto_meeting_orchestrator.py` | 全 AI 圆桌调度 7 phase 状态机 | 改 影响 整 auto 会议 |
-| `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/agent_router.py` | hybrid/manual 模式 AI 召唤 路由 (5 维) | 改 影响 hybrid 全部 |
-| `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/conflict_detector.py` | NEW-A 简版 LLM judge 自动 标 superseded | 新加, 跟 dissent_detector 同 pattern |
-| `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/llm_direct.py` | LLM provider 抽象 (deepseek / qwen / 等), 所有 LLM 调用 都走 它 | 改 影响 全 LLM |
-| `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/lib/api.ts` | 前端 API client (~3000 行), 类型 + jget/jpost 等 helper | 改 影响 全 frontend |
-| `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/web/tokens.ts` | W_TOKENS 双 theme (workstation 暗紫 + light) | 改 必 全 web 测 |
-| `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/web/meeting-room/tokens.ts` | MR_TOKENS 会议室 双 theme (浅 default + 深 opt-in, § 7.1.1) | 改 必 走 design 守门 |
-| `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/mobile/meeting-room/styles.ts` | MR_COLORS 单 theme, 移动端 永远 浅色 iOS | 改 必 PM 批 |
+| `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/NORTH_STAR.md` | **产品宪法**, 任何 saga 跟它 对齐 | 改 需 PM 批 + 升 版本 |
+| `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/CLAUDE.md` | 工作守则 + Kimi 测试规范 + 中文表达 § 8.8 + 风格守门 § 8.2 | 改 需 PM 批 |
+| `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/design/system/DESIGN_SYSTEM.md` | 视觉/交互 truth source, 含 W_TOKENS / MR_COLORS 双 token 隔离规则 | UI 改 必先读 |
+| `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/models.py` | 数据模型 SQLAlchemy, 改 schema 必 加 migration to `init_db.py` `_COLUMN_MIGRATIONS` | 高风险 |
+| `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/init_db.py` | DB 初始化 + 增量 migration (idempotent ALTER) | 改 必 PM 批 |
+| `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/auth.py` | JWT + cookie + ABAC + role helper (is_leader_or_admin 等) | 高风险 |
+| `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/auto_meeting_orchestrator.py` | 全 AI 圆桌调度 7 phase 状态机 | 改 影响 整 auto 会议 |
+| `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/agent_router.py` | hybrid/manual 模式 AI 召唤 路由 (5 维) | 改 影响 hybrid 全部 |
+| `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/conflict_detector.py` | NEW-A 简版 LLM judge 自动 标 superseded | 新加, 跟 dissent_detector 同 pattern |
+| `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/llm_direct.py` | LLM provider 抽象 (deepseek / qwen / 等), 所有 LLM 调用 都走 它 | 改 影响 全 LLM |
+| `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/lib/api.ts` | 前端 API client (~3000 行), 类型 + jget/jpost 等 helper | 改 影响 全 frontend |
+| `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/components/web/tokens.ts` | W_TOKENS 双 theme (workstation 暗紫 + light) | 改 必 全 web 测 |
+| `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/components/web/meeting-room/tokens.ts` | MR_TOKENS 会议室 双 theme (浅 default + 深 opt-in, § 7.1.1) | 改 必 走 design 守门 |
+| `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/components/mobile/meeting-room/styles.ts` | MR_COLORS 单 theme, 移动端 永远 浅色 iOS | 改 必 PM 批 |
 
 ---
 
 ## 12. 哪些 文件 不要 轻易 动
 
 - **任何 `data/` 下 mock 常量文件** (W_AGENTS / MR_MESSAGES / DEMO_KB / MOCK_HUMANS / W_PROFILES 等) — 它们 是 fallback 兜底, 但 当 backend 没数据时 客户看到的. **不要单独删** 必须 同步 真接 + 加"演示数据" pill.
-- **`/Users/bluesurfire/Documents/claude/aimeeting/backend/app/demo_seed*.py`** — workspace 兜底 数据. 改 会 影响 demo workspace + Kimi 测试.
-- **`/Users/bluesurfire/Documents/claude/aimeeting/deploy/.env`** (server-only, 含 POSTGRES_PASSWORD) — `/Users/bluesurfire/Documents/claude/aimeeting/deploy/rsync-up.sh` exclude 它防 误删, 改 必 ssh 进 server 改.
-- **`/Users/bluesurfire/Documents/claude/aimeeting/backend/.env`** — DASHSCOPE_API_KEY / JWT_SECRET 等. local 有, server 有, 不入 git.
-- **任何 `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/web/data/*`** + **`/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/mobile/.../data.ts`** — 同上 mock 兜底.
-- **`/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/web/atoms/WPage.tsx` + `WThemeProvider.tsx`** — workstation 主壳 + 主题. 改 风险高.
-- **`/Users/bluesurfire/Documents/claude/aimeeting/backend/app/main.py` lifespan 启动** — 含 demo_seed_v2 自动 fire, 改顺序 会 boot 失败.
+- **`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/demo_seed*.py`** — workspace 兜底 数据. 改 会 影响 demo workspace + Kimi 测试.
+- **`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/deploy/.env`** (server-only, 含 POSTGRES_PASSWORD) — `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/deploy/rsync-up.sh` exclude 它防 误删, 改 必 ssh 进 server 改.
+- **`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/.env`** — DASHSCOPE_API_KEY / JWT_SECRET 等. local 有, server 有, 不入 git.
+- **任何 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/components/web/data/*`** + **`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/components/mobile/.../data.ts`** — 同上 mock 兜底.
+- **`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/components/web/atoms/WPage.tsx` + `WThemeProvider.tsx`** — workstation 主壳 + 主题. 改 风险高.
+- **`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/main.py` lifespan 启动** — 含 demo_seed_v2 自动 fire, 改顺序 会 boot 失败.
 
 ---
 
@@ -459,7 +459,7 @@ aimeeting/
 
 - **生产 URL**: `https://aimeeting.zhzjpt.cn`
 - **SSH host**: `root@47.245.92.62` (或 `~/.ssh/config` alias `aimeeting-new`)
-- **测试账号** (全项目共享, 见 `/Users/bluesurfire/Documents/claude/aimeeting/CLAUDE.md` § 测试账号):
+- **测试账号** (全项目共享, 见 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/CLAUDE.md` § 测试账号):
   - leader: `demo.lijg@futian.gov.cn` / `demo123`
   - admin: `demo.chensy@futian.gov.cn` / `demo123`
   - agent_owner: `demo.fengl@futian.gov.cn` / `demo123`

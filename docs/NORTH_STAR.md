@@ -28,7 +28,7 @@
 
 > **面向中国政企的 AI Agent 协作会议工作台. AI 专家能有长期记忆, 会议结论沉淀回知识库, 并能协助完成会后任务.**
 >
-> _(来源: PM Q1 升级版, 取代 `/Users/bluesurfire/Documents/claude/aimeeting/README.md` 老一句话 + `product-needs-v1.md` 一句话)_
+> _(来源: PM Q1 升级版, 取代 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/README.md` 老一句话 + `product-needs-v1.md` 一句话)_
 
 ### 1.2 三层价值
 
@@ -46,7 +46,7 @@
 | **ChatGPT / Claude** | 1v1 私聊 | N 个 AI 在一场会里相互讨论 + 综合输出 + 召唤新 AI |
 | **政务工单系统** | 工单流转 + 派人 | "组织决策 + 知识沉淀 + 数据 5 级 ABAC" 收在一起, 从工具走向决策助手 |
 
-_(反推自 `/Users/bluesurfire/Documents/claude/aimeeting/docs/PRODUCT_OVERVIEW.md` § 1.2 + `/Users/bluesurfire/Documents/claude/aimeeting/docs/product-needs-v1.md` 主题一-四, 不硬猜)_
+_(反推自 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/PRODUCT_OVERVIEW.md` § 1.2 + `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/product-needs-v1.md` 主题一-四, 不硬猜)_
 
 ### 1.4 客户 8 大痛点 (v1.2 大会师对齐 · PM 主导口述)
 
@@ -142,7 +142,7 @@ _(反推自 `/Users/bluesurfire/Documents/claude/aimeeting/docs/PRODUCT_OVERVIEW
 - **`leader` vs `admin` 拆分** (v1.3.1): leader = ws 最高权 (= workspace_creator), admin = 科室级 (不改 AI/KB/memory).
 - **注册流程改造** (v1.3.1, PM 决策 4): 只 system_owner (email 在 PLATFORM_ADMIN_EMAILS 白名单) 注册时可建新 ws + 当 workspace_creator. 普通用户注册必须有 invite token, 否则加入 demo workspace 当 member.
 
-_(来源: PM Q2 + audit 2026-05-25 + PM 4 拍板决策, 见 `/Users/bluesurfire/Documents/claude/aimeeting/docs/audit/role-permission-audit-2026-05-25.md`)_
+_(来源: PM Q2 + audit 2026-05-25 + PM 4 拍板决策, 见 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/audit/role-permission-audit-2026-05-25.md`)_
 
 ---
 
@@ -398,7 +398,7 @@ _(来源: PM Q7)_
 ### 6.5 立 NORTH_STAR.md + 接进 CLAUDE.md 工作流 (v1.0 沿用)
 
 - 本文档.
-- 把 NORTH_STAR.md 写入 `/Users/bluesurfire/Documents/claude/aimeeting/CLAUDE.md` "风格守门协议" 下方一节, 每个 Saga 启动前必读 § 1 + § 1.4 + § 6 + § 7 + § 7.5.
+- 把 NORTH_STAR.md 写入 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/CLAUDE.md` "风格守门协议" 下方一节, 每个 Saga 启动前必读 § 1 + § 1.4 + § 6 + § 7 + § 7.5.
 - "不做" 5 条 + "设计原则" 5 条 进 review checklist.
 
 ---
@@ -411,7 +411,7 @@ _(来源: PM Q7)_
 
 round-4 全面切换到 iOS 浅色 (会议室 round-3 done, 主 tab round-4 in-progress). **不允许**新写 dark token / 借鉴老 dark 代码 — **以下 7.1.1 例外 除外**.
 - 例外 (零散): 必须 dark 的 (eg. 模态过渡黑底) 在 commit message 标 `[STYLE-DEVIATION: 具体原因]`.
-- 反例: v1.2.0 P1.2 折叠态借了 AttachmentsSection 老 dark token, 是错误案例 (`/Users/bluesurfire/Documents/claude/aimeeting/CLAUDE.md` 风格守门协议).
+- 反例: v1.2.0 P1.2 折叠态借了 AttachmentsSection 老 dark token, 是错误案例 (`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/CLAUDE.md` 风格守门协议).
 
 ### 7.1.1 例外 · 会议室 双 theme (PM 显式 override, 2026-05-28)
 
@@ -518,7 +518,7 @@ round-4 全面切换到 iOS 浅色 (会议室 round-3 done, 主 tab round-4 in-p
 ### 8.2 风格守门协议
 
 任何 `Edit` / `Write` 涉及 `*.tsx` / `*.css` / `*.ts` UI 相关:
-1. 读 `/Users/bluesurfire/Documents/claude/aimeeting/docs/design/system/DESIGN_SYSTEM.md` 当前最新版
+1. 读 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/design/system/DESIGN_SYSTEM.md` 当前最新版
 2. 检查改动是否引入与 design system 冲突的视觉/交互
 3. 冲突: 优先按 design system 改, 不能改的在 commit message 标 `[STYLE-DEVIATION: 原因]`
 4. subagent 委派 prompt 必须 reference DESIGN_SYSTEM.md
@@ -526,7 +526,7 @@ round-4 全面切换到 iOS 浅色 (会议室 round-3 done, 主 tab round-4 in-p
 ### 8.3 Saga 拆分 + 改动清单 + 渐进合并
 
 - 大需求拆 Saga → 每 Saga 独立 ship.
-- Saga 落地前必有 `/Users/bluesurfire/Documents/claude/aimeeting/docs/design/specs/SAGA-*.md` changelist 文档.
+- Saga 落地前必有 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/design/specs/SAGA-*.md` changelist 文档.
 - 改动清单 → PM 批准 → 实施.
 
 ### 8.4 commit message 含版本号 + Phase 标
@@ -535,7 +535,7 @@ round-4 全面切换到 iOS 浅色 (会议室 round-3 done, 主 tab round-4 in-p
 
 ### 8.5 Kimi 测试用例必产
 
-任何 `feat(*)` / `fix(*)` 落到生产 → 必产出 `docs/kimi-tests/<版本>-kimi.md`, 6 条死规矩反幻觉. 见 `/Users/bluesurfire/Documents/claude/aimeeting/CLAUDE.md` § 部署+测试流程.
+任何 `feat(*)` / `fix(*)` 落到生产 → 必产出 `docs/kimi-tests/<版本>-kimi.md`, 6 条死规矩反幻觉. 见 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/CLAUDE.md` § 部署+测试流程.
 
 ### 8.6 Kimi 测试用例 路径规范 — **强约束**
 
@@ -609,9 +609,9 @@ PM 真实需求 (PM 原话 2026-05-27):
 #### Saga 验收 推荐 (默认 手段)
 
 任何 Saga 涉及 "AI 行为 / LLM judge / WS event 流 / API JSON 返回" — **默认走 双盲测试** 作为 收尾 验收:
-1. Claude 用 `/Users/bluesurfire/Documents/claude/aimeeting/scripts/blind-test-runner.py` (Phase A 留下的 通用 runner, 可改 metric) 跑 + 出 result JSON
+1. Claude 用 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/scripts/blind-test-runner.py` (Phase A 留下的 通用 runner, 可改 metric) 跑 + 出 result JSON
 2. 给 Kimi 同剧本 喂 (zip 模式, repo private 时 也 work) — 路径规范 § 8.6
-3. 对账 6/6 一致 → GREEN, 否则 深审 (`/Users/bluesurfire/Documents/claude/aimeeting/docs/kimi-tests/blind-test/retro-*-roundN.md`)
+3. 对账 6/6 一致 → GREEN, 否则 深审 (`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/kimi-tests/blind-test/retro-*-roundN.md`)
 
 #### 真 backend bug vs 概率抖动 — 区分 准则
 
@@ -713,7 +713,7 @@ PM + Claude 同步问 3 个问题:
 |---|---|
 | § 1.1 一句话 | PM Q1 升级版 (2026-05-25 对话) |
 | § 1.2 三层价值 | PM Q1 升级版 + `product-needs-v1.md` 主题一-四 |
-| § 1.3 同类差异 | `/Users/bluesurfire/Documents/claude/aimeeting/docs/PRODUCT_OVERVIEW.md` § 1.2 反推 |
+| § 1.3 同类差异 | `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/PRODUCT_OVERVIEW.md` § 1.2 反推 |
 | **§ 1.4 客户 8 大痛点** | **2026-05-27 PM 大会师对齐 (口述 → 精炼)** |
 | § 2.1 AI Agent | PM Q2 + v26.9 数字员工 + m3.0 moderator + v26.5 spec |
 | § 2.2 真人 4 角色 | PM Q2 + `v26.5-role-redesign-spec.md` 矩阵 |
@@ -721,9 +721,9 @@ PM + Claude 同步问 3 个问题:
 | § 4 三端 | PM Q7 + `v1.1.0-deploy-guide.md` 小程序原生 + `v27.0-mobile-*` 移动 H5 |
 | § 5 SaaS 架构 | PM Q6 + `v26.4 平台超管` + `workspace.preset` 模型 |
 | **§ 6 当前阶段 (Phase A/B/C/D)** | **2026-05-27 大会师 + Code Archaeology + Sprint 1-3 ship 历史** |
-| § 7 不做 5 条 | PM 多次反馈反推 + `/Users/bluesurfire/Documents/claude/aimeeting/CLAUDE.md` 风格守门协议 |
+| § 7 不做 5 条 | PM 多次反馈反推 + `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/CLAUDE.md` 风格守门协议 |
 | **§ 7.5 产品设计原则 5 条** | **2026-05-27 大会师 + 8 痛点提炼** |
-| § 8 工作流 | `/Users/bluesurfire/Documents/claude/aimeeting/CLAUDE.md` 现行约定 |
+| § 8 工作流 | `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/CLAUDE.md` 现行约定 |
 | **§ 9.2 大会师机制 + § 9.5 误判防护** | **2026-05-27 Code Archaeology 校准 + 主 Agent 反思** |
 
 ---

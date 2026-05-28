@@ -1,6 +1,6 @@
 # AGENTS.md — Codex 长期 项目 规则
 
-> **目的**: Codex (或 任何 后续 AI agent / 真人) 接手 时 一站式 必读. 整合 `/Users/bluesurfire/Documents/claude/aimeeting/CLAUDE.md` (Claude 时期 的 守则) + `/Users/bluesurfire/Documents/claude/aimeeting/docs/NORTH_STAR.md` 关键 沉淀 + 实操 经验.
+> **目的**: Codex (或 任何 后续 AI agent / 真人) 接手 时 一站式 必读. 整合 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/CLAUDE.md` (Claude 时期 的 守则) + `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/NORTH_STAR.md` 关键 沉淀 + 实操 经验.
 > **强约束**: 这些 是 **PM 拍板 sticky** 规则, 不允许 自动 放宽. 改 必 PM 显式 批.
 
 ---
@@ -9,9 +9,9 @@
 
 | 层 | 选型 | 关键 版本 |
 |----|------|---------|
-| **Frontend** | Next.js 15 (App Router) + React 19 + TypeScript 5 | `/Users/bluesurfire/Documents/claude/aimeeting/frontend/package.json` |
-| **UI 风格** | 原生 CSS-in-JS (inline style) + tokens 模块 (W_TOKENS / MR_TOKENS / MR_COLORS), **不用 Tailwind / shadcn** | `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/web/tokens.ts` 等 |
-| **Backend** | FastAPI + SQLAlchemy 2.0 (async) + asyncpg | `/Users/bluesurfire/Documents/claude/aimeeting/backend/requirements.txt`, fastapi 0.115 |
+| **Frontend** | Next.js 15 (App Router) + React 19 + TypeScript 5 | `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/package.json` |
+| **UI 风格** | 原生 CSS-in-JS (inline style) + tokens 模块 (W_TOKENS / MR_TOKENS / MR_COLORS), **不用 Tailwind / shadcn** | `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/components/web/tokens.ts` 等 |
+| **Backend** | FastAPI + SQLAlchemy 2.0 (async) + asyncpg | `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/requirements.txt`, fastapi 0.115 |
 | **DB** | PostgreSQL 16 + pgvector (1536d embedding) | `pgvector/pgvector:pg16` docker image |
 | **Cache** | Redis 7-alpine | for session / cache |
 | **LLM** | DashScope (qwen / deepseek), 通过 `llm_direct.py` 抽象 | active provider 可 切换, 当前 prod = `deepseek-v4-pro` |
@@ -20,14 +20,14 @@
 | **声纹** | pyannoteAI (sync identify) | `identify_pipeline.py` |
 | **Auth** | JWT cookie + ABAC (workspace_id + role helper) | `auth.py` |
 | **Storage** | OSS (aliyun) + 本地 disk fallback | `meeting_attachments.py` |
-| **Deploy** | Docker compose + rsync + nginx + certbot | `/Users/bluesurfire/Documents/claude/aimeeting/deploy/*.sh` |
-| **小程序** | 微信 原生 (无 vite, 用 微信 IDE 调试) | `/Users/bluesurfire/Documents/claude/aimeeting/wechat-miniprogram/` 浅色化 done, 编辑功能 不做 |
+| **Deploy** | Docker compose + rsync + nginx + certbot | `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/deploy/*.sh` |
+| **小程序** | 微信 原生 (无 vite, 用 微信 IDE 调试) | `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/wechat-miniprogram/` 浅色化 done, 编辑功能 不做 |
 
 ---
 
 ## 2. 目录 结构 说明
 
-详 `/Users/bluesurfire/Documents/claude/aimeeting/HANDOFF.md` § 14. 关键提示:
+详 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/HANDOFF.md` § 14. 关键提示:
 
 ```
 aimeeting/
@@ -168,9 +168,9 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ### 5.1 三套 token 严格 隔离
 | 端 | token | 文件 | 默认 theme |
 |----|-------|------|----------|
-| Web Workstation + 首页 | **W_TOKENS** (暗紫 双 theme) | `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/web/tokens.ts` | dark default |
-| Web 会议室 (§ 7.1.1) | **MR_TOKENS** (双 theme) | `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/web/meeting-room/tokens.ts` | light default |
-| Mobile + 小程序 | **MR_COLORS** (单 theme 浅) | `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/mobile/meeting-room/styles.ts` | 永远 light |
+| Web Workstation + 首页 | **W_TOKENS** (暗紫 双 theme) | `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/components/web/tokens.ts` | dark default |
+| Web 会议室 (§ 7.1.1) | **MR_TOKENS** (双 theme) | `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/components/web/meeting-room/tokens.ts` | light default |
+| Mobile + 小程序 | **MR_COLORS** (单 theme 浅) | `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/components/mobile/meeting-room/styles.ts` | 永远 light |
 
 ### 5.2 跨 token 严禁
 ```ts
@@ -185,7 +185,7 @@ import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
 
 ### 5.3 风格 守门 协议 (NORTH_STAR § 8.2)
 任何 代码 改动 (含 review 小改 / debug fix / subagent 委派) **必须**:
-1. 读 `/Users/bluesurfire/Documents/claude/aimeeting/docs/design/system/DESIGN_SYSTEM.md` 当前最新版
+1. 读 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/design/system/DESIGN_SYSTEM.md` 当前最新版
 2. 检查 改动 是否 引入 跟 design system 冲突
 3. 冲突 时:
    - 优先 按 design system 改
@@ -210,7 +210,7 @@ import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
 - 长期 state (会议 transcript / agent 列表 等) 走 backend, **不 client 缓存**
 
 ### 6.2 API 调用
-- 全部 走 `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/lib/api.ts` 的 `api.xxx()` helper
+- 全部 走 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/lib/api.ts` 的 `api.xxx()` helper
 - helper 用 `jget / jpost / jpatch / jdelete` 4 个 内部 函数 (credentials: include + JSON)
 - 网络 错误 走 `handleAuthError` (401 跳 /login) + `handleNetworkError`
 - 失败 toast 让 上层 catch (api helper 抛 makeError)
@@ -235,11 +235,11 @@ import { MR_COLORS } from "@/components/mobile/meeting-room/styles";
 - 放 `docs/kimi-tests/<版本号>-kimi.md`
 - 顶部 6 条 反幻觉 死规矩 + 唯一账号表 + REPO_ROOT 绝对路径
 - T-01 ~ T-N 每用例 4 段 (实际看到 / 判定 / 失败理由 / 证据)
-- 模板 见 `/Users/bluesurfire/Documents/claude/aimeeting/docs/kimi-tests/v26.3-05-kimi.md`
+- 模板 见 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/kimi-tests/v26.3-05-kimi.md`
 
 ### 7.2 backend AI 行为 → 双盲 (§ 8.7)
 - Claude + Kimi 各 跑 同 剧本 → 客观 metric 对账
-- 跑 `/Users/bluesurfire/Documents/claude/aimeeting/scripts/blind-test-runner.py` 或 `blind-test-chat-runner.py`
+- 跑 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/scripts/blind-test-runner.py` 或 `blind-test-chat-runner.py`
 - 不一致 = 真问题, 一致 = 信任
 - Phase A Round 2 GREEN, Phase B 8 KB fix GREEN, Phase C 11/13 等 等 PM Kimi 跑
 
@@ -280,7 +280,7 @@ export REPO_ROOT=/some/absolute/path/to/aimeeting
 - 本机 `aimeeting-new` ssh alias (`~/.ssh/config`, 用 `~/.ssh/aimeeting-new` key)
 - SSH 进 prod 读 logs 必须 PM 显式 授权
 - Docker layer cache hit 时: `--no-cache` 强 rebuild (见 § 3.2)
-- **不准** rsync `/Users/bluesurfire/Documents/claude/aimeeting/deploy/.env` / `/Users/bluesurfire/Documents/claude/aimeeting/backend/.env` (server-only, exclude 在 `rsync-up.sh`)
+- **不准** rsync `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/deploy/.env` / `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/.env` (server-only, exclude 在 `rsync-up.sh`)
 
 ### 8.3 PM 拍板 sticky 规则 (改 必 PM 批)
 1. § 7.1 不做 dark mode (例外 § 7.1.1 会议室)
@@ -300,11 +300,11 @@ export REPO_ROOT=/some/absolute/path/to/aimeeting
 ### 8.5 文件 改动 安全 (HANDOFF § 12)
 不要 轻易 动 (PM 兜底 / server-only / 影响 全端):
 - `data/` 下 所有 mock 常量 (W_AGENTS / MR_MESSAGES / DEMO_KB / W_PROFILES) — 是 fallback 兜底
-- `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/demo_seed*.py` — workspace 数据
-- `/Users/bluesurfire/Documents/claude/aimeeting/deploy/.env` / `/Users/bluesurfire/Documents/claude/aimeeting/backend/.env` — server-only
-- `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/auth.py` / `models.py` / `init_db.py` — schema + 权限 (改 必 PM 批 + migration)
-- `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/lib/api.ts` 类型 (改 影响 全 frontend)
-- `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/web/tokens.ts` / `meeting-room/tokens.ts` / `mobile/meeting-room/styles.ts` — 三 token 入口
+- `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/demo_seed*.py` — workspace 数据
+- `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/deploy/.env` / `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/.env` — server-only
+- `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/auth.py` / `models.py` / `init_db.py` — schema + 权限 (改 必 PM 批 + migration)
+- `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/lib/api.ts` 类型 (改 影响 全 frontend)
+- `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/components/web/tokens.ts` / `meeting-room/tokens.ts` / `mobile/meeting-room/styles.ts` — 三 token 入口
 
 ### 8.6 commit 前 必 跑
 ```bash
@@ -322,8 +322,8 @@ git status -s
 
 ## 9. 出现 不确定 时 怎么办
 
-1. **跟 NORTH_STAR 对齐** — `/Users/bluesurfire/Documents/claude/aimeeting/docs/NORTH_STAR.md` 是 产品 truth source
-2. **跟 DESIGN_SYSTEM 对齐** — `/Users/bluesurfire/Documents/claude/aimeeting/docs/design/system/DESIGN_SYSTEM.md` 是 视觉 truth source
+1. **跟 NORTH_STAR 对齐** — `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/NORTH_STAR.md` 是 产品 truth source
+2. **跟 DESIGN_SYSTEM 对齐** — `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/design/system/DESIGN_SYSTEM.md` 是 视觉 truth source
 3. **跟 PM 同步** — 拿 spec / 确认 边界 / 拍 优先级
 4. **不允许 自己 加 业务 (NORTH_STAR 没写的)** — 写 单独 saga + PM 拍
 5. **改 sticky 规则** (§ 7.1 / § 7.5 / § 8.6 / § 8.8) **必 PM 显式 override**, 不允许 自动 放宽
@@ -332,8 +332,8 @@ git status -s
 
 ## 10. CLAUDE.md 兼容 (历史 沿用)
 
-`/Users/bluesurfire/Documents/claude/aimeeting/CLAUDE.md` 是 Claude 时期 的 工作守则, 内容 大部分 跟 本 AGENTS.md 一致. 区别:
-- `/Users/bluesurfire/Documents/claude/aimeeting/CLAUDE.md` 有 一些 历史 saga 经验 (e.g. v1.2.0 P1.2 折叠态 borrow dark token 是反例, 风格守门 由此 沉淀)
+`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/CLAUDE.md` 是 Claude 时期 的 工作守则, 内容 大部分 跟 本 AGENTS.md 一致. 区别:
+- `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/CLAUDE.md` 有 一些 历史 saga 经验 (e.g. v1.2.0 P1.2 折叠态 borrow dark token 是反例, 风格守门 由此 沉淀)
 - 留 兼容, 不删. Codex 也 可以 看作 参考
 
-如 `/Users/bluesurfire/Documents/claude/aimeeting/CLAUDE.md` 和 `/Users/bluesurfire/Documents/claude/aimeeting/AGENTS.md` 冲突, **以 `/Users/bluesurfire/Documents/claude/aimeeting/AGENTS.md` 为准** (更新).
+如 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/CLAUDE.md` 和 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/AGENTS.md` 冲突, **以 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/AGENTS.md` 为准** (更新).

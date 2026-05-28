@@ -41,14 +41,14 @@
 ```
 
 ### 1.3 nginx + SSL
-- nginx config: `/Users/bluesurfire/Documents/claude/aimeeting/deploy/nginx/aimeeting.conf` (反代 80/443 → docker container)
+- nginx config: `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/deploy/nginx/aimeeting.conf` (反代 80/443 → docker container)
 - SSL 证书: Let's Encrypt 由 certbot 自动续 (server 上 cron). 配置 在 `bootstrap.sh` 一次性 引导.
 - 防火墙: `ufw` 仅开 22 / 80 / 443
 
 ### 1.4 部署 触发 (PM / Codex 跑)
 ```bash
 # 本机 → server 同步 + 拉起
-AIMEETING_HOST=aimeeting-new bash /Users/bluesurfire/Documents/claude/aimeeting/deploy/rsync-up.sh --deploy
+AIMEETING_HOST=aimeeting-new bash deploy/rsync-up.sh --deploy
 ```
 
 ---
@@ -57,8 +57,8 @@ AIMEETING_HOST=aimeeting-new bash /Users/bluesurfire/Documents/claude/aimeeting/
 
 ### 2.1 文件 位置
 - **server 真值**: `/opt/aimeeting/backend/.env` (server SSH 进 改)
-- **本机 dev**: `/Users/bluesurfire/Documents/claude/aimeeting/backend/.env` (本机 only, gitignore)
-- **模板**: `/Users/bluesurfire/Documents/claude/aimeeting/backend/.env.example` (入 git, 占位 `replace_me`)
+- **本机 dev**: `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/.env` (本机 only, gitignore)
+- **模板**: `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/.env.example` (入 git, 占位 `replace_me`)
 - **rsync 排除**: `deploy/rsync-up.sh` `--exclude='backend/.env'` (避免 误 deploy 覆盖 server 上 的)
 
 ### 2.2 完整 env 清单 (按 模块 分)
@@ -80,9 +80,9 @@ AIMEETING_HOST=aimeeting-new bash /Users/bluesurfire/Documents/claude/aimeeting/
 | `DASHSCOPE_STT_VOCABULARY_ID` | 自定义 词表 (业务 术语, 可选) | DashScope 控制台 创建 vocabulary |
 
 **调用方案**:
-- ASR (实时 STT): `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/stt_client.py` 调 `dashscope.audio.asr.Recognition`
-- Embedding: `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/embeddings.py` 调 `text-embedding-v2` (1536d cosine, 用于 KB chunk + memory)
-- Qwen-VL OCR: `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/doc_parser.py` 图片 文档 fallback OCR
+- ASR (实时 STT): `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/stt_client.py` 调 `dashscope.audio.asr.Recognition`
+- Embedding: `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/embeddings.py` 调 `text-embedding-v2` (1536d cosine, 用于 KB chunk + memory)
+- Qwen-VL OCR: `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/doc_parser.py` 图片 文档 fallback OCR
 - LLM (chat / summary / orchestrator): **走 DB `model_provider_config` 表** 而非 env (见 § 5)
 
 #### C. pyannoteAI — 声纹
@@ -92,7 +92,7 @@ AIMEETING_HOST=aimeeting-new bash /Users/bluesurfire/Documents/claude/aimeeting/
 | `PYANNOTE_BASE_URL` | 默认 `https://api.pyannote.ai` | 不必改 |
 
 **调用方案**:
-- `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/identify_pipeline.py` 调 sync identify (~45s/file)
+- `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/identify_pipeline.py` 调 sync identify (~45s/file)
 - 跑 在 会议 结束 后 异步, 给 transcript 贴 speaker_user_id
 
 #### D. 阿里云 OSS — 对象存储
@@ -105,7 +105,7 @@ AIMEETING_HOST=aimeeting-new bash /Users/bluesurfire/Documents/claude/aimeeting/
 | `OSS_REGION` | bucket region (e.g. `oss-ap-southeast-1`) | 同上 |
 
 **调用方案**:
-- `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/oss_client.py` 封装 `oss2.Bucket`
+- `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/oss_client.py` 封装 `oss2.Bucket`
 - 上传: 会议录音 / attachment / 声纹 ref audio. key 格式 `meeting-attachments/{workspace_id}/{att_id}/{filename}`
 - ⚠️ **跨 region 403 坑**: bucket `aimeeting-recordings` 在 `ap-southeast-1` (新加坡), endpoint 必须 同 region, 否则 403 AccessDenied (TD-OSS-001 2026-05-26 踩过)
 
@@ -131,7 +131,7 @@ AIMEETING_HOST=aimeeting-new bash /Users/bluesurfire/Documents/claude/aimeeting/
 |--------|------|------|
 | `PLATFORM_ADMIN_EMAILS` | 跨 ws 超管 邮箱 白名单 (逗号 分隔) | `bluesurfiregpt@gmail.com,...` (PM 个人 邮箱) |
 
-**注意 部署 坑** (`/Users/bluesurfire/Documents/claude/aimeeting/backend/.env.example` 注释 明确):
+**注意 部署 坑** (`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/.env.example` 注释 明确):
 - 改 此项 必须 `docker compose up -d --force-recreate backend` (不是 `restart`)
 - restart 不重读 env_file, 改了 没生效
 
@@ -143,7 +143,7 @@ AIMEETING_HOST=aimeeting-new bash /Users/bluesurfire/Documents/claude/aimeeting/
 | `WX_CODE2SESSION_URL` | code2Session API (默认 官方) | 不必改 |
 
 **调用方案**:
-- `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/routers/auth.py` 的 `/api/auth/wx-login` endpoint
+- `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/routers/auth.py` 的 `/api/auth/wx-login` endpoint
 - 任一 为空 → 503 提示 "未配置 微信 OAuth"
 
 #### J. Sentry (可选, 观测)
@@ -175,7 +175,7 @@ AIMEETING_HOST=aimeeting-new bash /Users/bluesurfire/Documents/claude/aimeeting/
 
 ### 3.1 文件 位置
 - **server 真值**: `/opt/aimeeting/deploy/.env` (chmod 600)
-- **模板**: `/Users/bluesurfire/Documents/claude/aimeeting/deploy/.env.example` (入 git, 仅 含 占位)
+- **模板**: `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/deploy/.env.example` (入 git, 仅 含 占位)
 - **rsync 排除**: `--exclude='deploy/.env'` (server-only)
 
 ### 3.2 内容
@@ -189,7 +189,7 @@ AIMEETING_HOST=aimeeting-new bash /Users/bluesurfire/Documents/claude/aimeeting/
 
 ## 4. backend 代码 引用 settings 实际 字段 (audit)
 
-`grep settings\.` 实际 引用 (`/Users/bluesurfire/Documents/claude/aimeeting/backend/app/config.py`):
+`grep settings\.` 实际 引用 (`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/config.py`):
 - `app_env / log_level / cors_origins_list`
 - `dashscope_api_key / dashscope_stt_model / dashscope_stt_vocabulary_id`
 - `database_url`
@@ -202,7 +202,7 @@ AIMEETING_HOST=aimeeting-new bash /Users/bluesurfire/Documents/claude/aimeeting/
 ## 5. DB 内 workspace-scope 的 secret (不在 env, 在 DB 表)
 
 ### 5.1 `model_provider_config` 表 — workspace 级 LLM provider
-> 见 `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/models.py:1312` `ModelProviderConfig`
+> 见 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/models.py:1312` `ModelProviderConfig`
 
 | 字段 | 说明 |
 |------|------|
@@ -222,7 +222,7 @@ FROM model_provider_config WHERE is_active=true;
 ```
 
 **调用方案**:
-- `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/llm_direct.py` 的 `get_active_provider(db, workspace_id)` 取 active 行
+- `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/llm_direct.py` 的 `get_active_provider(db, workspace_id)` 取 active 行
 - 调 LLM 走 OpenAI-compat HTTP (Authorization Bearer 头), `stream_chat()` SSE 拉 token
 - 所有 LLM 调用 (chat / summary / orchestrator / conflict_detector / dissent_detector / Mira NLU / chapter 抽 等) 都 走 这一层
 
@@ -235,7 +235,7 @@ UPDATE model_provider_config SET is_active=true WHERE workspace_id='<ws-id>' AND
 ```
 
 ### 5.2 `search_provider_config` 表 — workspace 级 Perplexity / 搜索 API
-> 见 `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/models.py:1774` `SearchProviderConfig`
+> 见 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/models.py:1774` `SearchProviderConfig`
 
 | 字段 | 说明 |
 |------|------|
@@ -243,7 +243,7 @@ UPDATE model_provider_config SET is_active=true WHERE workspace_id='<ws-id>' AND
 | **`api_key`** | **Text — 搜索 provider API key**. 在哪 拿: https://www.perplexity.ai/settings/api |
 
 **调用方案**:
-- `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/routers/perplexity_fetch.py` 的 `POST /api/perplexity/fetch` — AI 抓 互联网 资料 入 KB (v26.13.2)
+- `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/app/routers/perplexity_fetch.py` 的 `POST /api/perplexity/fetch` — AI 抓 互联网 资料 入 KB (v26.13.2)
 - 走 workspace `perplexity_monthly_quota` 限额 (`workspace.perplexity_monthly_quota` 字段, 默认 100/月)
 - 用 完 quota 拒绝, 月初 reset
 
@@ -273,7 +273,7 @@ Frontend 不直接 持 第三方 API key. 全部 走 backend 代理:
 
 ### 7.1 本机 dev 启动 (零 secret 跑通, 部分 功能 mock)
 ```bash
-cd /Users/bluesurfire/Documents/claude/aimeeting/backend
+cd backend
 cp .env.example .env
 # 编辑 .env 至少 填:
 #   DASHSCOPE_API_KEY (要 真 LLM / ASR / embedding 必须)
@@ -285,7 +285,7 @@ cp .env.example .env
 
 ### 7.2 拿 server 上 真 .env (PM 个人 给)
 - PM 把 `/opt/aimeeting/backend/.env` 内容 通过 安全渠道 给 Codex (1password / 私聊, 不入 git / 不入 issue)
-- Codex 写入 本机 `/Users/bluesurfire/Documents/claude/aimeeting/backend/.env` (本机 dev) 或 SSH 进 server 改
+- Codex 写入 本机 `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/backend/.env` (本机 dev) 或 SSH 进 server 改
 
 ### 7.3 拿 SSH key
 - PM 把 `~/.ssh/aimeeting-new` private key 给 Codex (一份 副本)
@@ -348,7 +348,7 @@ docker compose up -d --force-recreate backend   # 必须 force-recreate, 不是 
 ## 10. 紧急 联系
 
 - **生产 down**: SSH 进 `aimeeting-new` → `cd /opt/aimeeting/deploy && docker compose ps` 看哪个 container 挂. `docker compose logs --tail=200 <service>` 看错.
-- **DB 数据 误删**: `docker exec aimeeting-postgres pg_dump ...` 备份 → 找 PM 确认 是否 走 OSS backup (`/Users/bluesurfire/Documents/claude/aimeeting/deploy/backup-secrets.sh`)
+- **DB 数据 误删**: `docker exec aimeeting-postgres pg_dump ...` 备份 → 找 PM 确认 是否 走 OSS backup (`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/deploy/backup-secrets.sh`)
 - **第三方 quota 超**: 控制台 查 + 提升 套餐 / PM 拍板 缩 用量
 - **secret 泄露**: PM 立刻 全 控制台 reset + server `.env` 同步 改 + `force-recreate`
 - **任何 不确定**: 找 PM (`bluesurfiregpt@gmail.com`)

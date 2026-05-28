@@ -1,6 +1,6 @@
 # aimeeting Design System v1
 
-> **来源**: Claude Design handoff bundle (2026-05-25, `/Users/bluesurfire/Documents/claude/aimeeting/docs/design/handoffs/2026-05-25-meeting-room/`) + 现有 frontend 代码反推 (`/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/`)
+> **来源**: Claude Design handoff bundle (2026-05-25, `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/design/handoffs/2026-05-25-meeting-room/`) + 现有 frontend 代码反推 (`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/`)
 > **用途**: 后续每次 design 和 code 阶段的视觉/交互/产品约束 — "宪法"
 > **更新机制**: 每个 Saga 收尾时反思,有新 pattern 沉淀进来
 > **标注约定**:
@@ -34,12 +34,12 @@
 
 ### 0.3.1 Web 端 W_TOKENS (暗紫双 theme)
 
-- **位置**: `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/web/tokens.ts`
+- **位置**: `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/components/web/tokens.ts`
 - **加载方式**: `WThemeProvider` 在客户端挂载时 inject `<style>` 注 `--w-*` CSS variables, 并按 `localStorage.w-theme` (默认 `dark`) 给 `<html>` 加 `data-theme` attr. 跨 `data-theme="dark"` (default) / `data-theme="light"` 切换两套配色.
 - **适用范围**:
-  - `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/app/page.tsx` 首页
-  - `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/app/workstation/**` 工作站 (所有 panes)
-  - **会议室 Web** (`/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/web/meeting-room/**` 如存在) — **不挂 W_THEME**, PM 拍板"会议室永远浅色 iOS 风"
+  - `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/app/page.tsx` 首页
+  - `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/app/workstation/**` 工作站 (所有 panes)
+  - **会议室 Web** (`https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/frontend/src/components/web/meeting-room/**` 如存在) — **不挂 W_THEME**, PM 拍板"会议室永远浅色 iOS 风"
 - **受众**: 桌面端 PM / 数据分析师 / 业务专家 (50 岁以上长时间盯屏, 双 theme 让用户按场景选).
 - **业务代码 import 规则**:
   ```ts
@@ -50,11 +50,11 @@
 
 ### 0.3.2 Mobile 端 MR_COLORS (浅 iOS 单 theme)
 
-- **位置**: `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/mobile/meeting-room/styles.ts`
+- **位置**: `frontend/src/components/mobile/meeting-room/styles.ts`
 - **加载方式**: 直接 `import { MR_COLORS } from "..."` 用. 不挂 ThemeProvider, 没有 `data-theme` 切换. 永远浅色.
 - **适用范围**:
-  - `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/app/m/**` 所有 mobile 路由
-  - `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/mobile/**` 所有 mobile 组件
+  - `frontend/src/app/m/**` 所有 mobile 路由
+  - `frontend/src/components/mobile/**` 所有 mobile 组件
 - **受众**: 手机端业务一线员工 (走动场景, 浅 iOS 阅读门槛低, 一致性 = 信任).
 - **业务代码 import 规则**:
   ```ts
@@ -65,8 +65,8 @@
 
 ### 0.3.3 风格守门规则 (强制, 同 CLAUDE.md 协议)
 
-1. **任何 Edit/Write 涉及 `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/web/**` 或 `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/app/workstation/**`** → **必须** 先读本文档 § 0.3.1 + § 0.3.2, 检查改动是否引入跟 token 系统冲突的视觉.
-2. **任何 Edit/Write 涉及 `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/mobile/**` 或 `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/app/m/**`** → 同上, 只能用 MR_COLORS 及衍生.
+1. **任何 Edit/Write 涉及 `frontend/src/components/web/**` 或 `frontend/src/app/workstation/**`** → **必须** 先读本文档 § 0.3.1 + § 0.3.2, 检查改动是否引入跟 token 系统冲突的视觉.
+2. **任何 Edit/Write 涉及 `frontend/src/components/mobile/**` 或 `frontend/src/app/m/**`** → 同上, 只能用 MR_COLORS 及衍生.
 3. **跨端 atom / shared component 严禁存在** — 如果某个组件想 "Web + Mobile 共用", 必须**拆**成两份, 分别用各自 token. (历史教训: round-3 共用 Avatar 导致 mobile 出现暗色 bleed.)
 4. **commit message 必须显式说明** — 跨 token 系统的实施 commit 在 message 里标 `[token-web]` 或 `[token-mobile]` 或 `[token-cross]` (后者需 PM 单独批).
 
@@ -117,11 +117,11 @@
 
 ### 1.3 现有 Tailwind 调色板 `[现有]`
 
-定义在 `/Users/bluesurfire/Documents/claude/aimeeting/frontend/tailwind.config.ts:1-26`:
+定义在 `frontend/tailwind.config.ts:1-26`:
 - `ink.950 #0b0d12` (canvas) · `ink.900 #11141b` · `ink.800 #171b24` · `ink.700 #1f2430`
 - `accent.500 #5b8def` (主 CTA) · `accent.400 #7ba2ff` (hover/text)
 
-Insight type 配色 (`/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/mobile/AIInsightCard.tsx:32-58`):
+Insight type 配色 (`frontend/src/components/mobile/AIInsightCard.tsx:32-58`):
 | Type | chip text | chip bg | border |
 |------|-----------|---------|--------|
 | 建议 | `violet-200` | `violet-500/15` | `violet-500/40` |
@@ -165,7 +165,7 @@ Insight type 配色 (`/Users/bluesurfire/Documents/claude/aimeeting/frontend/src
 
 **约定**: 每个真人在 workspace 内分配一个 voice-print 色,头像用纯色填充 + 白色首字母. 同色不复用 (除非超 9 人需要二轮).
 
-`[现有]` 类似但用 Tailwind 语义色名 `(violet|emerald|amber|sky|rose|teal|blue|indigo)` 存在 DB `agent.color` 字段,见 `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/mobile/SummonAgentSheet.tsx:19-28`、`AgentWorkCard.tsx:27-36`.
+`[现有]` 类似但用 Tailwind 语义色名 `(violet|emerald|amber|sky|rose|teal|blue|indigo)` 存在 DB `agent.color` 字段,见 `frontend/src/components/mobile/SummonAgentSheet.tsx:19-28`、`AgentWorkCard.tsx:27-36`.
 
 ### 1.6 立场 (Stance) 三色 — AI 圆桌专用
 
@@ -194,7 +194,7 @@ iOS 系统字体栈:
 | 名 | px | 用途 | bundle 例 |
 |----|----|----|--------|
 | `display` | 22-24 | (web) 极少用,通常给数字钟 | — |
-| `largeTitle` | 24-26 | iOS large title (页头) | `/Users/bluesurfire/Documents/claude/aimeeting/frontend/PageHeader.tsx:66` 26px `[现有]` |
+| `largeTitle` | 24-26 | iOS large title (页头) | `frontend/PageHeader.tsx:66` 26px `[现有]` |
 | `title2` | 19-20 | 章节分隔大标题 / "结束会议?" | `meeting-room.jsx:274` 17, web 19 |
 | `title3` | 16-17 | 顶栏标题 / sheet title / item title | 通用 16-17 |
 | `body` | 15 | 转录消息正文 | `meeting-room.jsx:563` 15 |
