@@ -284,8 +284,10 @@ export function TplGeneratorPane() {
   // Sprint 3 Web W2: TplGenerator 暂 mock (Sprint 4 接 LLM preview/commit endpoint).
   // backend api.previewAgentTemplate/commitAgentTemplate 已在, frontend setTimeout 2.2s
   // 模拟 LLM 拆解 — 加 demo pill 提示客户.
+  // v1.4.0 Sprint S5: 加 data-testid 给 Kimi 验收 (反幻觉 § 7.5)
   const demoBadge = (
     <span
+      data-testid="tpl-demo-pill"
       style={{
         fontSize: 10.5,
         fontWeight: 700,
