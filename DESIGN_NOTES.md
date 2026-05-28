@@ -1,7 +1,7 @@
 # DESIGN_NOTES.md — 设计 交接 (Claude → Codex)
 
 > **写于**: 2026-05-28
-> **truth source**: `docs/design/system/DESIGN_SYSTEM.md` (775 行, 视觉宪法)
+> **truth source**: `/Users/bluesurfire/Documents/claude/aimeeting/docs/design/system/DESIGN_SYSTEM.md` (775 行, 视觉宪法)
 > 本文档 是 DESIGN_SYSTEM 的 摘要 + Codex 行动导向版
 
 ---
@@ -10,10 +10,10 @@
 
 | 来源 | 用途 | 位置 |
 |------|------|------|
-| **Claude Design handoff bundle (2026-05-25)** | 主 设计 reference (会议室 R5.D + 移动 v2) | `docs/design/handoffs/2026-05-25-meeting-room/` + `docs/design/handoffs/2026-05-25-meeting-room-r3/` |
-| **现有 frontend 代码 反推** | 反向 抽 出 design system | `frontend/src/components/web/atoms/` + `frontend/src/components/mobile/meeting-room/styles.ts` |
-| **Claude Design v1.4.0 darkmode bundle** (`S3TK_UXeBzGF0V_jQr4hLg`) | 会议室 深邃星空 dark theme (§ 7.1.1 例外) | 设计稿源 已抄到 `docs/kimi-tests/meeting-room-darkmode-evaluation.md` |
-| **Saga changelist 文档** (round-4 ~ round-6) | 历次 大改 的 设计 sync 记录 | `docs/design/specs/SAGA-*.md` |
+| **Claude Design handoff bundle (2026-05-25)** | 主 设计 reference (会议室 R5.D + 移动 v2) | `/Users/bluesurfire/Documents/claude/aimeeting/docs/design/handoffs/2026-05-25-meeting-room/` + `/Users/bluesurfire/Documents/claude/aimeeting/docs/design/handoffs/2026-05-25-meeting-room-r3/` |
+| **现有 frontend 代码 反推** | 反向 抽 出 design system | `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/web/atoms/` + `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/mobile/meeting-room/styles.ts` |
+| **Claude Design v1.4.0 darkmode bundle** (`S3TK_UXeBzGF0V_jQr4hLg`) | 会议室 深邃星空 dark theme (§ 7.1.1 例外) | 设计稿源 已抄到 `/Users/bluesurfire/Documents/claude/aimeeting/docs/kimi-tests/meeting-room-darkmode-evaluation.md` |
+| **Saga changelist 文档** (round-4 ~ round-6) | 历次 大改 的 设计 sync 记录 | `/Users/bluesurfire/Documents/claude/aimeeting/docs/design/specs/SAGA-*.md` |
 | **Figma / 截图** | 部分 详情 (e.g. AI 心智一览 4 件 拟物 icon) | 内嵌 Saga changelist |
 
 ---
@@ -125,7 +125,7 @@ BottomBar (72px 高, mic / video / hand / cc / share / 更多)
 
 ## 5. 颜色 / 字体 / 间距 / 圆角 / 阴影
 
-> 详 `docs/design/system/DESIGN_SYSTEM.md` § 1 (颜色) / § 2 (字体) / § 3 (间距 + 圆角 + 阴影)
+> 详 `/Users/bluesurfire/Documents/claude/aimeeting/docs/design/system/DESIGN_SYSTEM.md` § 1 (颜色) / § 2 (字体) / § 3 (间距 + 圆角 + 阴影)
 
 ### 5.1 颜色 token 速查
 - **iOS 浅色** (Mobile + Web 会议室 light): `#F2F2F7` canvas / `#fff` surface / `#1C1C1E` 主文字 / `#007AFF` 蓝 / `#34C759` 绿 / `#FF3B30` 红
@@ -270,9 +270,9 @@ BottomBar (72px 高, mic / video / hand / cc / share / 更多)
 ## 11. 给 Codex 的 设计 建议
 
 ### 11.1 改 UI 前 必 读 (顺序)
-1. `CLAUDE.md` § 风格守门协议 (强约束, S 2.2 / S 7.1.1 / S 7.5 / S 8.8)
-2. `docs/design/system/DESIGN_SYSTEM.md` § 0.3 (三套 token 隔离)
-3. 改 文件 所在 端的 token 定义 (e.g. 改 `frontend/src/app/workstation/**` 必 用 W_TOKENS)
+1. `/Users/bluesurfire/Documents/claude/aimeeting/CLAUDE.md` § 风格守门协议 (强约束, S 2.2 / S 7.1.1 / S 7.5 / S 8.8)
+2. `/Users/bluesurfire/Documents/claude/aimeeting/docs/design/system/DESIGN_SYSTEM.md` § 0.3 (三套 token 隔离)
+3. 改 文件 所在 端的 token 定义 (e.g. 改 `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/app/workstation/**` 必 用 W_TOKENS)
 4. 改 完 前 mental read 一遍 (中文表达 § 8.8 4 条规则)
 
 ### 11.2 改 Sprint S2-S5 时 的 mock 替换 准则

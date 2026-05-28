@@ -1,7 +1,7 @@
 # REQUIREMENTS.md — 产品 需求 交接 (Claude → Codex)
 
 > **写于**: 2026-05-28
-> **truth source**: `docs/NORTH_STAR.md` v1.2.4 (813 行, 产品宪法), 跟代码不一致时 **以 NORTH_STAR 为准**.
+> **truth source**: `/Users/bluesurfire/Documents/claude/aimeeting/docs/NORTH_STAR.md` v1.2.4 (813 行, 产品宪法), 跟代码不一致时 **以 NORTH_STAR 为准**.
 > 本文档是 NORTH_STAR 的 摘要 + Codex 行动导向版.
 
 ---
@@ -123,7 +123,7 @@
 
 ## 6. 每个 核心 页面 的 职责
 
-### 6.1 Web (`frontend/src/app/`)
+### 6.1 Web (`/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/app/`)
 
 | 路由 | 职责 | 当前 状态 |
 |------|------|---------|
@@ -150,7 +150,7 @@
 | `/workstation/graph` | 桑基血缘图 (LineagePane) | 混合 |
 | `/meeting/[id]/live` | **Web 会议室 live** (transcript + ASR + 双 theme) | transcript / ASR / 打字 真接, **右栏 3 段 mock, S3 待做** |
 
-### 6.2 Mobile (`frontend/src/app/m/`)
+### 6.2 Mobile (`/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/app/m/`)
 
 | 路由 | 职责 | 当前 状态 |
 |------|------|---------|
@@ -271,9 +271,9 @@
 ## 9. 关键 交互 规则
 
 ### 9.1 Web 三端 token 隔离 (DESIGN_SYSTEM § 0.3)
-- **Workstation 走 W_TOKENS** (双 theme dark default + light, `frontend/src/components/web/tokens.ts`)
-- **会议室走 MR_TOKENS** (双 theme light default + dark, § 7.1.1, `frontend/src/components/web/meeting-room/tokens.ts`)
-- **Mobile 走 MR_COLORS** (单 theme 浅色 iOS, `frontend/src/components/mobile/meeting-room/styles.ts`)
+- **Workstation 走 W_TOKENS** (双 theme dark default + light, `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/web/tokens.ts`)
+- **会议室走 MR_TOKENS** (双 theme light default + dark, § 7.1.1, `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/web/meeting-room/tokens.ts`)
+- **Mobile 走 MR_COLORS** (单 theme 浅色 iOS, `/Users/bluesurfire/Documents/claude/aimeeting/frontend/src/components/mobile/meeting-room/styles.ts`)
 - 跨 token 严禁 (e.g. mobile 不准 import W_TOKENS)
 
 ### 9.2 Web vs Mobile 角色
@@ -290,7 +290,7 @@
 
 ## 10. 数据 结构 / 主要 实体
 
-> 见 `backend/app/models.py` 完整定义. 这里列 Codex 改 业务 时 必看 的 20 个核心表.
+> 见 `/Users/bluesurfire/Documents/claude/aimeeting/backend/app/models.py` 完整定义. 这里列 Codex 改 业务 时 必看 的 20 个核心表.
 
 | 表 | 关键 字段 | 说明 |
 |----|---------|------|
@@ -416,4 +416,4 @@
 - DESIGN_SYSTEM § 0 "两套设计的根本差异" 已 标 — bundle 设计 跟 现状 在 视觉/AI区分/Mira 视觉 上 有 7 处冲突, **现状 部分 落地, 部分 仍 老 风格**. 不是 bug 是 设计 演进中
 - NORTH_STAR § 7.5 反幻觉 — 部分 mock 页 (`/workstation/board`) 没 "演示数据" pill, 不一致, 待修
 - NORTH_STAR § 1.4 痛点 4 "新覆盖老冲突记忆" — 当前 NEW-A 简版 只针对 同议程 AI 发言, **跨议程 / 跨会议 冲突 没做** (memory 层面 vs message 层面). PM 说 "新覆盖老 memory" 是 memory 层面, 当前 只做了 message 层面 简化
-- `wechat-miniprogram/` 小程序 浅色化 ship 但 Phase B/C 新功能 (NEW-A/B/C) 都 没 mobile 端 (除 NEW-C `/m/chat`), 也 没 小程序端
+- `/Users/bluesurfire/Documents/claude/aimeeting/wechat-miniprogram/` 小程序 浅色化 ship 但 Phase B/C 新功能 (NEW-A/B/C) 都 没 mobile 端 (除 NEW-C `/m/chat`), 也 没 小程序端
