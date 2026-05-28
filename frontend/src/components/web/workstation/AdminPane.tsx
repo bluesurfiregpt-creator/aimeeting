@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api, ApiError } from "@/lib/api";
 import { W_TOKENS } from "../tokens";
 import {
   WIcon,
@@ -17,38 +18,99 @@ import { PaneHeader } from "./PaneHeader";
  * 来自 round-6 设计稿 AdminPane:
  *  - 红警告 banner "平台超管模式 · 操作 audit 留痕"
  *  - tabs: 工作空间 / 用户 / 系统 / 配额
- *  - 默认 tab = workspaces, 显示 8 个 mock 租户 table
+ *  - 默认 tab = workspaces, 显示 真 workspace 列表 (post-Sprint-S4 真接)
  *  - 其他 tab 显示 placeholder
  *
- * **权限**: 设计上 system_owner 才能看 (env PLATFORM_ADMIN_EMAILS). R5.C 不做权限拦截.
+ * **权限**: 设计上 system_owner 才能看 (env PLATFORM_ADMIN_EMAILS). API 返 403 时
+ * 显 "你 不是 平台超管" placeholder, 不挂.
+ *
+ * v1.4.0 Sprint S4 真接 (PM 反馈 mock):
+ *  - WS_WORKSPACES 8 行 hardcoded → api.superListWorkspaces() 真接
+ *  - me 顶 banner email 从 W_USER → /api/auth/me 真接
  */
 
-type WS_ITEM = {
+type WSItem = {
+  id: string;
   name: string;
   slug: string;
   status: string;
-  user: number;
-  agent: number;
-  meeting: number;
-  last: string;
-  created: string;
+  user_count: number;
+  agent_count: number;
+  meeting_count: number;
+  last_active_at: string | null;
+  created_at: string;
 };
 
-const WS_WORKSPACES: WS_ITEM[] = [
-  { name: "小伙子 的工作空间", slug: "ws-2", status: "active", user: 1, agent: 1, meeting: 0, last: "—", created: "2026/5/22" },
-  { name: "测试用户 的工作空间", slug: "ws", status: "active", user: 2, agent: 1, meeting: 3, last: "2026/5/18 15:02", created: "2026/5/15" },
-  { name: "v26.6 测试经理 的工作空间", slug: "v26-6", status: "active", user: 1, agent: 1, meeting: 0, last: "—", created: "2026/5/14" },
-  { name: "v26.6 Manager 的工作空间", slug: "v26-6-manager", status: "active", user: 1, agent: 1, meeting: 0, last: "—", created: "2026/5/14" },
-  { name: "Kimi v26.5 ABAC 综合测试单位", slug: "kimi-v26-5-abac-2", status: "active", user: 4, agent: 3, meeting: 0, last: "2026/5/14 01:45", created: "2026/5/13" },
-  { name: "Kimi 客户经理 的工作空间", slug: "kimi", status: "active", user: 1, agent: 1, meeting: 0, last: "—", created: "2026/5/13" },
-  { name: "Test Manager 的工作空间", slug: "test-manager", status: "active", user: 1, agent: 1, meeting: 0, last: "—", created: "2026/5/13" },
-  { name: "Bluesurfire 的工作空间", slug: "default", status: "active", user: 1, agent: 16, meeting: 24, last: "今天 14:08", created: "2026/4/01" },
-];
+function fmtDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    const now = new Date();
+    const diff = (now.getTime() - d.getTime()) / 1000 / 3600;  // 小时
+    if (diff < 1) return "刚刚";
+    if (diff < 24) return `${Math.floor(diff)} 小时前`;
+    if (diff < 24 * 7) return `${Math.floor(diff / 24)} 天前`;
+    return d.toLocaleDateString("zh-CN");
+  } catch {
+    return iso;
+  }
+}
 
 type AdminTab = "workspaces" | "users" | "system" | "quota";
 
 export function AdminPane() {
   const [tab, setTab] = useState<AdminTab>("workspaces");
+
+  // v1.4.0 Sprint S4 真接
+  const [workspaces, setWorkspaces] = useState<WSItem[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
+  const [meEmail, setMeEmail] = useState<string>(W_USER.email);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.allSettled([
+      api.superListWorkspaces(false),
+      fetch("/api/auth/me", { credentials: "include" }).then((r) =>
+        r.ok ? r.json() : null,
+      ),
+    ]).then(([wsR, meR]) => {
+      if (cancelled) return;
+      if (wsR.status === "fulfilled" && Array.isArray(wsR.value)) {
+        setWorkspaces(
+          wsR.value.map((w) => ({
+            id: w.id,
+            name: w.name,
+            slug: w.slug,
+            status: w.status,
+            user_count: w.user_count,
+            agent_count: w.agent_count,
+            meeting_count: w.meeting_count,
+            last_active_at: w.last_active_at,
+            created_at: w.created_at,
+          })),
+        );
+      } else if (wsR.status === "rejected") {
+        // 403 = 不是 平台超管, 其他 = 真错误
+        const reason = wsR.reason;
+        if (reason instanceof ApiError && reason.status === 403) {
+          setForbidden(true);
+        } else {
+          const msg = reason instanceof Error ? reason.message : String(reason);
+          setError(msg);
+        }
+      }
+      if (meR.status === "fulfilled" && meR.value?.email) {
+        setMeEmail(meR.value.email);
+      }
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <>
@@ -105,7 +167,7 @@ export function AdminPane() {
               lineHeight: 1.5,
             }}
           >
-            你正在跨 workspace 视角 · 所有操作 audit 留痕 · email: {W_USER.email}
+            你正在跨 workspace 视角 · 所有操作 audit 留痕 · email: {meEmail}
           </div>
         </div>
         <WButton variant="ghost" size="sm" iconRight="arr-r">
@@ -132,8 +194,12 @@ export function AdminPane() {
         }}
       >
         {[
-          { id: "workspaces" as const, label: "工作空间", count: WS_WORKSPACES.length },
-          { id: "users" as const, label: "用户", count: 14 },
+          {
+            id: "workspaces" as const,
+            label: "工作空间",
+            count: workspaces?.length ?? null,
+          },
+          { id: "users" as const, label: "用户", count: null },
           { id: "system" as const, label: "系统配置", count: null },
           { id: "quota" as const, label: "模型配额", count: null },
         ].map((t) => (
@@ -174,7 +240,14 @@ export function AdminPane() {
         ))}
       </div>
 
-      {tab === "workspaces" && <WorkspacesTable />}
+      {tab === "workspaces" && (
+        <WorkspacesTable
+          workspaces={workspaces}
+          loading={loading}
+          error={error}
+          forbidden={forbidden}
+        />
+      )}
       {tab === "users" && <UsersPlaceholder />}
       {tab === "system" && <SystemPlaceholder />}
       {tab === "quota" && <QuotaPlaceholder />}
@@ -182,7 +255,148 @@ export function AdminPane() {
   );
 }
 
-function WorkspacesTable() {
+function WorkspacesTable({
+  workspaces,
+  loading,
+  error,
+  forbidden,
+}: {
+  workspaces: WSItem[] | null;
+  loading: boolean;
+  error: string | null;
+  forbidden: boolean;
+}) {
+  // 状态 1: 403 = 不是 平台超管, 显友好 placeholder
+  if (forbidden) {
+    return (
+      <WCard padding={20}>
+        <div
+          style={{ textAlign: "center", padding: "40px 24px" }}
+          data-testid="admin-forbidden"
+        >
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 12,
+              margin: "0 auto 14px",
+              background: "rgba(220,40,80,0.10)",
+              boxShadow: "inset 0 0 0 0.5px rgba(220,40,80,0.30)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <WIcon name="bolt" size={22} color="#FCA5A5" stroke={1.6} />
+          </div>
+          <div
+            style={{
+              fontSize: 14,
+              fontWeight: 700,
+              color: W_TOKENS.textPrimary,
+            }}
+          >
+            你不是 平台超管
+          </div>
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 12.5,
+              color: W_TOKENS.textMuted,
+              lineHeight: 1.6,
+            }}
+          >
+            该入口仅 system_owner 可见。请 PM 把你的邮箱加入
+            <code
+              style={{
+                fontFamily: "monospace",
+                fontSize: 11.5,
+                padding: "0 6px",
+                margin: "0 4px",
+                background: "rgba(255,255,255,0.06)",
+                borderRadius: 4,
+              }}
+            >
+              PLATFORM_ADMIN_EMAILS
+            </code>
+            白名单。
+          </div>
+        </div>
+      </WCard>
+    );
+  }
+
+  // 状态 2: loading skeleton
+  if (loading) {
+    return (
+      <WCard padding={20}>
+        <div
+          style={{
+            textAlign: "center",
+            padding: "40px 24px",
+            color: W_TOKENS.textMuted,
+            fontSize: 13,
+          }}
+          data-testid="admin-loading"
+        >
+          加载工作空间列表…
+        </div>
+      </WCard>
+    );
+  }
+
+  // 状态 3: 真错误 (5xx / network), 不是 403
+  if (error) {
+    return (
+      <WCard padding={20}>
+        <div
+          style={{ textAlign: "center", padding: "40px 24px" }}
+          data-testid="admin-error"
+        >
+          <div
+            style={{
+              fontSize: 13.5,
+              fontWeight: 600,
+              color: "#FCA5A5",
+            }}
+          >
+            加载失败
+          </div>
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 12.5,
+              color: W_TOKENS.textMuted,
+              fontFamily: "monospace",
+            }}
+          >
+            {error}
+          </div>
+        </div>
+      </WCard>
+    );
+  }
+
+  // 状态 4: 真接成功, 空 list 也展示空态
+  const rows = workspaces || [];
+  if (rows.length === 0) {
+    return (
+      <WCard padding={20}>
+        <div
+          style={{
+            textAlign: "center",
+            padding: "40px 24px",
+            color: W_TOKENS.textMuted,
+            fontSize: 13,
+          }}
+          data-testid="admin-empty"
+        >
+          暂无 workspace
+        </div>
+      </WCard>
+    );
+  }
+
   return (
     <WCard padding={0}>
       <div className="w-scroll" style={{ overflowX: "auto" }}>
@@ -209,13 +423,13 @@ function WorkspacesTable() {
               <th style={{ ...thStyle, textAlign: "right" }}>操作</th>
             </tr>
           </thead>
-          <tbody>
-            {WS_WORKSPACES.map((w, i) => (
+          <tbody data-testid="admin-workspaces-tbody">
+            {rows.map((w, i) => (
               <tr
-                key={w.slug}
+                key={w.id}
                 style={{
                   borderBottom:
-                    i === WS_WORKSPACES.length - 1
+                    i === rows.length - 1
                       ? "none"
                       : `0.5px solid ${W_TOKENS.border}`,
                 }}
@@ -248,7 +462,9 @@ function WorkspacesTable() {
                   </div>
                 </td>
                 <td style={tdStyle}>
-                  <WPill tone="success">{w.status}</WPill>
+                  <WPill tone={w.status === "active" ? "success" : "neutral"}>
+                    {w.status}
+                  </WPill>
                 </td>
                 <td
                   style={{
@@ -257,7 +473,7 @@ function WorkspacesTable() {
                     fontVariantNumeric: "tabular-nums",
                   }}
                 >
-                  {w.user}
+                  {w.user_count}
                 </td>
                 <td
                   style={{
@@ -266,7 +482,7 @@ function WorkspacesTable() {
                     fontVariantNumeric: "tabular-nums",
                   }}
                 >
-                  {w.agent}
+                  {w.agent_count}
                 </td>
                 <td
                   style={{
@@ -275,7 +491,7 @@ function WorkspacesTable() {
                     fontVariantNumeric: "tabular-nums",
                   }}
                 >
-                  {w.meeting}
+                  {w.meeting_count}
                 </td>
                 <td
                   style={{
@@ -285,7 +501,7 @@ function WorkspacesTable() {
                     fontVariantNumeric: "tabular-nums",
                   }}
                 >
-                  {w.last}
+                  {fmtDateTime(w.last_active_at)}
                 </td>
                 <td
                   style={{
@@ -295,7 +511,7 @@ function WorkspacesTable() {
                     fontVariantNumeric: "tabular-nums",
                   }}
                 >
-                  {w.created}
+                  {fmtDateTime(w.created_at)}
                 </td>
                 <td style={{ ...tdStyle, textAlign: "right" }}>
                   <WButton variant="ghost" size="sm" iconRight="arr-r">
