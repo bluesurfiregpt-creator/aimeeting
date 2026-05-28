@@ -26,6 +26,7 @@ from .agenda_monitor import maybe_check_agenda
 from .dissent_detector import maybe_detect_dissent
 from .auth import COOKIE_NAME, decode_token, extract_ws_token
 from .routers import access_requests as access_requests_router
+from .routers import topics as topics_router  # v1.4.0 Phase C · 10 NEW-B
 from .routers import agent_templates as agent_templates_router  # v26.6-01
 from .routers import agents as agents_router
 from .routers import chat as chat_router  # v26.13.1 AI 私聊 调试模式
@@ -159,6 +160,8 @@ app.include_router(users_router.router)
 app.include_router(voiceprints_router.router)
 app.include_router(meetings_router.router)
 app.include_router(meeting_attachments_router.router)  # v27.0-mobile P19-B 会议参考资料
+app.include_router(topics_router.router)  # v1.4.0 Phase C · 10 NEW-B 议题主题 一级对象
+app.include_router(topics_router.linker_router)  # /api/meetings/{id}/topic linker
 app.include_router(agents_router.router)
 app.include_router(model_providers_router.router)
 app.include_router(memory_router.router)

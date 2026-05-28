@@ -318,6 +318,45 @@ class Agent(Base):
     nickname: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
 
+# --- Topics (v1.4.0 Phase C · 10 NEW-B 议题主题 一级对象) ---------------------
+#
+# 议题主题 = 跨多场会议 持续 的 "讨论主线". 一个 议题 关联 N 场 meeting (议题线 UI
+# 展示 时间 排序). 帮 客户 1 个月后 看到 "AI 真记得 议题脉络" — 痛点 5.
+#
+# MVP 简化:
+#  - 1 个 meeting 关联 1 个 topic (single-topic-per-meeting); 二期 升 many-to-many.
+#  - 议题 不 自动 跑 LLM 提议 — 用户 显式 创建 + 创会时 选 (二期 加 LLM 推荐).
+#  - 议题 status: active / archived. 不删 (历史 不可逆 — § 7.5 不让 mock 假装真实).
+
+class Topic(Base):
+    __tablename__ = "topic"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), primary_key=True, default=_new_uuid
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # active = 进行中, archived = 客户主动归档 (1 月后 议题 收尾)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 # --- Meetings -----------------------------------------------------------------
 
 class Meeting(Base):
@@ -331,6 +370,14 @@ class Meeting(Base):
     status: Mapped[str] = mapped_column(String(16), default="scheduled")  # scheduled|ongoing|finished|processed
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # v1.4.0 Phase C · 10 NEW-B: 议题主题 一级对象 (痛点 5 议题线).
+    # ON DELETE SET NULL — 议题删了 meeting 仍 保留, 只 断链.
+    topic_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("topic.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     recording_oss_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     pyannote_job_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)

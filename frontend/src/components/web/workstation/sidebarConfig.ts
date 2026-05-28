@@ -47,6 +47,8 @@ export const WS_SECTIONS: WSSection[] = [
       { slug: "new",     label: "新建会议", icon: "plus" },
       // round-6: 干掉硬编码 q3-roadmap, 改 会议历史 list pane
       { slug: "history", label: "会议历史", icon: "history" },
+      // v1.4.0 Phase C · 10 NEW-B 议题主题 一级对象 (痛点 5).
+      { slug: "topics",  label: "议题",     icon: "compass" },
     ],
   },
   {

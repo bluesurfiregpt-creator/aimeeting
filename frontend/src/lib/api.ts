@@ -821,6 +821,32 @@ export type WebMeetingTranscriptOut = {
   lines: WebTranscriptStreamLine[];
 };
 
+// v1.4.0 Phase C · 10 NEW-B 议题主题 (痛点 5).
+export type TopicOut = {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string | null;
+  status: "active" | "archived";
+  created_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+  meeting_count: number;
+};
+
+export type TopicMeetingOut = {
+  id: string;
+  title: string;
+  status: string;
+  started_at: string | null;
+  ended_at: string | null;
+  mode: string;
+};
+
+export type TopicDetailOut = TopicOut & {
+  meetings: TopicMeetingOut[];
+};
+
 export type WebAgentMini = {
   agent_id: string;
   name: string;
@@ -2510,6 +2536,34 @@ export const api = {
       superseded_by_message_id: number | null;
       restored: boolean;
     }>(`/api/meetings/${meetingId}/agent-messages/${messageId}/restore`, {}),
+
+  // v1.4.0 Phase C · 10 NEW-B 议题主题 一级对象 (痛点 5).
+  listTopics: (params?: { status?: "active" | "archived" }) => {
+    const q = new URLSearchParams();
+    if (params?.status) q.set("status", params.status);
+    const tail = q.toString() ? `?${q.toString()}` : "";
+    return jget<TopicOut[]>(`/api/topics${tail}`);
+  },
+  createTopic: (body: { name: string; description?: string | null }) =>
+    jpost<TopicOut>(`/api/topics`, body),
+  getTopic: (topicId: string) =>
+    jget<TopicDetailOut>(`/api/topics/${topicId}`),
+  updateTopic: (
+    topicId: string,
+    body: {
+      name?: string;
+      description?: string | null;
+      status?: "active" | "archived";
+    },
+  ) =>
+    jpatch<TopicOut>(`/api/topics/${topicId}`, body),
+  linkMeetingToTopic: (meetingId: string, topicId: string) =>
+    jpost<{ meeting_id: string; topic_id: string }>(
+      `/api/meetings/${meetingId}/topic`,
+      { topic_id: topicId },
+    ),
+  unlinkMeetingTopic: (meetingId: string) =>
+    jdelete(`/api/meetings/${meetingId}/topic`),
 
   // Agents
   listAgents: (opts?: {
