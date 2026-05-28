@@ -153,7 +153,7 @@ WS PCM 同时缓冲到 in-mem session.pcm_buffer
 ### 1. 鉴权 / 登录(必读)
 
 - 入口 `https://aimeeting.zhzjpt.cn`,所有 `/admin/*`、`/meetings/*` 都需要登录。
-- 默认测试账号:邮箱 `bluesurfiregpt@gmail.com` / 密码 `aimeeting123`。
+- 默认测试账号:邮箱 `bluesurfiregpt@gmail.com` / 密码 `<SYSTEM_OWNER_PWD>`。
 - 鉴权机制:`POST /api/auth/login` 返回 `Set-Cookie: aimeeting_session=<JWT>; HttpOnly; Secure; SameSite=Lax; Max-Age=14d`。后续所有请求 `credentials: include` 即可自动带上。
 - 登录成功后浏览器跳到首页,右上角文案应是「默认工作空间 · Bluesurfire · 登出」。**Cowork 验证登录是否成功的最稳定方法**:`GET /api/auth/me` 返回 200 + `{user_id, name, email, workspace_id, workspace_name}`(401 即未登录)。
 - 401 在前端会自动重定向到 `/login?next=<原路径>`,**不要**当作业务错误。
@@ -341,7 +341,7 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 | 项 | 值 |
 |---|---|
 | 入口 | https://aimeeting.zhzjpt.cn |
-| 默认账号 | `bluesurfiregpt@gmail.com` / `aimeeting123` |
+| 默认账号 | `bluesurfiregpt@gmail.com` / `<SYSTEM_OWNER_PWD>` |
 | 默认工作空间 | 默认工作空间（已含 4 Agent · 6 用户 · 9+ 会议 · 165+ 条记忆） |
 | 主测浏览器 | Chrome 桌面（最新） |
 | 兼容性副测 | Edge 桌面 / macOS Safari / iOS Safari |
@@ -677,7 +677,7 @@ await fetch(`/api/meetings/${m.id}/manual-transcript`, {
 | **P-11** | 两次输入不一致 | 重置时两栏填不同 | 显示"两次输入的密码不一致" | | |
 | **P-12** | 缺 token 链接 | 直接打开 `/reset-password`（无 token 参数） | 红色提示"链接缺少 token"；"重置密码"按钮置灰 | | |
 
-> **测试结束后**：把 default 账号密码改回 `aimeeting123`（或告诉我新密码），方便后续测试团队继续用。
+> **测试结束后**：把 default 账号密码改回 `<SYSTEM_OWNER_PWD>`（或告诉我新密码），方便后续测试团队继续用。
 
 ---
 

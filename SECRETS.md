@@ -135,6 +135,13 @@ AIMEETING_HOST=aimeeting-new bash deploy/rsync-up.sh --deploy
 - 改 此项 必须 `docker compose up -d --force-recreate backend` (不是 `restart`)
 - restart 不重读 env_file, 改了 没生效
 
+**`<SYSTEM_OWNER_PWD>` 占位符 说明** (2026-05-28 仓库 转 public 时 引入):
+- 文档 / Kimi 用例 里 `bluesurfiregpt@gmail.com` 的密码 一律 写 `<SYSTEM_OWNER_PWD>` 占位
+- 真值 在 PM 个人 密码 管理器 (1Password / Bitwarden / etc), 跟 DB `user.password_hash` 对得上
+- DB hash 走 `backend/app/auth.py:hash_password` (passlib bcrypt)
+- 跑 Kimi / 自验 时, 把 占位 临时 替换 真密码 (本机), **不允许 commit 真值 进 git**
+- 老 密码 `aimeeting123` 已 deprecated (2026-05-28 仓库 转 public 当天 改, DB 已切)
+
 #### I. 微信 OAuth (小程序原生 一键登录)
 | 变量名 | 用途 | 在哪 拿 |
 |--------|------|--------|

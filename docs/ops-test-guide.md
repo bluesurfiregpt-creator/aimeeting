@@ -199,7 +199,7 @@ OSS 上的会议录音 / 附件 阿里云自动保留,不必额外备份(检查 
 
 | 角色 | 邮箱 | 密码 | 备注 |
 |---|---|---|---|
-| owner | `bluesurfiregpt@gmail.com` | `aimeeting123` | workspace 拥有者,全权 |
+| owner | `bluesurfiregpt@gmail.com` | `<SYSTEM_OWNER_PWD>` | workspace 拥有者,全权 |
 | leader | `demo.lijg@futian.gov.cn` | `demo123` | 局长(给审核员用的也是这个)|
 | admin | `demo.chensy@futian.gov.cn` | `demo123` | 物业科长 |
 | expert | `demo.fengl@futian.gov.cn` | `demo123` | 物业 expert(绑定 AI-08)|

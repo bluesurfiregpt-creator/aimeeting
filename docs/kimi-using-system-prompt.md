@@ -23,7 +23,7 @@
 
 | 角色 | 干嘛 用 | 邮箱 | 密码 |
 |------|---------|------|------|
-| **owner** (主) | 截 主页 / AI 详情 / KB / 已入 Memory / 进 任一 会议 | bluesurfiregpt@gmail.com | aimeeting123 |
+| **owner** (主) | 截 主页 / AI 详情 / KB / 已入 Memory / 进 任一 会议 | bluesurfiregpt@gmail.com | <SYSTEM_OWNER_PWD> |
 | **leader** (隐身) | 截 召集人 视角 + 待办 + 推进 议程 | demo.lijg@futian.gov.cn | demo123 |
 | **expert (manager)** (Firefox) | 截 审批中心 + 草稿 编辑 / 拒绝 弹窗 | demo.fengl@futian.gov.cn | demo123 |
 

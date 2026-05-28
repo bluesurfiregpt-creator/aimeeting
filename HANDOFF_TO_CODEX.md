@@ -436,7 +436,7 @@ PM 跟 Kimi 各跑 同剧本 → 跨端 GREEN 才 信. 当前 5 个 待跑:
 
 | 角色 | 邮箱 | 密码 | 备注 |
 |------|------|------|------|
-| system_owner | `bluesurfiregpt@gmail.com` | `aimeeting123` | env 白名单 |
+| system_owner | `bluesurfiregpt@gmail.com` | `<SYSTEM_OWNER_PWD>` | env 白名单 |
 | leader | `demo.lijg@futian.gov.cn` | `demo123` | 局长 |
 | admin | `demo.chensy@futian.gov.cn` | `demo123` | 物业科长 |
 | agent_owner | `demo.fengl@futian.gov.cn` | `demo123` | AI primary user |

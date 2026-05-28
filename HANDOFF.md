@@ -464,5 +464,5 @@ aimeeting/
   - admin: `demo.chensy@futian.gov.cn` / `demo123`
   - agent_owner: `demo.fengl@futian.gov.cn` / `demo123`
   - member: `demo.hanx@futian.gov.cn` / `demo123`
-  - system_owner: `bluesurfiregpt@gmail.com` / `aimeeting123` (env 白名单)
+  - system_owner: `bluesurfiregpt@gmail.com` / `<SYSTEM_OWNER_PWD>` (env 白名单)
 - **Demo workspace**: `bfaf52e4-ba42-4eb6-9577-20a1ffcd4a55` (默认工作空间, ws_creator = 李局长)

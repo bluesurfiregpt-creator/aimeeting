@@ -115,7 +115,7 @@
 
 | 角色 | 邮箱 | 密码 | 你 在 写 手册 哪 节 用 |
 |------|------|------|----------------|
-| **owner** | `bluesurfiregpt@gmail.com` | `aimeeting123` | §1 总览 / §3 AI 专家 浏览 / §11 复盘 |
+| **owner** | `bluesurfiregpt@gmail.com` | `<SYSTEM_OWNER_PWD>` | §1 总览 / §3 AI 专家 浏览 / §11 复盘 |
 | **leader** | `demo.lijg@futian.gov.cn` | `demo123` | §4 开会 (召集人 视角) / §6 待办 跳源 |
 | **admin** | `demo.chensy@futian.gov.cn` | `demo123` | §10 团队 协作 / 配置 |
 | **expert** (绑 AI-08) | `demo.fengl@futian.gov.cn` | `demo123` | §3 AI 专家 详情 (manager 视角) / §8 审批 |
