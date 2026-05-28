@@ -21,7 +21,7 @@
  *  Saga E.E 后续接 backend 时, 6 个 AI 的真实 KB/memory/meeting 来自 backend.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { W_TOKENS } from "../tokens";
@@ -34,6 +34,7 @@ import {
   WSparkle,
 } from "../atoms";
 import { W_AGENTS, type WAgent } from "../data/agents";
+import { api, type Memory, type KnowledgeDocument } from "@/lib/api";
 
 // ════════════════════════════════════════════
 // PROFILE DATA — 6 fully-detailed AI + generic fallback
@@ -325,12 +326,89 @@ function genericProfile(a: WAgent): AgentProfile {
 // ════════════════════════════════════════════
 // Sprint 3 Web W2: brain UI (BrainRadar / BrainGraph) **V1 走 mock**.
 // 真接 backend `/api/v2/agents/{id}/brain` 推到 Sprint 4 (audit Section 5 V1.5 推迟).
-// 决策: backend brain 复杂度 ~6h, 但本 W2 wave ~5d 已紧, 先 V1 mock + 加 demo pill 提示
-// "脑图分布是演示数据, 实时数据待 Sprint 4 后端 brain endpoint 上线". 用户清楚, 不假装真接.
+//
+// v1.4.0 Sprint S2 真接 (PM 反馈, 痛点 4 核心):
+//  - 3 tab (长期记忆 / 书架 / 会议) 用 真 backend 数据 (按 agent name 匹配 backend agent id)
+//  - 脑内地图 (BrainRadar + BrainGraph) 仍 mock + 已 有 "演示数据 · brain 后端待接" pill
+//  - AgentHero stats 也 mock (无 backend endpoint, 不在本 saga)
+//  - 找不到 backend agent (eg 不在 demo workspace) → 全 mock + 加 fallback pill
 export function AgentDetailPane({ agent }: { agent: WAgent }) {
   const profile = W_PROFILES[agent.id] || genericProfile(agent);
   const [showKB, setShowKB] = useState(true);
   const [showMem, setShowMem] = useState(true);
+
+  // v1.4.0 Sprint S2 真接 — 按 agent name 在 backend 找 真 agent
+  const [realMemories, setRealMemories] = useState<MemoryEntry[] | null>(null);
+  const [realKB, setRealKB] = useState<KnowledgeDoc[] | null>(null);
+  const [realMeetings, setRealMeetings] = useState<AgentMeeting[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [agentNotFound, setAgentNotFound] = useState(false);
+  const [memErr, setMemErr] = useState(false);
+  const [kbErr, setKbErr] = useState(false);
+  const [meetErr, setMeetErr] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // Step 1: 找 backend agent (按 name 匹配, eg "Aria" / "Stratos" / "Lex")
+        const all = await api.listAgents().catch(() => []);
+        const beAgent = all.find((a) => a.name === agent.name) ?? null;
+        if (cancelled) return;
+        if (!beAgent) {
+          setAgentNotFound(true);
+          setLoading(false);
+          return;
+        }
+        // Step 2: 并行 拉 activity / memories / KB (any 单 失败 不影响别的)
+        const [actR, memR, kbR] = await Promise.allSettled([
+          api.getAgentActivity(beAgent.id, 8),
+          api.listMemories(undefined, undefined, beAgent.id),
+          // 多个 KB → 并 拉
+          Promise.all(
+            (beAgent.knowledge_base_ids ?? []).map((kbId) =>
+              api.listKnowledgeDocuments(kbId).catch(() => [] as KnowledgeDocument[]),
+            ),
+          ),
+        ]);
+        if (cancelled) return;
+
+        if (actR.status === "fulfilled") {
+          setRealMeetings(
+            actR.value.recent_meetings.map((r) => ({
+              id: r.meeting_id,
+              title: r.title,
+              when: fmtRelative(r.started_at),
+              role: `${r.lines_by_agent} 句 发言`,
+            })),
+          );
+        } else setMeetErr(true);
+
+        if (memR.status === "fulfilled") {
+          setRealMemories(
+            memR.value.map((m) => memoryToEntry(m)),
+          );
+        } else setMemErr(true);
+
+        if (kbR.status === "fulfilled") {
+          const flat: KnowledgeDocument[] = kbR.value.flat();
+          setRealKB(flat.map((d: KnowledgeDocument) => kbDocToCard(d)));
+        } else setKbErr(true);
+
+        setLoading(false);
+      } catch (e) {
+        if (cancelled) return;
+        // 兜底: 全挂, 不进 not-found
+        setMemErr(true);
+        setKbErr(true);
+        setMeetErr(true);
+        setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [agent.name]);
 
   return (
     <div>
@@ -396,7 +474,17 @@ export function AgentDetailPane({ agent }: { agent: WAgent }) {
         </div>
       </section>
 
-      <AgentTabs profile={profile} />
+      <AgentTabs
+        profile={profile}
+        realMemories={realMemories}
+        realKB={realKB}
+        realMeetings={realMeetings}
+        loading={loading}
+        agentNotFound={agentNotFound}
+        memErr={memErr}
+        kbErr={kbErr}
+        meetErr={meetErr}
+      />
     </div>
   );
 }
@@ -1480,8 +1568,34 @@ function LegendDot({
 // ════════════════════════════════════════════
 // AgentTabs — 长期记忆 / 书架 / 会议 lists
 // ════════════════════════════════════════════
-function AgentTabs({ profile }: { profile: AgentProfile }) {
+function AgentTabs({
+  profile,
+  realMemories,
+  realKB,
+  realMeetings,
+  loading,
+  agentNotFound,
+  memErr,
+  kbErr,
+  meetErr,
+}: {
+  profile: AgentProfile;
+  realMemories: MemoryEntry[] | null;
+  realKB: KnowledgeDoc[] | null;
+  realMeetings: AgentMeeting[] | null;
+  loading: boolean;
+  agentNotFound: boolean;
+  memErr: boolean;
+  kbErr: boolean;
+  meetErr: boolean;
+}) {
   const [tab, setTab] = useState<"memory" | "kb" | "meet">("memory");
+
+  // v1.4.0 Sprint S2 真接 — real 优先, fallback mock (反幻觉 § 7.5)
+  const memList = realMemories ?? (loading ? [] : profile.memories);
+  const kbList = realKB ?? (loading ? [] : profile.knowledge);
+  const meetList = realMeetings ?? (loading ? [] : profile.meetings);
+
   return (
     <section style={{ marginTop: 30 }}>
       <div
@@ -1490,19 +1604,40 @@ function AgentTabs({ profile }: { profile: AgentProfile }) {
           alignItems: "baseline",
           justifyContent: "space-between",
           marginBottom: 16,
+          flexWrap: "wrap",
+          gap: 10,
         }}
       >
-        <h2
-          style={{
-            margin: 0,
-            fontSize: 22,
-            fontWeight: 700,
-            color: W_TOKENS.textPrimary,
-            letterSpacing: -0.5,
-          }}
-        >
-          脑内明细
-        </h2>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <h2
+            style={{
+              margin: 0,
+              fontSize: 22,
+              fontWeight: 700,
+              color: W_TOKENS.textPrimary,
+              letterSpacing: -0.5,
+            }}
+          >
+            脑内明细
+          </h2>
+          {agentNotFound && (
+            <span
+              data-testid="agent-detail-not-found-pill"
+              style={{
+                fontSize: 10.5,
+                fontWeight: 700,
+                color: "#FF9F0A",
+                background: "rgba(255,159,10,0.12)",
+                padding: "2px 8px",
+                borderRadius: 5,
+                letterSpacing: 0.3,
+                boxShadow: "inset 0 0 0 0.5px rgba(255,159,10,0.30)",
+              }}
+            >
+              演示数据 · 该 AI 不在当前 workspace
+            </span>
+          )}
+        </div>
         <div
           style={{
             display: "inline-flex",
@@ -1514,9 +1649,9 @@ function AgentTabs({ profile }: { profile: AgentProfile }) {
           }}
         >
           {[
-            { id: "memory" as const, label: `长期记忆 ${profile.memories.length}`, tone: "#C4B5FD" },
-            { id: "kb" as const, label: `书架 ${profile.knowledge.length}`, tone: W_TOKENS.cyan },
-            { id: "meet" as const, label: `会议 ${profile.meetings.length}`, tone: W_TOKENS.pink },
+            { id: "memory" as const, label: `长期记忆 ${memList.length}`, tone: "#C4B5FD" },
+            { id: "kb" as const, label: `书架 ${kbList.length}`, tone: W_TOKENS.cyan },
+            { id: "meet" as const, label: `会议 ${meetList.length}`, tone: W_TOKENS.pink },
           ].map((t) => (
             <button
               key={t.id}
@@ -1543,52 +1678,202 @@ function AgentTabs({ profile }: { profile: AgentProfile }) {
       </div>
 
       {tab === "memory" && (
-        <WCard padding={0}>
-          {profile.memories.map((m, i) => (
-            <MemoryRow
-              key={m.id}
-              m={m}
-              last={i === profile.memories.length - 1}
-            />
-          ))}
-          {profile.memories.length === 0 && (
-            <div style={{ padding: 24, color: W_TOKENS.textMuted, fontSize: 13 }}>
-              暂无长期记忆
-            </div>
-          )}
-        </WCard>
+        <>
+          <SectionFallbackPill
+            kind={agentNotFound ? "demo" : memErr ? "err" : "ok"}
+            testid="agent-detail-memory-pill"
+            err="记忆 API 失败 · 演示数据"
+            demo="演示数据 · 后端 agent 没找到"
+          />
+          <WCard padding={0}>
+            {loading && (
+              <div style={{ padding: 24, color: W_TOKENS.textMuted, fontSize: 13 }}>
+                加载中…
+              </div>
+            )}
+            {!loading && memList.map((m, i) => (
+              <MemoryRow
+                key={m.id}
+                m={m}
+                last={i === memList.length - 1}
+              />
+            ))}
+            {!loading && memList.length === 0 && (
+              <div
+                data-testid="agent-detail-memory-empty"
+                style={{ padding: 24, color: W_TOKENS.textMuted, fontSize: 13 }}
+              >
+                暂无长期记忆
+              </div>
+            )}
+          </WCard>
+        </>
       )}
       {tab === "kb" && (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-            gap: 12,
-          }}
-        >
-          {profile.knowledge.map((k) => (
-            <KBDocCard key={k.id} k={k} />
-          ))}
-        </div>
-      )}
-      {tab === "meet" && (
-        <WCard padding={0}>
-          {profile.meetings.map((t, i) => (
-            <MeetingRowSmall
-              key={t.id}
-              t={t}
-              last={i === profile.meetings.length - 1}
-            />
-          ))}
-          {profile.meetings.length === 0 && (
-            <div style={{ padding: 24, color: W_TOKENS.textMuted, fontSize: 13 }}>
-              暂无参与会议
+        <>
+          <SectionFallbackPill
+            kind={agentNotFound ? "demo" : kbErr ? "err" : "ok"}
+            testid="agent-detail-kb-pill"
+            err="KB API 失败 · 演示数据"
+            demo="演示数据 · 后端 agent 没找到"
+          />
+          {loading && (
+            <WCard padding={24}>
+              <div style={{ color: W_TOKENS.textMuted, fontSize: 13 }}>加载中…</div>
+            </WCard>
+          )}
+          {!loading && kbList.length > 0 && (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                gap: 12,
+              }}
+            >
+              {kbList.map((k) => (
+                <KBDocCard key={k.id} k={k} />
+              ))}
             </div>
           )}
-        </WCard>
+          {!loading && kbList.length === 0 && (
+            <WCard padding={24}>
+              <div
+                data-testid="agent-detail-kb-empty"
+                style={{ color: W_TOKENS.textMuted, fontSize: 13 }}
+              >
+                暂无 书架 · 该 AI 未 挂 知识库
+              </div>
+            </WCard>
+          )}
+        </>
+      )}
+      {tab === "meet" && (
+        <>
+          <SectionFallbackPill
+            kind={agentNotFound ? "demo" : meetErr ? "err" : "ok"}
+            testid="agent-detail-meet-pill"
+            err="会议 API 失败 · 演示数据"
+            demo="演示数据 · 后端 agent 没找到"
+          />
+          <WCard padding={0}>
+            {loading && (
+              <div style={{ padding: 24, color: W_TOKENS.textMuted, fontSize: 13 }}>
+                加载中…
+              </div>
+            )}
+            {!loading && meetList.map((t, i) => (
+              <MeetingRowSmall
+                key={t.id}
+                t={t}
+                last={i === meetList.length - 1}
+              />
+            ))}
+            {!loading && meetList.length === 0 && (
+              <div
+                data-testid="agent-detail-meet-empty"
+                style={{ padding: 24, color: W_TOKENS.textMuted, fontSize: 13 }}
+              >
+                暂无参与会议
+              </div>
+            )}
+          </WCard>
+        </>
       )}
     </section>
   );
+}
+
+/** v1.4.0 Sprint S2: 每 tab 顶部 fallback 提示 pill — agentNotFound 显 黄 demo;
+ *  单 section API 失败 显 红 err; 正常 不显. (反幻觉 NORTH_STAR § 7.5) */
+function SectionFallbackPill({
+  kind,
+  testid,
+  err,
+  demo,
+}: {
+  kind: "ok" | "err" | "demo";
+  testid: string;
+  err: string;
+  demo: string;
+}) {
+  if (kind === "ok") return null;
+  const isDemo = kind === "demo";
+  return (
+    <div
+      data-testid={testid}
+      style={{
+        display: "inline-flex",
+        marginBottom: 10,
+        fontSize: 11,
+        fontWeight: 600,
+        color: isDemo ? "#FF9F0A" : "#FF3B30",
+        background: isDemo ? "rgba(255,159,10,0.12)" : "rgba(255,59,48,0.10)",
+        padding: "3px 9px",
+        borderRadius: 5,
+        letterSpacing: 0.2,
+      }}
+    >
+      {isDemo ? demo : err}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════
+// v1.4.0 Sprint S2: 后端 → 前端类型 converter
+// ════════════════════════════════════════════
+function memoryToEntry(m: Memory): MemoryEntry {
+  // source: scope_ref (eg meeting title) 或 source_type, 兜底 "用户沉淀"
+  let source = "用户沉淀";
+  if (m.source_meeting_id) source = "会议沉淀";
+  else if (m.source_action_item_id) source = "任务沉淀";
+  else if (m.source_type) source = m.source_type;
+  return {
+    id: m.id,
+    text: m.content,
+    // backend 无 cited 字段, 显 importance (1-3) 当 "强度" 暗示
+    cited: m.importance ?? 0,
+    source,
+    when: fmtRelative(m.created_at),
+  };
+}
+
+function kbDocToCard(d: KnowledgeDocument): KnowledgeDoc {
+  // 推断 type: 优先 mime_type, 兜底 文件 扩展名
+  const ext = (d.filename.split(".").pop() ?? "").toLowerCase();
+  let type: KnowledgeDoc["type"] = "md";
+  if (d.mime_type?.includes("pdf") || ext === "pdf") type = "pdf";
+  else if (d.mime_type?.includes("word") || ext === "doc" || ext === "docx") type = "word";
+  else if (d.mime_type?.includes("spreadsheet") || ext === "xls" || ext === "xlsx") type = "excel";
+  else if (d.mime_type?.includes("presentation") || ext === "ppt" || ext === "pptx") type = "ppt";
+  return {
+    id: d.id,
+    name: d.filename,
+    type,
+    // 没真 page 数, 用 char_count / 1500 估 (约 每页 1500 字)
+    pages: d.char_count ? Math.max(1, Math.ceil(d.char_count / 1500)) : 0,
+    chunks: d.chunk_count ?? 0,
+    // backend 没 cited count, 暂 显 0 (未来 加 endpoint 后 真接)
+    cited: 0,
+    updated: fmtRelative(d.updated_at),
+  };
+}
+
+/** ISO 时间 → 相对中文 (eg "今天" / "昨天" / "3 天前" / "5/18"). */
+function fmtRelative(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffH = diffMs / 1000 / 3600;
+    if (diffH < 24) return "今天";
+    if (diffH < 48) return "昨天";
+    if (diffH < 24 * 7) return `${Math.floor(diffH / 24)} 天前`;
+    return d.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+  } catch {
+    return iso;
+  }
 }
 
 function MemoryRow({ m, last }: { m: MemoryEntry; last: boolean }) {
