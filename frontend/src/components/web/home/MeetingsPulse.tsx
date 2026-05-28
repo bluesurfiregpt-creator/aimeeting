@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { V2TodaySnapshotResponse } from "@/lib/api";
+import { api, type V2TodaySnapshotResponse, type Meeting } from "@/lib/api";
 import { W_TOKENS } from "../tokens";
 import { WAIBadge, WAvatar, WIcon, WSparkle, type WIconName } from "../atoms";
 
@@ -135,14 +136,76 @@ export function MeetingsPulse({
 }: MeetingsPulseProps = {}) {
   // 真接成功用 backend, 否则 fallback to mock HOME_MEETINGS.live
   const live: LiveMeeting = liveData ?? HOME_MEETINGS.live;
-  const m = HOME_MEETINGS; // upcoming + history 列仍 mock (Saga T6 续接)
+
+  // v1.4.0 PM 反馈 修 (2026-05-28): upcoming + history 真接 api.listMeetings()
+  // 不再 走 HOME_MEETINGS mock. PM 之前 在首页 看 "搜索体验评审 #4" 是 mock id,
+  // 点 没反应 + StatTile 跳 /workstation/meeting/q3-roadmap 死链.
+  const [meetingsListErr, setMeetingsListErr] = useState(false);
+  const [realUpcoming, setRealUpcoming] = useState<UpcomingMeeting[] | null>(null);
+  const [realHistory, setRealHistory] = useState<HistoryMeeting[] | null>(null);
+  const [realHistoryTotal, setRealHistoryTotal] = useState<number | null>(null);
+  const [realUpcomingTotal, setRealUpcomingTotal] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listMeetings()
+      .then((all) => {
+        if (cancelled) return;
+        const now = Date.now();
+        const upcoming = all
+          .filter(
+            (mt) =>
+              mt.status === "scheduled" &&
+              (!mt.started_at || new Date(mt.started_at).getTime() > now),
+          )
+          .sort((a, b) => {
+            const ta = a.started_at ? new Date(a.started_at).getTime() : Infinity;
+            const tb = b.started_at ? new Date(b.started_at).getTime() : Infinity;
+            return ta - tb;
+          })
+          .slice(0, 5)
+          .map((mt) => meetingToUpcoming(mt));
+        const history = all
+          .filter((mt) => mt.status === "finished" || mt.status === "processed")
+          .sort((a, b) => {
+            const ta = a.ended_at ? new Date(a.ended_at).getTime() : 0;
+            const tb = b.ended_at ? new Date(b.ended_at).getTime() : 0;
+            return tb - ta;
+          })
+          .slice(0, 4)
+          .map((mt) => meetingToHistory(mt));
+        setRealUpcoming(upcoming);
+        setRealHistory(history);
+        setRealUpcomingTotal(
+          all.filter(
+            (mt) =>
+              mt.status === "scheduled" &&
+              (!mt.started_at || new Date(mt.started_at).getTime() > now),
+          ).length,
+        );
+        setRealHistoryTotal(
+          all.filter((mt) => mt.status === "finished" || mt.status === "processed").length,
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setMeetingsListErr(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const m = HOME_MEETINGS; // 仅 当 API 失败 时 fallback 用
+  const upcomingList = realUpcoming ?? m.upcoming;
+  const historyList = realHistory ?? m.history;
   const totals = {
-    live: liveData ? 1 : HOME_MEETINGS.totals.live,
-    upcoming: HOME_MEETINGS.totals.upcoming,
-    // /api/v2/today/snapshot 没直接给 历史会议数, 用 meetings_today fallback (含历史 + live)
-    history: snapshot?.meetings_today ?? HOME_MEETINGS.totals.history,
+    live: liveData ? 1 : 0,
+    upcoming: realUpcomingTotal ?? m.upcoming.length,
+    history: realHistoryTotal ?? snapshot?.meetings_today ?? m.totals.history,
   };
-  const isDemo = !usingRealData;
+  // isDemo 升级: 任 一 段 fallback mock 就 demo
+  const isDemo = !usingRealData || meetingsListErr || !realUpcoming || !realHistory;
   const pct = Math.min(100, (live.elapsed / Math.max(1, live.duration)) * 100);
   const ringCircumference = 2 * Math.PI * 28;
 
@@ -176,7 +239,7 @@ export function MeetingsPulse({
           label="进行中"
           value={totals.live}
           pulseHint="LIVE"
-          href="/meeting"
+          href={live.id && live.id !== "q3-roadmap" ? `/meeting/${live.id}/live` : "/"}
         />
         <StatTile
           icon="clock"
@@ -191,14 +254,14 @@ export function MeetingsPulse({
           label="历史会议"
           value={totals.history}
           sub="本月"
-          href="/workstation/meeting/q3-roadmap"
+          href={historyList[0] ? `/workstation/meeting/${historyList[0].id}` : "/"}
         />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "5fr 4fr", gap: 14 }}>
         {/* LIVE big card — packed, decorative, info-rich */}
         <Link
-          href={live.id ? `/meeting/${live.id}/live` : "/meeting"}
+          href={live.id && live.id !== "q3-roadmap" ? `/meeting/${live.id}/live` : "/"}
           style={liveCardStyle as React.CSSProperties}
         >
           {/* live progress ribbon at top */}
@@ -499,22 +562,50 @@ export function MeetingsPulse({
               <WIcon name="clock" size={12} color={W_TOKENS.cyan} stroke={2} />
               <span>今日即将开始</span>
             </div>
-            {m.upcoming.map((u) => (
-              <UpcomingRow key={u.id} u={u} />
-            ))}
+            {upcomingList.length > 0 ? (
+              upcomingList.map((u) => <UpcomingRow key={u.id} u={u} />)
+            ) : (
+              <div
+                data-testid="home-upcoming-empty"
+                style={{
+                  padding: "12px",
+                  fontSize: 12,
+                  color: W_TOKENS.textMuted,
+                  background: W_TOKENS.surface,
+                  borderRadius: 10,
+                  boxShadow: `inset 0 0 0 0.5px ${W_TOKENS.border}`,
+                }}
+              >
+                暂无即将开始的会议
+              </div>
+            )}
           </div>
           <div>
             <div style={miniHeader}>
               <WIcon name="history" size={12} color="#C4B5FD" stroke={2} />
               <span>最近的纪要</span>
               <span style={{ flex: 1 }} />
-              <Link href="/workstation/meeting/q3-roadmap" style={miniLink}>
+              <Link href="/" style={miniLink}>
                 更多 <WIcon name="chev" size={10} color="#C4B5FD" stroke={2.4} />
               </Link>
             </div>
-            {m.history.slice(0, 3).map((h) => (
-              <HistoryRow key={h.id} h={h} />
-            ))}
+            {historyList.length > 0 ? (
+              historyList.slice(0, 3).map((h) => <HistoryRow key={h.id} h={h} />)
+            ) : (
+              <div
+                data-testid="home-history-empty"
+                style={{
+                  padding: "12px",
+                  fontSize: 12,
+                  color: W_TOKENS.textMuted,
+                  background: W_TOKENS.surface,
+                  borderRadius: 10,
+                  boxShadow: `inset 0 0 0 0.5px ${W_TOKENS.border}`,
+                }}
+              >
+                暂无历史会议
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -677,9 +768,14 @@ function StatTile({
 }
 
 function UpcomingRow({ u }: { u: UpcomingMeeting }) {
+  // v1.4.0 PM 反馈 修 (2026-05-28): div → Link, 之前 cursor:pointer 但 没 onClick / href
+  // → 点 没反应. 现 跳 detail 页 (用户 可 看 议程 / 加入).
   return (
-    <div
+    <Link
+      href={`/workstation/meeting/${u.id}`}
       style={{
+        textDecoration: "none",
+        color: "inherit",
         background: W_TOKENS.surface,
         borderRadius: 10,
         boxShadow: `inset 0 0 0 0.5px ${W_TOKENS.border}`,
@@ -742,7 +838,7 @@ function UpcomingRow({ u }: { u: UpcomingMeeting }) {
           </span>
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -815,4 +911,60 @@ function HistoryRow({ h }: { h: HistoryMeeting }) {
       <WIcon name="arr-r" size={13} color={W_TOKENS.textFaint} />
     </Link>
   );
+}
+
+// ════════════════════════════════════════════
+// v1.4.0 PM 反馈 修 (2026-05-28): backend Meeting → UI 列表 converter
+// ════════════════════════════════════════════
+
+function meetingToUpcoming(m: Meeting): UpcomingMeeting {
+  const startTime = m.started_at ? new Date(m.started_at) : null;
+  const when = startTime
+    ? `${startTime.getHours().toString().padStart(2, "0")}:${startTime
+        .getMinutes()
+        .toString()
+        .padStart(2, "0")}`
+    : "未定时";
+  const startsIn = startTime
+    ? fmtRelativeFuture(startTime.getTime() - Date.now())
+    : "—";
+  // ai badges 用 backend agent ids — 前端 WAIBadge 按 mock id 找; 失败 不显
+  const ais = m.attendee_agent_ids ?? [];
+  return {
+    id: m.id,
+    title: m.title || "(未命名 会议)",
+    when,
+    startsIn,
+    ais,
+  };
+}
+
+function meetingToHistory(m: Meeting): HistoryMeeting {
+  const endTime = m.ended_at ? new Date(m.ended_at) : m.started_at ? new Date(m.started_at) : null;
+  const when = endTime ? fmtRelativeShort(endTime) : "—";
+  return {
+    id: m.id,
+    title: m.title || "(未命名 会议)",
+    when,
+    // backend Meeting type 没直给 decisions / actions count, 显 0 (V1.5 可加聚合 endpoint)
+    decisions: 0,
+    actions: 0,
+    ais: m.attendee_agent_ids ?? [],
+  };
+}
+
+function fmtRelativeFuture(ms: number): string {
+  if (ms <= 0) return "已开始";
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function fmtRelativeShort(d: Date): string {
+  const now = new Date();
+  const diffH = (now.getTime() - d.getTime()) / 1000 / 3600;
+  if (diffH < 24) return `今天 ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+  if (diffH < 48) return `昨天 ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+  return `${d.getMonth() + 1}/${d.getDate()}`;
 }
