@@ -221,9 +221,41 @@ function AIPathTab() {
       <PreviewView
         draft={draft}
         onBack={() => setView("describe")}
-        onStart={() => {
-          // Phase 1 mock — 直接跳回主页. Phase 2 应 POST /api/v2/meetings 创建后跳详情.
-          router.push("/m/meetings");
+        onStart={async () => {
+          // v1.4.0 Phase C · 13: 真接 POST /api/meetings 创建会议后 跳详情.
+          // 老 Phase 1 是 mock — 直接 router.push 不 持久化.
+          try {
+            const body = {
+              title: draft.proposed_title || "新会议",
+              description: draft.proposed_topic || "",
+              attendee_user_ids: draft.proposed_humans
+                .map((h) => h.id)
+                .filter((id) => id && !id.startsWith("u")), // 过滤 mock id
+              attendee_agent_ids: draft.proposed_ais
+                .map((a) => a.id)
+                .filter((id) => id && !id.startsWith("ai-")), // 过滤 mock id
+              agenda: draft.proposed_agenda.map((a) => ({
+                title: a.label,
+                time_budget_min: a.duration_min,
+              })),
+              mode: "hybrid",
+            };
+            const res = await fetch("/api/meetings", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify(body),
+            });
+            if (!res.ok) {
+              throw new Error(`HTTP ${res.status}`);
+            }
+            const created = await res.json();
+            router.push(`/m/meetings/${created.id}`);
+          } catch (e) {
+            console.error("create meeting failed:", e);
+            // fallback — 跳列表, 让 用户 知道 出错 后 自己 重试
+            router.push("/m/meetings");
+          }
         }}
       />
     );
