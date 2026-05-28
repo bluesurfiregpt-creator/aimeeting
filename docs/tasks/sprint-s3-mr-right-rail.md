@@ -1,9 +1,9 @@
 # sprint-s3-mr-right-rail · Web 会议室 右栏 真接
 
-> 状态: pending (PM 拍 推荐 next)
-> 估时: ~1d
-> 依赖: 无 (S4 已 ship, 可立即开)
-> 触发条件: PM 拍开
+> 状态: **✅ done** (2026-05-28)
+> commit: `ccf8522` (代码) + `2046c8b` (Kimi 用例)
+> Kimi 验收: **GREEN** (PM 跑过)
+> 估时: ~1d (实际 ~1d, 准点)
 > 对应 NORTH_STAR: § 6 + § 3.5 (痛点 1 + 6, 客户冲击最大)
 
 ---

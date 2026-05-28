@@ -51,14 +51,14 @@
 
 ## 2. 当前 ticket 索引
 
-> 按 PM 拍 风险阶梯顺序 + 依赖.
+> 按 PM 拍 风险阶梯顺序 + 依赖. 2026-05-28 更新 — Sprint S1-S5 全 ✅.
 
 | ticket | 状态 | 估时 | 客户体感 |
 |--------|------|------|---------|
-| `sprint-s3-mr-right-rail.md` | pending (推荐 next) | 1d | 客户冲击最大 (会议室右栏 真数据) |
-| `sprint-s2-agent-detail.md` | pending | 1d | 痛点 4 核心 (Agent KB/memory 真接) |
-| `sprint-s5-browse-tpl.md` | pending | 1d | Browse + Tpl 入口 真接 |
-| `phase-c-verify.md` | pending (等 PM 重灌 数据) | 0.5d (PM) + 0.5d (Kimi) | MVP 验收 闭环 4 用例 |
+| `sprint-s3-mr-right-rail.md` | ✅ done `ccf8522` (Kimi GREEN) | 1d | 客户冲击最大 (会议室右栏 真数据) |
+| `sprint-s2-agent-detail.md` | ✅ done `6ee1552` | 1d | 痛点 4 核心 (Agent KB/memory 真接) |
+| `sprint-s5-browse-tpl.md` | ✅ done `3a60991` | 1d | Browse + Tpl 入口 真接 |
+| `phase-c-verify.md` | 🟡 PM 重灌 数据 + Kimi 跑 中 | 0.5d (PM) + 0.5d (Kimi) | **MVP 验收 闭环 4 用例 ← 当前 阻塞 项** |
 | `phase-d-14-agentic.md` | ⏸️ V1.5 (等 MVP 客户反馈) | 5-7d 高风险 | "AI 真替我干活" 差异化 |
 | `polish-ttfc.md` | pending (并行) | 1-2d | AI 第一句话 8-12s → <3s |
 | `saga-h-mobile-push.md` | pending (并行) | 10h | 跨端 通知 |

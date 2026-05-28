@@ -1,10 +1,11 @@
 # sprint-s5-browse-tpl · Browse + Tpl 真接
 
-> 状态: pending
-> 估时: ~1d
-> 依赖: S4 ship (✅)
-> 触发条件: S3 + S2 ship 后 (Sprint 阶梯尾)
+> 状态: **✅ done** (2026-05-28, Sprint 收尾)
+> commit: `3a60991` (代码) + `3618b75` (Kimi 用例)
+> Kimi 验收: 待 PM 跑
+> 估时: ~1d (实际 ~1d)
 > 对应 NORTH_STAR: § 6 + § 4.1 Web 端 入口完整
+> **scope 调整**: BrowsePane 真 接, TplGenerator 整体 仍 mock + 已 有 pill (LLM 拆解 后端 Sprint 4 ship)
 
 ---
 

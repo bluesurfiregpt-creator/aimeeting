@@ -1,10 +1,11 @@
 # phase-c-verify · Phase C 4 用例 Kimi 重跑 收尾
 
-> 状态: pending (等 PM 重灌 测试数据 ~10 min)
+> 状态: 🟡 **in-flight** (2026-05-28, PM 重灌 数据 + Kimi 跑 中)
 > 估时: 0.5d (PM 数据 重灌) + 0.5d (Kimi 跑 + 修)
 > 依赖: PM 重灌 NEW-A 测试数据 (~10 min 手工)
-> 触发条件: PM 在 测试 meeting `a9714f19-...` 重新 @ 立场对立 agent 触发 conflict_detector
+> 触发条件: PM 在 测试 meeting 重新 @ 立场对立 agent 触发 conflict_detector
 > 对应 NORTH_STAR: § 6.3 Phase C MVP 收尾
+> **当前 阻塞 项** — Sprint S1-S5 全 ✅, 仅 剩 这 4 用例 就 MVP 闭环
 
 ---
 

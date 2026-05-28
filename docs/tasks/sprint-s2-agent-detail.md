@@ -1,9 +1,9 @@
 # sprint-s2-agent-detail · AgentDetail 1805 行 真接
 
-> 状态: pending
-> 估时: ~1d
-> 依赖: S4 已 ship (✅), S3 优先 (PM 拍 风险阶梯)
-> 触发条件: S3 ship 后
+> 状态: **✅ done** (2026-05-28)
+> commit: `6ee1552` (代码) + `a477ec2` (Kimi 用例)
+> Kimi 验收: 待 PM 跑
+> 估时: ~1d (实际 ~1d)
 > 对应 NORTH_STAR: § 6 + § 3 五大能力 (痛点 4 核心)
 
 ---

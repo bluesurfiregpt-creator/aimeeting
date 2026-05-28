@@ -1,7 +1,7 @@
 # aimeeting · 路线图 (ROADMAP)
 
-> **更新**: 2026-05-28
-> **来源**: NORTH_STAR.md § 6 浓缩 + 当前 Sprint S1-S5 状态 + commit history 验证
+> **更新**: 2026-05-28 (v2 · Sprint S1-S5 全 ✅ 后)
+> **来源**: NORTH_STAR.md § 6 浓缩 + Sprint S1-S5 ship 历史 + commit history 验证
 > **配套**: `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/tasks/` (拆细 task ticket)
 >
 > **本文档 用途**: 给 PM / Codex / 任何 接手 agent 一眼看清 "我们在 哪条路 + 走了多远 + 下一步".
@@ -14,13 +14,13 @@
 |------|---------|------|------|
 | **Phase A** · 调优 + UI 打磨 | 客户 第 1 场会 跑顺 | ✅ ship 2026-05-27/28 (含双盲 GREEN) | 6.5d 完成 |
 | **Phase B** · NEW-C + NEW-A 简版 | 客户 5-10 场会 + 非会议找 Mira | ✅ ship 2026-05-28 | ~5d 完成 |
-| **Phase C** · NEW-B + NEW-A 完 + 文件 + 创会 | MVP 完整可上线 | 🟡 代码 全 ship, **Kimi 验收 待补** | ~4d 已写 |
-| **Sprint S1-S5** · Web Workstation 真接 | mockup → 真数据 | 🟡 S1 / S4 ✅, S2 / S3 / S5 pending | 2d/4d 进度 |
+| **Phase C** · NEW-B + NEW-A 完 + 文件 + 创会 | MVP 完整可上线 | 🟡 代码 全 ship, **Kimi 验收 待跑 (PM 重灌 数据 进行中)** | ~4d 已写 |
+| **Sprint S1-S5** · Web Workstation 真接 | mockup → 真数据 (~30% → ~80%+) | ✅ **全 ship 2026-05-28** (S4/S3 Kimi GREEN, S2/S5 待 Kimi) | 4d 完成 |
 | **Phase D** · NEW-D agentic + WebRTC + V2 | "AI 真替我干活" 差异化 | ⏸️ 推迟 V1.5 (拿 MVP 测客户后再排) | ~22d 高风险 |
 
 **当前 MVP 验收 闭环**:
-1. Phase C #10 NEW-B + #11 NEW-A 完 Kimi 重跑 GREEN
-2. Sprint S3 + S2 + S5 真接 完
+1. Phase C #10 NEW-B + #11 NEW-A 完 + #12 + #13 Kimi 4 用例 GREEN (**仅剩这步**)
+2. ~~Sprint S2 + S3 + S5 真接 完~~ ✅ 已 ship 2026-05-28
 3. → MVP 可上线给客户 内测
 
 ---
@@ -79,21 +79,22 @@
 
 ---
 
-## 4. Sprint S1-S5 · Web Workstation 真接 🟡 进行中
+## 4. Sprint S1-S5 · Web Workstation 真接 ✅ 全 ship
 
-> _PM 反馈 (2026-05-28): Web Workstation 大部分 mockup. 真接率 30% → 拉到 80%+. 风险阶梯 顺序: 客户冲击大 + 改动小 优先._
+> _PM 反馈 (2026-05-28): Web Workstation 大部分 mockup. 真接率 30% → 拉到 ~80%+. 风险阶梯 顺序: 客户冲击大 + 改动小 优先._
+> **2026-05-28 收尾**: Sprint S1-S5 全部 ship, 4d 跑完 5 saga.
 
 | Sprint | 项 | 估时 | 状态 |
 |--------|-----|-------|------|
 | **S1** | `/workstation` 心智一览 真接 (替 hardcoded count + me name) | 0.5d | ✅ ship `9199978` |
-| **S2** | `AgentDetail` 1805 行 真接 (痛点 4 核心) | 1d | ⏳ pending |
-| **S3** | 会议室右栏 真接 (客户冲击最大) | 1d | ⏳ pending |
-| **S4** | ProfilePane + AdminPane 真接 (替 W_USER + WS_WORKSPACES hardcoded) | 0.5d | ✅ ship `b7ebc47` + `c21fce1` |
-| **S5** | Browse + Tpl 真接 | 1d | ⏳ pending |
+| **S2** | `AgentDetail` 1805 行 真接 3 tab (KB + memory + 历史) | 1d | ✅ ship `6ee1552` + Kimi 用例 `a477ec2` |
+| **S3** | 会议室右栏 真接 3 section + 2 mock pill (客户冲击最大) | 1d | ✅ ship `ccf8522` + Kimi 用例 `2046c8b` (Kimi GREEN) |
+| **S4** | ProfilePane + AdminPane 真接 (替 W_USER + WS_WORKSPACES hardcoded) | 0.5d | ✅ ship `b7ebc47` + Kimi 用例 `c21fce1` (Kimi GREEN) |
+| **S5** | BrowsePane 真接 + TplGenerator pill (Sprint 收尾) | 1d | ✅ ship `3a60991` + Kimi 用例 `3618b75` |
 
-**PM 拍 风险阶梯**: S4 ✅ → **S3** → S2 → S5 (S3 客户冲击最大 优先)
+**Sprint S 阶段 整体 闭环** ✅ (2026-05-28).
 
-详 ticket: `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/tasks/sprint-s3-mr-right-rail.md` (+ s2 / s5)
+详 ticket: `https://github.com/bluesurfiregpt-creator/aimeeting/blob/main/docs/tasks/`
 
 ---
 
