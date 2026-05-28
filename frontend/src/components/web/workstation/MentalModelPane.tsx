@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
+import { api } from "@/lib/api";
 import { W_TOKENS } from "../tokens";
 import { W_USER } from "../data/agents";
 import {
@@ -53,6 +54,68 @@ export function MentalModelPane() {
   const router = useRouter();
   const [drillId, setDrillId] = useState<WMentalIconId | null>(null);
 
+  // v1.4.0 post-Kimi · Sprint S1 (PM 反馈 主页 mock): 拉 真实 4 count from sankey.
+  // /api/lineage/sankey 已 真接, 返 全 workspace 节点 + 链路. 按 node.type 算 count.
+  // sankey 失败 / 空 → 用 MENTAL_NODES mock count, 显 "演示数据" pill 反幻觉.
+  const [me, setMe] = useState<{ name: string; workspace_name: string } | null>(null);
+  const [realCounts, setRealCounts] = useState<Record<WMentalIconId, number> | null>(null);
+  const [usingFallback, setUsingFallback] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.allSettled([
+      fetch("/api/auth/me", { credentials: "include" }).then((r) =>
+        r.ok ? r.json() : null,
+      ),
+      api.getSankeyLineage(),
+    ]).then(([meR, sankeyR]) => {
+      if (cancelled) return;
+      if (meR.status === "fulfilled" && meR.value) {
+        setMe({
+          name: meR.value.name,
+          workspace_name: meR.value.workspace_name || "工作空间",
+        });
+      }
+      if (sankeyR.status === "fulfilled" && sankeyR.value?.nodes) {
+        const nodes = sankeyR.value.nodes;
+        const counts: Record<WMentalIconId, number> = {
+          agents: nodes.filter((n) => n.type === "agent").length,
+          kb: nodes.filter((n) => n.type === "kb").length,
+          memory: nodes.filter((n) => n.type === "memory").length,
+          meet: nodes.filter((n) => n.type === "meeting").length,
+        };
+        // 全 0 → 跟 mock 不可分; 用 fallback 显 pill 让用户知 "暂无真数据"
+        const total = counts.agents + counts.kb + counts.memory + counts.meet;
+        if (total === 0) {
+          setUsingFallback(true);
+        } else {
+          setRealCounts(counts);
+          setUsingFallback(false);
+        }
+      } else {
+        setUsingFallback(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 用 真实 count 覆盖 MENTAL_NODES (保 breakdown / recent / accent / unit / etc).
+  // breakdown + recent 仍 mock (二期 接 agents/memory/kb 真 list 再 enrich).
+  const liveNodes: Record<WMentalIconId, MentalNode> = useMemo(() => {
+    if (!realCounts) return MENTAL_NODES;
+    return {
+      agents: { ...MENTAL_NODES.agents, count: realCounts.agents },
+      kb: { ...MENTAL_NODES.kb, count: realCounts.kb },
+      memory: { ...MENTAL_NODES.memory, count: realCounts.memory },
+      meet: { ...MENTAL_NODES.meet, count: realCounts.meet },
+    };
+  }, [realCounts]);
+
+  const userName = me?.name || W_USER.name;
+  const wsName = me?.workspace_name || W_USER.workspace;
+
   return (
     <>
       <div
@@ -63,9 +126,28 @@ export function MentalModelPane() {
           letterSpacing: 0.6,
           textTransform: "uppercase",
           marginBottom: 6,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
         }}
       >
         总览
+        {usingFallback && (
+          <span
+            data-testid="mental-fallback-pill"
+            style={{
+              padding: "2px 8px",
+              borderRadius: 4,
+              background: "rgba(94,92,230,0.18)",
+              color: "#A78BFA",
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 0.3,
+            }}
+          >
+            演示数据 · 暂无真实 workspace 数据
+          </span>
+        )}
       </div>
       <h1
         style={{
@@ -85,10 +167,10 @@ export function MentalModelPane() {
           marginBottom: 24,
         }}
       >
-        {W_USER.name} · {W_USER.workspace} · 一页看完 AI 怎么思考、怎么记住、怎么使用
+        {userName} · {wsName} · 一页看完 AI 怎么思考、怎么记住、怎么使用
       </div>
 
-      <MentalModelHero onOpen={(id) => setDrillId(id)} />
+      <MentalModelHero onOpen={(id) => setDrillId(id)} nodes={liveNodes} />
 
       <MentalLiveSection />
 
@@ -166,7 +248,13 @@ function MentalLiveSection() {
 // ════════════════════════════════════════════
 // HERO — 紫渐变 + 4 件拟物 icon strip
 // ════════════════════════════════════════════
-function MentalModelHero({ onOpen }: { onOpen: (id: WMentalIconId) => void }) {
+function MentalModelHero({
+  onOpen,
+  nodes,
+}: {
+  onOpen: (id: WMentalIconId) => void;
+  nodes: Record<WMentalIconId, MentalNode>;
+}) {
   return (
     <div
       style={{
@@ -261,7 +349,7 @@ function MentalModelHero({ onOpen }: { onOpen: (id: WMentalIconId) => void }) {
         {MENTAL_NODE_ORDER.map((id, i) => (
           <MentalFlowNode
             key={id}
-            node={MENTAL_NODES[id]}
+            node={nodes[id]}
             last={i === MENTAL_NODE_ORDER.length - 1}
             onOpen={() => onOpen(id)}
           />
