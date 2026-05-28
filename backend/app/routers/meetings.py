@@ -3412,11 +3412,16 @@ class AgentMessageOut(BaseModel):
     # v26.3-03: 线程化 + 议程索引
     reply_to_agent_message_id: Optional[int] = None
     agenda_idx: Optional[int] = None
+    # v1.4.0 Phase B · 9 NEW-A (post-Kimi fix): read-only status + 覆盖链 id.
+    # 让 测试者 / 客户端 不 通过 restore endpoint 探测 (那 endpoint 有 side effect).
+    status: Optional[str] = None  # "active" | "superseded"
+    superseded_by_message_id: Optional[int] = None
 
 
 @router.get("/{meeting_id}/agent-messages", response_model=list[AgentMessageOut])
 async def list_agent_messages(
     meeting_id: str,
+    status_filter: Optional[str] = None,  # v1.4.0 Phase B · 9 post-Kimi: ?status=superseded filter
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(get_current_auth),
 ):
@@ -3431,13 +3436,15 @@ async def list_agent_messages(
         keyword/@-mention/manual triggers actually fired the right Agent
     """
     await _load_owned_meeting(meeting_id, session, auth)
-    rows = (
-        await session.execute(
-            select(MeetingAgentMessage)
-            .where(MeetingAgentMessage.meeting_id == meeting_id)
-            .order_by(MeetingAgentMessage.id)
-        )
-    ).scalars().all()
+    # v1.4.0 Phase B · 9 post-Kimi: ?status=superseded filter (read-only 探测).
+    # 没 filter = 返 全部 (跟 老行为 一致, 兼容).
+    q = select(MeetingAgentMessage).where(
+        MeetingAgentMessage.meeting_id == meeting_id
+    )
+    if status_filter in ("active", "superseded"):
+        q = q.where(MeetingAgentMessage.status == status_filter)
+    q = q.order_by(MeetingAgentMessage.id)
+    rows = (await session.execute(q)).scalars().all()
     out: list[AgentMessageOut] = []
     for r in rows:
         cits: list[AgentCitationOut] = []
@@ -3459,6 +3466,9 @@ async def list_agent_messages(
                 created_at=r.created_at,
                 reply_to_agent_message_id=r.reply_to_agent_message_id,
                 agenda_idx=r.agenda_idx,
+                # v1.4.0 Phase B · 9 post-Kimi: status + superseded_by 返出来
+                status=getattr(r, "status", None) or "active",
+                superseded_by_message_id=getattr(r, "superseded_by_message_id", None),
             )
         )
     return out
